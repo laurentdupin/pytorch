@@ -2,12 +2,23 @@
 #include <ATen/native/vulkan/api/Utils.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <utility>
 
 namespace at {
 namespace native {
 namespace vulkan {
 namespace api {
+
+namespace {
+
+std::atomic<uint64_t>& descriptor_set_update_generation_counter() {
+  static std::atomic<uint64_t> counter{0u};
+  return counter;
+}
+
+} // namespace
 
 //
 // DescriptorSet
@@ -26,8 +37,12 @@ DescriptorSet::DescriptorSet(DescriptorSet&& other) noexcept
     : device_(other.device_),
       handle_(other.handle_),
       shader_layout_signature_(std::move(other.shader_layout_signature_)),
-      bindings_(std::move(other.bindings_)) {
+      bindings_(std::move(other.bindings_)),
+      last_update_generation_(other.last_update_generation_),
+      last_update_write_count_(other.last_update_write_count_) {
   other.handle_ = VK_NULL_HANDLE;
+  other.last_update_generation_ = 0u;
+  other.last_update_write_count_ = 0u;
 }
 
 DescriptorSet& DescriptorSet::operator=(DescriptorSet&& other) noexcept {
@@ -35,8 +50,12 @@ DescriptorSet& DescriptorSet::operator=(DescriptorSet&& other) noexcept {
   handle_ = other.handle_;
   shader_layout_signature_ = std::move(other.shader_layout_signature_);
   bindings_ = std::move(other.bindings_);
+  last_update_generation_ = other.last_update_generation_;
+  last_update_write_count_ = other.last_update_write_count_;
 
   other.handle_ = VK_NULL_HANDLE;
+  other.last_update_generation_ = 0u;
+  other.last_update_write_count_ = 0u;
 
   return *this;
 }
@@ -115,6 +134,12 @@ VkDescriptorSet DescriptorSet::get_bind_handle() const {
       write_descriptor_sets.data(),
       0u,
       nullptr);
+
+  last_update_generation_ =
+      descriptor_set_update_generation_counter().fetch_add(
+          1u, std::memory_order_relaxed) +
+      1u;
+  last_update_write_count_ = write_descriptor_sets.size();
 
   VkDescriptorSet ret = handle_;
 

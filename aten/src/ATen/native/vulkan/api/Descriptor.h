@@ -50,9 +50,18 @@ class DescriptorSet final {
   DescriptorSet& bind(const uint32_t, const VulkanImage&);
 
   VkDescriptorSet get_bind_handle() const;
+  uint64_t last_update_generation() const {
+    return last_update_generation_;
+  }
+  uint64_t last_update_write_count() const {
+    return last_update_write_count_;
+  }
 
  private:
   void add_binding(const ResourceBinding& resource);
+
+  mutable uint64_t last_update_generation_ = 0u;
+  mutable uint64_t last_update_write_count_ = 0u;
 };
 
 class DescriptorSetPile final {

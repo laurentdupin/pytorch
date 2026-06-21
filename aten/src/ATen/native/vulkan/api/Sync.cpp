@@ -458,6 +458,13 @@ struct StackRegionPreDispatchProofTableValue final {
   uint64_t live_buffer_bound_count = 0u;
 };
 
+struct StackDescriptorSetUpdateGenerationValue final {
+  uint64_t count = 0u;
+  uint64_t first_position = 0u;
+  uint64_t last_position = 0u;
+  uint64_t write_count = 0u;
+};
+
 struct StackRegionBoundaryOptimizationPlanValue final {
   uint64_t count = 0u;
   uint64_t bytes = 0u;
@@ -540,6 +547,12 @@ stack_region_barrier_only_canary_rows() {
 std::map<std::string, StackRegionPreDispatchProofTableValue>&
 stack_region_pre_dispatch_proof_table_rows() {
   static std::map<std::string, StackRegionPreDispatchProofTableValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackDescriptorSetUpdateGenerationValue>&
+stack_descriptor_set_update_generation_rows() {
+  static std::map<std::string, StackDescriptorSetUpdateGenerationValue> rows;
   return rows;
 }
 
@@ -814,6 +827,23 @@ std::string stack_dispatch_dependency_live_buffer_binding_key(
       << stack_live_buffer_binding_handle_token(buffer.handle())
       << " live_vulkan_buffer_object_token="
       << stack_live_buffer_binding_object_token(buffer)
+      << " descriptor_binding_table_identity=scope:" << scope_id
+      << ":phase:" << vision_stack_phase_name(phase) << ":block:" << block
+      << ":shader:" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << ":set:0:binding:" << binding_idx
+      << " descriptor_binding_table_identity_source=live_descriptor_argument_order"
+      << " descriptor_set_update_generation=logical_scope:" << scope_id
+      << ":dispatch_position:" << next_recorded_position
+      << ":binding:" << binding_idx
+      << " descriptor_set_update_generation_status=logical_not_vk_descriptor_set_generation"
+      << " descriptor_update_generation_source=live_descriptor_argument_order"
+      << " future_descriptor_update_generation_source=DescriptorSet_get_bind_handle_instrumented_separate_update_rows"
+      << " descriptor_layout_hash=shader_layout_signature_unavailable"
+      << " descriptor_layout_hash_status=shader_layout_signature_unavailable"
+      << " descriptor_slot_resource_digest=buffer:"
+      << stack_live_buffer_binding_handle_token(buffer.handle()) << ":offset:"
+      << static_cast<uint64_t>(buffer.mem_offset()) << ":range:"
+      << static_cast<uint64_t>(buffer.mem_range())
       << " binding_source=submit_compute_job_descriptor_argument";
   return key.str();
 }
@@ -885,10 +915,70 @@ std::string stack_dispatch_dependency_live_image_binding_key(
       << " live_vulkan_image_view_present="
       << (image.image_view() != VK_NULL_HANDLE ? 1 : 0)
       << " image_layout=" << static_cast<uint64_t>(image.layout())
+      << " descriptor_binding_table_identity=scope:" << scope_id
+      << ":phase:" << vision_stack_phase_name(phase) << ":block:" << block
+      << ":shader:" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << ":set:0:binding:" << binding_idx
+      << " descriptor_binding_table_identity_source=live_descriptor_argument_order"
+      << " descriptor_set_update_generation=logical_scope:" << scope_id
+      << ":dispatch_position:" << next_recorded_position
+      << ":binding:" << binding_idx
+      << " descriptor_set_update_generation_status=logical_not_vk_descriptor_set_generation"
+      << " descriptor_update_generation_source=live_descriptor_argument_order"
+      << " future_descriptor_update_generation_source=DescriptorSet_get_bind_handle_instrumented_separate_update_rows"
+      << " descriptor_layout_hash=shader_layout_signature_unavailable"
+      << " descriptor_layout_hash_status=shader_layout_signature_unavailable"
+      << " descriptor_slot_resource_digest=image:"
+      << stack_live_image_binding_handle_token(image.handle()) << ":layout:"
+      << static_cast<uint64_t>(image.layout())
       << " image_extent_x=" << static_cast<uint64_t>(extents.width)
       << " image_extent_y=" << static_cast<uint64_t>(extents.height)
       << " image_extent_z=" << static_cast<uint64_t>(extents.depth)
       << " binding_source=submit_compute_job_descriptor_argument";
+  return key.str();
+}
+
+std::string stack_descriptor_set_update_generation_key(
+    const uint64_t scope_id,
+    const VulkanVisionStackPhase phase,
+    const int64_t block,
+    const char* const shader_name,
+    const uint64_t next_recorded_position,
+    const uint64_t descriptor_set_handle_token,
+    const uint64_t update_generation,
+    const uint64_t write_count) {
+  const uint64_t command_buffer_recording_id =
+      stack_command_buffer_recording_id_or_scope(scope_id);
+  std::ostringstream key;
+  key << "descriptor_set_update_generation_record=1"
+      << " schema=StackDescriptorSetUpdateGeneration.v0"
+      << " scope_id=" << scope_id
+      << " stack_region_instance_id=" << scope_id
+      << " stack_region_instance_id_source=stack_dispatch_dependency_scope"
+      << " phase=" << vision_stack_phase_name(phase)
+      << " block=" << block
+      << " shader=" << (shader_name && shader_name[0] ? shader_name : "unknown")
+      << " next_recorded_dispatch_position=" << next_recorded_position
+      << " command_buffer_id_source="
+      << (stack_command_buffer_diagnostic_available()
+              ? "context_command_buffer_recording"
+              : "stack_dispatch_dependency_scope")
+      << " command_buffer_id_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " command_buffer_recording_id=" << command_buffer_recording_id
+      << " submit_epoch_available="
+      << (stack_command_buffer_diagnostic_available() ? 1 : 0)
+      << " submit_epoch_before=" << stack_submit_epoch_before_field()
+      << " descriptor_set_handle_token=" << descriptor_set_handle_token
+      << " actual_descriptor_set_update_generation=" << update_generation
+      << " actual_descriptor_set_update_generation_status="
+      << (update_generation != 0u
+              ? "actual_vk_descriptor_set_update_generation_observed"
+              : "missing_actual_descriptor_set_update_generation")
+      << " actual_descriptor_update_generation_source=DescriptorSet_get_bind_handle"
+      << " descriptor_update_write_count=" << write_count
+      << " descriptor_update_token_class=vk_descriptor_set_update"
+      << " behavior_neutral=1";
   return key.str();
 }
 
@@ -995,6 +1085,22 @@ std::string stack_region_barrier_only_canary_key(
       << " src_access=shader_write"
       << " dst_stage=compute_shader"
       << " dst_access=shader_read"
+      << " barrier_target_role=actual_norm1_input_visibility"
+      << " actual_consumer_visibility_transition_status="
+      << (barrier_inserted
+              ? "actual_consumer_visibility_transition_joined_from_real_barrier"
+              : "missing_actual_consumer_visibility_transition")
+      << " actual_consumer_visibility_transition_source="
+      << (barrier_inserted
+              ? "StackRegionBarrierOnlyCanary.v0"
+              : "missing_barrier_only_canary_record_for_actual_consumer_input_range")
+      << " actual_consumer_visibility_transition_contract=StackRegionBoundaryTransitionContract.v0"
+      << " actual_consumer_visibility_producer_role=residual2_actual_norm1_input_producer"
+      << " actual_consumer_visibility_consumer_role=norm1_activation_input"
+      << " actual_consumer_visibility_resource_digest=buffer:"
+      << stack_live_buffer_binding_handle_token(buffer.handle()) << ":offset:"
+      << static_cast<uint64_t>(buffer.mem_offset()) << ":range:"
+      << static_cast<uint64_t>(buffer.mem_range())
       << " current_run_proof_match=" << (proof.complete ? 1 : 0)
       << " current_run_proof_status=" << proof.status
       << " current_run_proof_id=" << proof.proof_id
@@ -1785,6 +1891,14 @@ uint64_t parsed_u64(
 uint64_t parsed_u64_or(const std::string& value, const uint64_t fallback) {
   try {
     return static_cast<uint64_t>(std::stoull(value));
+  } catch (...) {
+    return fallback;
+  }
+}
+
+int64_t parsed_i64_or(const std::string& value, const int64_t fallback) {
+  try {
+    return static_cast<int64_t>(std::stoll(value));
   } catch (...) {
     return fallback;
   }
@@ -6712,6 +6826,41 @@ void append_stack_region_barrier_only_canary_record(
   append_json_string(out, "src_access", field_or(fields, "src_access", "missing"), first);
   append_json_string(out, "dst_stage", field_or(fields, "dst_stage", "missing"), first);
   append_json_string(out, "dst_access", field_or(fields, "dst_access", "missing"), first);
+  append_json_string(
+      out,
+      "barrier_target_role",
+      field_or(fields, "barrier_target_role", "missing"),
+      first);
+  append_json_string(
+      out,
+      "actual_consumer_visibility_transition_status",
+      field_or(fields, "actual_consumer_visibility_transition_status", "missing"),
+      first);
+  append_json_string(
+      out,
+      "actual_consumer_visibility_transition_source",
+      field_or(fields, "actual_consumer_visibility_transition_source", "missing"),
+      first);
+  append_json_string(
+      out,
+      "actual_consumer_visibility_transition_contract",
+      field_or(fields, "actual_consumer_visibility_transition_contract", "missing"),
+      first);
+  append_json_string(
+      out,
+      "actual_consumer_visibility_producer_role",
+      field_or(fields, "actual_consumer_visibility_producer_role", "missing"),
+      first);
+  append_json_string(
+      out,
+      "actual_consumer_visibility_consumer_role",
+      field_or(fields, "actual_consumer_visibility_consumer_role", "missing"),
+      first);
+  append_json_string(
+      out,
+      "actual_consumer_visibility_resource_digest",
+      field_or(fields, "actual_consumer_visibility_resource_digest", "missing"),
+      first);
   append_json_bool(
       out,
       "current_run_proof_match",
@@ -7376,6 +7525,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& boundary_submit_plan_rows,
     const std::vector<std::string>& live_buffer_binding_rows,
     const std::vector<std::string>& live_image_binding_rows,
+    const std::vector<std::string>& descriptor_set_update_generation_rows,
     const std::vector<std::string>& raw_resource_producer_rows,
     const std::vector<std::string>& consumer_registration_rows,
     const std::vector<std::string>& barrier_only_canary_rows,
@@ -7632,6 +7782,23 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> stack_boundary_proof_missing_field_counts;
   std::map<std::string, uint64_t> stack_boundary_proof_missing_field_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
+  std::map<std::string, std::string> live_binding_descriptor_identity_by_range;
+  std::map<std::string, std::string>
+      live_binding_descriptor_update_generation_by_range;
+  std::map<std::string, std::string>
+      live_binding_descriptor_update_status_by_range;
+  std::map<std::string, std::string> live_binding_descriptor_layout_by_range;
+  std::map<std::string, std::string>
+      live_binding_descriptor_layout_status_by_range;
+  std::map<std::string, std::string> live_binding_descriptor_digest_by_range;
+  std::map<std::string, uint64_t>
+      actual_descriptor_update_records_by_instance;
+  std::map<std::string, uint64_t>
+      actual_descriptor_update_writes_by_instance;
+  std::map<std::string, std::string>
+      actual_descriptor_update_tokens_by_instance;
+  std::map<std::string, std::string>
+      actual_descriptor_update_status_by_instance;
   std::map<std::string, std::string> live_buffer_binding_sources_by_phase_block;
   std::map<std::string, std::string> live_buffer_binding_ranges_by_phase_block;
   std::map<std::string, std::string> live_image_binding_sources_by_allocation;
@@ -7640,6 +7807,28 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, std::string> raw_producer_owner_by_range;
   std::map<std::string, std::string> barrier_sources_by_range;
   std::map<std::string, std::string> barrier_sources_by_edge;
+  struct ActualConsumerBarrierJoin final {
+    uint64_t records = 0u;
+    uint64_t bytes = 0u;
+    std::string source = "missing";
+    std::string digest = "missing";
+  };
+  struct OldCarrySubmitProofJoin final {
+    uint64_t typed_proof_records = 0u;
+    uint64_t matched_records = 0u;
+    uint64_t proven_retire_only_records = 0u;
+    uint64_t proven_retire_only_bytes = 0u;
+    uint64_t unsafe_records = 0u;
+    uint64_t unsafe_bytes = 0u;
+    std::string status = "no_typed_old_carry_proof_exists";
+    std::string range = "missing";
+    std::string source = "missing";
+    std::string reject_reason = "missing_typed_old_carry_proof";
+  };
+  uint64_t actual_consumer_barrier_total_records = 0u;
+  uint64_t actual_consumer_barrier_total_bytes = 0u;
+  std::map<std::string, ActualConsumerBarrierJoin>
+      actual_consumer_barriers_by_boundary_instance;
   const auto append_unique_map_value =
       [](std::map<std::string, std::string>& map,
          const std::string& key,
@@ -7650,6 +7839,25 @@ void append_stack_region_submit_epoch_ordering_json(
         } else if (it->second.find(value) == std::string::npos) {
           it->second += "|" + value;
         }
+      };
+  const auto map_value_or =
+      [](const std::map<std::string, std::string>& map,
+         const std::string& key,
+         const char* fallback) {
+        const auto it = map.find(key);
+        return it == map.end() ? std::string(fallback) : it->second;
+      };
+  const auto top_count_key_from_map =
+      [](const std::map<std::string, uint64_t>& values) {
+        std::string top = "none";
+        uint64_t top_count = 0u;
+        for (const auto& item : values) {
+          if (item.second > top_count) {
+            top = item.first;
+            top_count = item.second;
+          }
+        }
+        return top;
       };
   for (const auto& row : barrier_only_canary_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -7672,7 +7880,12 @@ void append_stack_region_submit_epoch_ordering_json(
         field_or(fields, "src_access", "unknown") + "->" +
         field_or(fields, "dst_stage", "unknown") + "/" +
         field_or(fields, "dst_access", "unknown") + ":binding" +
-        field_or(fields, "descriptor_binding", "unknown");
+        field_or(fields, "descriptor_binding", "unknown") + ":target=" +
+        field_or(fields, "barrier_target_role", "unknown") + ":contract=" +
+        field_or(
+            fields,
+            "actual_consumer_visibility_transition_contract",
+            "unknown");
     const auto it = barrier_sources_by_range.find(key);
     if (it == barrier_sources_by_range.end()) {
       barrier_sources_by_range[key] = source;
@@ -7689,6 +7902,44 @@ void append_stack_region_submit_epoch_ordering_json(
       barrier_sources_by_edge[edge] = source;
     } else if (edge_it->second.find(source) == std::string::npos) {
       edge_it->second += "|" + source;
+    }
+    if (
+        field_or(fields, "barrier_target_role", "missing") ==
+        "actual_norm1_input_visibility") {
+      const uint64_t records =
+          std::max<uint64_t>(parsed_u64(fields, "barriers_inserted"), 1u);
+      const uint64_t bytes = std::max<uint64_t>(
+          parsed_u64(fields, "bytes"),
+          parsed_u64(fields, "byte_range") * records);
+      const std::string boundary_instance_key =
+          field_or(fields, "selected_boundary_id", "none") +
+          ":stack_region_instance_id=" +
+          field_or(fields, "stack_region_instance_id", "missing");
+      ActualConsumerBarrierJoin& join =
+          actual_consumer_barriers_by_boundary_instance
+              [boundary_instance_key];
+      join.records += records;
+      join.bytes += bytes;
+      const std::string join_source =
+          source + ":source=" +
+          field_or(
+              fields,
+              "actual_consumer_visibility_transition_source",
+              "missing");
+      if (join.source == "missing") {
+        join.source = join_source;
+      } else if (join.source.find(join_source) == std::string::npos) {
+        join.source += "|" + join_source;
+      }
+      const std::string digest = field_or(
+          fields, "actual_consumer_visibility_resource_digest", "missing");
+      if (join.digest == "missing") {
+        join.digest = digest;
+      } else if (join.digest.find(digest) == std::string::npos) {
+        join.digest += "|" + digest;
+      }
+      actual_consumer_barrier_total_records += records;
+      actual_consumer_barrier_total_bytes += bytes;
     }
   }
   std::set<std::string> bridge_private_registered_capture_blocks;
@@ -7740,7 +7991,37 @@ void append_stack_region_submit_epoch_ordering_json(
         field_or(fields, "block", "-1") + ":" +
         field_or(fields, "shader", "unknown") + ":binding" +
         field_or(fields, "descriptor_binding", "unknown");
+    const std::string descriptor_identity =
+        field_or(fields, "descriptor_binding_table_identity", "missing");
+    const std::string descriptor_update_generation = field_or(
+        fields, "descriptor_set_update_generation", "missing");
+    const std::string descriptor_update_status = field_or(
+        fields, "descriptor_set_update_generation_status", "missing");
+    const std::string descriptor_layout =
+        field_or(fields, "descriptor_layout_hash", "missing");
+    const std::string descriptor_layout_status =
+        field_or(fields, "descriptor_layout_hash_status", "missing");
+    const std::string descriptor_digest =
+        field_or(fields, "descriptor_slot_resource_digest", "missing");
     append_unique_map_value(live_binding_sources_by_range, key, source);
+    append_unique_map_value(
+        live_binding_descriptor_identity_by_range, key, descriptor_identity);
+    append_unique_map_value(
+        live_binding_descriptor_update_generation_by_range,
+        key,
+        descriptor_update_generation);
+    append_unique_map_value(
+        live_binding_descriptor_update_status_by_range,
+        key,
+        descriptor_update_status);
+    append_unique_map_value(
+        live_binding_descriptor_layout_by_range, key, descriptor_layout);
+    append_unique_map_value(
+        live_binding_descriptor_layout_status_by_range,
+        key,
+        descriptor_layout_status);
+    append_unique_map_value(
+        live_binding_descriptor_digest_by_range, key, descriptor_digest);
     const std::string phase_block =
         field_or(fields, "phase", "unknown") + "@" +
         field_or(fields, "block", "-1");
@@ -7785,6 +8066,32 @@ void append_stack_region_submit_epoch_ordering_json(
       phase_block_it->second += "|" + source;
     }
   }
+  for (const auto& row : descriptor_set_update_generation_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const std::string instance =
+        field_or(fields, "stack_region_instance_id", "missing");
+    const uint64_t count =
+        std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    actual_descriptor_update_records_by_instance[instance] += count;
+    actual_descriptor_update_writes_by_instance[instance] +=
+        parsed_u64(fields, "observed_descriptor_update_write_count");
+    const std::string token =
+        "generation:" +
+        field_or(fields, "actual_descriptor_set_update_generation", "missing") +
+        ":set:" + field_or(fields, "descriptor_set_handle_token", "missing") +
+        ":phase:" + field_or(fields, "phase", "unknown") + ":block:" +
+        field_or(fields, "block", "-1") + ":shader:" +
+        field_or(fields, "shader", "unknown");
+    append_unique_map_value(
+        actual_descriptor_update_tokens_by_instance, instance, token);
+    append_unique_map_value(
+        actual_descriptor_update_status_by_instance,
+        instance,
+        field_or(
+            fields,
+            "actual_descriptor_set_update_generation_status",
+            "missing_actual_descriptor_set_update_generation"));
+  }
   for (const auto& row : raw_resource_producer_rows) {
     const auto fields = parse_space_separated_fields(row);
     const std::string allocation_id = field_or(fields, "allocation_id", "0");
@@ -7827,6 +8134,8 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t command_buffer_id_available_records = 0u;
     uint64_t submit_epoch_available_records = 0u;
     uint64_t pending_dispatch_count_observed_records = 0u;
+    uint64_t pending_dispatch_position_range_available_records = 0u;
+    uint64_t pending_dispatch_position_range_complete_records = 0u;
     uint64_t pending_resource_set_observed_records = 0u;
     uint64_t pending_write_set_observed_records = 0u;
     uint64_t same_batch_proven_records = 0u;
@@ -7837,6 +8146,12 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t pending_resource_count = 0u;
     uint64_t pending_resource_bytes = 0u;
     uint64_t descriptor_update_side_effect_count = 0u;
+    uint64_t actual_descriptor_update_generation_records = 0u;
+    uint64_t actual_descriptor_update_write_count = 0u;
+    std::string actual_descriptor_update_generation_status = "missing";
+    std::string actual_descriptor_update_generation_tokens = "missing";
+    std::string pending_dispatch_identities = "missing";
+    std::string pending_dispatch_position_ranges = "missing";
     uint64_t retire_side_effect_count = 0u;
     uint64_t retire_side_effect_bytes = 0u;
     uint64_t retire_entry_proven_safe_count = 0u;
@@ -7849,6 +8164,20 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t matched_barrier_records = 0u;
     uint64_t covered_by_barrier_count = 0u;
     uint64_t covered_by_barrier_bytes = 0u;
+    uint64_t actual_consumer_barrier_records = 0u;
+    uint64_t actual_consumer_matched_barrier_records = 0u;
+    uint64_t actual_consumer_covered_by_barrier_count = 0u;
+    uint64_t actual_consumer_barrier_bytes = 0u;
+    std::string actual_consumer_barrier_source = "missing";
+    std::string actual_consumer_barrier_resource_digest = "missing";
+    uint64_t old_carry_typed_proof_records = 0u;
+    uint64_t old_carry_matched_proof_records = 0u;
+    uint64_t old_carry_retire_only_proven_records = 0u;
+    uint64_t old_carry_retire_only_proven_bytes = 0u;
+    uint64_t old_carry_unsafe_records = 0u;
+    uint64_t old_carry_unsafe_bytes = 0u;
+    std::string old_carry_proof_source = "missing";
+    std::string old_carry_proof_range = "missing";
     uint64_t unknown_unmodeled_side_effect_count = 0u;
     uint64_t unknown_resource_side_effect_count = 0u;
     uint64_t unknown_resource_side_effect_bytes = 0u;
@@ -7863,6 +8192,21 @@ void append_stack_region_submit_epoch_ordering_json(
     std::map<std::string, uint64_t> retire_entry_classification_counts;
     std::map<std::string, uint64_t> capture_sensitive_resource_status_counts;
     std::map<std::string, uint64_t> top_submit_side_effect_blocker_counts;
+    std::map<std::string, uint64_t> actual_consumer_barrier_status_counts;
+    std::map<std::string, uint64_t> old_carry_submit_proof_status_counts;
+    std::map<std::string, uint64_t>
+        actual_descriptor_update_generation_status_counts;
+    std::map<std::string, uint64_t> descriptor_bookkeeping_status_counts;
+    std::map<std::string, uint64_t> pending_dispatch_visibility_status_counts;
+    std::map<std::string, uint64_t> pending_dispatch_list_status_counts;
+    std::map<std::string, uint64_t>
+        pending_dispatch_range_completeness_status_counts;
+    std::map<std::string, uint64_t>
+        pending_dispatch_completion_visibility_status_counts;
+    std::map<std::string, uint64_t>
+        pending_dispatch_command_buffer_epoch_relation_counts;
+    std::map<std::string, uint64_t>
+        command_buffer_submit_epoch_visibility_status_counts;
   };
   std::map<std::string, BoundarySubmitLevelProofAggregate>
       submit_level_proof_by_boundary_id;
@@ -7938,6 +8282,212 @@ void append_stack_region_submit_epoch_ordering_json(
       [](const std::string& boundary_id, const std::string& instance_id) {
         return boundary_id + ":stack_region_instance_id=" + instance_id;
       };
+  const auto append_unique_string =
+      [](std::string& dst, const std::string& value) {
+        if (value.empty() || value == "missing") {
+          return;
+        }
+        if (dst == "missing") {
+          dst = value;
+        } else if (dst.find(value) == std::string::npos) {
+          dst += "|" + value;
+        }
+      };
+  const auto evaluate_old_carry_submit_proof_join =
+      [&](
+          const std::map<std::string, std::string>& submit_fields,
+          const std::string& boundary_id,
+          const std::string& stack_region_instance_id) {
+        OldCarrySubmitProofJoin join;
+        std::string raw_signature =
+            field_or(submit_fields, "raw_buffer_provenance_signature", "none");
+        if (raw_signature.empty() || raw_signature == "none" ||
+            raw_signature == "missing") {
+          raw_signature =
+              field_or(submit_fields, "raw_provenance_signature", "none");
+        }
+        if (raw_signature.empty() || raw_signature == "none" ||
+            raw_signature == "missing") {
+          join.status = "missing_raw_buffer_provenance_signature";
+          join.reject_reason = "missing_raw_provenance_signature";
+          return join;
+        }
+        const std::string expected_boundary =
+            non_capture_residual2_to_norm1_boundary_id(
+                parsed_i64_or(
+                    field_or(submit_fields, "live_producer_block", "-1"),
+                    -1),
+                parsed_i64_or(
+                    field_or(submit_fields, "live_consumer_block", "-1"),
+                    -1));
+        if (boundary_id != expected_boundary) {
+          join.status = "typed_old_carry_proof_exists_but_range_mismatch";
+          join.reject_reason = "boundary_mismatch";
+          return join;
+        }
+        std::istringstream entries(raw_signature);
+        std::string entry;
+        while (std::getline(entries, entry, ',')) {
+          std::vector<std::string> parts;
+          std::istringstream split_hash(entry);
+          std::string hash_part;
+          while (std::getline(split_hash, hash_part, '#')) {
+            parts.emplace_back(hash_part);
+          }
+          if (parts.size() != 3u) {
+            continue;
+          }
+          std::vector<std::string> fields;
+          std::istringstream split_pipe(parts[0]);
+          std::string pipe_part;
+          while (std::getline(split_pipe, pipe_part, '|')) {
+            fields.emplace_back(pipe_part);
+          }
+          if (fields.size() != 14u ||
+              fields[0] != "capture_sensitive_stack_activation" ||
+              fields[4] != "residual2" || fields[6] != "norm1") {
+            continue;
+          }
+          const std::string row_boundary =
+              non_capture_residual2_to_norm1_boundary_id(
+                  parsed_i64_or(fields[5], -1),
+                  parsed_i64_or(fields[7], -1));
+          if (row_boundary != boundary_id) {
+            continue;
+          }
+          const uint64_t count = parsed_u64_or(parts[1], 0u);
+          const uint64_t bytes = parsed_u64_or(parts[2], 0u);
+          join.typed_proof_records += count;
+          join.range = fields[12];
+          const bool has_range = fields[11] == "generation_and_range";
+          const auto producer_it = raw_producer_sources_by_range.find(fields[12]);
+          const bool producer_registered =
+              has_range && producer_it != raw_producer_sources_by_range.end();
+          const auto binding_it = live_binding_sources_by_range.find(fields[12]);
+          const bool live_bound =
+              has_range && binding_it != live_binding_sources_by_range.end();
+          const std::string producer = fields[4] + "@" + fields[5];
+          const std::string consumer = fields[6] + "@" + fields[7];
+          const std::string producer_source_prefix =
+              fields[4] + "@" + fields[5] + ":";
+          bool old_carry_later_descriptor_observed = false;
+          if (live_bound) {
+            std::istringstream old_carry_sources(binding_it->second);
+            std::string source;
+            while (std::getline(old_carry_sources, source, '|')) {
+              if (source.empty() ||
+                  source.rfind(producer_source_prefix, 0u) == 0u) {
+                continue;
+              }
+              old_carry_later_descriptor_observed = true;
+              break;
+            }
+          }
+          std::string escape_blocker =
+              "no_public_final_host_or_alias_blocker_in_raw_provenance";
+          if (fields[13] == "public_or_host_visible_blocker") {
+            escape_blocker = "public_final_or_host_visible_blocker";
+          } else if (fields[13] == "alias_or_escape_uncertain") {
+            escape_blocker = "alias_or_escape_uncertain";
+          } else if (fields[0] == "host_visible_or_requested_output") {
+            escape_blocker = "host_visible_or_requested_output";
+          }
+          const auto actual_input_it =
+              live_buffer_binding_ranges_by_phase_block.find(consumer);
+          bool actual_norm1_input_observed = false;
+          bool actual_norm1_input_same_range = false;
+          if (actual_input_it != live_buffer_binding_ranges_by_phase_block.end()) {
+            std::istringstream actual_entries(actual_input_it->second);
+            std::string actual_entry;
+            while (std::getline(actual_entries, actual_entry, '|')) {
+              const size_t first_colon = actual_entry.find(':');
+              if (first_colon == std::string::npos) {
+                continue;
+              }
+              const std::string candidate_range =
+                  actual_entry.substr(0u, first_colon);
+              const std::string candidate_source =
+                  actual_entry.substr(first_colon + 1u);
+              if (candidate_source.find(":binding6") == std::string::npos) {
+                continue;
+              }
+              const auto candidate_producer_it =
+                  raw_producer_sources_by_range.find(candidate_range);
+              if (
+                  candidate_producer_it == raw_producer_sources_by_range.end() ||
+                  candidate_producer_it->second.find(
+                      ":stack_owner:stack_phase_active:" + producer + ":") ==
+                      std::string::npos) {
+                continue;
+              }
+              actual_norm1_input_observed = true;
+              if (candidate_range == fields[12]) {
+                actual_norm1_input_same_range = true;
+              }
+            }
+          }
+          const bool raw_proof_complete =
+              fields[13] == "formal_last_use_proven" ||
+              fields[13] == "retire_only_or_nonescaping_proven";
+          const bool typed_non_escape_proven =
+              fields[9] == "last_use_present" &&
+              !old_carry_later_descriptor_observed &&
+              escape_blocker ==
+                  "no_public_final_host_or_alias_blocker_in_raw_provenance" &&
+              producer_registered && actual_norm1_input_observed &&
+              !actual_norm1_input_same_range;
+          const bool non_escape_proven =
+              fields[10] == "non_escape_present" || typed_non_escape_proven;
+          bool retire_only_eligible = false;
+          std::string reject_reason = "none";
+          if (actual_norm1_input_same_range) {
+            reject_reason = "old_carry_is_actual_norm1_input_visibility_target";
+          } else if (
+              escape_blocker !=
+              "no_public_final_host_or_alias_blocker_in_raw_provenance") {
+            reject_reason = escape_blocker;
+          } else if (old_carry_later_descriptor_observed) {
+            reject_reason = "old_carry_later_descriptor_binding_observed";
+          } else if (fields[9] != "last_use_present") {
+            reject_reason = "old_carry_formal_last_use_missing";
+          } else if (!non_escape_proven) {
+            reject_reason = "old_carry_non_escape_proof_missing";
+          } else if (!raw_proof_complete && !typed_non_escape_proven) {
+            reject_reason = "old_carry_retire_only_contract_status_missing";
+          } else {
+            retire_only_eligible = true;
+          }
+          if (retire_only_eligible) {
+            join.matched_records += count;
+            join.proven_retire_only_records += count;
+            join.proven_retire_only_bytes += bytes;
+            join.status =
+                "typed_old_carry_proof_matches_retire_only_nonescaping";
+            join.source =
+                typed_non_escape_proven
+                ? "StackBoundaryProofRecord.v0:typed_boundary_last_use_no_later_descriptor_no_escape"
+                : "StackBoundaryProofRecord.v0:raw_provenance_non_escape_present";
+            join.source += ":stack_region_instance_id=" +
+                stack_region_instance_id;
+            join.reject_reason = "none";
+          } else {
+            join.unsafe_records += count;
+            join.unsafe_bytes += bytes;
+            if (join.status !=
+                "typed_old_carry_proof_matches_retire_only_nonescaping") {
+              join.status = "typed_old_carry_proof_matches_but_unsafe";
+              join.reject_reason = reject_reason;
+            }
+          }
+        }
+        if (join.typed_proof_records == 0u) {
+          join.status = actual_consumer_barrier_total_records > 0u
+              ? "typed_old_carry_proof_exists_but_range_mismatch"
+              : "no_typed_old_carry_proof_exists";
+          join.reject_reason = "missing_matching_old_carry_range";
+        }
+        return join;
+      };
   const auto submit_level_reject_reason_for_fields =
       [](const std::map<std::string, std::string>& fields) {
         const std::string candidate_status = field_or(
@@ -7991,11 +8541,41 @@ void append_stack_region_submit_epoch_ordering_json(
     proof.submit_key = submit_key;
     proof.submit_key_fields = submit_level_key_fields_for_fields(fields);
     proof.submit_keys.insert(submit_key);
-    proof.stack_region_instance_ids.insert(
-        submit_level_key_field(fields, "stack_region_instance_id"));
+    const std::string stack_region_instance_id =
+        submit_level_key_field(fields, "stack_region_instance_id");
+    proof.stack_region_instance_ids.insert(stack_region_instance_id);
     submit_level_submit_keys_by_boundary_id[boundary_id].insert(submit_key);
     proof.records += count;
     proof.bytes += bytes;
+    const std::string boundary_instance_key =
+        submit_level_boundary_instance_key(boundary_id, stack_region_instance_id);
+    const auto actual_consumer_barrier_it =
+        actual_consumer_barriers_by_boundary_instance.find(
+            boundary_instance_key);
+    const bool actual_consumer_barrier_matched =
+        actual_consumer_barrier_it !=
+        actual_consumer_barriers_by_boundary_instance.end();
+    const uint64_t actual_consumer_barrier_records =
+        actual_consumer_barrier_matched
+        ? actual_consumer_barrier_it->second.records
+        : (actual_consumer_barrier_total_records > 0u
+               ? actual_consumer_barrier_total_records
+               : 0u);
+    const uint64_t actual_consumer_barrier_bytes =
+        actual_consumer_barrier_matched
+        ? actual_consumer_barrier_it->second.bytes
+        : (actual_consumer_barrier_total_records > 0u
+               ? actual_consumer_barrier_total_bytes
+               : 0u);
+    const std::string actual_consumer_barrier_status =
+        actual_consumer_barrier_matched
+        ? "matching_actual_consumer_barrier_record_exists_submit_equivalence_still_blocked"
+        : (actual_consumer_barrier_total_records > 0u
+               ? "actual_consumer_barrier_record_exists_but_boundary_or_instance_mismatch"
+               : "no_actual_consumer_barrier_record_exists");
+    const OldCarrySubmitProofJoin old_carry_join =
+        evaluate_old_carry_submit_proof_join(
+            fields, boundary_id, stack_region_instance_id);
     const uint64_t pending_dispatch_count =
         parsed_u64(fields, "pending_dispatch_count") * count;
     const uint64_t pending_resource_count =
@@ -8007,6 +8587,111 @@ void append_stack_region_submit_epoch_ordering_json(
     proof.pending_resource_bytes += pending_resource_bytes;
     proof.descriptor_update_side_effect_count +=
         parsed_u64(fields, "descriptor_update_side_effect_count") * count;
+    const uint64_t actual_descriptor_update_records =
+        actual_descriptor_update_records_by_instance[stack_region_instance_id];
+    const uint64_t actual_descriptor_update_writes =
+        actual_descriptor_update_writes_by_instance[stack_region_instance_id];
+    const std::string actual_descriptor_update_status = map_value_or(
+        actual_descriptor_update_status_by_instance,
+        stack_region_instance_id,
+        "missing_actual_descriptor_set_update_generation_for_stack_region_instance");
+    const std::string actual_descriptor_update_tokens = map_value_or(
+        actual_descriptor_update_tokens_by_instance,
+        stack_region_instance_id,
+        "missing_actual_descriptor_set_update_generation_token");
+    const bool actual_descriptor_update_observed =
+        actual_descriptor_update_records > 0u &&
+        actual_descriptor_update_status.find(
+            "actual_vk_descriptor_set_update_generation_observed") !=
+            std::string::npos;
+    const uint64_t descriptor_side_effect_count =
+        parsed_u64(fields, "descriptor_update_side_effect_count");
+    const std::string descriptor_bookkeeping_status =
+        descriptor_side_effect_count == 0u
+        ? "no_descriptor_update_side_effects"
+        : (actual_descriptor_update_observed
+               ? "actual_descriptor_updates_observed_submit_equivalence_unproven"
+               : "descriptor_update_side_effects_missing_actual_update_generation");
+    const uint64_t row_pending_dispatch_count =
+        parsed_u64(fields, "pending_dispatch_count");
+    const std::string pending_dispatch_list_status = field_or(
+        fields,
+        "pending_dispatch_list_status",
+        row_pending_dispatch_count == 0u ? "no_pending_dispatch_list_available"
+                                         : "missing_pending_dispatch_list_status");
+    const std::string pending_dispatch_range_completeness_status = field_or(
+        fields,
+        "pending_dispatch_range_completeness_status",
+        "missing_pending_dispatch_range_completeness_status");
+    const std::string pending_dispatch_completion_visibility_status = field_or(
+        fields,
+        "pending_dispatch_completion_visibility_status",
+        "missing_pending_dispatch_completion_visibility_status");
+    const std::string pending_dispatch_command_buffer_epoch_relation = field_or(
+        fields,
+        "pending_dispatch_command_buffer_epoch_relation",
+        "missing_pending_dispatch_command_buffer_epoch_relation");
+    std::string command_buffer_submit_epoch_visibility_status = field_or(
+        fields,
+        "command_buffer_submit_epoch_visibility_proof_status",
+        "missing_command_buffer_submit_epoch_visibility_proof_status");
+    if (
+        command_buffer_submit_epoch_visibility_status ==
+        "missing_command_buffer_submit_epoch_visibility_proof_status") {
+      command_buffer_submit_epoch_visibility_status =
+          pending_dispatch_command_buffer_epoch_relation;
+    }
+    const std::string pending_dispatch_visibility_status =
+        row_pending_dispatch_count == 0u
+        ? "no_pending_dispatch_list"
+        : (field_or(fields, "removed_submit_pending_dispatch_set_complete", "0") ==
+                   "1"
+               ? "pending_dispatch_set_complete"
+               : (pending_dispatch_completion_visibility_status !=
+                          "missing_pending_dispatch_completion_visibility_status"
+                      ? pending_dispatch_completion_visibility_status
+               : (field_or(fields, "command_buffer_id_available", "0") == "1" &&
+                          field_or(fields, "submit_epoch_available", "0") == "1"
+                      ? "pending_dispatch_list_observed_command_buffer_epoch_available_completion_unproven"
+                      : "pending_dispatch_visibility_unknown_missing_command_buffer_or_epoch")));
+    proof.actual_descriptor_update_generation_records +=
+        actual_descriptor_update_records;
+    proof.actual_descriptor_update_write_count += actual_descriptor_update_writes;
+    append_unique_string(
+        proof.actual_descriptor_update_generation_status,
+        actual_descriptor_update_status);
+    append_unique_string(
+        proof.actual_descriptor_update_generation_tokens,
+        actual_descriptor_update_tokens);
+    proof.actual_descriptor_update_generation_status_counts
+        [actual_descriptor_update_status] += count;
+    proof.descriptor_bookkeeping_status_counts[descriptor_bookkeeping_status] +=
+        count;
+    proof.pending_dispatch_visibility_status_counts
+        [pending_dispatch_visibility_status] += count;
+    proof.pending_dispatch_list_status_counts[pending_dispatch_list_status] +=
+        count;
+    proof.pending_dispatch_range_completeness_status_counts
+        [pending_dispatch_range_completeness_status] += count;
+    proof.pending_dispatch_completion_visibility_status_counts
+        [pending_dispatch_completion_visibility_status] += count;
+    proof.pending_dispatch_command_buffer_epoch_relation_counts
+        [pending_dispatch_command_buffer_epoch_relation] += count;
+    proof.command_buffer_submit_epoch_visibility_status_counts
+        [command_buffer_submit_epoch_visibility_status] += count;
+    append_unique_string(
+        proof.pending_dispatch_identities,
+        field_or(fields, "pending_dispatch_list_identity", "missing"));
+    append_unique_string(
+        proof.pending_dispatch_position_ranges,
+        field_or(fields, "pending_dispatch_position_first", "missing") + "-" +
+            field_or(fields, "pending_dispatch_position_last", "missing"));
+    if (field_or(fields, "pending_dispatch_position_range_available", "0") == "1") {
+      proof.pending_dispatch_position_range_available_records += count;
+    }
+    if (field_or(fields, "pending_dispatch_position_range_complete", "0") == "1") {
+      proof.pending_dispatch_position_range_complete_records += count;
+    }
     proof.retire_side_effect_count +=
         parsed_u64(fields, "retire_side_effect_count") * count;
     proof.retire_side_effect_bytes +=
@@ -8019,26 +8704,104 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(
             fields, "retire_entry_proven_retire_only_or_nonescaping_bytes") *
         count;
-    proof.retire_entry_unknown_or_ordering_required_count +=
+    const uint64_t old_carry_proven_count =
+        old_carry_join.proven_retire_only_records * count;
+    const uint64_t old_carry_proven_bytes =
+        old_carry_join.proven_retire_only_bytes * count;
+    proof.retire_entry_proven_safe_count += old_carry_proven_count;
+    proof.retire_entry_proven_safe_bytes += old_carry_proven_bytes;
+    const uint64_t raw_retire_unknown_count =
         parsed_u64(
             fields, "retire_entry_unknown_or_ordering_required_count") *
         count;
-    proof.retire_entry_unknown_or_ordering_required_bytes +=
+    const uint64_t raw_retire_unknown_bytes =
         parsed_u64(
             fields, "retire_entry_unknown_or_ordering_required_bytes") *
         count;
-    proof.capture_sensitive_resource_count +=
+    proof.retire_entry_unknown_or_ordering_required_count +=
+        raw_retire_unknown_count > old_carry_proven_count
+        ? raw_retire_unknown_count - old_carry_proven_count
+        : 0u;
+    proof.retire_entry_unknown_or_ordering_required_bytes +=
+        raw_retire_unknown_bytes > old_carry_proven_bytes
+        ? raw_retire_unknown_bytes - old_carry_proven_bytes
+        : 0u;
+    const uint64_t raw_capture_sensitive_count =
         parsed_u64(fields, "capture_sensitive_stack_activation_count") * count;
-    proof.capture_sensitive_resource_bytes +=
+    const uint64_t raw_capture_sensitive_bytes =
         parsed_u64(fields, "capture_sensitive_stack_activation_bytes") * count;
-    proof.real_barrier_records +=
+    proof.capture_sensitive_resource_count +=
+        raw_capture_sensitive_count > old_carry_proven_count
+        ? raw_capture_sensitive_count - old_carry_proven_count
+        : 0u;
+    proof.capture_sensitive_resource_bytes +=
+        raw_capture_sensitive_bytes > old_carry_proven_bytes
+        ? raw_capture_sensitive_bytes - old_carry_proven_bytes
+        : 0u;
+    proof.old_carry_typed_proof_records +=
+        old_carry_join.typed_proof_records * count;
+    proof.old_carry_matched_proof_records +=
+        old_carry_join.matched_records * count;
+    proof.old_carry_retire_only_proven_records += old_carry_proven_count;
+    proof.old_carry_retire_only_proven_bytes += old_carry_proven_bytes;
+    proof.old_carry_unsafe_records += old_carry_join.unsafe_records * count;
+    proof.old_carry_unsafe_bytes += old_carry_join.unsafe_bytes * count;
+    append_unique_string(
+        proof.old_carry_proof_source, old_carry_join.source);
+    append_unique_string(proof.old_carry_proof_range, old_carry_join.range);
+    proof.old_carry_submit_proof_status_counts[old_carry_join.status] += count;
+    const uint64_t pending_real_barrier_records =
         parsed_u64(fields, "real_barrier_records") * count;
-    proof.matched_barrier_records +=
+    const uint64_t pending_matched_barrier_records =
         parsed_u64(fields, "matched_barrier_records") * count;
-    proof.covered_by_barrier_count +=
+    const uint64_t pending_covered_by_barrier_count =
         parsed_u64(fields, "covered_by_barrier_count") * count;
-    proof.covered_by_barrier_bytes +=
+    const uint64_t pending_covered_by_barrier_bytes =
         parsed_u64(fields, "covered_by_barrier_bytes") * count;
+    const uint64_t matched_actual_consumer_barrier_records =
+        actual_consumer_barrier_matched ? actual_consumer_barrier_records : 0u;
+    const uint64_t submit_row_real_barrier_records =
+        pending_real_barrier_records +
+        (pending_real_barrier_records == 0u
+             ? matched_actual_consumer_barrier_records
+             : 0u);
+    const uint64_t submit_row_matched_barrier_records =
+        pending_matched_barrier_records +
+        (pending_matched_barrier_records == 0u
+             ? matched_actual_consumer_barrier_records
+             : 0u);
+    const uint64_t submit_row_covered_by_barrier_count =
+        pending_covered_by_barrier_count +
+        (pending_covered_by_barrier_count == 0u
+             ? matched_actual_consumer_barrier_records
+             : 0u);
+    const uint64_t submit_row_covered_by_barrier_bytes =
+        pending_covered_by_barrier_bytes +
+        (pending_covered_by_barrier_bytes == 0u &&
+                 actual_consumer_barrier_matched
+             ? actual_consumer_barrier_bytes
+             : 0u);
+    proof.real_barrier_records += submit_row_real_barrier_records;
+    proof.matched_barrier_records += submit_row_matched_barrier_records;
+    proof.covered_by_barrier_count += submit_row_covered_by_barrier_count;
+    proof.covered_by_barrier_bytes += submit_row_covered_by_barrier_bytes;
+    proof.actual_consumer_barrier_records += actual_consumer_barrier_records;
+    proof.actual_consumer_matched_barrier_records +=
+        matched_actual_consumer_barrier_records;
+    proof.actual_consumer_covered_by_barrier_count +=
+        matched_actual_consumer_barrier_records;
+    proof.actual_consumer_barrier_bytes +=
+        actual_consumer_barrier_matched ? actual_consumer_barrier_bytes : 0u;
+    if (actual_consumer_barrier_matched) {
+      append_unique_string(
+          proof.actual_consumer_barrier_source,
+          actual_consumer_barrier_it->second.source);
+      append_unique_string(
+          proof.actual_consumer_barrier_resource_digest,
+          actual_consumer_barrier_it->second.digest);
+    }
+    proof.actual_consumer_barrier_status_counts
+        [actual_consumer_barrier_status] += count;
     proof.unknown_unmodeled_side_effect_count +=
         parsed_u64(fields, "unknown_unmodeled_side_effect_count") * count;
     proof.unknown_resource_side_effect_count +=
@@ -8097,14 +8860,30 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "retire_entry_classification_status",
         "missing_retire_entry_classification_status")] += count;
-    proof.capture_sensitive_resource_status_counts[field_or(
-        fields,
-        "capture_sensitive_resource_classification_status",
-        "missing_capture_sensitive_resource_classification_status")] += count;
-    proof.top_submit_side_effect_blocker_counts[field_or(
-        fields,
-        "top_submit_side_effect_blocker",
-        "missing_top_submit_side_effect_blocker")] += count;
+    const bool old_carry_submit_proven =
+        old_carry_join.proven_retire_only_records > 0u &&
+        old_carry_join.unsafe_records == 0u;
+    proof.capture_sensitive_resource_status_counts
+        [old_carry_submit_proven
+             ? "capture_sensitive_old_carry_joined_retire_only_nonescaping"
+             : field_or(
+                   fields,
+                   "capture_sensitive_resource_classification_status",
+                   "missing_capture_sensitive_resource_classification_status")] +=
+        count;
+    const std::string refined_submit_blocker =
+        old_carry_submit_proven && row_pending_dispatch_count > 0u
+        ? (actual_descriptor_update_observed
+               ? "pending_dispatch_completion_visibility_unproven"
+               : "missing_actual_descriptor_set_update_generation")
+        : (old_carry_submit_proven
+               ? "descriptor_updates_and_command_buffer_bookkeeping_pending"
+               : field_or(
+                     fields,
+                     "top_submit_side_effect_blocker",
+                     "missing_top_submit_side_effect_blocker"));
+    proof.top_submit_side_effect_blocker_counts
+        [refined_submit_blocker] += count;
     const std::string topology_signature =
         "pending_dispatch=" +
         field_or(fields, "pending_dispatch_count", "0") +
@@ -8113,9 +8892,10 @@ void append_stack_region_submit_epoch_ordering_json(
         field_or(fields, "pending_resource_bytes", "0") + ":descriptor=" +
         field_or(fields, "descriptor_update_side_effect_count", "0") +
         ":retire=" + field_or(fields, "retire_side_effect_count", "0") +
-        ":real_barrier=" + field_or(fields, "real_barrier_records", "0") +
+        ":real_barrier=" + std::to_string(submit_row_real_barrier_records) +
         ":matched_barrier=" +
-        field_or(fields, "matched_barrier_records", "0");
+        std::to_string(submit_row_matched_barrier_records) +
+        ":actual_consumer_barrier=" + actual_consumer_barrier_status;
     proof.topology_signatures.insert(topology_signature);
     std::string reject_reason =
         submit_level_reject_reason_for_fields(fields);
@@ -8171,6 +8951,24 @@ void append_stack_region_submit_epoch_ordering_json(
         top_submit_side_effect_blocker_count = blocker.second;
       }
     }
+    std::string actual_consumer_barrier_status =
+        "no_actual_consumer_barrier_record_exists";
+    uint64_t actual_consumer_barrier_status_count = 0u;
+    for (const auto& status : proof.actual_consumer_barrier_status_counts) {
+      if (status.second > actual_consumer_barrier_status_count) {
+        actual_consumer_barrier_status = status.first;
+        actual_consumer_barrier_status_count = status.second;
+      }
+    }
+    std::string old_carry_submit_proof_status =
+        "no_typed_old_carry_proof_exists";
+    uint64_t old_carry_submit_proof_status_count = 0u;
+    for (const auto& status : proof.old_carry_submit_proof_status_counts) {
+      if (status.second > old_carry_submit_proof_status_count) {
+        old_carry_submit_proof_status = status.first;
+        old_carry_submit_proof_status_count = status.second;
+      }
+    }
     const std::string topology_signature =
         proof.topology_signatures.empty()
         ? "missing_current_run_topology_signature"
@@ -8190,6 +8988,44 @@ void append_stack_region_submit_epoch_ordering_json(
         << " submit_key=" << proof.submit_key
         << " submit_key_fields=" << proof.submit_key_fields
         << " submit_grouping=live_boundary_submit_key_with_stack_region_instance"
+        << " compiled_session_identity=missing_compiled_session_identity"
+        << " compiled_session_key_hash=missing_compiled_session_key_hash"
+        << " descriptor_binding_table_identity=logical_submit_binding_table:"
+        << proof.submit_key
+        << " descriptor_set_update_generation=logical_submit_update_generation:"
+        << proof.submit_key
+        << " descriptor_binding_table_identity_source=live_boundary_submit_key"
+        << " descriptor_set_update_generation_status=logical_not_vk_descriptor_set_generation"
+        << " descriptor_update_generation_source=live_boundary_submit_key"
+        << " future_descriptor_update_generation_source=DescriptorSet_get_bind_handle_instrumented_separate_update_rows"
+        << " actual_descriptor_set_update_generation_status="
+        << proof.actual_descriptor_update_generation_status
+        << " actual_descriptor_set_update_generation_records="
+        << proof.actual_descriptor_update_generation_records
+        << " actual_descriptor_set_update_write_count="
+        << proof.actual_descriptor_update_write_count
+        << " actual_descriptor_set_update_generation_tokens="
+        << proof.actual_descriptor_update_generation_tokens
+        << " actual_descriptor_update_generation_source=DescriptorSet_get_bind_handle"
+        << " descriptor_layout_hash=shader_layout_signature_unavailable"
+        << " descriptor_layout_hash_status=shader_layout_signature_unavailable"
+        << " binding_table_identity_status=logical_submit_binding_identity_available"
+        << " command_visibility_identity=" << proof.submit_key_fields
+        << " command_visibility_proof_status="
+        << (proof.same_batch_proven_records == proof.records
+                ? "same_command_buffer_or_submit_batch_proven"
+                : "same_command_buffer_or_submit_batch_not_proven")
+        << " resource_state_transition_status="
+        << (proof.covered_by_barrier_count > 0u
+                ? "barrier_records_match_pending_allocations"
+                : "missing_selected_boundary_barrier_transition")
+        << " allocator_region_identity=missing_allocator_pool_or_region_identity"
+        << " allocator_scope_status=allocation_generation_only_no_region_pool_identity"
+        << " transition_node_provenance_status="
+        << (proof.covered_by_barrier_count > 0u
+                ? "barrier_transition_node_present"
+                : "missing_transition_node_provenance")
+        << " alias_public_escape_policy=hard_block_public_final_host_readback_alias"
         << " stack_region_instance_id=" << stack_region_instance_id
         << " stack_region_instance_id_count=" << stack_region_instance_id_count
         << " boundary_submit_key_count=" << boundary_submit_key_count
@@ -8201,10 +9037,40 @@ void append_stack_region_submit_epoch_ordering_json(
         << " current_run_topology_signature=" << topology_signature
         << " topology_signature_count=" << proof.topology_signatures.size()
         << " pending_dispatch_count=" << proof.pending_dispatch_count
+        << " pending_dispatch_identities="
+        << proof.pending_dispatch_identities
+        << " pending_dispatch_position_ranges="
+        << proof.pending_dispatch_position_ranges
+        << " pending_dispatch_position_range_available_records="
+        << proof.pending_dispatch_position_range_available_records
+        << " pending_dispatch_position_range_complete_records="
+        << proof.pending_dispatch_position_range_complete_records
         << " pending_resource_count=" << proof.pending_resource_count
         << " pending_resource_bytes=" << proof.pending_resource_bytes
         << " descriptor_update_side_effect_count="
         << proof.descriptor_update_side_effect_count
+        << " descriptor_bookkeeping_equivalence_status="
+        << top_count_key_from_map(proof.descriptor_bookkeeping_status_counts)
+        << " pending_dispatch_visibility_proof_status="
+        << top_count_key_from_map(proof.pending_dispatch_visibility_status_counts)
+        << " pending_dispatch_list_status="
+        << top_count_key_from_map(proof.pending_dispatch_list_status_counts)
+        << " pending_dispatch_range_completeness_status="
+        << top_count_key_from_map(
+               proof.pending_dispatch_range_completeness_status_counts)
+        << " pending_dispatch_completion_visibility_status="
+        << top_count_key_from_map(
+               proof.pending_dispatch_completion_visibility_status_counts)
+        << " pending_dispatch_command_buffer_epoch_relation="
+        << top_count_key_from_map(
+               proof.pending_dispatch_command_buffer_epoch_relation_counts)
+        << " command_buffer_submit_epoch_visibility_proof_status="
+        << top_count_key_from_map(
+               proof.command_buffer_submit_epoch_visibility_status_counts)
+        << " pending_dispatch_same_command_buffer_or_batch_status="
+        << (proof.same_batch_proven_records == proof.records
+                ? "same_command_buffer_or_submit_batch_proven"
+                : "same_command_buffer_or_submit_batch_not_proven")
         << " retire_side_effect_count=" << proof.retire_side_effect_count
         << " retire_side_effect_bytes=" << proof.retire_side_effect_bytes
         << " retire_entry_proven_retire_only_or_nonescaping_count="
@@ -8225,6 +9091,38 @@ void append_stack_region_submit_epoch_ordering_json(
         << " matched_barrier_records=" << proof.matched_barrier_records
         << " covered_by_barrier_count=" << proof.covered_by_barrier_count
         << " covered_by_barrier_bytes=" << proof.covered_by_barrier_bytes
+        << " actual_consumer_barrier_record_status="
+        << actual_consumer_barrier_status
+        << " actual_consumer_barrier_records="
+        << proof.actual_consumer_barrier_records
+        << " actual_consumer_matched_barrier_records="
+        << proof.actual_consumer_matched_barrier_records
+        << " actual_consumer_covered_by_barrier_count="
+        << proof.actual_consumer_covered_by_barrier_count
+        << " actual_consumer_barrier_bytes="
+        << proof.actual_consumer_barrier_bytes
+        << " actual_consumer_barrier_source="
+        << proof.actual_consumer_barrier_source
+        << " actual_consumer_barrier_resource_digest="
+        << proof.actual_consumer_barrier_resource_digest
+        << " old_carry_submit_proof_status="
+        << old_carry_submit_proof_status
+        << " old_carry_typed_proof_records="
+        << proof.old_carry_typed_proof_records
+        << " old_carry_matched_proof_records="
+        << proof.old_carry_matched_proof_records
+        << " old_carry_retire_only_proven_records="
+        << proof.old_carry_retire_only_proven_records
+        << " old_carry_retire_only_proven_bytes="
+        << proof.old_carry_retire_only_proven_bytes
+        << " old_carry_unsafe_records="
+        << proof.old_carry_unsafe_records
+        << " old_carry_unsafe_bytes="
+        << proof.old_carry_unsafe_bytes
+        << " old_carry_submit_proof_source="
+        << proof.old_carry_proof_source
+        << " old_carry_submit_proof_range="
+        << proof.old_carry_proof_range
         << " unknown_unmodeled_side_effect_count="
         << proof.unknown_unmodeled_side_effect_count
         << " unknown_resource_side_effect_count="
@@ -8303,6 +9201,34 @@ void append_stack_region_submit_epoch_ordering_json(
     boundary_proof.matched_barrier_records += proof.matched_barrier_records;
     boundary_proof.covered_by_barrier_count += proof.covered_by_barrier_count;
     boundary_proof.covered_by_barrier_bytes += proof.covered_by_barrier_bytes;
+    boundary_proof.actual_consumer_barrier_records +=
+        proof.actual_consumer_barrier_records;
+    boundary_proof.actual_consumer_matched_barrier_records +=
+        proof.actual_consumer_matched_barrier_records;
+    boundary_proof.actual_consumer_covered_by_barrier_count +=
+        proof.actual_consumer_covered_by_barrier_count;
+    boundary_proof.actual_consumer_barrier_bytes +=
+        proof.actual_consumer_barrier_bytes;
+    append_unique_string(
+        boundary_proof.actual_consumer_barrier_source,
+        proof.actual_consumer_barrier_source);
+    append_unique_string(
+        boundary_proof.actual_consumer_barrier_resource_digest,
+        proof.actual_consumer_barrier_resource_digest);
+    boundary_proof.old_carry_typed_proof_records +=
+        proof.old_carry_typed_proof_records;
+    boundary_proof.old_carry_matched_proof_records +=
+        proof.old_carry_matched_proof_records;
+    boundary_proof.old_carry_retire_only_proven_records +=
+        proof.old_carry_retire_only_proven_records;
+    boundary_proof.old_carry_retire_only_proven_bytes +=
+        proof.old_carry_retire_only_proven_bytes;
+    boundary_proof.old_carry_unsafe_records += proof.old_carry_unsafe_records;
+    boundary_proof.old_carry_unsafe_bytes += proof.old_carry_unsafe_bytes;
+    append_unique_string(
+        boundary_proof.old_carry_proof_source, proof.old_carry_proof_source);
+    append_unique_string(
+        boundary_proof.old_carry_proof_range, proof.old_carry_proof_range);
     boundary_proof.unknown_unmodeled_side_effect_count +=
         proof.unknown_unmodeled_side_effect_count;
     boundary_proof.unknown_resource_side_effect_count +=
@@ -8333,6 +9259,14 @@ void append_stack_region_submit_epoch_ordering_json(
     for (const auto& blocker : proof.top_submit_side_effect_blocker_counts) {
       boundary_proof.top_submit_side_effect_blocker_counts[blocker.first] +=
           blocker.second;
+    }
+    for (const auto& status : proof.actual_consumer_barrier_status_counts) {
+      boundary_proof.actual_consumer_barrier_status_counts[status.first] +=
+          status.second;
+    }
+    for (const auto& status : proof.old_carry_submit_proof_status_counts) {
+      boundary_proof.old_carry_submit_proof_status_counts[status.first] +=
+          status.second;
     }
     if (proof.stack_region_instance_ids.size() == 1u) {
       const std::string& instance_id = *proof.stack_region_instance_ids.begin();
@@ -8389,6 +9323,37 @@ void append_stack_region_submit_epoch_ordering_json(
           proof.covered_by_barrier_count;
       instance_proof.covered_by_barrier_bytes +=
           proof.covered_by_barrier_bytes;
+      instance_proof.actual_consumer_barrier_records +=
+          proof.actual_consumer_barrier_records;
+      instance_proof.actual_consumer_matched_barrier_records +=
+          proof.actual_consumer_matched_barrier_records;
+      instance_proof.actual_consumer_covered_by_barrier_count +=
+          proof.actual_consumer_covered_by_barrier_count;
+      instance_proof.actual_consumer_barrier_bytes +=
+          proof.actual_consumer_barrier_bytes;
+      append_unique_string(
+          instance_proof.actual_consumer_barrier_source,
+          proof.actual_consumer_barrier_source);
+      append_unique_string(
+          instance_proof.actual_consumer_barrier_resource_digest,
+          proof.actual_consumer_barrier_resource_digest);
+      instance_proof.old_carry_typed_proof_records +=
+          proof.old_carry_typed_proof_records;
+      instance_proof.old_carry_matched_proof_records +=
+          proof.old_carry_matched_proof_records;
+      instance_proof.old_carry_retire_only_proven_records +=
+          proof.old_carry_retire_only_proven_records;
+      instance_proof.old_carry_retire_only_proven_bytes +=
+          proof.old_carry_retire_only_proven_bytes;
+      instance_proof.old_carry_unsafe_records +=
+          proof.old_carry_unsafe_records;
+      instance_proof.old_carry_unsafe_bytes += proof.old_carry_unsafe_bytes;
+      append_unique_string(
+          instance_proof.old_carry_proof_source,
+          proof.old_carry_proof_source);
+      append_unique_string(
+          instance_proof.old_carry_proof_range,
+          proof.old_carry_proof_range);
       instance_proof.unknown_unmodeled_side_effect_count +=
           proof.unknown_unmodeled_side_effect_count;
       instance_proof.unknown_resource_side_effect_count +=
@@ -8421,6 +9386,14 @@ void append_stack_region_submit_epoch_ordering_json(
       for (const auto& blocker : proof.top_submit_side_effect_blocker_counts) {
         instance_proof.top_submit_side_effect_blocker_counts[blocker.first] +=
             blocker.second;
+      }
+      for (const auto& status : proof.actual_consumer_barrier_status_counts) {
+        instance_proof.actual_consumer_barrier_status_counts[status.first] +=
+            status.second;
+      }
+      for (const auto& status : proof.old_carry_submit_proof_status_counts) {
+        instance_proof.old_carry_submit_proof_status_counts[status.first] +=
+            status.second;
       }
     }
   }
@@ -8938,6 +9911,13 @@ void append_stack_region_submit_epoch_ordering_json(
             std::string actual_norm1_input_range = "missing";
             std::string actual_norm1_input_source = "missing";
             std::string actual_norm1_input_producer = "missing";
+            std::string actual_norm1_descriptor_identity = "missing";
+            std::string actual_norm1_descriptor_update_generation = "missing";
+            std::string actual_norm1_descriptor_update_status = "missing";
+            std::string actual_norm1_descriptor_layout_hash = "missing";
+            std::string actual_norm1_descriptor_layout_status = "missing";
+            std::string actual_norm1_descriptor_digest = "missing";
+            std::string actual_norm1_visibility_barrier_source = "missing";
             if (
                 buffer_range_consumer_it !=
                 live_buffer_binding_ranges_by_phase_block.end()) {
@@ -8971,14 +9951,67 @@ void append_stack_region_submit_epoch_ordering_json(
                 if (candidate_range == fields[12]) {
                   actual_norm1_input_same_range = true;
                 }
-                if (barrier_sources_by_range.find(candidate_range) !=
-                    barrier_sources_by_range.end()) {
+                const auto candidate_barrier_it =
+                    barrier_sources_by_range.find(candidate_range);
+                if (candidate_barrier_it != barrier_sources_by_range.end()) {
                   actual_norm1_input_barrier_matched = true;
+                  const std::string candidate_barrier_source =
+                      candidate_barrier_it->second;
+                  if (actual_norm1_visibility_barrier_source == "missing") {
+                    actual_norm1_visibility_barrier_source =
+                        candidate_barrier_source;
+                  } else if (
+                      actual_norm1_visibility_barrier_source.find(
+                          candidate_barrier_source) == std::string::npos) {
+                    actual_norm1_visibility_barrier_source += "|" +
+                        candidate_barrier_source;
+                  }
                 }
+                const std::string candidate_descriptor_identity =
+                    map_value_or(
+                        live_binding_descriptor_identity_by_range,
+                        candidate_range,
+                        "missing_descriptor_binding_table_identity");
+                const std::string candidate_descriptor_update_generation =
+                    map_value_or(
+                        live_binding_descriptor_update_generation_by_range,
+                        candidate_range,
+                        "missing_descriptor_update_generation");
+                const std::string candidate_descriptor_update_status =
+                    map_value_or(
+                        live_binding_descriptor_update_status_by_range,
+                        candidate_range,
+                        "missing_descriptor_update_generation_status");
+                const std::string candidate_descriptor_layout_hash =
+                    map_value_or(
+                        live_binding_descriptor_layout_by_range,
+                        candidate_range,
+                        "missing_descriptor_layout_hash");
+                const std::string candidate_descriptor_layout_status =
+                    map_value_or(
+                        live_binding_descriptor_layout_status_by_range,
+                        candidate_range,
+                        "missing_descriptor_layout_hash_status");
+                const std::string candidate_descriptor_digest =
+                    map_value_or(
+                        live_binding_descriptor_digest_by_range,
+                        candidate_range,
+                        "missing_descriptor_slot_resource_digest");
                 if (actual_norm1_input_source == "missing") {
                   actual_norm1_input_range = candidate_range;
                   actual_norm1_input_source = candidate_source;
                   actual_norm1_input_producer = candidate_producer_it->second;
+                  actual_norm1_descriptor_identity =
+                      candidate_descriptor_identity;
+                  actual_norm1_descriptor_update_generation =
+                      candidate_descriptor_update_generation;
+                  actual_norm1_descriptor_update_status =
+                      candidate_descriptor_update_status;
+                  actual_norm1_descriptor_layout_hash =
+                      candidate_descriptor_layout_hash;
+                  actual_norm1_descriptor_layout_status =
+                      candidate_descriptor_layout_status;
+                  actual_norm1_descriptor_digest = candidate_descriptor_digest;
                 } else if (
                     actual_norm1_input_source.find(candidate_source) ==
                     std::string::npos) {
@@ -8986,6 +10019,46 @@ void append_stack_region_submit_epoch_ordering_json(
                   actual_norm1_input_source += "|" + candidate_source;
                   actual_norm1_input_producer += "|" +
                       candidate_producer_it->second;
+                  if (
+                      actual_norm1_descriptor_identity.find(
+                          candidate_descriptor_identity) == std::string::npos) {
+                    actual_norm1_descriptor_identity += "|" +
+                        candidate_descriptor_identity;
+                  }
+                  if (
+                      actual_norm1_descriptor_update_generation.find(
+                          candidate_descriptor_update_generation) ==
+                      std::string::npos) {
+                    actual_norm1_descriptor_update_generation += "|" +
+                        candidate_descriptor_update_generation;
+                  }
+                  if (
+                      actual_norm1_descriptor_update_status.find(
+                          candidate_descriptor_update_status) ==
+                      std::string::npos) {
+                    actual_norm1_descriptor_update_status += "|" +
+                        candidate_descriptor_update_status;
+                  }
+                  if (
+                      actual_norm1_descriptor_layout_hash.find(
+                          candidate_descriptor_layout_hash) ==
+                      std::string::npos) {
+                    actual_norm1_descriptor_layout_hash += "|" +
+                        candidate_descriptor_layout_hash;
+                  }
+                  if (
+                      actual_norm1_descriptor_layout_status.find(
+                          candidate_descriptor_layout_status) ==
+                      std::string::npos) {
+                    actual_norm1_descriptor_layout_status += "|" +
+                        candidate_descriptor_layout_status;
+                  }
+                  if (
+                      actual_norm1_descriptor_digest.find(
+                          candidate_descriptor_digest) == std::string::npos) {
+                    actual_norm1_descriptor_digest += "|" +
+                        candidate_descriptor_digest;
+                  }
                 }
               }
             }
@@ -9021,6 +10094,22 @@ void append_stack_region_submit_epoch_ordering_json(
                 : (actual_norm1_input_observed
                        ? "actual_norm1_input_visibility_barrier_missing"
                        : "actual_norm1_input_missing_for_barrier_plan");
+            const std::string actual_consumer_visibility_transition_status =
+                actual_norm1_input_barrier_matched
+                ? "actual_consumer_visibility_transition_joined_from_real_barrier"
+                : (actual_norm1_input_observed
+                       ? "missing_actual_consumer_visibility_transition"
+                       : "missing_actual_consumer_input_descriptor_binding");
+            const std::string actual_consumer_visibility_transition_source =
+                actual_norm1_input_barrier_matched
+                ? actual_norm1_visibility_barrier_source
+                : (actual_norm1_input_observed
+                       ? "missing_barrier_only_canary_record_for_actual_consumer_input_range"
+                       : "missing_live_norm1_activation_input_descriptor_range");
+            const std::string actual_consumer_visibility_resource_digest =
+                actual_norm1_descriptor_digest == "missing"
+                ? actual_norm1_input_range
+                : actual_norm1_descriptor_digest;
             stack_carry_visibility_actual_norm1_input_barrier_status_counts
                 [actual_norm1_input_barrier_status] += count;
             stack_carry_visibility_actual_norm1_input_barrier_status_bytes
@@ -9487,6 +10576,24 @@ void append_stack_region_submit_epoch_ordering_json(
             } else if (!submit_level_proof_complete) {
               highest_missing_field = submit_level_reject_reason;
             }
+            const std::string command_visibility_status =
+                submit_level_proof_complete
+                ? "complete"
+                : (submit_level_proof
+                       ? submit_level_reject_reason
+                       : "missing_submit_level_equivalence_proof");
+            const std::string transition_node_status =
+                boundary_barrier_ready
+                ? "actual_norm1_input_barrier_transition_present"
+                : (old_carry_retire_only_eligible ==
+                           "old_carry_retire_only_eligible"
+                       ? "old_carry_retire_only_transition_present"
+                       : "missing_transition_node_provenance");
+            const std::string alias_escape_class =
+                escape_blocker ==
+                    "no_public_final_host_or_alias_blocker_in_raw_provenance"
+                ? "private_unaliased_stack_resource"
+                : escape_blocker;
 
             stack_boundary_proof_record_count += count;
             stack_boundary_proof_record_bytes += bytes;
@@ -9523,6 +10630,81 @@ void append_stack_region_submit_epoch_ordering_json(
                 << " produced_range=" << fields[12]
                 << " actual_consumer_input_range=" << actual_norm1_input_range
                 << " old_carry_range=" << fields[12]
+                << " compiled_session_identity=missing_compiled_session_identity"
+                << " compiled_session_key_hash=missing_compiled_session_key_hash"
+                << " descriptor_binding_table_identity="
+                << actual_norm1_descriptor_identity
+                << " descriptor_binding_table_identity_source="
+                << (actual_norm1_descriptor_identity == "missing"
+                        ? "missing_live_descriptor_binding_identity"
+                        : "joined_live_descriptor_binding_row")
+                << " descriptor_set_update_generation="
+                << actual_norm1_descriptor_update_generation
+                << " descriptor_set_update_generation_status="
+                << actual_norm1_descriptor_update_status
+                << " descriptor_update_generation_source=live_descriptor_argument_order"
+                << " future_descriptor_update_generation_source=DescriptorSet_get_bind_handle_instrumented_separate_update_rows"
+                << " descriptor_layout_hash="
+                << actual_norm1_descriptor_layout_hash
+                << " descriptor_layout_hash_status="
+                << actual_norm1_descriptor_layout_status
+                << " descriptor_slot_resource_digest="
+                << actual_norm1_descriptor_digest
+                << " descriptor_identity_status="
+                << (actual_norm1_descriptor_identity == "missing"
+                        ? "missing_live_descriptor_binding_identity"
+                        : "live_descriptor_binding_identity_joined")
+                << " producer_descriptor_hash=logical_role:internal_output:set:0:binding:0:access:shader_write"
+                << " consumer_descriptor_hash=logical_role:norm1_activation_input:set:0:binding:6:access:shader_read"
+                << " old_carry_descriptor_hash=logical_role:old_carry:set:0:binding:unknown:access:retire"
+                << " descriptor_hash_source=logical_role_contract_not_vk_descriptor_set_hash"
+                << " actual_consumer_visibility_transition_status="
+                << actual_consumer_visibility_transition_status
+                << " actual_consumer_visibility_transition_source="
+                << actual_consumer_visibility_transition_source
+                << " actual_consumer_visibility_transition_contract=StackRegionBoundaryTransitionContract.v0"
+                << " actual_consumer_visibility_producer_role=residual2_actual_norm1_input_producer"
+                << " actual_consumer_visibility_consumer_role=norm1_activation_input"
+                << " actual_consumer_visibility_resource_digest="
+                << actual_consumer_visibility_resource_digest
+                << " command_visibility_identity="
+                << (submit_level_proof ? submit_level_proof->submit_key_fields
+                                        : "missing_submit_level_submit_key")
+                << " command_visibility_proof_status="
+                << command_visibility_status
+                << " producer_command_buffer_identity="
+                << (submit_level_proof ? "from_submit_level_equivalence"
+                                        : "missing_submit_level_equivalence")
+                << " consumer_command_buffer_identity="
+                << (submit_level_proof ? "from_submit_level_equivalence"
+                                        : "missing_submit_level_equivalence")
+                << " submit_epoch_identity="
+                << (submit_level_proof ? "from_submit_level_equivalence"
+                                        : "missing_submit_level_equivalence")
+                << " resource_state_transition_status="
+                << (boundary_barrier_ready
+                        ? "compute_write_to_compute_read_barrier_present"
+                        : "missing_actual_consumer_visibility_transition")
+                << " transition_node_provenance_status="
+                << transition_node_status
+                << " transition_contract_id=StackRegionBoundaryTransitionContract.v0"
+                << " allocator_region_identity=missing_allocator_pool_or_region_identity"
+                << " allocator_scope_status=allocation_generation_only_no_region_pool_identity"
+                << " allocator_generation_identity=allocation:" << fields[12]
+                << " alias_escape_class=" << alias_escape_class
+                << " public_output_blocker="
+                << (escape_blocker.find("public") != std::string::npos ? "1"
+                                                                         : "0")
+                << " final_output_blocker="
+                << (escape_blocker.find("final") != std::string::npos ? "1"
+                                                                        : "0")
+                << " host_visible_blocker="
+                << (escape_blocker.find("host") != std::string::npos ? "1"
+                                                                       : "0")
+                << " readback_blocker="
+                << (escape_blocker.find("readback") != std::string::npos
+                        ? "1"
+                        : "0")
                 << " live_descriptor_binding_status="
                 << actual_norm1_input_status
                 << " old_carry_descriptor_binding_status="
@@ -9846,9 +11028,13 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t submit_level_equivalence_complete_records = 0u;
   uint64_t submit_level_equivalence_complete_bytes = 0u;
   uint64_t submit_level_pending_dispatch_count = 0u;
+  uint64_t submit_level_pending_dispatch_position_range_available_records = 0u;
+  uint64_t submit_level_pending_dispatch_position_range_complete_records = 0u;
   uint64_t submit_level_pending_resource_count = 0u;
   uint64_t submit_level_pending_resource_bytes = 0u;
   uint64_t submit_level_descriptor_update_side_effect_count = 0u;
+  uint64_t submit_level_actual_descriptor_update_generation_records = 0u;
+  uint64_t submit_level_actual_descriptor_update_write_count = 0u;
   uint64_t submit_level_retire_side_effect_count = 0u;
   uint64_t submit_level_retire_side_effect_bytes = 0u;
   uint64_t submit_level_retire_entry_proven_safe_count = 0u;
@@ -9861,9 +11047,37 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t submit_level_matched_barrier_records = 0u;
   uint64_t submit_level_covered_by_barrier_count = 0u;
   uint64_t submit_level_covered_by_barrier_bytes = 0u;
+  uint64_t submit_level_actual_consumer_barrier_records = 0u;
+  uint64_t submit_level_actual_consumer_matched_barrier_records = 0u;
+  uint64_t submit_level_actual_consumer_covered_by_barrier_count = 0u;
+  uint64_t submit_level_actual_consumer_barrier_bytes = 0u;
+  uint64_t submit_level_old_carry_typed_proof_records = 0u;
+  uint64_t submit_level_old_carry_matched_proof_records = 0u;
+  uint64_t submit_level_old_carry_retire_only_proven_records = 0u;
+  uint64_t submit_level_old_carry_retire_only_proven_bytes = 0u;
+  uint64_t submit_level_old_carry_unsafe_records = 0u;
+  uint64_t submit_level_old_carry_unsafe_bytes = 0u;
   std::map<std::string, uint64_t> submit_level_reject_reason_counts;
   std::map<std::string, uint64_t> submit_level_candidate_status_counts;
   std::map<std::string, uint64_t> submit_level_top_side_effect_blocker_counts;
+  std::map<std::string, uint64_t> submit_level_actual_consumer_barrier_status_counts;
+  std::map<std::string, uint64_t> submit_level_old_carry_proof_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_actual_descriptor_update_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_descriptor_bookkeeping_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_visibility_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_list_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_range_completeness_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_completion_visibility_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_command_buffer_epoch_relation_counts;
+  std::map<std::string, uint64_t>
+      submit_level_command_buffer_submit_epoch_visibility_status_counts;
   for (const auto& row : submit_level_equivalence_proof_rows) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
@@ -9876,12 +11090,21 @@ void append_stack_region_submit_epoch_ordering_json(
     }
     submit_level_pending_dispatch_count +=
         parsed_u64(fields, "pending_dispatch_count");
+    submit_level_pending_dispatch_position_range_available_records +=
+        parsed_u64(
+            fields, "pending_dispatch_position_range_available_records");
+    submit_level_pending_dispatch_position_range_complete_records +=
+        parsed_u64(fields, "pending_dispatch_position_range_complete_records");
     submit_level_pending_resource_count +=
         parsed_u64(fields, "pending_resource_count");
     submit_level_pending_resource_bytes +=
         parsed_u64(fields, "pending_resource_bytes");
     submit_level_descriptor_update_side_effect_count +=
         parsed_u64(fields, "descriptor_update_side_effect_count");
+    submit_level_actual_descriptor_update_generation_records +=
+        parsed_u64(fields, "actual_descriptor_set_update_generation_records");
+    submit_level_actual_descriptor_update_write_count +=
+        parsed_u64(fields, "actual_descriptor_set_update_write_count");
     submit_level_retire_side_effect_count +=
         parsed_u64(fields, "retire_side_effect_count");
     submit_level_retire_side_effect_bytes +=
@@ -9908,6 +11131,26 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "covered_by_barrier_count");
     submit_level_covered_by_barrier_bytes +=
         parsed_u64(fields, "covered_by_barrier_bytes");
+    submit_level_actual_consumer_barrier_records +=
+        parsed_u64(fields, "actual_consumer_barrier_records");
+    submit_level_actual_consumer_matched_barrier_records +=
+        parsed_u64(fields, "actual_consumer_matched_barrier_records");
+    submit_level_actual_consumer_covered_by_barrier_count +=
+        parsed_u64(fields, "actual_consumer_covered_by_barrier_count");
+    submit_level_actual_consumer_barrier_bytes +=
+        parsed_u64(fields, "actual_consumer_barrier_bytes");
+    submit_level_old_carry_typed_proof_records +=
+        parsed_u64(fields, "old_carry_typed_proof_records");
+    submit_level_old_carry_matched_proof_records +=
+        parsed_u64(fields, "old_carry_matched_proof_records");
+    submit_level_old_carry_retire_only_proven_records +=
+        parsed_u64(fields, "old_carry_retire_only_proven_records");
+    submit_level_old_carry_retire_only_proven_bytes +=
+        parsed_u64(fields, "old_carry_retire_only_proven_bytes");
+    submit_level_old_carry_unsafe_records +=
+        parsed_u64(fields, "old_carry_unsafe_records");
+    submit_level_old_carry_unsafe_bytes +=
+        parsed_u64(fields, "old_carry_unsafe_bytes");
     submit_level_reject_reason_counts[field_or(
         fields, "reject_reason", "missing_submit_level_reject_reason")] +=
         count;
@@ -9919,6 +11162,46 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "top_submit_side_effect_blocker",
         "missing_top_submit_side_effect_blocker")] += count;
+    submit_level_actual_consumer_barrier_status_counts[field_or(
+        fields,
+        "actual_consumer_barrier_record_status",
+        "missing_actual_consumer_barrier_record_status")] += count;
+    submit_level_old_carry_proof_status_counts[field_or(
+        fields,
+        "old_carry_submit_proof_status",
+        "missing_old_carry_submit_proof_status")] += count;
+    submit_level_actual_descriptor_update_status_counts[field_or(
+        fields,
+        "actual_descriptor_set_update_generation_status",
+        "missing_actual_descriptor_set_update_generation_status")] += count;
+    submit_level_descriptor_bookkeeping_status_counts[field_or(
+        fields,
+        "descriptor_bookkeeping_equivalence_status",
+        "missing_descriptor_bookkeeping_equivalence_status")] += count;
+    submit_level_pending_dispatch_visibility_status_counts[field_or(
+        fields,
+        "pending_dispatch_visibility_proof_status",
+        "missing_pending_dispatch_visibility_proof_status")] += count;
+    submit_level_pending_dispatch_list_status_counts[field_or(
+        fields,
+        "pending_dispatch_list_status",
+        "missing_pending_dispatch_list_status")] += count;
+    submit_level_pending_dispatch_range_completeness_status_counts[field_or(
+        fields,
+        "pending_dispatch_range_completeness_status",
+        "missing_pending_dispatch_range_completeness_status")] += count;
+    submit_level_pending_dispatch_completion_visibility_status_counts[field_or(
+        fields,
+        "pending_dispatch_completion_visibility_status",
+        "missing_pending_dispatch_completion_visibility_status")] += count;
+    submit_level_pending_dispatch_command_buffer_epoch_relation_counts[field_or(
+        fields,
+        "pending_dispatch_command_buffer_epoch_relation",
+        "missing_pending_dispatch_command_buffer_epoch_relation")] += count;
+    submit_level_command_buffer_submit_epoch_visibility_status_counts[field_or(
+        fields,
+        "command_buffer_submit_epoch_visibility_proof_status",
+        "missing_command_buffer_submit_epoch_visibility_proof_status")] += count;
   }
   const std::string submit_level_top_reject_reason =
       top_count_key(submit_level_reject_reason_counts);
@@ -11023,6 +12306,16 @@ void append_stack_region_submit_epoch_ordering_json(
       submit_level_first);
   append_json_u64(
       out,
+      "pending_dispatch_position_range_available_records",
+      submit_level_pending_dispatch_position_range_available_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "pending_dispatch_position_range_complete_records",
+      submit_level_pending_dispatch_position_range_complete_records,
+      submit_level_first);
+  append_json_u64(
+      out,
       "pending_resource_count",
       submit_level_pending_resource_count,
       submit_level_first);
@@ -11035,6 +12328,16 @@ void append_stack_region_submit_epoch_ordering_json(
       out,
       "descriptor_update_side_effect_count",
       submit_level_descriptor_update_side_effect_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "actual_descriptor_set_update_generation_records",
+      submit_level_actual_descriptor_update_generation_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "actual_descriptor_set_update_write_count",
+      submit_level_actual_descriptor_update_write_count,
       submit_level_first);
   append_json_u64(
       out,
@@ -11096,6 +12399,56 @@ void append_stack_region_submit_epoch_ordering_json(
       "covered_by_barrier_bytes",
       submit_level_covered_by_barrier_bytes,
       submit_level_first);
+  append_json_u64(
+      out,
+      "actual_consumer_barrier_records",
+      submit_level_actual_consumer_barrier_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "actual_consumer_matched_barrier_records",
+      submit_level_actual_consumer_matched_barrier_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "actual_consumer_covered_by_barrier_count",
+      submit_level_actual_consumer_covered_by_barrier_count,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "actual_consumer_barrier_bytes",
+      submit_level_actual_consumer_barrier_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "old_carry_typed_proof_records",
+      submit_level_old_carry_typed_proof_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "old_carry_matched_proof_records",
+      submit_level_old_carry_matched_proof_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "old_carry_retire_only_proven_records",
+      submit_level_old_carry_retire_only_proven_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "old_carry_retire_only_proven_bytes",
+      submit_level_old_carry_retire_only_proven_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "old_carry_unsafe_records",
+      submit_level_old_carry_unsafe_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "old_carry_unsafe_bytes",
+      submit_level_old_carry_unsafe_bytes,
+      submit_level_first);
   append_json_bool(
       out,
       "submit_equivalence_proof_complete",
@@ -11119,6 +12472,42 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, submit_level_first);
   out << "\"candidate_status_counts\":";
   append_u64_map_object(out, submit_level_candidate_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"actual_consumer_barrier_status_counts\":";
+  append_u64_map_object(out, submit_level_actual_consumer_barrier_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"old_carry_submit_proof_status_counts\":";
+  append_u64_map_object(out, submit_level_old_carry_proof_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"actual_descriptor_set_update_generation_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_actual_descriptor_update_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"descriptor_bookkeeping_equivalence_status_counts\":";
+  append_u64_map_object(out, submit_level_descriptor_bookkeeping_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_visibility_proof_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_visibility_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_list_status_counts\":";
+  append_u64_map_object(out, submit_level_pending_dispatch_list_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_range_completeness_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_range_completeness_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_completion_visibility_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_completion_visibility_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_command_buffer_epoch_relation_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_command_buffer_epoch_relation_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"command_buffer_submit_epoch_visibility_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_command_buffer_submit_epoch_visibility_status_counts);
   append_json_comma(out, submit_level_first);
   out << "\"records\":[";
   for (size_t i = 0u; i < submit_level_equivalence_proof_rows.size(); ++i) {
@@ -11619,6 +13008,7 @@ void split_stack_graph_rows(
     std::vector<std::string>& insertion_point_nodes,
     std::vector<std::string>& live_buffer_binding_nodes,
     std::vector<std::string>& live_image_binding_nodes,
+    std::vector<std::string>& descriptor_set_update_generation_rows,
     std::vector<std::string>& dependency_edges,
     std::vector<std::string>& capture_edges,
     std::vector<std::string>& boundary_submit_plan_rows,
@@ -11666,6 +13056,12 @@ void split_stack_graph_rows(
       live_image_binding_nodes.emplace_back(row);
       continue;
     }
+    if (
+        row.find("descriptor_set_update_generation_record=1") !=
+        std::string::npos) {
+      descriptor_set_update_generation_rows.emplace_back(row);
+      continue;
+    }
     if (row.find("dispatch=1") != std::string::npos) {
       dispatch_nodes.emplace_back(row);
       continue;
@@ -11708,6 +13104,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> insertion_point_nodes;
   std::vector<std::string> live_buffer_binding_nodes;
   std::vector<std::string> live_image_binding_nodes;
+  std::vector<std::string> descriptor_set_update_generation_rows;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> capture_edges;
   std::vector<std::string> boundary_submit_plan_rows;
@@ -11722,6 +13119,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       insertion_point_nodes,
       live_buffer_binding_nodes,
       live_image_binding_nodes,
+      descriptor_set_update_generation_rows,
       dependency_edges,
       capture_edges,
       boundary_submit_plan_rows,
@@ -11824,6 +13222,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       out,
       "live_vulkan_image_binding_nodes",
       live_image_binding_nodes.size(),
+      summary_first);
+  append_json_u64(
+      out,
+      "descriptor_set_update_generation_rows",
+      descriptor_set_update_generation_rows.size(),
       summary_first);
   append_json_u64(
       out, "dependency_edge_rows", dependency_edges.size(), summary_first);
@@ -11932,6 +13335,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "live_vulkan_image_binding",
       first);
   append_graph_array(
+      out,
+      "descriptor_set_update_generation_rows",
+      descriptor_set_update_generation_rows,
+      "descriptor_set_update_generation",
+      first);
+  append_graph_array(
       out, "dependency_edges", dependency_edges, "dependency_edge", first);
   append_graph_array(out, "capture_edges", capture_edges, "capture_edge", first);
   append_graph_array(out, "resource_nodes", resource_nodes, "resource", first);
@@ -12001,6 +13410,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_submit_plan_rows,
       live_buffer_binding_nodes,
       live_image_binding_nodes,
+      descriptor_set_update_generation_rows,
       raw_resource_producer_rows,
       consumer_registration_rows,
       barrier_only_canary_rows,
@@ -16200,6 +17610,20 @@ void note_stack_region_boundary_submit_plan(
       classify_stack_region_pending_side_effects(resource_signature);
   const StackRegionPendingBarrierCoverage barrier_coverage =
       classify_stack_region_pending_barrier_coverage(allocation_signature);
+  const uint64_t pending_dispatch_last_position =
+      g_stack_dispatch_dependency_position;
+  const bool pending_dispatch_position_range_available =
+      pending_dispatch_count > 0u &&
+      pending_dispatch_last_position >= pending_dispatch_count;
+  const uint64_t pending_dispatch_first_position =
+      pending_dispatch_position_range_available
+      ? pending_dispatch_last_position - pending_dispatch_count + 1u
+      : 0u;
+  const std::string pending_dispatch_list_identity =
+      "scope:" + std::to_string(g_stack_dispatch_dependency_scope_id) +
+      ":command_buffer:" + std::to_string(command_buffer_recording_id) +
+      ":positions:" + std::to_string(pending_dispatch_first_position) + "-" +
+      std::to_string(pending_dispatch_last_position);
   const uint64_t pending_dispatch_descriptor_update_count =
       pending_dispatch_count;
   const uint64_t pending_dispatch_command_buffer_bookkeeping_count =
@@ -16207,6 +17631,47 @@ void note_stack_region_boundary_submit_plan(
   const uint64_t genuinely_unknown_pending_dispatch_count = 0u;
   const uint64_t unknown_pending_dispatch_count =
       genuinely_unknown_pending_dispatch_count;
+  const bool pending_dispatch_side_effect_rows_match =
+      pending_dispatch_position_range_available &&
+      pending_dispatch_descriptor_update_count == pending_dispatch_count &&
+      pending_dispatch_command_buffer_bookkeeping_count ==
+          pending_dispatch_count &&
+      unknown_pending_dispatch_count == 0u;
+  const std::string pending_dispatch_range_completeness_status =
+      pending_dispatch_count == 0u
+      ? "no_pending_dispatches"
+      : (pending_dispatch_position_range_available
+             ? (pending_dispatch_side_effect_rows_match
+                    ? "pending_dispatch_range_complete_side_effect_rows_match"
+                    : "pending_dispatch_range_available_side_effect_rows_incomplete")
+             : "pending_dispatch_range_missing");
+  const bool pending_dispatch_position_range_complete =
+      pending_dispatch_count == 0u || pending_dispatch_side_effect_rows_match;
+  const std::string command_buffer_submit_epoch_visibility_status =
+      pending_dispatch_count == 0u
+      ? "no_pending_dispatches"
+      : (command_buffer_recording_id == 0u
+             ? "missing_command_buffer_recording_id"
+             : (submit_epoch_after == submit_epoch_before
+                    ? "same_command_buffer_same_submit_epoch_proven"
+                    : "same_command_buffer_crosses_phase_submit_epoch_visibility_unproven"));
+  const std::string pending_dispatch_list_status =
+      pending_dispatch_count == 0u
+      ? "no_pending_dispatch_list_available"
+      : (pending_dispatch_position_range_available
+             ? (pending_dispatch_position_range_complete
+                    ? "pending_dispatch_position_range_complete"
+                    : "pending_dispatch_position_range_available_but_completion_unproven")
+             : "pending_dispatch_list_available_but_position_range_incomplete");
+  const std::string pending_dispatch_completion_visibility_status =
+      pending_dispatch_count == 0u
+      ? "no_pending_dispatch_list_available"
+      : (pending_dispatch_position_range_complete
+             ? (command_buffer_submit_epoch_visibility_status ==
+                        "same_command_buffer_same_submit_epoch_proven"
+                    ? "pending_dispatch_range_complete_epoch_visibility_proven"
+                    : "pending_dispatch_range_complete_epoch_visibility_unproven")
+             : "pending_dispatch_range_incomplete");
   const uint64_t descriptor_update_side_effect_count = pending_dispatch_count;
   const uint64_t upload_side_effect_count = 0u;
   const uint64_t retire_side_effect_count = old_path_pending_count;
@@ -16309,6 +17774,31 @@ void note_stack_region_boundary_submit_plan(
       << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
       << " submit_equivalence_fail_closed_reason=pending_dispatch_set_incomplete_or_unmodeled_side_effects"
       << " pending_dispatch_count=" << pending_dispatch_count
+      << " pending_dispatch_list_identity=" << pending_dispatch_list_identity
+      << " pending_dispatch_list_status=" << pending_dispatch_list_status
+      << " pending_dispatch_range_completeness_status="
+      << pending_dispatch_range_completeness_status
+      << " pending_dispatch_position_range_source=stack_dispatch_dependency_recorded_positions"
+      << " pending_dispatch_position_range_available="
+      << (pending_dispatch_position_range_available ? 1 : 0)
+      << " pending_dispatch_position_first="
+      << pending_dispatch_first_position
+      << " pending_dispatch_position_last=" << pending_dispatch_last_position
+      << " pending_dispatch_position_count=" << pending_dispatch_count
+      << " pending_dispatch_position_range_complete="
+      << (pending_dispatch_position_range_complete ? 1 : 0)
+      << " pending_dispatch_position_range_complete_reason="
+      << pending_dispatch_range_completeness_status
+      << " pending_dispatch_command_buffer_recording_id="
+      << command_buffer_recording_id
+      << " pending_dispatch_submit_epoch_before=" << submit_epoch_before
+      << " pending_dispatch_submit_epoch_after=" << submit_epoch_after
+      << " pending_dispatch_command_buffer_epoch_relation="
+      << command_buffer_submit_epoch_visibility_status
+      << " command_buffer_submit_epoch_visibility_proof_status="
+      << command_buffer_submit_epoch_visibility_status
+      << " pending_dispatch_completion_visibility_status="
+      << pending_dispatch_completion_visibility_status
       << " pending_dispatch_labels=stack_owner_phase_boundary_pending_command_buffer"
       << " pending_dispatch_classes=stack_owner_phase_boundary_pending_command_buffer#"
       << pending_dispatch_count
@@ -17024,6 +18514,39 @@ void note_vulkan_stack_live_image_descriptor_binding(
   value.last_position = next_recorded_position;
 }
 
+void note_vulkan_stack_descriptor_set_update_generation(
+    const char* shader_name,
+    const uint64_t descriptor_set_handle_token,
+    const uint64_t update_generation,
+    const uint64_t write_count) {
+  if (!inside_vision_stack_phase()) {
+    return;
+  }
+  const uint64_t scope_id = g_stack_dispatch_dependency_scope_id;
+  if (scope_id == 0u) {
+    return;
+  }
+  const uint64_t next_recorded_position =
+      g_stack_dispatch_dependency_position + 1u;
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_descriptor_set_update_generation_rows()
+      [stack_descriptor_set_update_generation_key(
+          scope_id,
+          g_vision_stack_phase,
+          g_vision_stack_block_index,
+          shader_name,
+          next_recorded_position,
+          descriptor_set_handle_token,
+          update_generation,
+          write_count)];
+  value.count += 1u;
+  value.write_count += write_count;
+  if (value.first_position == 0u) {
+    value.first_position = next_recorded_position;
+  }
+  value.last_position = next_recorded_position;
+}
+
 void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
     const uint32_t binding_idx,
     const char* shader_name,
@@ -17578,6 +19101,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_dispatch_dependency_insertion_point_rows().size() +
       stack_dispatch_dependency_live_buffer_binding_rows().size() +
       stack_dispatch_dependency_live_image_binding_rows().size() +
+      stack_descriptor_set_update_generation_rows().size() +
       stack_dispatch_dependency_dry_run_rows().size() +
       stack_region_boundary_submit_plan_rows().size() +
       stack_region_barrier_only_canary_rows().size() +
@@ -17614,6 +19138,16 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " next_recorded_dispatch_first_position="
         << item.second.first_position
         << " next_recorded_dispatch_last_position=" << item.second.last_position;
+    rows.push_back(row.str());
+  }
+  for (const auto& item : stack_descriptor_set_update_generation_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " next_recorded_dispatch_first_position="
+        << item.second.first_position
+        << " next_recorded_dispatch_last_position=" << item.second.last_position
+        << " observed_descriptor_update_write_count="
+        << item.second.write_count;
     rows.push_back(row.str());
   }
   for (const auto& item : stack_dispatch_dependency_dry_run_rows()) {
@@ -17707,6 +19241,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_dispatch_dependency_insertion_point_rows().clear();
   stack_dispatch_dependency_live_buffer_binding_rows().clear();
   stack_dispatch_dependency_live_image_binding_rows().clear();
+  stack_descriptor_set_update_generation_rows().clear();
   stack_dispatch_dependency_dry_run_rows().clear();
   stack_region_boundary_submit_plan_rows().clear();
   stack_region_barrier_only_canary_rows().clear();

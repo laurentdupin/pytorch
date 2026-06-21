@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/api/Sync.h>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <fstream>
 #include <algorithm>
 #include <chrono>
@@ -904,7 +905,13 @@ void Context::register_shader_dispatch(
   };
 
   CommandBuffer& cmd = active_cmd();
-  cmd.bind_descriptors(descriptors.get_bind_handle());
+  const VkDescriptorSet descriptor_set = descriptors.get_bind_handle();
+  note_vulkan_stack_descriptor_set_update_generation(
+      shader_descriptor.kernel_name.c_str(),
+      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(descriptor_set)),
+      descriptors.last_update_generation(),
+      descriptors.last_update_write_count());
+  cmd.bind_descriptors(descriptor_set);
   cmd.insert_barrier(pipeline_barrier);
 
   cmd.dispatch(effective_global_wg);

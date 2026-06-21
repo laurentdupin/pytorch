@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `3d37e7a2778` plus the
-behavior-neutral per-instance submit side-effect classification slice.
+Last refreshed: 2026-06-21 at local HEAD `e08296b8c4c` plus the
+behavior-neutral backend planning proof-field slice.
 
 ## Repo State Summary
 
@@ -132,6 +132,71 @@ capture-sensitive activation is kept fail-closed as
 `capture_sensitive_activation_submit_site_relation_unproven` until it can be
 joined to a typed boundary row at the live submit site. This is diagnostics
 only; no submit elision or new barrier behavior is enabled.
+The CUDA and DirectML backend probes have now been folded into the typed proof
+schema. `StackBoundaryProofRecord.v0` and
+`StackBoundarySubmitLevelEquivalenceProof.v0` explicitly report descriptor or
+binding-table identity, descriptor update generation status, command-buffer and
+submit visibility status, allocator pool or region identity status, transition
+node provenance, and alias/public/final/host/readback escape class. These
+fields are proof surfaces only. Descriptor identity remains a logical
+live-binding/update-order identity derived from the stack descriptor argument
+rows and submit key. Actual descriptor update-generation evidence is now emitted
+as separate `StackDescriptorSetUpdateGeneration.v0` rows from
+`DescriptorSet::get_bind_handle()` and joined into submit-level proof rows as
+diagnostic evidence. This does not prove submit equivalence by itself: missing
+pending-dispatch completion, command visibility, allocator region identity, or
+transition provenance remains a hard blocker rather than an optimization
+trigger.
+`StackBoundaryProofRecord.v0` also records actual Norm1 input visibility
+transition provenance with
+`actual_consumer_visibility_transition_status`,
+`actual_consumer_visibility_transition_source`,
+`actual_consumer_visibility_transition_contract`,
+`actual_consumer_visibility_producer_role`,
+`actual_consumer_visibility_consumer_role`, and
+`actual_consumer_visibility_resource_digest`. The existing opt-in
+`StackRegionBarrierOnlyCanary.v0` path now labels its command-recorded barrier
+record as `actual_norm1_input_visibility` when it covers the live Norm1
+activation-input descriptor range, so typed rows can join the real barrier-only
+record for that exact range. Default runs still report the precise missing
+source, such as
+`missing_barrier_only_canary_record_for_actual_consumer_input_range`. This is
+still barrier-only/proof work: submits are preserved, and no default runtime
+behavior changes.
+`StackBoundarySubmitLevelEquivalenceProof.v0` now accounts for those
+actual-consumer barrier-only records as submit-level proof inputs. Rows
+distinguish no actual-consumer barrier, a barrier that exists for a different
+boundary or stack instance, and a matching actual-consumer barrier that is still
+blocked by another submit-level side effect. The matching join can make
+`real_barrier_records`, `matched_barrier_records`, and
+`actual_consumer_matched_barrier_records` nonzero for the selected boundary, but
+submit elision remains disallowed while descriptor updates, retire entries, or
+other submit-level side effects are incomplete.
+The submit-level proof also joins pending `capture_sensitive_stack_activation`
+old-carry resources back to matching `StackBoundaryProofRecord.v0` rows by
+boundary, stack-region instance, and exact allocation/range digest. When the
+typed row proves formal last use, no later descriptor read, no public/final/host
+or alias escape, and retire-only eligibility, the submit-level accounting moves
+that resource from `retire_entry_unknown_or_ordering_required` into
+`old_carry_retire_only_proven_*` and reports
+`typed_old_carry_proof_matches_retire_only_nonescaping`. The join uses the
+live submit row's `raw_buffer_provenance_signature`; missing raw provenance is
+reported explicitly instead of being treated as a successful proof miss. This is
+still a
+behavior-neutral accounting join; submit-equivalence remains fail-closed until
+all submit-level side effects are covered. Descriptor updates now have actual
+update-generation evidence, but pending dispatch completion and command-buffer
+visibility are still separate fail-closed gates. Submit-level rows report
+pending dispatch list identity, recorded-position range, command-buffer
+recording id, submit epochs, and explicit completion/visibility status. A
+recorded position range is only diagnostic; it does not prove the pending
+command list is complete or that a phase-boundary submit can be elided. The
+latest proof split reports range/set completeness separately from
+command-buffer submit-epoch visibility: a contiguous recorded range may match
+the pending descriptor/bookkeeping side-effect rows, while
+`command_buffer_submit_epoch_visibility_proof_status` still blocks submit
+equivalence if the range crosses a phase-boundary submit epoch without a proven
+visibility relation.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

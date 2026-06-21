@@ -891,6 +891,11 @@ TORCH_API void note_vulkan_stack_live_image_descriptor_binding(
     uint32_t binding_idx,
     const char* shader_name,
     const VulkanImage& image);
+TORCH_API void note_vulkan_stack_descriptor_set_update_generation(
+    const char* shader_name,
+    uint64_t descriptor_set_handle_token,
+    uint64_t update_generation,
+    uint64_t write_count);
 TORCH_API void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
     uint32_t binding_idx,
     const char* shader_name,

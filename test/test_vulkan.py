@@ -20037,6 +20037,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for edge in graph["dependency_edges"]
                 )
             )
+            submit_epoch_ordering = graph["stack_region_submit_epoch_ordering"]
+            submit_level_proof = submit_epoch_ordering[
+                "stack_boundary_proof_records"
+            ]["submit_level_equivalence_proof"]
+            self.assertEqual(
+                submit_level_proof["actual_consumer_barrier_records"],
+                0,
+            )
+            self.assertIn(
+                "no_actual_consumer_barrier_record_exists",
+                submit_level_proof["actual_consumer_barrier_status_counts"],
+            )
             self.assertIn(
                 "complete_boundary_dependency_set",
                 graph["unproven_or_missing_metadata_fields"],
@@ -20144,6 +20156,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(first_record["src_access"], "shader_write")
             self.assertEqual(first_record["dst_stage"], "compute_shader")
             self.assertEqual(first_record["dst_access"], "shader_read")
+            self.assertEqual(
+                first_record["barrier_target_role"],
+                "actual_norm1_input_visibility",
+            )
+            self.assertEqual(
+                first_record["actual_consumer_visibility_transition_status"],
+                "actual_consumer_visibility_transition_joined_from_real_barrier",
+            )
+            self.assertEqual(
+                first_record["actual_consumer_visibility_transition_source"],
+                "StackRegionBarrierOnlyCanary.v0",
+            )
+            self.assertEqual(
+                first_record["actual_consumer_visibility_transition_contract"],
+                "StackRegionBoundaryTransitionContract.v0",
+            )
+            self.assertEqual(
+                first_record["actual_consumer_visibility_consumer_role"],
+                "norm1_activation_input",
+            )
             optimization_plan = graph["stack_region_boundary_optimization_plan"]
             self.assertGreater(optimization_plan["candidate_records"], 0)
             self.assertEqual(
@@ -20175,6 +20207,92 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 submit_epoch_ordering["schema"],
                 "StackRegionSubmitEpochOrdering.v0",
+            )
+            stack_boundary_records = submit_epoch_ordering[
+                "stack_boundary_proof_records"
+            ]
+            joined_transition_records = [
+                record
+                for record in stack_boundary_records["records"]
+                if record["fields"].get(
+                    "actual_consumer_visibility_transition_status"
+                )
+                == "actual_consumer_visibility_transition_joined_from_real_barrier"
+            ]
+            self.assertTrue(joined_transition_records)
+            self.assertTrue(
+                any(
+                    "actual_norm1_input_visibility"
+                    in record["fields"].get(
+                        "actual_consumer_visibility_transition_source", ""
+                    )
+                    for record in joined_transition_records
+                )
+            )
+            submit_level_proof = stack_boundary_records[
+                "submit_level_equivalence_proof"
+            ]
+            self.assertGreater(
+                submit_level_proof["actual_consumer_barrier_records"], 0
+            )
+            self.assertGreater(
+                submit_level_proof["actual_consumer_matched_barrier_records"],
+                0,
+            )
+            self.assertGreater(
+                submit_level_proof[
+                    "actual_consumer_covered_by_barrier_count"
+                ],
+                0,
+            )
+            self.assertIn(
+                "matching_actual_consumer_barrier_record_exists_submit_equivalence_still_blocked",
+                submit_level_proof["actual_consumer_barrier_status_counts"],
+            )
+            self.assertIn(
+                "old_carry_submit_proof_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "old_carry_typed_proof_records",
+                submit_level_proof,
+            )
+            if submit_level_proof["old_carry_typed_proof_records"] > 0:
+                self.assertGreater(
+                    submit_level_proof["old_carry_matched_proof_records"],
+                    0,
+                )
+                self.assertGreater(
+                    submit_level_proof["old_carry_retire_only_proven_records"],
+                    0,
+                )
+                self.assertIn(
+                    "typed_old_carry_proof_matches_retire_only_nonescaping",
+                    submit_level_proof["old_carry_submit_proof_status_counts"],
+                )
+            else:
+                self.assertIn(
+                    "no_typed_old_carry_proof_exists",
+                    submit_level_proof["old_carry_submit_proof_status_counts"],
+                )
+            self.assertEqual(
+                submit_level_proof["complete_submit_records"], 0
+            )
+            self.assertTrue(submit_level_proof["records"])
+            first_submit_level_record = submit_level_proof["records"][0][
+                "fields"
+            ]
+            self.assertGreater(
+                int(first_submit_level_record["actual_consumer_barrier_records"]),
+                0,
+            )
+            self.assertEqual(
+                first_submit_level_record["actual_consumer_barrier_record_status"],
+                "matching_actual_consumer_barrier_record_exists_submit_equivalence_still_blocked",
+            )
+            self.assertIn(
+                "old_carry_submit_proof_status",
+                first_submit_level_record,
             )
             self.assertTrue(submit_epoch_ordering["behavior_neutral"])
             self.assertFalse(
@@ -20559,11 +20677,179 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "old_carry_reject_reason",
                 stack_boundary_records["records"][0]["fields"],
             )
+            self.assertIn(
+                "descriptor_binding_table_identity",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "descriptor_set_update_generation",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertEqual(
+                stack_boundary_records["records"][0]["fields"][
+                    "descriptor_set_update_generation_status"
+                ],
+                "logical_not_vk_descriptor_set_generation",
+            )
+            self.assertEqual(
+                stack_boundary_records["records"][0]["fields"][
+                    "future_descriptor_update_generation_source"
+                ],
+                "DescriptorSet_get_bind_handle_instrumented_separate_update_rows",
+            )
+            self.assertIn(
+                "command_visibility_proof_status",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "allocator_region_identity",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "transition_node_provenance_status",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "actual_consumer_visibility_transition_status",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "actual_consumer_visibility_transition_source",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "actual_consumer_visibility_transition_contract",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "actual_consumer_visibility_resource_digest",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertEqual(
+                stack_boundary_records["records"][0]["fields"][
+                    "actual_consumer_visibility_transition_status"
+                ],
+                "actual_consumer_visibility_transition_joined_from_real_barrier",
+            )
+            self.assertIn(
+                "alias_escape_class",
+                stack_boundary_records["records"][0]["fields"],
+            )
             self.assertEqual(
                 stack_boundary_records["records"][0]["fields"][
                     "behavior_change_allowed"
                 ],
                 "0",
+            )
+            submit_level_proof = stack_boundary_records[
+                "submit_level_equivalence_proof"
+            ]
+            self.assertTrue(submit_level_proof["records"])
+            submit_level_fields = submit_level_proof["records"][0]["fields"]
+            self.assertIn("binding_table_identity_status", submit_level_fields)
+            self.assertEqual(
+                submit_level_fields["descriptor_set_update_generation_status"],
+                "logical_not_vk_descriptor_set_generation",
+            )
+            self.assertIn(
+                "actual_descriptor_set_update_generation_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "actual_descriptor_set_update_generation_records",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "descriptor_bookkeeping_equivalence_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_visibility_proof_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_list_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_completion_visibility_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_range_completeness_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_command_buffer_epoch_relation",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "command_buffer_submit_epoch_visibility_proof_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_position_range_available_records",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_position_range_complete_records",
+                submit_level_fields,
+            )
+            self.assertIn("command_visibility_proof_status", submit_level_fields)
+            self.assertIn("resource_state_transition_status", submit_level_fields)
+            self.assertIn("allocator_scope_status", submit_level_fields)
+            self.assertIn("transition_node_provenance_status", submit_level_fields)
+            self.assertIn("actual_consumer_barrier_records", submit_level_fields)
+            self.assertGreater(
+                submit_level_proof["actual_consumer_barrier_records"],
+                0,
+            )
+            self.assertIn(
+                "matching_actual_consumer_barrier_record_exists_submit_equivalence_still_blocked",
+                submit_level_proof["actual_consumer_barrier_status_counts"],
+            )
+            self.assertIn(
+                "old_carry_submit_proof_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "old_carry_typed_proof_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "actual_descriptor_set_update_generation_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "descriptor_bookkeeping_equivalence_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "pending_dispatch_visibility_proof_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "pending_dispatch_list_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "pending_dispatch_completion_visibility_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "pending_dispatch_range_completeness_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "pending_dispatch_command_buffer_epoch_relation_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "command_buffer_submit_epoch_visibility_status_counts",
+                submit_level_proof,
+            )
+            self.assertFalse(
+                submit_level_proof["submit_equivalence_proof_complete"]
             )
             self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
