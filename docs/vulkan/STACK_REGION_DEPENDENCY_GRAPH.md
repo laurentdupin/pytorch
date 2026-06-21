@@ -255,6 +255,18 @@ when a stack-owner recording scope ends. The v0 schema is
   same current run has inserted the real barrier records for the selected
   non-capture boundary. Without that future opt-in, eligible records report
   `eligible_requires_submit_elision_opt_in` and `submits_removed=0`.
+- a nested `stack_boundary_proof_records` object with schema
+  `StackBoundaryProofRecord.v0`. This is the consolidated per-boundary proof
+  row surface for stack carry and submit-equivalence readiness. Each row records
+  the boundary id/class, producer and consumer roles/blocks/substeps, produced
+  range, actual consumer input range, old carry range, descriptor observation,
+  formal last-use and non-escape proof status, public/host/final/readback/alias
+  blocker status, actual input and old-carry barrier status,
+  `behavior_change_allowed`, submit-equivalence candidate status, and reject
+  reason. Legacy `stack_carry_visibility_*` histograms may still be emitted for
+  continuity, but readiness summaries such as barrier-ready records,
+  submit-elision-ready records, top reject reason, and highest-leverage missing
+  proof field are generated from the typed rows.
 
 This dump is diagnostic by default. It does not skip submits, change routes, or
 change accepted shapes. A real barrier is recorded only under the explicit

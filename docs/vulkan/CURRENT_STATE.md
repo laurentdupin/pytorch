@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `755c6619d2b7` plus the
-behavior-neutral `StackRegionBoundaryOptimizationPlan.v0` slice.
+Last refreshed: 2026-06-21 at local HEAD `7da77f3624dd` plus the
+behavior-neutral `StackBoundaryProofRecord.v0` consolidation slice.
 
 ## Repo State Summary
 
@@ -83,6 +83,17 @@ must add and use a separate
 `PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` opt-in, must consume real
 barrier insertion plus current-run proof match, and may select at most one
 non-capture boundary.
+
+`StackBoundaryProofRecord.v0` consolidates the carry, actual Norm1 input, old
+carry retirement, barrier coverage, and submit-equivalence diagnostics into one
+typed per-boundary row surface. The legacy histograms remain available, but
+readiness should be decided from these rows: they report the candidate boundary,
+producer and consumer roles, produced/actual/old-carry ranges, live descriptor
+status, formal last-use and non-escape proof status, blocker status, barrier
+status, `behavior_change_allowed=false`, and the fail-closed reject reason.
+The current proof remains behavior-neutral: submit-elision-ready records are
+zero, and the highest-leverage missing proof is the old residual2 carry
+non-escape/retire-only proof after actual Norm1 input separation.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

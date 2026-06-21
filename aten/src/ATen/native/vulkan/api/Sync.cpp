@@ -7517,6 +7517,19 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> stack_carry_visibility_old_carry_retire_only_eligible_bytes;
   std::map<std::string, uint64_t> stack_carry_visibility_old_carry_fail_closed_reason_counts;
   std::map<std::string, uint64_t> stack_carry_visibility_old_carry_fail_closed_reason_bytes;
+  std::vector<std::string> stack_boundary_proof_record_rows;
+  uint64_t stack_boundary_proof_record_count = 0u;
+  uint64_t stack_boundary_proof_record_bytes = 0u;
+  uint64_t stack_boundary_proof_barrier_ready_count = 0u;
+  uint64_t stack_boundary_proof_barrier_ready_bytes = 0u;
+  uint64_t stack_boundary_proof_submit_elision_ready_count = 0u;
+  uint64_t stack_boundary_proof_submit_elision_ready_bytes = 0u;
+  std::map<std::string, uint64_t> stack_boundary_proof_boundary_class_counts;
+  std::map<std::string, uint64_t> stack_boundary_proof_boundary_class_bytes;
+  std::map<std::string, uint64_t> stack_boundary_proof_reject_reason_counts;
+  std::map<std::string, uint64_t> stack_boundary_proof_reject_reason_bytes;
+  std::map<std::string, uint64_t> stack_boundary_proof_missing_field_counts;
+  std::map<std::string, uint64_t> stack_boundary_proof_missing_field_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
   std::map<std::string, std::string> live_buffer_binding_sources_by_phase_block;
   std::map<std::string, std::string> live_buffer_binding_ranges_by_phase_block;
@@ -8171,6 +8184,7 @@ void append_stack_region_submit_epoch_ordering_json(
             bool actual_norm1_input_observed = false;
             bool actual_norm1_input_same_range = false;
             bool actual_norm1_input_barrier_matched = false;
+            std::string actual_norm1_input_range = "missing";
             std::string actual_norm1_input_source = "missing";
             std::string actual_norm1_input_producer = "missing";
             if (
@@ -8211,11 +8225,13 @@ void append_stack_region_submit_epoch_ordering_json(
                   actual_norm1_input_barrier_matched = true;
                 }
                 if (actual_norm1_input_source == "missing") {
+                  actual_norm1_input_range = candidate_range;
                   actual_norm1_input_source = candidate_source;
                   actual_norm1_input_producer = candidate_producer_it->second;
                 } else if (
                     actual_norm1_input_source.find(candidate_source) ==
                     std::string::npos) {
+                  actual_norm1_input_range += "|" + candidate_range;
                   actual_norm1_input_source += "|" + candidate_source;
                   actual_norm1_input_producer += "|" +
                       candidate_producer_it->second;
@@ -8581,6 +8597,103 @@ void append_stack_region_submit_epoch_ordering_json(
                 [fail_closed_reason] += count;
             stack_carry_visibility_submit_equivalence_blocker_bytes
                 [fail_closed_reason] += bytes;
+
+            const bool boundary_barrier_ready =
+                actual_norm1_input_barrier_matched;
+            const bool boundary_submit_elision_ready =
+                boundary_barrier_ready &&
+                old_carry_retire_only_eligible ==
+                    "old_carry_retire_only_eligible" &&
+                fail_closed_reason == "none";
+            std::string boundary_reject_reason =
+                boundary_submit_elision_ready ? "none" : fail_closed_reason;
+            if (boundary_reject_reason == "none" &&
+                !boundary_submit_elision_ready) {
+              boundary_reject_reason =
+                  boundary_barrier_ready
+                  ? "submit_equivalence_proof_incomplete"
+                  : "actual_norm1_input_visibility_barrier_missing";
+            }
+            std::string highest_missing_field = "none";
+            if (old_carry_non_escape_proof != "old_carry_non_escape_proven") {
+              highest_missing_field = "old_carry_non_escape_proof";
+            } else if (
+                old_carry_retire_only_eligible !=
+                "old_carry_retire_only_eligible") {
+              highest_missing_field = "old_carry_retire_only_proof";
+            } else if (!boundary_barrier_ready) {
+              highest_missing_field = "actual_norm1_input_visibility_barrier";
+            } else if (fail_closed_reason != "none") {
+              highest_missing_field = fail_closed_reason;
+            }
+
+            const std::string boundary_class =
+                "non_capture_residual2_to_norm1";
+            const std::string boundary_id =
+                "non_capture_boundary:producer_block=" + fields[5] +
+                ":consumer_block=" + fields[7];
+            stack_boundary_proof_record_count += count;
+            stack_boundary_proof_record_bytes += bytes;
+            stack_boundary_proof_boundary_class_counts[boundary_class] += count;
+            stack_boundary_proof_boundary_class_bytes[boundary_class] += bytes;
+            stack_boundary_proof_reject_reason_counts[boundary_reject_reason] +=
+                count;
+            stack_boundary_proof_reject_reason_bytes[boundary_reject_reason] +=
+                bytes;
+            stack_boundary_proof_missing_field_counts[highest_missing_field] +=
+                count;
+            stack_boundary_proof_missing_field_bytes[highest_missing_field] +=
+                bytes;
+            if (boundary_barrier_ready) {
+              stack_boundary_proof_barrier_ready_count += count;
+              stack_boundary_proof_barrier_ready_bytes += bytes;
+            }
+            if (boundary_submit_elision_ready) {
+              stack_boundary_proof_submit_elision_ready_count += count;
+              stack_boundary_proof_submit_elision_ready_bytes += bytes;
+            }
+
+            std::ostringstream stack_boundary_record;
+            stack_boundary_record
+                << "schema=StackBoundaryProofRecord.v0"
+                << " boundary_id=" << boundary_id
+                << " boundary_class=" << boundary_class
+                << " producer_role=" << fields[2]
+                << " producer_block=" << fields[5]
+                << " producer_substep=" << fields[4]
+                << " consumer_role=norm1_activation_input"
+                << " consumer_block=" << fields[7]
+                << " consumer_substep=" << fields[6]
+                << " produced_range=" << fields[12]
+                << " actual_consumer_input_range=" << actual_norm1_input_range
+                << " old_carry_range=" << fields[12]
+                << " live_descriptor_binding_status="
+                << actual_norm1_input_status
+                << " old_carry_descriptor_binding_status="
+                << old_carry_later_descriptor_status
+                << " later_descriptor_observed="
+                << (old_carry_later_descriptor_observed ? "1" : "0")
+                << " non_escape_proof_status=" << old_carry_non_escape_proof
+                << " formal_last_use_proof_status=" << fields[9]
+                << " public_host_final_readback_alias_blocker_status="
+                << escape_blocker
+                << " barrier_status=" << actual_norm1_input_barrier_status
+                << " old_carry_barrier_status=" << barrier_status
+                << " behavior_change_allowed=0"
+                << " barrier_ready=" << (boundary_barrier_ready ? "1" : "0")
+                << " submit_equivalence_candidate_status="
+                << (boundary_submit_elision_ready
+                        ? "submit_elision_ready"
+                        : "submit_elision_rejected")
+                << " submit_elision_ready="
+                << (boundary_submit_elision_ready ? "1" : "0")
+                << " reject_reason=" << boundary_reject_reason
+                << " highest_leverage_missing_proof_field="
+                << highest_missing_field
+                << " count=" << count
+                << " bytes=" << bytes;
+            stack_boundary_proof_record_rows.emplace_back(
+                stack_boundary_record.str());
           }
           if (producer_registered && !explicit_blocker && !raw_proof_complete) {
             raw_buffer_registered_blocking_count += count;
@@ -8809,6 +8922,23 @@ void append_stack_region_submit_epoch_ordering_json(
   for (const auto& row : submit_rows) {
     count_row(row, false, false);
   }
+
+  const auto top_count_key =
+      [](const std::map<std::string, uint64_t>& values) {
+        std::string top = "none";
+        uint64_t top_count = 0u;
+        for (const auto& item : values) {
+          if (item.second > top_count) {
+            top = item.first;
+            top_count = item.second;
+          }
+        }
+        return top;
+      };
+  const std::string stack_boundary_top_reject_reason =
+      top_count_key(stack_boundary_proof_reject_reason_counts);
+  const std::string stack_boundary_highest_leverage_missing_field =
+      top_count_key(stack_boundary_proof_missing_field_counts);
 
   append_json_comma(out, first);
   out << "\"stack_region_submit_epoch_ordering\":{";
@@ -9510,6 +9640,82 @@ void append_stack_region_submit_epoch_ordering_json(
   out << "\"stack_carry_visibility_old_carry_fail_closed_reason_bytes\":";
   append_u64_map_object(
       out, stack_carry_visibility_old_carry_fail_closed_reason_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_boundary_proof_records\":{";
+  bool stack_boundary_first = true;
+  append_json_string(
+      out, "schema", "StackBoundaryProofRecord.v0", stack_boundary_first);
+  append_json_bool(out, "behavior_neutral", true, stack_boundary_first);
+  append_json_bool(
+      out, "default_behavior_unchanged", true, stack_boundary_first);
+  append_json_u64(
+      out,
+      "candidate_records",
+      stack_boundary_proof_record_count,
+      stack_boundary_first);
+  append_json_u64(
+      out,
+      "candidate_bytes",
+      stack_boundary_proof_record_bytes,
+      stack_boundary_first);
+  append_json_u64(
+      out,
+      "barrier_ready_records",
+      stack_boundary_proof_barrier_ready_count,
+      stack_boundary_first);
+  append_json_u64(
+      out,
+      "barrier_ready_bytes",
+      stack_boundary_proof_barrier_ready_bytes,
+      stack_boundary_first);
+  append_json_u64(
+      out,
+      "submit_elision_ready_records",
+      stack_boundary_proof_submit_elision_ready_count,
+      stack_boundary_first);
+  append_json_u64(
+      out,
+      "submit_elision_ready_bytes",
+      stack_boundary_proof_submit_elision_ready_bytes,
+      stack_boundary_first);
+  append_json_string(
+      out,
+      "top_reject_reason",
+      stack_boundary_top_reject_reason,
+      stack_boundary_first);
+  append_json_string(
+      out,
+      "highest_leverage_missing_proof_field",
+      stack_boundary_highest_leverage_missing_field,
+      stack_boundary_first);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"boundary_class_counts\":";
+  append_u64_map_object(out, stack_boundary_proof_boundary_class_counts);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"boundary_class_bytes\":";
+  append_u64_map_object(out, stack_boundary_proof_boundary_class_bytes);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"reject_reason_counts\":";
+  append_u64_map_object(out, stack_boundary_proof_reject_reason_counts);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"reject_reason_bytes\":";
+  append_u64_map_object(out, stack_boundary_proof_reject_reason_bytes);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"missing_proof_field_counts\":";
+  append_u64_map_object(out, stack_boundary_proof_missing_field_counts);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"missing_proof_field_bytes\":";
+  append_u64_map_object(out, stack_boundary_proof_missing_field_bytes);
+  append_json_comma(out, stack_boundary_first);
+  out << "\"records\":[";
+  for (size_t i = 0u; i < stack_boundary_proof_record_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out, stack_boundary_proof_record_rows[i], "stack_boundary_proof");
+  }
+  out << "]}";
   append_json_u64(
       out,
       "proven_nonescaping_or_retire_only_count",

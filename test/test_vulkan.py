@@ -20455,6 +20455,55 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "stack_carry_visibility_old_carry_fail_closed_reason_counts",
                 submit_epoch_ordering,
             )
+            self.assertIn("stack_boundary_proof_records", submit_epoch_ordering)
+            stack_boundary_records = submit_epoch_ordering[
+                "stack_boundary_proof_records"
+            ]
+            self.assertEqual(
+                stack_boundary_records["schema"],
+                "StackBoundaryProofRecord.v0",
+            )
+            self.assertTrue(stack_boundary_records["behavior_neutral"])
+            self.assertTrue(
+                stack_boundary_records["default_behavior_unchanged"]
+            )
+            self.assertGreater(
+                stack_boundary_records["candidate_records"],
+                0,
+            )
+            self.assertGreaterEqual(
+                stack_boundary_records["candidate_records"],
+                stack_boundary_records["barrier_ready_records"],
+            )
+            self.assertEqual(
+                stack_boundary_records["submit_elision_ready_records"],
+                0,
+            )
+            self.assertIn(
+                "highest_leverage_missing_proof_field",
+                stack_boundary_records,
+            )
+            self.assertIn("reject_reason_counts", stack_boundary_records)
+            self.assertIn("missing_proof_field_counts", stack_boundary_records)
+            self.assertTrue(stack_boundary_records["records"])
+            self.assertEqual(
+                stack_boundary_records["records"][0]["fields"]["schema"],
+                "StackBoundaryProofRecord.v0",
+            )
+            self.assertIn(
+                "boundary_id",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "actual_consumer_input_range",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertEqual(
+                stack_boundary_records["records"][0]["fields"][
+                    "behavior_change_allowed"
+                ],
+                "0",
+            )
             self.assertIn(
                 "proven_nonescaping_or_retire_only_count",
                 submit_epoch_ordering,
