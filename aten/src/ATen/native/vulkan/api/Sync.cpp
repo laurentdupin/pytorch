@@ -7186,6 +7186,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& live_buffer_binding_rows,
     const std::vector<std::string>& raw_resource_producer_rows,
     const std::vector<std::string>& consumer_registration_rows,
+    const std::vector<std::string>& barrier_only_canary_rows,
     const std::vector<std::string>& submit_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
@@ -7353,9 +7354,63 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t> capture_sensitive_activation_blocker_reason_bytes;
   std::map<std::string, uint64_t> capture_sensitive_activation_producer_registration_source_counts;
   std::map<std::string, uint64_t> capture_sensitive_activation_producer_registration_source_bytes;
+  uint64_t stack_carry_visibility_records = 0u;
+  uint64_t stack_carry_visibility_bytes = 0u;
+  std::map<std::string, uint64_t> stack_carry_visibility_edge_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_edge_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_allocation_range_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_allocation_range_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_consumer_binding_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_consumer_binding_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_consumer_binding_source_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_consumer_binding_source_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_barrier_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_barrier_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_barrier_source_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_barrier_source_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_non_escape_status_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_non_escape_status_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_escape_blocker_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_escape_blocker_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_retire_only_after_consumer_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_retire_only_after_consumer_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_ordering_requirement_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_ordering_requirement_bytes;
+  std::map<std::string, uint64_t> stack_carry_visibility_fail_closed_reason_counts;
+  std::map<std::string, uint64_t> stack_carry_visibility_fail_closed_reason_bytes;
   std::map<std::string, std::string> live_binding_sources_by_range;
   std::map<std::string, std::string> raw_producer_sources_by_range;
   std::map<std::string, std::string> raw_producer_owner_by_range;
+  std::map<std::string, std::string> barrier_sources_by_range;
+  for (const auto& row : barrier_only_canary_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    if (parsed_u64(fields, "barriers_inserted") == 0u) {
+      continue;
+    }
+    const std::string allocation_id = field_or(fields, "allocation_id", "0");
+    const std::string generation =
+        field_or(fields, "allocation_generation", "0");
+    const std::string offset = field_or(fields, "byte_offset", "0");
+    const std::string range = field_or(fields, "byte_range", "0");
+    if (allocation_id == "0" || generation == "0" || range == "0") {
+      continue;
+    }
+    const std::string key = allocation_id + "-" + generation + "-" + offset +
+        "-" + range;
+    const std::string source =
+        field_or(fields, "selected_boundary_id", "unknown") + ":" +
+        field_or(fields, "src_stage", "unknown") + "/" +
+        field_or(fields, "src_access", "unknown") + "->" +
+        field_or(fields, "dst_stage", "unknown") + "/" +
+        field_or(fields, "dst_access", "unknown") + ":binding" +
+        field_or(fields, "descriptor_binding", "unknown");
+    const auto it = barrier_sources_by_range.find(key);
+    if (it == barrier_sources_by_range.end()) {
+      barrier_sources_by_range[key] = source;
+    } else if (it->second.find(source) == std::string::npos) {
+      it->second += "|" + source;
+    }
+  }
   std::set<std::string> bridge_private_registered_capture_blocks;
   bool public_or_host_capture_registration_seen = false;
   bool any_capture_registration_seen = false;
@@ -7817,6 +7872,108 @@ void append_stack_region_submit_epoch_ordering_json(
               capture_sensitive_activation_producer_registration_source_bytes
                   [producer_it->second] += bytes;
             }
+
+            stack_carry_visibility_records += count;
+            stack_carry_visibility_bytes += bytes;
+            const std::string carry_edge = producer + "->" + consumer;
+            stack_carry_visibility_edge_counts[carry_edge] += count;
+            stack_carry_visibility_edge_bytes[carry_edge] += bytes;
+            stack_carry_visibility_allocation_range_counts[fields[12]] += count;
+            stack_carry_visibility_allocation_range_bytes[fields[12]] += bytes;
+
+            const std::string consumer_binding_status = live_bound
+                ? "consumer_live_descriptor_binding_matched"
+                : "consumer_live_descriptor_binding_missing";
+            stack_carry_visibility_consumer_binding_status_counts
+                [consumer_binding_status] += count;
+            stack_carry_visibility_consumer_binding_status_bytes
+                [consumer_binding_status] += bytes;
+            if (live_bound) {
+              stack_carry_visibility_consumer_binding_source_counts
+                  [binding_it->second] += count;
+              stack_carry_visibility_consumer_binding_source_bytes
+                  [binding_it->second] += bytes;
+            }
+
+            const auto barrier_it = barrier_sources_by_range.find(fields[12]);
+            const bool barrier_matched = has_range &&
+                barrier_it != barrier_sources_by_range.end();
+            const std::string barrier_status = barrier_matched
+                ? "visibility_covered_by_existing_real_barrier_canary"
+                : "visibility_not_covered_by_real_barrier";
+            stack_carry_visibility_barrier_status_counts[barrier_status] +=
+                count;
+            stack_carry_visibility_barrier_status_bytes[barrier_status] +=
+                bytes;
+            if (barrier_matched) {
+              stack_carry_visibility_barrier_source_counts[barrier_it->second] +=
+                  count;
+              stack_carry_visibility_barrier_source_bytes[barrier_it->second] +=
+                  bytes;
+            }
+
+            const std::string carry_non_escape_status =
+                fields[10] == "non_escape_present"
+                ? "non_escape_proven"
+                : "non_escape_missing";
+            stack_carry_visibility_non_escape_status_counts
+                [carry_non_escape_status] += count;
+            stack_carry_visibility_non_escape_status_bytes
+                [carry_non_escape_status] += bytes;
+
+            std::string escape_blocker =
+                "no_public_final_host_or_alias_blocker_in_raw_provenance";
+            if (fields[13] == "public_or_host_visible_blocker") {
+              escape_blocker = "public_final_or_host_visible_blocker";
+            } else if (fields[13] == "alias_or_escape_uncertain") {
+              escape_blocker = "alias_or_escape_uncertain";
+            } else if (fields[0] == "host_visible_or_requested_output") {
+              escape_blocker = "host_visible_or_requested_output";
+            }
+            stack_carry_visibility_escape_blocker_counts[escape_blocker] +=
+                count;
+            stack_carry_visibility_escape_blocker_bytes[escape_blocker] +=
+                bytes;
+
+            std::string retire_after_consumer =
+                "retire_only_after_consumer_not_proven";
+            if (raw_proof_complete && fields[9] == "last_use_present") {
+              retire_after_consumer = "retire_only_after_consumer_proven";
+            } else if (fields[9] == "last_use_present") {
+              retire_after_consumer =
+                  "formal_last_use_present_but_retire_only_not_proven";
+            }
+            stack_carry_visibility_retire_only_after_consumer_counts
+                [retire_after_consumer] += count;
+            stack_carry_visibility_retire_only_after_consumer_bytes
+                [retire_after_consumer] += bytes;
+
+            const std::string ordering_requirement =
+                fields[9] == "last_use_present"
+                ? "ordering_required_until_next_block_norm1_consumer"
+                : "ordering_required_missing_formal_consumer";
+            stack_carry_visibility_ordering_requirement_counts
+                [ordering_requirement] += count;
+            stack_carry_visibility_ordering_requirement_bytes
+                [ordering_requirement] += bytes;
+
+            std::string fail_closed_reason = "none";
+            if (escape_blocker !=
+                "no_public_final_host_or_alias_blocker_in_raw_provenance") {
+              fail_closed_reason = escape_blocker;
+            } else if (!barrier_matched && fields[10] != "non_escape_present") {
+              fail_closed_reason =
+                  "missing_visibility_barrier_or_non_escape_proof";
+            } else if (barrier_matched && fields[10] != "non_escape_present") {
+              fail_closed_reason =
+                  "barrier_covers_visibility_but_submit_equivalence_still_requires_full_pending_set_proof";
+            } else if (fields[9] != "last_use_present") {
+              fail_closed_reason = "missing_formal_last_use_proof";
+            }
+            stack_carry_visibility_fail_closed_reason_counts
+                [fail_closed_reason] += count;
+            stack_carry_visibility_fail_closed_reason_bytes
+                [fail_closed_reason] += bytes;
           }
           if (producer_registered && !explicit_blocker && !raw_proof_complete) {
             raw_buffer_registered_blocking_count += count;
@@ -8472,6 +8629,90 @@ void append_stack_region_submit_epoch_ordering_json(
       out, capture_sensitive_activation_producer_registration_source_bytes);
   append_json_u64(
       out,
+      "stack_carry_visibility_records",
+      stack_carry_visibility_records,
+      ordering_first);
+  append_json_u64(
+      out,
+      "stack_carry_visibility_bytes",
+      stack_carry_visibility_bytes,
+      ordering_first);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_edge_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_edge_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_edge_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_edge_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_allocation_range_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_allocation_range_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_allocation_range_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_allocation_range_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_consumer_binding_status_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_consumer_binding_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_consumer_binding_status_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_consumer_binding_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_consumer_binding_source_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_consumer_binding_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_consumer_binding_source_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_consumer_binding_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_barrier_status_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_barrier_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_barrier_status_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_barrier_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_barrier_source_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_barrier_source_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_barrier_source_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_barrier_source_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_non_escape_status_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_non_escape_status_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_non_escape_status_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_non_escape_status_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_escape_blocker_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_escape_blocker_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_escape_blocker_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_escape_blocker_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_retire_only_after_consumer_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_retire_only_after_consumer_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_retire_only_after_consumer_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_retire_only_after_consumer_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_ordering_requirement_counts\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_ordering_requirement_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_ordering_requirement_bytes\":";
+  append_u64_map_object(
+      out, stack_carry_visibility_ordering_requirement_bytes);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_fail_closed_reason_counts\":";
+  append_u64_map_object(out, stack_carry_visibility_fail_closed_reason_counts);
+  append_json_comma(out, ordering_first);
+  out << "\"stack_carry_visibility_fail_closed_reason_bytes\":";
+  append_u64_map_object(out, stack_carry_visibility_fail_closed_reason_bytes);
+  append_json_u64(
+      out,
       "proven_nonescaping_or_retire_only_count",
       proven_nonescaping_or_retire_only_count,
       ordering_first);
@@ -9123,6 +9364,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       live_buffer_binding_nodes,
       raw_resource_producer_rows,
       consumer_registration_rows,
+      barrier_only_canary_rows,
       submit_elision_canary_rows,
       first);
   append_barrier_plan_json(
