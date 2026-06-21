@@ -20498,6 +20498,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "actual_consumer_input_range",
                 stack_boundary_records["records"][0]["fields"],
             )
+            self.assertIn(
+                "non_escape_proof_source",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "old_carry_retire_only_eligibility",
+                stack_boundary_records["records"][0]["fields"],
+            )
+            self.assertIn(
+                "old_carry_reject_reason",
+                stack_boundary_records["records"][0]["fields"],
+            )
             self.assertEqual(
                 stack_boundary_records["records"][0]["fields"][
                     "behavior_change_allowed"

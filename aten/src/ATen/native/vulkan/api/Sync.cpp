@@ -8465,8 +8465,24 @@ void append_stack_region_submit_epoch_ordering_json(
                 [escape_blocker] += count;
             stack_carry_visibility_old_carry_escape_status_bytes
                 [escape_blocker] += bytes;
-            const std::string old_carry_non_escape_proof =
+            const bool old_carry_typed_non_escape_proven =
+                fields[9] == "last_use_present" &&
+                !old_carry_later_descriptor_observed &&
+                escape_blocker ==
+                    "no_public_final_host_or_alias_blocker_in_raw_provenance" &&
+                producer_registered && actual_norm1_input_observed &&
+                !actual_norm1_input_same_range;
+            const bool old_carry_non_escape_proven =
+                fields[10] == "non_escape_present" ||
+                old_carry_typed_non_escape_proven;
+            const std::string old_carry_non_escape_proof_source =
                 fields[10] == "non_escape_present"
+                ? "raw_provenance_non_escape_present"
+                : (old_carry_typed_non_escape_proven
+                       ? "typed_boundary_last_use_no_later_descriptor_no_escape"
+                       : "missing_old_carry_non_escape_proof_source");
+            const std::string old_carry_non_escape_proof =
+                old_carry_non_escape_proven
                 ? "old_carry_non_escape_proven"
                 : "old_carry_non_escape_proof_missing";
             stack_carry_visibility_old_carry_non_escape_proof_counts
@@ -8490,10 +8506,11 @@ void append_stack_region_submit_epoch_ordering_json(
             } else if (fields[9] != "last_use_present") {
               old_carry_fail_closed_reason =
                   "old_carry_formal_last_use_missing";
-            } else if (fields[10] != "non_escape_present") {
+            } else if (!old_carry_non_escape_proven) {
               old_carry_fail_closed_reason =
                   "old_carry_non_escape_proof_missing";
-            } else if (!raw_proof_complete) {
+            } else if (!raw_proof_complete &&
+                       !old_carry_typed_non_escape_proven) {
               old_carry_fail_closed_reason =
                   "old_carry_retire_only_contract_status_missing";
             } else {
@@ -8511,7 +8528,8 @@ void append_stack_region_submit_epoch_ordering_json(
 
             std::string retire_after_consumer =
                 "retire_only_after_consumer_not_proven";
-            if (raw_proof_complete && fields[9] == "last_use_present") {
+            if (old_carry_retire_only_eligible ==
+                "old_carry_retire_only_eligible") {
               retire_after_consumer = "retire_only_after_consumer_proven";
             } else if (fields[9] == "last_use_present") {
               retire_after_consumer =
@@ -8526,7 +8544,9 @@ void append_stack_region_submit_epoch_ordering_json(
             if (actual_norm1_input_same_range) {
               old_carry_retirement_status =
                   "old_carry_is_actual_norm1_input_visibility_target";
-            } else if (raw_proof_complete && fields[9] == "last_use_present") {
+            } else if (
+                old_carry_retire_only_eligible ==
+                "old_carry_retire_only_eligible") {
               old_carry_retirement_status =
                   "old_carry_retire_only_after_remap_proven";
             } else if (fields[9] == "last_use_present") {
@@ -8556,16 +8576,33 @@ void append_stack_region_submit_epoch_ordering_json(
               fail_closed_reason = escape_blocker;
             } else if (
                 actual_norm1_input_observed &&
-                actual_norm1_input_barrier_matched && !raw_proof_complete &&
+                actual_norm1_input_barrier_matched &&
+                old_carry_retire_only_eligible !=
+                    "old_carry_retire_only_eligible" &&
                 !actual_norm1_input_same_range) {
               fail_closed_reason =
                   "actual_norm1_input_barrier_covered_but_old_carry_retire_only_proof_missing";
             } else if (
                 actual_norm1_input_observed &&
                 !actual_norm1_input_barrier_matched &&
+                old_carry_retire_only_eligible !=
+                    "old_carry_retire_only_eligible" &&
                 !actual_norm1_input_same_range) {
               fail_closed_reason =
                   "actual_norm1_input_barrier_missing_and_old_carry_retire_only_proof_missing";
+            } else if (
+                actual_norm1_input_observed &&
+                !actual_norm1_input_barrier_matched &&
+                !actual_norm1_input_same_range) {
+              fail_closed_reason =
+                  "actual_norm1_input_visibility_barrier_missing";
+            } else if (
+                actual_norm1_input_observed &&
+                actual_norm1_input_barrier_matched &&
+                old_carry_retire_only_eligible ==
+                    "old_carry_retire_only_eligible" &&
+                !actual_norm1_input_same_range) {
+              fail_closed_reason = "none";
             } else if (next_consumer_buffer_observed &&
                        !next_consumer_binding_matched) {
               fail_closed_reason =
@@ -8673,12 +8710,33 @@ void append_stack_region_submit_epoch_ordering_json(
                 << old_carry_later_descriptor_status
                 << " later_descriptor_observed="
                 << (old_carry_later_descriptor_observed ? "1" : "0")
+                << " later_descriptor_count="
+                << (old_carry_later_descriptor_observed ? "1" : "0")
+                << " old_carry_stack_proof_status=" << fields[8]
+                << " old_carry_formal_last_use_source="
+                << (fields[9] == "last_use_present"
+                        ? "raw_provenance_expected_consumer"
+                        : "missing_formal_last_use_source")
                 << " non_escape_proof_status=" << old_carry_non_escape_proof
+                << " non_escape_proof_source="
+                << old_carry_non_escape_proof_source
+                << " old_carry_non_escape_proven="
+                << (old_carry_non_escape_proven ? "1" : "0")
                 << " formal_last_use_proof_status=" << fields[9]
                 << " public_host_final_readback_alias_blocker_status="
                 << escape_blocker
+                << " escape_status=" << escape_blocker
                 << " barrier_status=" << actual_norm1_input_barrier_status
                 << " old_carry_barrier_status=" << barrier_status
+                << " old_carry_retire_only_eligibility="
+                << old_carry_retire_only_eligible
+                << " old_carry_retire_only_proof_source="
+                << (old_carry_retire_only_eligible ==
+                            "old_carry_retire_only_eligible"
+                        ? old_carry_non_escape_proof_source
+                        : "missing_old_carry_retire_only_proof")
+                << " old_carry_reject_reason="
+                << old_carry_fail_closed_reason
                 << " behavior_change_allowed=0"
                 << " barrier_ready=" << (boundary_barrier_ready ? "1" : "0")
                 << " submit_equivalence_candidate_status="
