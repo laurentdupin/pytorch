@@ -8571,6 +8571,72 @@ void append_stack_region_submit_epoch_ordering_json(
         phase_submit_epoch_visibility_contract_predicate_status_counts;
     std::map<std::string, uint64_t>
         phase_submit_epoch_visibility_contract_failed_predicate_counts;
+    std::string pending_dispatch_completion_equivalence_status =
+        "missing_pending_dispatch_completion_equivalence_status";
+    std::string pending_dispatch_completion_equivalence_reason =
+        "missing_pending_dispatch_completion_equivalence_reason";
+    std::string pending_dispatch_execution_visibility_status =
+        "missing_pending_dispatch_execution_visibility_status";
+    std::string pending_dispatch_completion_equivalence_predicate_details =
+        "missing_pending_dispatch_completion_equivalence_predicate_details";
+    std::string phase_submit_execution_flush_contract_requirement_status =
+        "missing_phase_submit_execution_flush_contract_requirement_status";
+    std::string phase_submit_execution_flush_contract_status =
+        "missing_phase_submit_execution_flush_contract_status";
+    std::string phase_submit_execution_flush_contract_reason =
+        "missing_phase_submit_execution_flush_contract_reason";
+    std::string phase_submit_execution_flush_required_primitive =
+        "missing_phase_submit_execution_flush_required_primitive";
+    std::string phase_submit_execution_flush_replacement_candidate =
+        "missing_phase_submit_execution_flush_replacement_candidate";
+    std::string phase_submit_execution_flush_missing_source =
+        "missing_phase_submit_execution_flush_missing_source";
+    std::string phase_submit_command_buffer_continuity_proof_status =
+        "missing_phase_submit_command_buffer_continuity_proof_status";
+    std::string phase_submit_command_buffer_continuity_proof_reason =
+        "missing_phase_submit_command_buffer_continuity_proof_reason";
+    std::string phase_submit_command_buffer_continuity_same_scope_status =
+        "missing_phase_submit_command_buffer_continuity_same_scope_status";
+    std::string phase_submit_command_buffer_closed_before_consumer_status =
+        "missing_phase_submit_command_buffer_closed_before_consumer_status";
+    std::string phase_submit_later_queue_submit_candidate_status =
+        "missing_phase_submit_later_queue_submit_candidate_status";
+    std::string phase_submit_retire_timeline_requirement_status =
+        "missing_phase_submit_retire_timeline_requirement_status";
+    std::string phase_submit_later_retire_coverage_status =
+        "missing_phase_submit_later_retire_coverage_status";
+    std::string phase_submit_pending_resource_escape_status =
+        "missing_phase_submit_pending_resource_escape_status";
+    std::string phase_submit_intervening_blocker_status =
+        "missing_phase_submit_intervening_blocker_status";
+    std::string phase_submit_command_buffer_continuity_missing_source =
+        "missing_phase_submit_command_buffer_continuity_missing_source";
+    std::string stack_region_deferred_submit_plan_status =
+        "missing_stack_region_deferred_submit_plan_status";
+    std::string stack_region_deferred_submit_plan_reason =
+        "missing_stack_region_deferred_submit_plan_reason";
+    std::string stack_region_deferred_submit_current_mandatory_reason =
+        "missing_stack_region_deferred_submit_current_mandatory_reason";
+    std::string stack_region_deferred_submit_later_point_status =
+        "missing_stack_region_deferred_submit_later_point_status";
+    std::string stack_region_deferred_submit_later_candidate_id =
+        "missing_stack_region_deferred_submit_later_candidate_id";
+    std::string stack_region_deferred_submit_same_stream_queue_status =
+        "missing_stack_region_deferred_submit_same_stream_queue_status";
+    std::string stack_region_deferred_submit_same_region_owner_status =
+        "missing_stack_region_deferred_submit_same_region_owner_status";
+    std::string stack_region_deferred_submit_retire_migration_status =
+        "missing_stack_region_deferred_submit_retire_migration_status";
+    std::string stack_region_deferred_submit_descriptor_lifetime_status =
+        "missing_stack_region_deferred_submit_descriptor_lifetime_status";
+    std::string stack_region_deferred_submit_command_pool_status =
+        "missing_stack_region_deferred_submit_command_pool_status";
+    std::string stack_region_deferred_submit_host_fence_public_blocker_status =
+        "missing_stack_region_deferred_submit_host_fence_public_blocker_status";
+    std::string stack_region_deferred_submit_stream_queue_switch_status =
+        "missing_stack_region_deferred_submit_stream_queue_switch_status";
+    std::string stack_region_deferred_submit_top_migration_blocker =
+        "missing_stack_region_deferred_submit_top_migration_blocker";
   };
   std::map<std::string, BoundarySubmitLevelProofAggregate>
       submit_level_proof_by_boundary_id;
@@ -8581,6 +8647,27 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, std::set<std::string>>
       submit_level_submit_keys_by_boundary_id;
   std::vector<std::string> submit_level_equivalence_proof_rows;
+  std::vector<std::string> live_submit_equivalence_binding_exact_join_rows;
+  std::vector<std::string> stack_region_submit_point_rows;
+  std::vector<std::string> stack_region_planned_submit_point_rows;
+  std::vector<std::string> stack_region_exit_release_point_rows;
+  std::vector<std::string>
+      stack_region_exit_release_ownership_contract_rows;
+  std::vector<std::string> stack_region_deferred_submit_runtime_hook_plan_rows;
+  std::vector<std::string> stack_region_command_buffer_ownership_plan_rows;
+  std::vector<std::string> stack_region_owned_command_buffer_contract_rows;
+  std::vector<std::string>
+      stack_region_command_buffer_lifetime_reservation_rows;
+  std::vector<std::string> stack_region_command_pool_retention_request_rows;
+  std::vector<std::string> stack_region_command_pool_retention_result_rows;
+  std::vector<std::string>
+      stack_region_command_pool_reset_deferral_proof_rows;
+  std::vector<std::string> stack_region_command_pool_lifetime_contract_rows;
+  std::vector<std::string> stack_region_command_buffer_request_rows;
+  std::vector<std::string> stack_region_command_buffer_request_result_rows;
+  std::vector<std::string> stack_region_command_buffer_request_hook_plan_rows;
+  std::map<std::string, uint64_t>
+      live_submit_equivalence_binding_exact_join_status_counts;
   const auto submit_level_key_field =
       [](const std::map<std::string, std::string>& fields,
          const std::string& field) {
@@ -8645,6 +8732,33 @@ void append_stack_region_submit_epoch_ordering_json(
   const auto submit_level_boundary_instance_key =
       [](const std::string& boundary_id, const std::string& instance_id) {
         return boundary_id + ":stack_region_instance_id=" + instance_id;
+      };
+  const auto submit_key_fields_value =
+      [](const std::string& fields, const char* key) {
+        const std::string marker = std::string(key) + "=";
+        const size_t begin = fields.find(marker);
+        if (begin == std::string::npos) {
+          return std::string("missing_") + key;
+        }
+        const size_t value_begin = begin + marker.size();
+        const size_t value_end = fields.find(',', value_begin);
+        return fields.substr(
+            value_begin,
+            value_end == std::string::npos ? std::string::npos
+                                           : value_end - value_begin);
+      };
+  const auto stack_region_instance_from_pending_identity =
+      [](const std::string& identity) {
+        const std::string prefix = "scope:";
+        if (identity.rfind(prefix, 0) != 0u) {
+          return std::string("missing_stack_region_instance_id");
+        }
+        const size_t start = prefix.size();
+        const size_t end = identity.find(':', start);
+        if (end == std::string::npos || end == start) {
+          return std::string("missing_stack_region_instance_id");
+        }
+        return identity.substr(start, end - start);
       };
   const auto append_unique_string =
       [](std::string& dst, const std::string& value) {
@@ -9379,12 +9493,18 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string pending_dispatch_range_completeness_status =
         top_count_key_from_map(
             proof.pending_dispatch_range_completeness_status_counts);
+    const std::string pending_dispatch_completion_visibility_status =
+        top_count_key_from_map(
+            proof.pending_dispatch_completion_visibility_status_counts);
     const std::string pending_dispatch_command_buffer_identity_status =
         top_count_key_from_map(
             proof.pending_dispatch_command_buffer_identity_status_counts);
     const std::string pending_dispatch_submit_epoch_transition_status =
         top_count_key_from_map(
             proof.pending_dispatch_submit_epoch_transition_status_counts);
+    const std::string command_buffer_submit_epoch_visibility_status =
+        top_count_key_from_map(
+            proof.command_buffer_submit_epoch_visibility_status_counts);
     const std::string phase_contract_requirement_status =
         top_count_key_from_map(
             proof.phase_submit_epoch_visibility_contract_requirement_status_counts);
@@ -9420,6 +9540,348 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.public_final_host_readback_blocker_count == 0u;
     const bool predicate_barrier_opt_in_submits_preserved =
         proof.actual_consumer_matched_barrier_records > 0u;
+    const bool predicate_pending_dispatch_has_exact_command_list =
+        proof.pending_dispatch_count == 0u ||
+        (predicate_pending_dispatch_range_complete &&
+         proof.pending_dispatch_count_observed_records == proof.records &&
+         proof.pending_dispatch_position_range_available_records ==
+             proof.records &&
+         proof.pending_dispatch_identities != "missing");
+    const bool predicate_no_modeled_resource_blocker =
+        predicate_actual_descriptor_generation_observed &&
+        predicate_actual_norm1_input_barrier_matched &&
+        predicate_old_carry_retire_only &&
+        predicate_no_unknown_ordering_retire_entries &&
+        predicate_no_public_final_host_readback_blocker &&
+        top_submit_side_effect_blocker ==
+            "pending_dispatch_completion_visibility_unproven";
+    const bool pending_dispatch_crosses_phase_submit_epoch =
+        pending_dispatch_submit_epoch_transition_status ==
+            "phase_submit_epoch_crossing_observed" ||
+        command_buffer_submit_epoch_visibility_status ==
+            "pending_dispatches_span_completed_phase_submit_epoch_boundary_fail_closed";
+    if (proof.pending_dispatch_count == 0u) {
+      proof.pending_dispatch_completion_equivalence_status =
+          "no_pending_dispatches_completion_equivalence_not_required";
+      proof.pending_dispatch_completion_equivalence_reason = "none";
+      proof.pending_dispatch_execution_visibility_status =
+          "no_pending_dispatches";
+    } else if (!predicate_pending_dispatch_has_exact_command_list) {
+      proof.pending_dispatch_completion_equivalence_status =
+          "pending_dispatch_range_has_no_exact_command_list_proof";
+      proof.pending_dispatch_completion_equivalence_reason =
+          "missing_exact_pending_dispatch_range_or_side_effect_rows";
+      proof.pending_dispatch_execution_visibility_status =
+          "execution_visibility_not_evaluated_missing_command_list_proof";
+    } else if (
+        command_buffer_submit_epoch_visibility_status ==
+        "same_command_buffer_same_submit_epoch_proven") {
+      proof.pending_dispatch_completion_equivalence_status =
+          predicate_no_modeled_resource_blocker
+          ? "pending_dispatch_completion_equivalence_proof_only_accepted_same_epoch"
+          : "pending_dispatch_range_command_recording_complete_unmodeled_side_effects_remain";
+      proof.pending_dispatch_completion_equivalence_reason =
+          predicate_no_modeled_resource_blocker
+          ? "same_command_buffer_same_epoch_and_no_modeled_side_effect_blockers"
+          : "modeled_submit_side_effect_predicate_failed";
+      proof.pending_dispatch_execution_visibility_status =
+          "same_submit_epoch_execution_visibility_proven";
+    } else if (
+        predicate_no_modeled_resource_blocker &&
+        pending_dispatch_crosses_phase_submit_epoch) {
+      proof.pending_dispatch_completion_equivalence_status =
+          "pending_dispatch_range_has_no_unmodeled_side_effects_except_phase_submit_execution_flush";
+      proof.pending_dispatch_completion_equivalence_reason =
+          "phase_submit_execution_flush_semantics_unproven";
+      proof.pending_dispatch_execution_visibility_status =
+          "command_recording_complete_execution_visibility_submit_dependent";
+    } else if (pending_dispatch_crosses_phase_submit_epoch) {
+      proof.pending_dispatch_completion_equivalence_status =
+          "pending_dispatch_range_has_command_list_proof_but_dispatch_completion_requires_current_phase_submit";
+      proof.pending_dispatch_completion_equivalence_reason =
+          "current_phase_submit_required_for_pending_dispatch_completion";
+      proof.pending_dispatch_execution_visibility_status =
+          "phase_submit_epoch_execution_boundary_observed_fail_closed";
+    } else {
+      proof.pending_dispatch_completion_equivalence_status =
+          "pending_dispatch_range_command_recording_complete_execution_visibility_submit_dependent";
+      proof.pending_dispatch_completion_equivalence_reason =
+          "command_buffer_execution_visibility_relation_unproven";
+      proof.pending_dispatch_execution_visibility_status =
+          "command_buffer_execution_visibility_unproven";
+    }
+    proof.pending_dispatch_completion_equivalence_predicate_details =
+        "exact_command_list=" +
+        std::string(
+            predicate_pending_dispatch_has_exact_command_list ? "pass"
+                                                             : "fail") +
+        ",pending_dispatch_range_complete=" +
+        (predicate_pending_dispatch_range_complete ? "pass" : "fail") +
+        ",descriptor_update_generation=" +
+        (predicate_actual_descriptor_generation_observed ? "pass" : "fail") +
+        ",actual_norm1_input_barrier=" +
+        (predicate_actual_norm1_input_barrier_matched ? "pass" : "fail") +
+        ",old_carry_retire_only=" +
+        (predicate_old_carry_retire_only ? "pass" : "fail") +
+        ",unknown_ordering_retire_entries_zero=" +
+        (predicate_no_unknown_ordering_retire_entries ? "pass" : "fail") +
+        ",public_final_host_readback_blocker_absent=" +
+        (predicate_no_public_final_host_readback_blocker ? "pass" : "fail") +
+        ",modeled_resource_blockers_absent=" +
+        (predicate_no_modeled_resource_blocker ? "pass" : "fail") +
+        ",phase_submit_epoch_crossing=" +
+        (pending_dispatch_crosses_phase_submit_epoch ? "observed" : "absent");
+    const bool phase_submit_execution_flush_dependency_observed =
+        pending_dispatch_crosses_phase_submit_epoch &&
+        predicate_pending_dispatch_has_exact_command_list &&
+        proof.pending_dispatch_count > 0u;
+    proof.phase_submit_execution_flush_contract_requirement_status =
+        phase_submit_execution_flush_dependency_observed
+        ? "phase_submit_execution_flush_dependency_observed_contract_required"
+        : "no_phase_submit_execution_flush_dependency_observed";
+    if (!phase_submit_execution_flush_dependency_observed) {
+      proof.phase_submit_execution_flush_contract_status =
+          "phase_submit_execution_flush_contract_not_required";
+      proof.phase_submit_execution_flush_contract_reason = "none";
+      proof.phase_submit_execution_flush_required_primitive = "none";
+      proof.phase_submit_execution_flush_replacement_candidate = "none";
+      proof.phase_submit_execution_flush_missing_source = "none";
+    } else if (
+        proof.pending_dispatch_completion_equivalence_status ==
+        "pending_dispatch_range_has_no_unmodeled_side_effects_except_phase_submit_execution_flush") {
+      proof.phase_submit_execution_flush_contract_status =
+          "phase_submit_execution_flush_contract_requires_alternate_primitive_absent";
+      proof.phase_submit_execution_flush_contract_reason =
+          "phase_submit_execution_flush_semantics_unproven";
+      proof.phase_submit_execution_flush_required_primitive =
+          "queue_submit_or_equivalent_execution_visibility";
+      proof.phase_submit_execution_flush_replacement_candidate =
+          "barrier_plus_command_buffer_continuity_or_event_timeline_dependency";
+      proof.phase_submit_execution_flush_missing_source =
+          "execution_flush_replacement_primitive_unimplemented";
+    } else if (
+        proof.pending_dispatch_completion_equivalence_status ==
+        "pending_dispatch_range_has_command_list_proof_but_dispatch_completion_requires_current_phase_submit") {
+      proof.phase_submit_execution_flush_contract_status =
+          "phase_submit_execution_flush_contract_rejected_queue_submit_fence_semantics_required";
+      proof.phase_submit_execution_flush_contract_reason =
+          "current_phase_submit_required_for_pending_dispatch_completion";
+      proof.phase_submit_execution_flush_required_primitive =
+          "queue_submit_or_fence_completion_semantics";
+      proof.phase_submit_execution_flush_replacement_candidate =
+          "barriers_only_insufficient";
+      proof.phase_submit_execution_flush_missing_source =
+          "safe_non_submit_execution_completion_primitive";
+    } else {
+      proof.phase_submit_execution_flush_contract_status =
+          "phase_submit_execution_flush_contract_missing_unimplemented";
+      proof.phase_submit_execution_flush_contract_reason =
+          "command_buffer_execution_visibility_relation_unproven";
+      proof.phase_submit_execution_flush_required_primitive =
+          "unknown_execution_visibility_primitive";
+      proof.phase_submit_execution_flush_replacement_candidate =
+          "unknown";
+      proof.phase_submit_execution_flush_missing_source =
+          "phase_submit_execution_flush_contract_proof";
+    }
+    proof.phase_submit_command_buffer_continuity_same_scope_status =
+        predicate_same_active_command_buffer
+        ? "same_active_command_buffer_recording_scope_observed"
+        : "same_active_command_buffer_recording_scope_not_proven";
+    proof.phase_submit_command_buffer_closed_before_consumer_status =
+        pending_dispatch_crosses_phase_submit_epoch
+        ? "phase_submit_closes_or_submits_command_buffer_before_consumer_observed"
+        : "no_phase_submit_epoch_command_buffer_close_observed";
+    const bool later_queue_submit_candidate_observed =
+        command_buffer_submit_epoch_visibility_status ==
+        "same_command_buffer_same_submit_epoch_proven";
+    proof.phase_submit_later_queue_submit_candidate_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "later_queue_submit_timeline_candidate_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "later_queue_submit_timeline_candidate_observed"
+               : "later_queue_submit_timeline_candidate_not_observed");
+    proof.phase_submit_retire_timeline_requirement_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "current_phase_submit_retire_timeline_not_required"
+        : (proof.retire_side_effect_count > 0u
+               ? "current_phase_submit_retire_timeline_required"
+               : "current_phase_submit_retire_timeline_required_for_submit_epoch");
+    proof.phase_submit_later_retire_coverage_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "later_submit_retire_coverage_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "later_submit_retire_timeline_coverage_unproven"
+               : "later_submit_retire_timeline_candidate_missing");
+    proof.phase_submit_pending_resource_escape_status =
+        predicate_no_public_final_host_readback_blocker &&
+            predicate_old_carry_retire_only
+        ? "pending_resources_no_public_final_host_escape_observed"
+        : "pending_resources_escape_or_retire_proof_incomplete";
+    proof.phase_submit_intervening_blocker_status =
+        !predicate_no_public_final_host_readback_blocker
+        ? "intervening_public_final_host_readback_blocker_observed"
+        : "intervening_stream_queue_fence_pool_reset_status_uninstrumented";
+    if (!phase_submit_execution_flush_dependency_observed) {
+      proof.phase_submit_command_buffer_continuity_proof_status =
+          "phase_submit_command_buffer_continuity_not_required";
+      proof.phase_submit_command_buffer_continuity_proof_reason = "none";
+      proof.phase_submit_command_buffer_continuity_missing_source = "none";
+    } else if (!predicate_same_active_command_buffer ||
+               !predicate_pending_dispatch_has_exact_command_list) {
+      proof.phase_submit_command_buffer_continuity_proof_status =
+          "pending_dispatch_range_has_no_exact_command_buffer_continuity_proof";
+      proof.phase_submit_command_buffer_continuity_proof_reason =
+          "missing_same_active_command_buffer_or_exact_pending_range";
+      proof.phase_submit_command_buffer_continuity_missing_source =
+          "exact_command_buffer_continuity_proof";
+    } else if (!predicate_no_public_final_host_readback_blocker) {
+      proof.phase_submit_command_buffer_continuity_proof_status =
+          "phase_submit_command_buffer_continuity_rejected_intervening_blocker";
+      proof.phase_submit_command_buffer_continuity_proof_reason =
+          "public_final_host_readback_blocker_present";
+      proof.phase_submit_command_buffer_continuity_missing_source = "none";
+    } else if (!later_queue_submit_candidate_observed) {
+      proof.phase_submit_command_buffer_continuity_proof_status =
+          "phase_submit_command_buffer_continuity_complete_later_submit_missing";
+      proof.phase_submit_command_buffer_continuity_proof_reason =
+          "later_queue_submit_timeline_candidate_not_observed";
+      proof.phase_submit_command_buffer_continuity_missing_source =
+          "later_real_queue_submit_or_timeline_for_same_command_buffer";
+    } else if (
+        proof.phase_submit_later_retire_coverage_status ==
+        "later_submit_retire_timeline_coverage_unproven") {
+      proof.phase_submit_command_buffer_continuity_proof_status =
+          "phase_submit_later_submit_candidate_observed_retire_coverage_missing";
+      proof.phase_submit_command_buffer_continuity_proof_reason =
+          "later_submit_retire_lifetime_coverage_unproven";
+      proof.phase_submit_command_buffer_continuity_missing_source =
+          "later_submit_retire_timeline_coverage_proof";
+    } else {
+      proof.phase_submit_command_buffer_continuity_proof_status =
+          "phase_submit_command_buffer_continuity_deferrable_proof_only_accepted";
+      proof.phase_submit_command_buffer_continuity_proof_reason =
+          "same_command_buffer_later_submit_and_retire_coverage_proven_behavior_disabled";
+      proof.phase_submit_command_buffer_continuity_missing_source = "none";
+    }
+    proof.stack_region_deferred_submit_current_mandatory_reason =
+        !phase_submit_execution_flush_dependency_observed
+        ? "phase_submit_not_required_for_selected_pending_dispatch_range"
+        : "current_submit_closes_active_command_buffer_provides_execution_visibility_and_retire_timeline";
+    const bool planned_region_submit_point_available =
+        phase_submit_execution_flush_dependency_observed &&
+        predicate_no_public_final_host_readback_blocker;
+    proof.stack_region_deferred_submit_later_point_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "deferred_submit_point_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "later_region_submit_point_observed"
+               : (planned_region_submit_point_available
+                      ? "planned_region_submit_point_exists_synthetic_only"
+                      : "later_region_submit_point_not_observed"));
+    proof.stack_region_deferred_submit_later_candidate_id =
+        later_queue_submit_candidate_observed
+        ? "same_command_buffer_same_submit_epoch_candidate"
+        : (planned_region_submit_point_available
+               ? "planned_region_exit_submit_point"
+               : "missing_later_region_submit_point");
+    proof.stack_region_deferred_submit_same_stream_queue_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "same_stream_queue_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "same_stream_queue_unproven_for_deferred_submit"
+               : (planned_region_submit_point_available
+                      ? "same_stream_queue_expected_but_unproven_planned_target"
+                      : "unknown_no_later_region_submit_point"));
+    proof.stack_region_deferred_submit_same_region_owner_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "same_region_owner_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "same_region_owner_unproven_for_deferred_submit"
+               : (planned_region_submit_point_available
+                      ? "same_region_owner_planned"
+                      : "unknown_no_later_region_submit_point"));
+    proof.stack_region_deferred_submit_retire_migration_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "retire_timeline_migration_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "retire_timeline_migration_unproven"
+               : (planned_region_submit_point_available
+                      ? "retire_timeline_migration_unproven_planned_target"
+                      : "retire_timeline_migration_blocked_no_later_submit_point"));
+    proof.stack_region_deferred_submit_descriptor_lifetime_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "descriptor_lifetime_migration_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "descriptor_pool_reuse_risk_unproven"
+               : (planned_region_submit_point_available
+                      ? "descriptor_pool_reuse_risk_unproven_planned_target"
+                      : "descriptor_pool_reuse_risk_blocked_no_later_submit_point"));
+    proof.stack_region_deferred_submit_command_pool_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "command_pool_lifetime_migration_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "command_pool_reset_risk_unproven"
+               : (planned_region_submit_point_available
+                      ? "command_pool_reset_risk_unproven_planned_target"
+                      : "command_pool_reset_risk_blocked_no_later_submit_point"));
+    proof.stack_region_deferred_submit_host_fence_public_blocker_status =
+        predicate_no_public_final_host_readback_blocker
+        ? "no_host_fence_public_final_readback_blocker_observed"
+        : "host_fence_public_final_readback_blocker_observed";
+    proof.stack_region_deferred_submit_stream_queue_switch_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "stream_queue_switch_not_required"
+        : (later_queue_submit_candidate_observed
+               ? "stream_queue_switch_status_unproven"
+               : (planned_region_submit_point_available
+                      ? "stream_queue_switch_unproven_planned_target"
+                      : "stream_queue_switch_unknown_no_later_submit_point"));
+    if (!phase_submit_execution_flush_dependency_observed) {
+      proof.stack_region_deferred_submit_plan_status =
+          "stack_region_deferred_submit_plan_not_required";
+      proof.stack_region_deferred_submit_plan_reason = "none";
+      proof.stack_region_deferred_submit_top_migration_blocker = "none";
+    } else if (!predicate_no_public_final_host_readback_blocker) {
+      proof.stack_region_deferred_submit_plan_status =
+          "stack_region_deferred_submit_plan_rejected_host_fence_public_output_boundary";
+      proof.stack_region_deferred_submit_plan_reason =
+          "host_fence_public_final_readback_blocker_observed";
+      proof.stack_region_deferred_submit_top_migration_blocker =
+          "host_fence_public_final_readback_blocker";
+    } else if (
+        !later_queue_submit_candidate_observed &&
+        !planned_region_submit_point_available) {
+      proof.stack_region_deferred_submit_plan_status =
+          "stack_region_deferred_submit_plan_no_deferred_submit_point_available";
+      proof.stack_region_deferred_submit_plan_reason =
+          "later_region_submit_point_not_observed";
+      proof.stack_region_deferred_submit_top_migration_blocker =
+          "later_region_submit_point";
+    } else if (!later_queue_submit_candidate_observed) {
+      proof.stack_region_deferred_submit_plan_status =
+          "stack_region_deferred_submit_plan_planned_target_unimplemented";
+      proof.stack_region_deferred_submit_plan_reason =
+          "planned_region_submit_point_exists_but_unimplemented";
+      proof.stack_region_deferred_submit_top_migration_blocker =
+          "missing_command_pool_lifetime_extension";
+    } else if (
+        proof.stack_region_deferred_submit_retire_migration_status ==
+        "retire_timeline_migration_unproven") {
+      proof.stack_region_deferred_submit_plan_status =
+          "stack_region_deferred_submit_plan_available_retire_migration_unproven";
+      proof.stack_region_deferred_submit_plan_reason =
+          "pending_resource_retire_timeline_migration_unproven";
+      proof.stack_region_deferred_submit_top_migration_blocker =
+          "retire_timeline_migration";
+    } else {
+      proof.stack_region_deferred_submit_plan_status =
+          "stack_region_deferred_submit_plan_available_descriptor_or_command_pool_lifetime_unproven";
+      proof.stack_region_deferred_submit_plan_reason =
+          "descriptor_or_command_pool_lifetime_migration_unproven";
+      proof.stack_region_deferred_submit_top_migration_blocker =
+          "descriptor_or_command_pool_lifetime";
+    }
     std::string phase_contract_failed_predicate = "none";
     const auto note_failed_predicate =
         [&](const bool predicate, const char* name) {
@@ -9505,6 +9967,284 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_instance_id_count == 1u
         ? *proof.stack_region_instance_ids.begin()
         : (stack_region_instance_id_count == 0u ? "missing" : "ambiguous");
+    const std::string planned_submit_point_id =
+        "planned_region_exit_submit_point:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string exit_release_point_key =
+        "stack_region_exit_release_point:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string exit_release_ownership_contract_key =
+        "stack_region_exit_release_ownership_contract:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string lifetime_reservation_key =
+        "stack_region_command_buffer_lifetime_reservation:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string command_pool_lifetime_contract_key =
+        "stack_region_command_pool_lifetime_contract:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string command_pool_retention_request_key =
+        "stack_region_command_pool_retention_request:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string command_pool_reset_deferral_proof_key =
+        "stack_region_command_pool_reset_deferral_proof:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    StackRegionCommandBufferRequest command_buffer_request;
+    command_buffer_request.stack_region_id =
+        "stack_region_instance:" + stack_region_instance_id;
+    command_buffer_request.stack_region_instance_id = stack_region_instance_id;
+    command_buffer_request.contract_required =
+        phase_submit_execution_flush_dependency_observed;
+    command_buffer_request.public_final_host_readback_boundary =
+        !predicate_no_public_final_host_readback_blocker;
+    command_buffer_request.require_same_stream_queue = true;
+    const StackRegionCommandBufferRequestResult
+        command_buffer_request_runtime_result =
+            request_stack_region_command_buffer(command_buffer_request);
+    StackRegionExitReleasePointRequest exit_release_point_request;
+    exit_release_point_request.stack_region_id =
+        "stack_region_instance:" + stack_region_instance_id;
+    exit_release_point_request.stack_region_instance_id =
+        stack_region_instance_id;
+    exit_release_point_request.owner_scope = "stack_region";
+    exit_release_point_request.planned_recording_exit_callsite =
+        "stack_region_planned_recording_exit";
+    exit_release_point_request.planned_submit_point_id =
+        planned_submit_point_id;
+    exit_release_point_request.command_buffer_batch_release_target_id =
+        "missing_region_owned_command_buffer_or_batch";
+    exit_release_point_request.release_point_required =
+        phase_submit_execution_flush_dependency_observed;
+    exit_release_point_request.public_final_host_readback_boundary =
+        !predicate_no_public_final_host_readback_blocker;
+    const StackRegionExitReleasePointResult exit_release_point_result =
+        evaluate_stack_region_exit_release_point(exit_release_point_request);
+    StackRegionExitReleaseOwnershipContractRequest
+        exit_release_ownership_contract_request;
+    exit_release_ownership_contract_request.stack_region_id =
+        exit_release_point_request.stack_region_id;
+    exit_release_ownership_contract_request.stack_region_instance_id =
+        stack_region_instance_id;
+    exit_release_ownership_contract_request.owner_scope = "stack_region";
+    exit_release_ownership_contract_request.stack_region_owner_identity =
+        "stack_region_instance:" + stack_region_instance_id;
+    exit_release_ownership_contract_request.exit_release_point_key =
+        exit_release_point_key;
+    exit_release_ownership_contract_request.planned_submit_point_id =
+        planned_submit_point_id;
+    exit_release_ownership_contract_request
+        .command_buffer_batch_release_target_id =
+            exit_release_point_request.command_buffer_batch_release_target_id;
+    exit_release_ownership_contract_request.contract_required =
+        phase_submit_execution_flush_dependency_observed;
+    exit_release_ownership_contract_request
+        .public_final_host_readback_boundary =
+            !predicate_no_public_final_host_readback_blocker;
+    const StackRegionExitReleaseOwnershipContractResult
+        exit_release_ownership_contract_result =
+            evaluate_stack_region_exit_release_ownership_contract(
+                exit_release_ownership_contract_request);
+    StackRegionCommandBufferLifetimeReservationRequest lifetime_reservation_request;
+    lifetime_reservation_request.stack_region_id =
+        "stack_region_instance:" + stack_region_instance_id;
+    lifetime_reservation_request.stack_region_instance_id =
+        stack_region_instance_id;
+    lifetime_reservation_request.planned_submit_point_id =
+        planned_submit_point_id;
+    lifetime_reservation_request.planned_region_exit_release_point_status =
+        exit_release_point_result.release_point_status;
+    lifetime_reservation_request.reservation_required =
+        phase_submit_execution_flush_dependency_observed;
+    lifetime_reservation_request.public_final_host_readback_boundary =
+        !predicate_no_public_final_host_readback_blocker;
+    const StackRegionCommandBufferLifetimeReservationResult
+        command_buffer_lifetime_reservation_result =
+            reserve_stack_region_command_buffer_lifetime(
+                lifetime_reservation_request);
+    StackRegionCommandPoolRetentionRequest command_pool_retention_request;
+    command_pool_retention_request.stack_region_id =
+        lifetime_reservation_request.stack_region_id;
+    command_pool_retention_request.stack_region_instance_id =
+        stack_region_instance_id;
+    command_pool_retention_request.current_command_pool_owner_scope =
+        "vulkan_context_phase_submit_owner";
+    command_pool_retention_request.requested_retention_scope = "stack_region";
+    command_pool_retention_request.planned_release_point_id =
+        planned_submit_point_id;
+    command_pool_retention_request.planned_release_point_status =
+        exit_release_point_result.release_point_status;
+    command_pool_retention_request.command_buffer_lifetime_reservation_key =
+        lifetime_reservation_key;
+    command_pool_retention_request.command_pool_lifetime_contract_key =
+        command_pool_lifetime_contract_key;
+    command_pool_retention_request.retention_required =
+        phase_submit_execution_flush_dependency_observed;
+    command_pool_retention_request.public_final_host_readback_boundary =
+        !predicate_no_public_final_host_readback_blocker;
+    const StackRegionCommandPoolRetentionResult
+        command_pool_retention_result =
+            request_stack_region_command_pool_retention(
+                command_pool_retention_request);
+    StackRegionCommandPoolLifetimeContractRequest
+        command_pool_lifetime_contract_request;
+    command_pool_lifetime_contract_request.stack_region_id =
+        lifetime_reservation_request.stack_region_id;
+    command_pool_lifetime_contract_request.stack_region_instance_id =
+        stack_region_instance_id;
+    command_pool_lifetime_contract_request.current_phase_submit_boundary_id =
+        proof.boundary_id;
+    command_pool_lifetime_contract_request.planned_region_exit_release_point_id =
+        planned_submit_point_id;
+    command_pool_lifetime_contract_request
+        .planned_region_exit_release_point_status =
+            exit_release_point_result.release_point_status;
+    command_pool_lifetime_contract_request
+        .command_buffer_lifetime_reservation_key = lifetime_reservation_key;
+    command_pool_lifetime_contract_request.contract_required =
+        phase_submit_execution_flush_dependency_observed;
+    command_pool_lifetime_contract_request.public_final_host_readback_boundary =
+        !predicate_no_public_final_host_readback_blocker;
+    const StackRegionCommandPoolLifetimeContractResult
+        command_pool_lifetime_contract_result =
+            evaluate_stack_region_command_pool_lifetime_contract(
+                command_pool_lifetime_contract_request);
+    StackRegionCommandPoolResetDeferralProofRequest
+        command_pool_reset_deferral_proof_request;
+    command_pool_reset_deferral_proof_request.stack_region_id =
+        lifetime_reservation_request.stack_region_id;
+    command_pool_reset_deferral_proof_request.stack_region_instance_id =
+        stack_region_instance_id;
+    command_pool_reset_deferral_proof_request.current_command_pool_owner_scope =
+        "vulkan_context_phase_submit_owner";
+    command_pool_reset_deferral_proof_request.current_reset_point_boundary_id =
+        proof.boundary_id;
+    command_pool_reset_deferral_proof_request.current_reset_point_status =
+        phase_submit_execution_flush_dependency_observed
+        ? "recording_epoch_consumed_at_phase_submit"
+        : "reset_point_not_required";
+    command_pool_reset_deferral_proof_request.planned_release_reset_point_id =
+        planned_submit_point_id;
+    command_pool_reset_deferral_proof_request
+        .planned_release_reset_point_status =
+            exit_release_point_result.release_point_status;
+    command_pool_reset_deferral_proof_request
+        .command_pool_retention_result_key = command_pool_retention_request_key;
+    command_pool_reset_deferral_proof_request
+        .command_pool_retention_result_status =
+            command_pool_retention_result.result_status;
+    command_pool_reset_deferral_proof_request
+        .command_pool_retention_top_blocker =
+            command_pool_retention_result.top_blocker;
+    command_pool_reset_deferral_proof_request.proof_required =
+        phase_submit_execution_flush_dependency_observed;
+    command_pool_reset_deferral_proof_request.command_pool_retention_available =
+        command_pool_retention_result.available;
+    command_pool_reset_deferral_proof_request.public_final_host_readback_boundary =
+        !predicate_no_public_final_host_readback_blocker;
+    const StackRegionCommandPoolResetDeferralProofResult
+        command_pool_reset_deferral_proof_result =
+            evaluate_stack_region_command_pool_reset_deferral_proof(
+                command_pool_reset_deferral_proof_request);
+    const std::string deferred_runtime_hook_plan_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "runtime_hook_plan_not_required"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "runtime_hook_plan_rejected_host_fence_public_readback_blocker"
+               : "runtime_hook_plan_missing_region_owned_command_buffer");
+    const std::string deferred_runtime_hook_plan_reason =
+        !phase_submit_execution_flush_dependency_observed
+        ? "phase_submit_not_required_for_selected_pending_dispatch_range"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "host_fence_public_final_readback_blocker_observed"
+               : "region_owned_command_buffer_or_batch_missing");
+    const std::string deferred_runtime_hook_top_missing_capability =
+        !phase_submit_execution_flush_dependency_observed
+        ? "none"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "host_fence_public_final_readback_blocker"
+               : exit_release_ownership_contract_result.top_blocker);
+    const std::string deferred_runtime_hook_region_owned_command_buffer_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "region_owned_command_buffer_not_required"
+        : command_buffer_request_runtime_result
+              .region_owned_command_buffer_implementation_status;
+    const std::string deferred_runtime_hook_cross_phase_recording_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "cross_phase_recording_ownership_not_required"
+        : "missing_cross_phase_recording_ownership";
+    const std::string deferred_runtime_hook_retire_timeline_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "retire_timeline_migration_hook_not_required"
+        : command_buffer_request_runtime_result.retire_timeline_migration_status;
+    const std::string deferred_runtime_hook_descriptor_lifetime_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "descriptor_lifetime_extension_hook_not_required"
+        : command_buffer_request_runtime_result
+              .descriptor_lifetime_extension_status;
+    const std::string deferred_runtime_hook_command_pool_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "command_pool_lifetime_extension_hook_not_required"
+        : command_pool_lifetime_contract_result
+              .command_pool_retention_api_status;
+    const std::string deferred_runtime_hook_same_stream_queue_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "same_stream_queue_proof_not_required"
+        : command_buffer_request_runtime_result.same_stream_queue_status;
+    const std::string command_buffer_ownership_plan_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "command_buffer_ownership_plan_not_required"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "command_buffer_ownership_plan_rejected_host_fence_public_readback_blocker"
+               : "command_buffer_ownership_plan_missing_region_owned_abstraction");
+    const std::string command_buffer_ownership_plan_reason =
+        !phase_submit_execution_flush_dependency_observed
+        ? "phase_submit_not_required_for_selected_pending_dispatch_range"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "host_fence_public_final_readback_blocker_observed"
+               : "missing_region_command_buffer_ownership_abstraction");
+    const std::string command_buffer_ownership_top_blocker =
+        !phase_submit_execution_flush_dependency_observed
+        ? "none"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "host_fence_public_final_readback_blocker"
+               : exit_release_ownership_contract_result.top_blocker);
+    const std::string command_buffer_current_owner_scope =
+        phase_submit_execution_flush_dependency_observed
+        ? "vulkan_context_phase_submit_owner"
+        : "phase_submit_owner_not_required";
+    const std::string command_buffer_stack_owner_request_hook_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "stack_owner_region_command_buffer_request_hook_not_required"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "stack_owner_region_command_buffer_request_rejected_host_fence_public_readback_blocker"
+               : "stack_owner_region_command_buffer_request_runtime_api_present_result_unavailable");
+    const std::string owned_command_buffer_contract_status =
+        command_buffer_request_runtime_result.owned_command_buffer_contract_status;
+    const std::string owned_command_buffer_contract_reason =
+        command_buffer_request_runtime_result.owned_command_buffer_contract_reason;
+    const std::string owned_command_buffer_contract_top_blocker =
+        exit_release_ownership_contract_result.top_blocker;
+    const std::string command_buffer_request_api_status =
+        command_buffer_request_runtime_result.api_status;
+    const std::string command_buffer_request_result_status =
+        command_buffer_request_runtime_result.result_status;
+    const std::string command_buffer_request_result_reason =
+        command_buffer_request_runtime_result.reason;
+    const std::string command_buffer_request_result_top_blocker =
+        exit_release_ownership_contract_result.top_blocker;
+    const std::string command_buffer_request_hook_plan_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "request_hook_plan_not_required"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "request_hook_plan_rejected_host_fence_public_readback_blocker"
+               : "request_hook_plan_runtime_api_present_result_unavailable");
+    const std::string command_buffer_request_hook_plan_reason =
+        !phase_submit_execution_flush_dependency_observed
+        ? "phase_submit_not_required_for_selected_pending_dispatch_range"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "host_fence_public_final_readback_blocker_observed"
+               : "region_command_buffer_request_runtime_api_present_unavailable");
+    const std::string command_buffer_request_hook_top_blocker =
+        exit_release_ownership_contract_result.top_blocker;
     std::ostringstream row;
     row << "schema=StackBoundarySubmitLevelEquivalenceProof.v0"
         << " boundary_id=" << proof.boundary_id
@@ -9585,6 +10325,208 @@ void append_stack_region_submit_epoch_ordering_json(
         << " pending_dispatch_completion_visibility_status="
         << top_count_key_from_map(
                proof.pending_dispatch_completion_visibility_status_counts)
+        << " pending_dispatch_completion_equivalence_proof=StackRegionPendingDispatchCompletionEquivalenceProof.v0"
+        << " pending_dispatch_completion_equivalence_join_key="
+        << proof.submit_key
+        << " pending_dispatch_completion_equivalence_status="
+        << proof.pending_dispatch_completion_equivalence_status
+        << " pending_dispatch_completion_equivalence_reason="
+        << proof.pending_dispatch_completion_equivalence_reason
+        << " pending_dispatch_execution_visibility_status="
+        << proof.pending_dispatch_execution_visibility_status
+        << " pending_dispatch_completion_equivalence_required_fields="
+        << "exact_submit_key,pending_dispatch_list_identity,pending_dispatch_position_range,command_buffer_id,submit_epoch_before,submit_epoch_after,descriptor_update_generation,actual_norm1_input_barrier,old_carry_retire_only"
+        << " pending_dispatch_completion_equivalence_predicate_details="
+        << proof.pending_dispatch_completion_equivalence_predicate_details
+        << " phase_submit_execution_flush_contract=PhaseSubmitExecutionFlushContract"
+        << " phase_submit_execution_flush_contract_requirement_status="
+        << proof.phase_submit_execution_flush_contract_requirement_status
+        << " phase_submit_execution_flush_contract_status="
+        << proof.phase_submit_execution_flush_contract_status
+        << " phase_submit_execution_flush_contract_reason="
+        << proof.phase_submit_execution_flush_contract_reason
+        << " phase_submit_execution_flush_required_primitive="
+        << proof.phase_submit_execution_flush_required_primitive
+        << " phase_submit_execution_flush_replacement_candidate="
+        << proof.phase_submit_execution_flush_replacement_candidate
+        << " phase_submit_execution_flush_missing_source="
+        << proof.phase_submit_execution_flush_missing_source
+        << " phase_submit_execution_flush_authorizes_submit_elision=0"
+        << " phase_submit_command_buffer_continuity_proof=PhaseSubmitCommandBufferContinuityProof.v0"
+        << " phase_submit_command_buffer_continuity_proof_status="
+        << proof.phase_submit_command_buffer_continuity_proof_status
+        << " phase_submit_command_buffer_continuity_proof_reason="
+        << proof.phase_submit_command_buffer_continuity_proof_reason
+        << " phase_submit_command_buffer_continuity_same_scope_status="
+        << proof.phase_submit_command_buffer_continuity_same_scope_status
+        << " phase_submit_command_buffer_closed_before_consumer_status="
+        << proof.phase_submit_command_buffer_closed_before_consumer_status
+        << " phase_submit_later_queue_submit_candidate_status="
+        << proof.phase_submit_later_queue_submit_candidate_status
+        << " phase_submit_retire_timeline_requirement_status="
+        << proof.phase_submit_retire_timeline_requirement_status
+        << " phase_submit_later_retire_coverage_status="
+        << proof.phase_submit_later_retire_coverage_status
+        << " phase_submit_pending_resource_escape_status="
+        << proof.phase_submit_pending_resource_escape_status
+        << " phase_submit_intervening_blocker_status="
+        << proof.phase_submit_intervening_blocker_status
+        << " phase_submit_command_buffer_continuity_missing_source="
+        << proof.phase_submit_command_buffer_continuity_missing_source
+        << " phase_submit_command_buffer_continuity_authorizes_submit_elision=0"
+        << " stack_region_deferred_submit_plan=StackRegionDeferredSubmitPlan.v0"
+        << " stack_region_deferred_submit_plan_status="
+        << proof.stack_region_deferred_submit_plan_status
+        << " stack_region_deferred_submit_plan_reason="
+        << proof.stack_region_deferred_submit_plan_reason
+        << " stack_region_deferred_submit_phase_submit_key="
+        << proof.submit_key
+        << " stack_region_deferred_submit_phase_submit_key_fields="
+        << proof.submit_key_fields
+        << " stack_region_deferred_submit_current_mandatory_reason="
+        << proof.stack_region_deferred_submit_current_mandatory_reason
+        << " stack_region_deferred_submit_later_point_status="
+        << proof.stack_region_deferred_submit_later_point_status
+        << " stack_region_deferred_submit_later_candidate_id="
+        << proof.stack_region_deferred_submit_later_candidate_id
+        << " stack_region_deferred_submit_same_stream_queue_status="
+        << proof.stack_region_deferred_submit_same_stream_queue_status
+        << " stack_region_deferred_submit_same_region_owner_status="
+        << proof.stack_region_deferred_submit_same_region_owner_status
+        << " stack_region_deferred_submit_retire_migration_status="
+        << proof.stack_region_deferred_submit_retire_migration_status
+        << " stack_region_deferred_submit_pending_retire_entries="
+        << proof.retire_side_effect_count
+        << " stack_region_deferred_submit_pending_retire_bytes="
+        << proof.retire_side_effect_bytes
+        << " stack_region_deferred_submit_descriptor_lifetime_status="
+        << proof.stack_region_deferred_submit_descriptor_lifetime_status
+        << " stack_region_deferred_submit_command_pool_status="
+        << proof.stack_region_deferred_submit_command_pool_status
+        << " stack_region_deferred_submit_host_fence_public_blocker_status="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " stack_region_deferred_submit_stream_queue_switch_status="
+        << proof.stack_region_deferred_submit_stream_queue_switch_status
+        << " stack_region_deferred_submit_top_migration_blocker="
+        << proof.stack_region_deferred_submit_top_migration_blocker
+        << " stack_region_deferred_submit_runtime_hook_plan=StackRegionDeferredSubmitRuntimeHookPlan.v0"
+        << " stack_region_deferred_submit_runtime_hook_plan_status="
+        << deferred_runtime_hook_plan_status
+        << " stack_region_deferred_submit_runtime_hook_plan_reason="
+        << deferred_runtime_hook_plan_reason
+        << " stack_region_deferred_submit_runtime_hook_top_missing_capability="
+        << deferred_runtime_hook_top_missing_capability
+        << " stack_region_deferred_submit_runtime_hook_installed=0"
+        << " stack_region_deferred_submit_runtime_hook_can_close_submit_region_owned_command_buffer=0"
+        << " stack_region_command_buffer_ownership_plan=StackRegionCommandBufferOwnershipPlan.v0"
+        << " stack_region_command_buffer_ownership_plan_status="
+        << command_buffer_ownership_plan_status
+        << " stack_region_command_buffer_ownership_plan_reason="
+        << command_buffer_ownership_plan_reason
+        << " stack_region_command_buffer_ownership_top_blocker="
+        << command_buffer_ownership_top_blocker
+        << " stack_region_command_buffer_request_hook_plan=StackRegionCommandBufferRequestHookPlan.v0"
+        << " stack_region_command_buffer_request_hook_plan_status="
+        << command_buffer_request_hook_plan_status
+        << " stack_region_command_buffer_request_hook_plan_reason="
+        << command_buffer_request_hook_plan_reason
+        << " stack_region_command_buffer_request_hook_top_blocker="
+        << command_buffer_request_hook_top_blocker
+        << " stack_region_command_buffer_request=StackRegionCommandBufferRequest.v0"
+        << " stack_region_command_buffer_request_result=StackRegionCommandBufferRequestResult.v0"
+        << " stack_region_command_buffer_request_api_status="
+        << command_buffer_request_api_status
+        << " stack_region_command_buffer_request_result_status="
+        << command_buffer_request_result_status
+        << " stack_region_command_buffer_request_result_reason="
+        << command_buffer_request_result_reason
+        << " stack_region_command_buffer_request_result_top_blocker="
+        << command_buffer_request_result_top_blocker
+        << " stack_region_command_buffer_lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " stack_region_command_buffer_lifetime_reservation_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " stack_region_command_buffer_lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " stack_region_command_buffer_lifetime_reservation_command_pool_status="
+        << command_buffer_lifetime_reservation_result
+               .command_pool_lifetime_status
+        << " stack_region_command_buffer_lifetime_reservation_command_buffer_status="
+        << command_buffer_lifetime_reservation_result
+               .command_buffer_lifetime_status
+        << " stack_region_command_buffer_lifetime_reservation_release_point_status="
+        << command_buffer_lifetime_reservation_result
+               .region_exit_release_point_status
+        << " stack_region_command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " stack_region_command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " stack_region_command_pool_lifetime_contract_reason="
+        << command_pool_lifetime_contract_result.reason
+        << " stack_region_command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " stack_region_command_pool_lifetime_contract_owner_status="
+        << command_pool_lifetime_contract_result
+               .current_command_pool_owner_status
+        << " stack_region_command_pool_retention_request=StackRegionCommandPoolRetentionRequest.v0"
+        << " stack_region_command_pool_retention_result=StackRegionCommandPoolRetentionResult.v0"
+        << " stack_region_command_pool_retention_request_status="
+        << command_pool_retention_result.api_status
+        << " stack_region_command_pool_retention_result_status="
+        << command_pool_retention_result.result_status
+        << " stack_region_command_pool_retention_top_blocker="
+        << command_pool_retention_result.top_blocker
+        << " stack_region_command_pool_reset_deferral_proof=StackRegionCommandPoolResetDeferralProof.v0"
+        << " stack_region_command_pool_reset_deferral_proof_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " stack_region_command_pool_reset_deferral_top_blocker="
+        << command_pool_reset_deferral_proof_result.top_blocker
+        << " stack_region_command_pool_lifetime_contract_retention_api_status="
+        << command_pool_lifetime_contract_result
+               .command_pool_retention_api_status
+        << " stack_region_command_pool_lifetime_contract_reset_deferral_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " stack_region_command_buffer_request_runtime_api_source="
+        << command_buffer_request_runtime_result.runtime_api_source
+        << " stack_region_command_buffer_request_runtime_api_status="
+        << command_buffer_request_runtime_result.api_status
+        << " stack_region_command_buffer_request_result_available="
+        << (command_buffer_request_runtime_result.available ? "1" : "0")
+        << " stack_region_command_buffer_request_command_pool_lifetime_status="
+        << command_buffer_request_runtime_result
+               .command_pool_lifetime_extension_status
+        << " stack_region_command_buffer_request_descriptor_lifetime_status="
+        << command_buffer_request_runtime_result
+               .descriptor_lifetime_extension_status
+        << " stack_region_command_buffer_request_retire_timeline_status="
+        << command_buffer_request_runtime_result.retire_timeline_migration_status
+        << " stack_region_command_buffer_request_same_stream_queue_status="
+        << command_buffer_request_runtime_result.same_stream_queue_status
+        << " stack_region_owned_command_buffer_contract=StackRegionOwnedCommandBufferContract.v0"
+        << " stack_region_owned_command_buffer_contract_status="
+        << owned_command_buffer_contract_status
+        << " stack_region_owned_command_buffer_contract_reason="
+        << owned_command_buffer_contract_reason
+        << " stack_region_owned_command_buffer_contract_top_blocker="
+        << owned_command_buffer_contract_top_blocker
+        << " stack_region_deferred_submit_authorizes_submit_elision=0"
+        << " stack_region_exit_release_point=StackRegionExitReleasePoint.v0"
+        << " stack_region_exit_release_point_key=" << exit_release_point_key
+        << " stack_region_exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " stack_region_exit_release_point_reason="
+        << exit_release_point_result.release_point_reason
+        << " stack_region_exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " stack_region_exit_release_point_release_capable=0"
+        << " stack_region_exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " stack_region_exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " stack_region_exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " stack_region_exit_release_ownership_contract_reason="
+        << exit_release_ownership_contract_result.contract_reason
+        << " stack_region_exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " stack_region_exit_release_ownership_contract_available=0"
         << " pending_dispatch_command_buffer_identity_status="
         << top_count_key_from_map(
                proof.pending_dispatch_command_buffer_identity_status_counts)
@@ -9706,6 +10648,1355 @@ void append_stack_region_submit_epoch_ordering_json(
         << " count=" << proof.records
         << " bytes=" << proof.bytes;
     submit_level_equivalence_proof_rows.emplace_back(row.str());
+    std::ostringstream submit_point_row;
+    submit_point_row
+        << "schema=StackRegionSubmitPoint.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " submit_point_id=" << proof.submit_key
+        << " submit_point_key=" << proof.submit_key
+        << " submit_point_key_fields=" << proof.submit_key_fields
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " submit_point_phase="
+        << submit_key_fields_value(proof.submit_key_fields, "phase")
+        << " submit_point_scope="
+        << submit_key_fields_value(proof.submit_key_fields, "stack_phase")
+        << " submit_point_callsite="
+        << submit_key_fields_value(proof.submit_key_fields, "callsite")
+        << " command_buffer_recording_id="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "consumer_command_buffer_id")
+        << " producer_command_buffer_id="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "producer_command_buffer_id")
+        << " consumer_command_buffer_id="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "consumer_command_buffer_id")
+        << " submit_epoch_before="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "submit_epoch_before")
+        << " submit_epoch_after="
+        << submit_key_fields_value(proof.submit_key_fields, "submit_epoch_after")
+        << " submit_point_kind=phase_boundary_submit"
+        << " submit_point_status=observed_real_queue_submit"
+        << " current_mandatory_reason="
+        << proof.stack_region_deferred_submit_current_mandatory_reason
+        << " deferred_submit_candidate_target_status="
+        << "current_phase_boundary_submit_not_later_region_target"
+        << " later_region_submit_point_status="
+        << proof.stack_region_deferred_submit_later_point_status
+        << " later_region_submit_candidate_id="
+        << proof.stack_region_deferred_submit_later_candidate_id
+        << " same_stream_queue_status="
+        << proof.stack_region_deferred_submit_same_stream_queue_status
+        << " same_region_owner_status="
+        << proof.stack_region_deferred_submit_same_region_owner_status
+        << " retire_migration_status="
+        << proof.stack_region_deferred_submit_retire_migration_status
+        << " descriptor_lifetime_status="
+        << proof.stack_region_deferred_submit_descriptor_lifetime_status
+        << " command_pool_status="
+        << proof.stack_region_deferred_submit_command_pool_status
+        << " host_fence_public_blocker_status="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " stream_queue_switch_status="
+        << proof.stack_region_deferred_submit_stream_queue_switch_status
+        << " top_migration_blocker="
+        << proof.stack_region_deferred_submit_top_migration_blocker
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_submit_point_rows.emplace_back(submit_point_row.str());
+    const std::string planned_submit_point_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "synthetic_planned_submit_point_not_required"
+        : (predicate_no_public_final_host_readback_blocker
+               ? "synthetic_planned_only"
+               : "synthetic_planned_rejected_intervening_blocker");
+    const std::string planned_submit_candidate_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "deferred_submit_target_not_required"
+        : (predicate_no_public_final_host_readback_blocker
+               ? "planned_region_exit_submit_point_available_synthetic_unimplemented"
+               : "planned_region_exit_submit_point_rejected_intervening_blocker");
+    const std::string planned_same_command_buffer_batch_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "same_command_buffer_batch_not_required"
+        : (predicate_same_active_command_buffer
+               ? "same_command_buffer_batch_possible_unproven"
+               : "same_command_buffer_batch_not_proven");
+    const std::string planned_later_than_phase_boundary_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "later_than_phase_boundary_not_required"
+        : "planned_later_than_phase_boundary_unimplemented";
+    std::ostringstream planned_submit_point_row;
+    planned_submit_point_row
+        << "schema=StackRegionPlannedSubmitPoint.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " planned_submit_point_id=" << planned_submit_point_id
+        << " planned_submit_point_key=" << planned_submit_point_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " planned_phase=stack_exit"
+        << " planned_scope=region_exit"
+        << " planned_callsite=synthetic_region_exit_submit_point"
+        << " owner_path=stack_region_instance:" << stack_region_instance_id
+        << " submit_point_kind=stack_region_exit_submit"
+        << " submit_point_status=" << planned_submit_point_status
+        << " observed_real_queue_submit=0"
+        << " synthetic_planned_only=1"
+        << " command_buffer_recording_id="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "consumer_command_buffer_id")
+        << " submit_epoch_before="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "submit_epoch_after")
+        << " submit_epoch_after=planned_future_submit_epoch"
+        << " candidate_target_status=" << planned_submit_candidate_status
+        << " same_stack_region_owner_status="
+        << proof.stack_region_deferred_submit_same_region_owner_status
+        << " same_stream_queue_expected_status="
+        << proof.stack_region_deferred_submit_same_stream_queue_status
+        << " same_command_buffer_batch_possible_status="
+        << planned_same_command_buffer_batch_status
+        << " later_than_phase_boundary_status="
+        << planned_later_than_phase_boundary_status
+        << " command_buffer_continuity_requirement="
+        << proof.phase_submit_command_buffer_continuity_proof_status
+        << " retire_timeline_migration_requirement="
+        << proof.stack_region_deferred_submit_retire_migration_status
+        << " descriptor_lifetime_requirement="
+        << proof.stack_region_deferred_submit_descriptor_lifetime_status
+        << " command_pool_lifetime_requirement="
+        << proof.stack_region_deferred_submit_command_pool_status
+        << " pending_resource_escape_blocker_status="
+        << proof.phase_submit_pending_resource_escape_status
+        << " host_fence_public_readback_blocker_status="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " stream_queue_switch_blocker_status="
+        << proof.stack_region_deferred_submit_stream_queue_switch_status
+        << " real_implementation_hook_exists=0"
+        << " real_implementation_hook_status="
+        << (planned_submit_candidate_status ==
+                    "planned_region_exit_submit_point_available_synthetic_unimplemented"
+                ? "missing_region_owned_deferred_submit_runtime_hook"
+                : "not_applicable")
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_planned_submit_point_rows.emplace_back(
+        planned_submit_point_row.str());
+    std::ostringstream exit_release_point_row;
+    exit_release_point_row
+        << "schema=StackRegionExitReleasePoint.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " stack_region_id="
+        << exit_release_point_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " owner_scope=" << exit_release_point_request.owner_scope
+        << " planned_recording_exit_callsite="
+        << exit_release_point_request.planned_recording_exit_callsite
+        << " planned_recording_exit_callsite_status="
+        << exit_release_point_result.planned_recording_exit_callsite_status
+        << " planned_submit_point_id="
+        << exit_release_point_request.planned_submit_point_id
+        << " command_buffer_batch_release_target_id="
+        << exit_release_point_request.command_buffer_batch_release_target_id
+        << " release_point_required="
+        << (exit_release_point_request.release_point_required ? "1" : "0")
+        << " release_capable="
+        << (exit_release_point_result.release_capable ? "1" : "0")
+        << " api_status=" << exit_release_point_result.api_status
+        << " release_point_status="
+        << exit_release_point_result.release_point_status
+        << " release_point_reason="
+        << exit_release_point_result.release_point_reason
+        << " top_blocker=" << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_reason="
+        << exit_release_ownership_contract_result.contract_reason
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " exit_release_ownership_contract_available=0"
+        << " command_buffer_close_submit_responsibility="
+        << exit_release_point_result.command_buffer_release_status
+        << " descriptor_lifetime_release_responsibility="
+        << exit_release_point_result.descriptor_lifetime_release_status
+        << " retire_timeline_release_responsibility="
+        << exit_release_point_result.retire_timeline_release_status
+        << " allocator_resource_retire_responsibility="
+        << exit_release_point_result.allocator_resource_retire_status
+        << " command_pool_cleanup_reset_responsibility="
+        << exit_release_point_result.command_pool_cleanup_reset_status
+        << " runtime_api_source="
+        << exit_release_point_result.runtime_api_source
+        << " future_accepted_state=region_exit_release_point_owns_command_buffer_descriptor_retire_lifetime"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_exit_release_point_rows.emplace_back(
+        exit_release_point_row.str());
+    std::ostringstream exit_release_ownership_contract_row;
+    exit_release_ownership_contract_row
+        << "schema=StackRegionExitReleaseOwnershipContract.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " contract_key=" << exit_release_ownership_contract_key
+        << " stack_region_id="
+        << exit_release_ownership_contract_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " exit_release_point_key=" << exit_release_point_key
+        << " planned_submit_point_id=" << planned_submit_point_id
+        << " owner_scope="
+        << exit_release_ownership_contract_request.owner_scope
+        << " stack_region_owner_identity="
+        << exit_release_ownership_contract_request.stack_region_owner_identity
+        << " command_buffer_batch_release_target_id="
+        << exit_release_ownership_contract_request
+               .command_buffer_batch_release_target_id
+        << " contract_required="
+        << (exit_release_ownership_contract_request.contract_required ? "1"
+                                                                      : "0")
+        << " contract_available="
+        << (exit_release_ownership_contract_result.contract_available ? "1"
+                                                                      : "0")
+        << " api_status="
+        << exit_release_ownership_contract_result.api_status
+        << " contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " contract_reason="
+        << exit_release_ownership_contract_result.contract_reason
+        << " top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " stack_region_owner_identity_status="
+        << exit_release_ownership_contract_result
+               .stack_region_owner_identity_status
+        << " command_buffer_close_submit_ownership_status="
+        << exit_release_ownership_contract_result
+               .command_buffer_close_submit_ownership_status
+        << " queue_submit_timeline_ownership_status="
+        << exit_release_ownership_contract_result
+               .queue_submit_timeline_ownership_status
+        << " descriptor_lifetime_release_ownership_status="
+        << exit_release_ownership_contract_result
+               .descriptor_lifetime_release_ownership_status
+        << " retire_timeline_release_ownership_status="
+        << exit_release_ownership_contract_result
+               .retire_timeline_release_ownership_status
+        << " allocator_resource_release_ownership_status="
+        << exit_release_ownership_contract_result
+               .allocator_resource_release_ownership_status
+        << " command_pool_cleanup_reset_ownership_status="
+        << exit_release_ownership_contract_result
+               .command_pool_cleanup_reset_ownership_status
+        << " runtime_api_source="
+        << exit_release_ownership_contract_result.runtime_api_source
+        << " future_accepted_state=region_exit_release_ownership_contract_available"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_exit_release_ownership_contract_rows.emplace_back(
+        exit_release_ownership_contract_row.str());
+    const std::string deferred_runtime_hook_key =
+        "deferred_submit_runtime_hook:planned_submit_point:" +
+        planned_submit_point_id;
+    std::ostringstream runtime_hook_row;
+    runtime_hook_row
+        << "schema=StackRegionDeferredSubmitRuntimeHookPlan.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " hook_name=StackRegionDeferredSubmitRuntimeHook"
+        << " hook_key=" << deferred_runtime_hook_key
+        << " planned_submit_point_id=" << planned_submit_point_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " hook_installed=0"
+        << " hook_phase=stack_exit"
+        << " hook_scope=region_exit"
+        << " can_close_submit_region_owned_command_buffer=0"
+        << " runtime_hook_plan_status=" << deferred_runtime_hook_plan_status
+        << " runtime_hook_plan_reason=" << deferred_runtime_hook_plan_reason
+        << " top_missing_capability="
+        << deferred_runtime_hook_top_missing_capability
+        << " command_buffer_request=StackRegionCommandBufferRequest.v0"
+        << " command_buffer_request_result=StackRegionCommandBufferRequestResult.v0"
+        << " command_buffer_request_api_status="
+        << command_buffer_request_api_status
+        << " command_buffer_request_result_status="
+        << command_buffer_request_result_status
+        << " command_buffer_request_result_top_blocker="
+        << command_buffer_request_result_top_blocker
+        << " owned_command_buffer_contract=StackRegionOwnedCommandBufferContract.v0"
+        << " owned_command_buffer_contract_status="
+        << owned_command_buffer_contract_status
+        << " owned_command_buffer_contract_top_blocker="
+        << owned_command_buffer_contract_top_blocker
+        << " lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " lifetime_reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_retention_request=StackRegionCommandPoolRetentionRequest.v0"
+        << " command_pool_retention_result=StackRegionCommandPoolRetentionResult.v0"
+        << " command_pool_retention_result_status="
+        << command_pool_retention_result.result_status
+        << " command_pool_retention_top_blocker="
+        << command_pool_retention_result.top_blocker
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " command_buffer_ownership_plan=StackRegionCommandBufferOwnershipPlan.v0"
+        << " command_buffer_ownership_plan_status="
+        << command_buffer_ownership_plan_status
+        << " command_buffer_ownership_top_blocker="
+        << command_buffer_ownership_top_blocker
+        << " region_owned_command_buffer_status="
+        << deferred_runtime_hook_region_owned_command_buffer_status
+        << " cross_phase_recording_ownership_status="
+        << deferred_runtime_hook_cross_phase_recording_status
+        << " retire_timeline_migration_hook_status="
+        << deferred_runtime_hook_retire_timeline_status
+        << " descriptor_lifetime_extension_hook_status="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " command_pool_lifetime_extension_hook_status="
+        << deferred_runtime_hook_command_pool_status
+        << " same_stream_queue_proof_status="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " host_fence_public_readback_blocker_status="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " pending_resource_escape_blocker_status="
+        << proof.phase_submit_pending_resource_escape_status
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_deferred_submit_runtime_hook_plan_rows.emplace_back(
+        runtime_hook_row.str());
+    std::ostringstream ownership_plan_row;
+    ownership_plan_row
+        << "schema=StackRegionCommandBufferOwnershipPlan.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " planned_submit_point_id=" << planned_submit_point_id
+        << " runtime_hook_key=" << deferred_runtime_hook_key
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " current_command_buffer_recording_id="
+        << submit_key_fields_value(
+               proof.submit_key_fields,
+               "consumer_command_buffer_id")
+        << " current_command_buffer_scope=phase_boundary_active_recording"
+        << " current_owner_scope=" << command_buffer_current_owner_scope
+        << " region_owned_command_buffer_present=0"
+        << " region_owned_command_buffer_batch_present=0"
+        << " ownership_transfer_required="
+        << (phase_submit_execution_flush_dependency_observed ? "1" : "0")
+        << " owned_command_buffer_contract=StackRegionOwnedCommandBufferContract.v0"
+        << " owned_command_buffer_contract_status="
+        << owned_command_buffer_contract_status
+        << " owned_command_buffer_contract_top_blocker="
+        << owned_command_buffer_contract_top_blocker
+        << " lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " lifetime_reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_retention_request=StackRegionCommandPoolRetentionRequest.v0"
+        << " command_pool_retention_result=StackRegionCommandPoolRetentionResult.v0"
+        << " command_pool_retention_result_status="
+        << command_pool_retention_result.result_status
+        << " command_pool_retention_top_blocker="
+        << command_pool_retention_result.top_blocker
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " plan_status=" << command_buffer_ownership_plan_status
+        << " plan_reason=" << command_buffer_ownership_plan_reason
+        << " top_blocker=" << command_buffer_ownership_top_blocker
+        << " can_keep_command_buffer_open_across_phase_boundaries=0"
+        << " can_suppress_intermediate_phase_submit_preserve_recording=0"
+        << " can_close_submit_at_planned_region_exit=0"
+        << " can_provide_timeline_retire_point_at_planned_submit=0"
+        << " can_hold_descriptor_lifetime_until_planned_submit=0"
+        << " can_hold_command_pool_lifetime_until_planned_submit=0"
+        << " same_stream_queue_guarantee_status="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " region_owned_command_buffer_abstraction_status="
+        << deferred_runtime_hook_region_owned_command_buffer_status
+        << " context_command_buffer_ownership_status="
+        << (phase_submit_execution_flush_dependency_observed
+                ? "context_owns_command_buffer_per_submit_phase"
+                : "context_phase_submit_ownership_not_required")
+        << " command_pool_lifetime_cross_phase_status="
+        << deferred_runtime_hook_command_pool_status
+        << " descriptor_lifetime_cross_phase_status="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " stack_owner_region_command_buffer_request_hook_status="
+        << command_buffer_stack_owner_request_hook_status
+        << " request_hook_plan=StackRegionCommandBufferRequestHookPlan.v0"
+        << " request_hook_plan_status="
+        << command_buffer_request_hook_plan_status
+        << " request_hook_plan_reason="
+        << command_buffer_request_hook_plan_reason
+        << " request_hook_top_blocker="
+        << command_buffer_request_hook_top_blocker
+        << " request_api=StackRegionCommandBufferRequest.v0"
+        << " request_result=StackRegionCommandBufferRequestResult.v0"
+        << " request_api_status=" << command_buffer_request_api_status
+        << " request_result_status=" << command_buffer_request_result_status
+        << " request_result_reason=" << command_buffer_request_result_reason
+        << " request_result_top_blocker="
+        << command_buffer_request_result_top_blocker
+        << " stream_queue_identity_status="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_ownership_plan_rows.emplace_back(
+        ownership_plan_row.str());
+    const std::string request_hook_key =
+        "stack_region_command_buffer_request_hook:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string request_key =
+        "stack_region_command_buffer_request:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string owned_contract_key =
+        "stack_region_owned_command_buffer_contract:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    std::ostringstream owned_contract_row;
+    owned_contract_row
+        << "schema=StackRegionOwnedCommandBufferContract.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " contract_key=" << owned_contract_key
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " contract_required="
+        << (phase_submit_execution_flush_dependency_observed ? "1" : "0")
+        << " contract_status=" << owned_command_buffer_contract_status
+        << " contract_reason=" << owned_command_buffer_contract_reason
+        << " top_blocker=" << owned_command_buffer_contract_top_blocker
+        << " runtime_api_source="
+        << command_buffer_request_runtime_result.runtime_api_source
+        << " runtime_api_status="
+        << command_buffer_request_runtime_result.api_status
+        << " runtime_api_result_status="
+        << command_buffer_request_runtime_result.result_status
+        << " runtime_api_result_available="
+        << (command_buffer_request_runtime_result.available ? "1" : "0")
+        << " lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " lifetime_reservation_key=" << lifetime_reservation_key
+        << " lifetime_reservation_api_status="
+        << command_buffer_lifetime_reservation_result.api_status
+        << " lifetime_reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_key="
+        << command_pool_lifetime_contract_key
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_retention_request=StackRegionCommandPoolRetentionRequest.v0"
+        << " command_pool_retention_request_key="
+        << command_pool_retention_request_key
+        << " command_pool_retention_result=StackRegionCommandPoolRetentionResult.v0"
+        << " command_pool_retention_result_status="
+        << command_pool_retention_result.result_status
+        << " command_pool_retention_top_blocker="
+        << command_pool_retention_result.top_blocker
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " region_owned_command_buffer_implementation_status="
+        << command_buffer_request_runtime_result
+               .region_owned_command_buffer_implementation_status
+        << " owner_scope=stack_region"
+        << " requester_scope=stack_owner"
+        << " same_stream_queue_requirement="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " command_buffer_ownership_requirement=region_owned_command_buffer_or_batch"
+        << " command_buffer_or_batch_ownership_status="
+        << deferred_runtime_hook_region_owned_command_buffer_status
+        << " command_pool_lifetime_scope_requirement="
+        << deferred_runtime_hook_command_pool_status
+        << " descriptor_lifetime_scope_requirement="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " allocator_retire_timeline_scope_requirement="
+        << deferred_runtime_hook_retire_timeline_status
+        << " stack_entry_acquire_point=planned_stack_entry_request"
+        << " stack_exit_release_submit_point=planned_region_exit_submit_point"
+        << " stack_entry_ownership_hook_status=missing_stack_entry_region_command_buffer_acquire_hook"
+        << " stack_exit_ownership_hook_status=missing_stack_exit_region_command_buffer_release_submit_hook"
+        << " public_final_host_readback_boundary_policy="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " future_accepted_state=region_owned_command_buffer_contract_available"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_owned_command_buffer_contract_rows.emplace_back(
+        owned_contract_row.str());
+    std::ostringstream lifetime_reservation_row;
+    lifetime_reservation_row
+        << "schema=StackRegionCommandBufferLifetimeReservation.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " reservation_key=" << lifetime_reservation_key
+        << " stack_region_id=" << lifetime_reservation_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " planned_submit_point_id=" << planned_submit_point_id
+        << " requested_command_buffer_identity="
+        << lifetime_reservation_request.requested_command_buffer_identity
+        << " requested_lifetime_scope="
+        << lifetime_reservation_request.requested_lifetime_scope
+        << " command_pool_lifetime_scope="
+        << lifetime_reservation_request.command_pool_lifetime_scope
+        << " owner_scope=" << lifetime_reservation_request.owner_scope
+        << " requester_scope=" << lifetime_reservation_request.requester_scope
+        << " reservation_required="
+        << (lifetime_reservation_request.reservation_required ? "1" : "0")
+        << " reservation_api_status="
+        << command_buffer_lifetime_reservation_result.api_status
+        << " reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " reservation_result_reason="
+        << command_buffer_lifetime_reservation_result.reason
+        << " reservation_result_available="
+        << (command_buffer_lifetime_reservation_result.available ? "1" : "0")
+        << " top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_status="
+        << command_buffer_lifetime_reservation_result
+               .command_pool_lifetime_status
+        << " command_buffer_lifetime_status="
+        << command_buffer_lifetime_reservation_result
+               .command_buffer_lifetime_status
+        << " region_exit_release_point_status="
+        << command_buffer_lifetime_reservation_result
+               .region_exit_release_point_status
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " runtime_api_source="
+        << command_buffer_lifetime_reservation_result.runtime_api_source
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_key="
+        << command_pool_lifetime_contract_key
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_reason="
+        << command_pool_lifetime_contract_result.reason
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract_owner_status="
+        << command_pool_lifetime_contract_result
+               .current_command_pool_owner_status
+        << " command_pool_retention_api_status="
+        << command_pool_lifetime_contract_result
+               .command_pool_retention_api_status
+        << " command_pool_reset_deferral_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " command_pool_retention_request=StackRegionCommandPoolRetentionRequest.v0"
+        << " command_pool_retention_request_key="
+        << command_pool_retention_request_key
+        << " command_pool_retention_result=StackRegionCommandPoolRetentionResult.v0"
+        << " command_pool_retention_result_status="
+        << command_pool_retention_result.result_status
+        << " command_pool_retention_top_blocker="
+        << command_pool_retention_result.top_blocker
+        << " command_pool_reset_deferral_proof=StackRegionCommandPoolResetDeferralProof.v0"
+        << " command_pool_reset_deferral_proof_key="
+        << command_pool_reset_deferral_proof_key
+        << " command_pool_reset_deferral_proof_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " command_pool_reset_deferral_top_blocker="
+        << command_pool_reset_deferral_proof_result.top_blocker
+        << " future_accepted_state=region_owned_command_buffer_lifetime_reserved"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_lifetime_reservation_rows.emplace_back(
+        lifetime_reservation_row.str());
+    std::ostringstream command_pool_lifetime_contract_row;
+    command_pool_lifetime_contract_row
+        << "schema=StackRegionCommandPoolLifetimeContract.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " contract_key=" << command_pool_lifetime_contract_key
+        << " stack_region_id="
+        << command_pool_lifetime_contract_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " contract_required="
+        << (command_pool_lifetime_contract_request.contract_required ? "1"
+                                                                    : "0")
+        << " contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " contract_reason=" << command_pool_lifetime_contract_result.reason
+        << " contract_available="
+        << (command_pool_lifetime_contract_result.available ? "1" : "0")
+        << " top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " current_command_pool_owner_scope="
+        << command_pool_lifetime_contract_request
+               .current_command_pool_owner_scope
+        << " current_command_pool_owner_status="
+        << command_pool_lifetime_contract_result
+               .current_command_pool_owner_status
+        << " current_phase_submit_boundary_id="
+        << command_pool_lifetime_contract_request
+               .current_phase_submit_boundary_id
+        << " requested_region_lifetime_scope="
+        << command_pool_lifetime_contract_request
+               .requested_region_lifetime_scope
+        << " planned_region_exit_release_point_id="
+        << command_pool_lifetime_contract_request
+               .planned_region_exit_release_point_id
+        << " planned_region_exit_release_point_status="
+        << command_pool_lifetime_contract_result
+               .planned_region_exit_release_point_status
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " command_buffer_lifetime_reservation_key="
+        << command_pool_lifetime_contract_request
+               .command_buffer_lifetime_reservation_key
+        << " command_pool_retention_api_status="
+        << command_pool_lifetime_contract_result
+               .command_pool_retention_api_status
+        << " command_pool_reset_deferral_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " command_pool_retention_request=StackRegionCommandPoolRetentionRequest.v0"
+        << " command_pool_retention_request_key="
+        << command_pool_retention_request_key
+        << " command_pool_retention_result=StackRegionCommandPoolRetentionResult.v0"
+        << " command_pool_retention_request_status="
+        << command_pool_retention_result.api_status
+        << " command_pool_retention_result_status="
+        << command_pool_retention_result.result_status
+        << " command_pool_retention_top_blocker="
+        << command_pool_retention_result.top_blocker
+        << " command_pool_retention_implementation_status="
+        << command_pool_retention_result.implementation_status
+        << " command_pool_reset_deferral_proof=StackRegionCommandPoolResetDeferralProof.v0"
+        << " command_pool_reset_deferral_proof_key="
+        << command_pool_reset_deferral_proof_key
+        << " command_pool_reset_deferral_proof_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " command_pool_reset_deferral_top_blocker="
+        << command_pool_reset_deferral_proof_result.top_blocker
+        << " runtime_api_source="
+        << command_pool_lifetime_contract_result.runtime_api_source
+        << " future_accepted_state=command_pool_lifetime_extended_to_region_exit"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_pool_lifetime_contract_rows.emplace_back(
+        command_pool_lifetime_contract_row.str());
+    std::ostringstream command_pool_retention_request_row;
+    command_pool_retention_request_row
+        << "schema=StackRegionCommandPoolRetentionRequest.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " request_key=" << command_pool_retention_request_key
+        << " stack_region_id="
+        << command_pool_retention_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " current_command_pool_owner_scope="
+        << command_pool_retention_request.current_command_pool_owner_scope
+        << " requested_retention_scope="
+        << command_pool_retention_request.requested_retention_scope
+        << " planned_release_point_id="
+        << command_pool_retention_request.planned_release_point_id
+        << " planned_release_point_status="
+        << command_pool_retention_request.planned_release_point_status
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " command_buffer_lifetime_reservation_key="
+        << command_pool_retention_request
+               .command_buffer_lifetime_reservation_key
+        << " command_pool_lifetime_contract_key="
+        << command_pool_retention_request.command_pool_lifetime_contract_key
+        << " retention_required="
+        << (command_pool_retention_request.retention_required ? "1" : "0")
+        << " same_stream_queue_required="
+        << (command_pool_retention_request.require_same_stream_queue ? "1"
+                                                                    : "0")
+        << " public_final_host_readback_boundary="
+        << (command_pool_retention_request.public_final_host_readback_boundary
+                ? "1"
+                : "0")
+        << " request_api_status=" << command_pool_retention_result.api_status
+        << " result_status=" << command_pool_retention_result.result_status
+        << " top_blocker=" << command_pool_retention_result.top_blocker
+        << " runtime_api_source="
+        << command_pool_retention_result.runtime_api_source
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_pool_retention_request_rows.emplace_back(
+        command_pool_retention_request_row.str());
+    std::ostringstream command_pool_retention_result_row;
+    command_pool_retention_result_row
+        << "schema=StackRegionCommandPoolRetentionResult.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " request_key=" << command_pool_retention_request_key
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " api_present="
+        << (command_pool_retention_result.api_present ? "1" : "0")
+        << " result_available="
+        << (command_pool_retention_result.available ? "1" : "0")
+        << " api_status=" << command_pool_retention_result.api_status
+        << " result_status=" << command_pool_retention_result.result_status
+        << " result_reason=" << command_pool_retention_result.reason
+        << " top_blocker=" << command_pool_retention_result.top_blocker
+        << " implementation_status="
+        << command_pool_retention_result.implementation_status
+        << " reset_deferral_proof_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " reset_deferral_proof=StackRegionCommandPoolResetDeferralProof.v0"
+        << " reset_deferral_proof_key="
+        << command_pool_reset_deferral_proof_key
+        << " reset_deferral_proof_top_blocker="
+        << command_pool_reset_deferral_proof_result.top_blocker
+        << " planned_release_point_status="
+        << command_pool_retention_result.planned_release_point_status
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " same_stream_queue_status="
+        << command_pool_retention_result.same_stream_queue_status
+        << " runtime_api_source="
+        << command_pool_retention_result.runtime_api_source
+        << " future_accepted_state=command_pool_retention_provided_until_region_exit"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_pool_retention_result_rows.emplace_back(
+        command_pool_retention_result_row.str());
+    std::ostringstream command_pool_reset_deferral_proof_row;
+    command_pool_reset_deferral_proof_row
+        << "schema=StackRegionCommandPoolResetDeferralProof.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " proof_key=" << command_pool_reset_deferral_proof_key
+        << " stack_region_id="
+        << command_pool_reset_deferral_proof_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " current_command_pool_owner_scope="
+        << command_pool_reset_deferral_proof_request
+               .current_command_pool_owner_scope
+        << " current_reset_point_boundary_id="
+        << command_pool_reset_deferral_proof_request
+               .current_reset_point_boundary_id
+        << " current_reset_point_status="
+        << command_pool_reset_deferral_proof_result.current_reset_point_status
+        << " planned_release_reset_point_id="
+        << command_pool_reset_deferral_proof_request
+               .planned_release_reset_point_id
+        << " planned_release_reset_point_status="
+        << command_pool_reset_deferral_proof_result
+               .planned_release_reset_point_status
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " exit_release_point_top_blocker="
+        << exit_release_point_result.top_blocker
+        << " exit_release_ownership_contract=StackRegionExitReleaseOwnershipContract.v0"
+        << " exit_release_ownership_contract_key="
+        << exit_release_ownership_contract_key
+        << " exit_release_ownership_contract_status="
+        << exit_release_ownership_contract_result.contract_status
+        << " exit_release_ownership_contract_top_blocker="
+        << exit_release_ownership_contract_result.top_blocker
+        << " command_pool_retention_result_key="
+        << command_pool_reset_deferral_proof_request
+               .command_pool_retention_result_key
+        << " command_pool_retention_result_status="
+        << command_pool_reset_deferral_proof_result.retention_result_status
+        << " proof_required="
+        << (command_pool_reset_deferral_proof_request.proof_required ? "1"
+                                                                    : "0")
+        << " proof_complete="
+        << (command_pool_reset_deferral_proof_result.proof_complete ? "1"
+                                                                    : "0")
+        << " proof_api_status="
+        << command_pool_reset_deferral_proof_result.api_status
+        << " proof_status="
+        << command_pool_reset_deferral_proof_result.proof_status
+        << " proof_reason="
+        << command_pool_reset_deferral_proof_result.proof_reason
+        << " top_blocker="
+        << command_pool_reset_deferral_proof_result.top_blocker
+        << " descriptor_lifetime_status="
+        << command_pool_reset_deferral_proof_result.descriptor_lifetime_status
+        << " command_buffer_lifetime_status="
+        << command_pool_reset_deferral_proof_result
+               .command_buffer_lifetime_status
+        << " retire_timeline_status="
+        << command_pool_reset_deferral_proof_result.retire_timeline_status
+        << " runtime_api_source="
+        << command_pool_reset_deferral_proof_result.runtime_api_source
+        << " future_accepted_state=command_pool_reset_deferred_to_region_exit_release"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_pool_reset_deferral_proof_rows.emplace_back(
+        command_pool_reset_deferral_proof_row.str());
+    std::ostringstream request_row;
+    request_row
+        << "schema=StackRegionCommandBufferRequest.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " request_key=" << request_key
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " requester_scope=stack_owner"
+        << " owner_scope=stack_region"
+        << " requested_resource_type=command_buffer_or_batch"
+        << " requested_lifetime_scope=stack_region_until_planned_submit"
+        << " same_stream_queue_requirement="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " descriptor_lifetime_scope_requirement="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " command_pool_lifetime_scope_requirement="
+        << deferred_runtime_hook_command_pool_status
+        << " retire_timeline_ownership_requirement="
+        << deferred_runtime_hook_retire_timeline_status
+        << " public_final_host_readback_boundary_policy="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " fallback_fail_closed_policy=preserve_existing_phase_boundary_submit"
+        << " owned_command_buffer_contract=StackRegionOwnedCommandBufferContract.v0"
+        << " owned_command_buffer_contract_key=" << owned_contract_key
+        << " owned_command_buffer_contract_status="
+        << owned_command_buffer_contract_status
+        << " lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " lifetime_reservation_key=" << lifetime_reservation_key
+        << " lifetime_reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_key="
+        << command_pool_lifetime_contract_key
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " runtime_api_source="
+        << command_buffer_request_runtime_result.runtime_api_source
+        << " runtime_api_status="
+        << command_buffer_request_runtime_result.api_status
+        << " runtime_api_result_available="
+        << (command_buffer_request_runtime_result.available ? "1" : "0")
+        << " request_api_status=" << command_buffer_request_api_status
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_request_rows.emplace_back(request_row.str());
+    std::ostringstream request_result_row;
+    request_result_row
+        << "schema=StackRegionCommandBufferRequestResult.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " request_key=" << request_key
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " api_missing_old_state_status=request_api_missing_old_state_not_selected"
+        << " runtime_api_source="
+        << command_buffer_request_runtime_result.runtime_api_source
+        << " runtime_api_status="
+        << command_buffer_request_runtime_result.api_status
+        << " request_api_present=1"
+        << " result_available=0"
+        << " owned_command_buffer_contract=StackRegionOwnedCommandBufferContract.v0"
+        << " owned_command_buffer_contract_key=" << owned_contract_key
+        << " owned_command_buffer_contract_status="
+        << owned_command_buffer_contract_status
+        << " owned_command_buffer_contract_top_blocker="
+        << owned_command_buffer_contract_top_blocker
+        << " lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " lifetime_reservation_key=" << lifetime_reservation_key
+        << " lifetime_reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_key="
+        << command_pool_lifetime_contract_key
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " request_result_status=" << command_buffer_request_result_status
+        << " request_result_reason=" << command_buffer_request_result_reason
+        << " top_blocker=" << command_buffer_request_result_top_blocker
+        << " region_owned_command_buffer_implementation_status="
+        << deferred_runtime_hook_region_owned_command_buffer_status
+        << " command_pool_lifetime_extension_status="
+        << deferred_runtime_hook_command_pool_status
+        << " descriptor_lifetime_extension_status="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " retire_timeline_migration_status="
+        << deferred_runtime_hook_retire_timeline_status
+        << " same_stream_queue_proof_status="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " future_accepted_state=region_owned_command_buffer_or_batch_provided"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_request_result_rows.emplace_back(
+        request_result_row.str());
+    std::ostringstream request_hook_row;
+    request_hook_row
+        << "schema=StackRegionCommandBufferRequestHookPlan.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " hook_name=StackRegionCommandBufferRequestHook"
+        << " hook_key=" << request_hook_key
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " requester_scope=stack_owner"
+        << " owner_scope=stack_region"
+        << " requested_resource_type=command_buffer_or_batch"
+        << " hook_installed=0"
+        << " hook_callsite_stack_entry=planned"
+        << " hook_callsite_block_entry=not_selected"
+        << " hook_callsite_phase_boundary=diagnostic_only"
+        << " hook_callsite_stack_exit=planned_submit_target"
+        << " request=StackRegionCommandBufferRequest.v0"
+        << " request_result=StackRegionCommandBufferRequestResult.v0"
+        << " request_key=" << request_key
+        << " owned_command_buffer_contract=StackRegionOwnedCommandBufferContract.v0"
+        << " owned_command_buffer_contract_key=" << owned_contract_key
+        << " owned_command_buffer_contract_status="
+        << owned_command_buffer_contract_status
+        << " owned_command_buffer_contract_top_blocker="
+        << owned_command_buffer_contract_top_blocker
+        << " lifetime_reservation=StackRegionCommandBufferLifetimeReservation.v0"
+        << " lifetime_reservation_key=" << lifetime_reservation_key
+        << " lifetime_reservation_result_status="
+        << command_buffer_lifetime_reservation_result.result_status
+        << " lifetime_reservation_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " command_pool_lifetime_contract=StackRegionCommandPoolLifetimeContract.v0"
+        << " command_pool_lifetime_contract_key="
+        << command_pool_lifetime_contract_key
+        << " command_pool_lifetime_contract_status="
+        << command_pool_lifetime_contract_result.contract_status
+        << " command_pool_lifetime_contract_top_blocker="
+        << command_pool_lifetime_contract_result.top_blocker
+        << " runtime_api_source="
+        << command_buffer_request_runtime_result.runtime_api_source
+        << " runtime_api_status="
+        << command_buffer_request_runtime_result.api_status
+        << " runtime_api_result_status="
+        << command_buffer_request_runtime_result.result_status
+        << " runtime_api_result_available="
+        << (command_buffer_request_runtime_result.available ? "1" : "0")
+        << " request_api_status=" << command_buffer_request_api_status
+        << " request_result_status=" << command_buffer_request_result_status
+        << " request_result_reason=" << command_buffer_request_result_reason
+        << " request_result_top_blocker="
+        << command_buffer_request_result_top_blocker
+        << " request_hook_plan_status="
+        << command_buffer_request_hook_plan_status
+        << " request_hook_plan_reason="
+        << command_buffer_request_hook_plan_reason
+        << " top_blocker=" << command_buffer_request_hook_top_blocker
+        << " same_stream_queue_requirement="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " command_buffer_lifetime_scope_requirement=stack_region_until_planned_submit"
+        << " command_pool_lifetime_scope_requirement="
+        << deferred_runtime_hook_command_pool_status
+        << " descriptor_lifetime_scope_requirement="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " retire_timeline_ownership_scope_requirement="
+        << deferred_runtime_hook_retire_timeline_status
+        << " fallback_behavior_if_unavailable=preserve_existing_phase_boundary_submit"
+        << " public_final_host_readback_boundary_policy="
+        << proof.stack_region_deferred_submit_host_fence_public_blocker_status
+        << " missing_hook_api_status="
+        << command_buffer_stack_owner_request_hook_status
+        << " stack_owner_identity_at_request_site_status="
+        << (stack_region_instance_id == "missing"
+                ? "missing_stack_region_instance_id"
+                : "stack_region_instance_id_available")
+        << " region_lifetime_scope_status="
+        << "missing_region_lifetime_scope_contract"
+        << " descriptor_lifetime_scope_status="
+        << deferred_runtime_hook_descriptor_lifetime_status
+        << " retire_timeline_ownership_scope_status="
+        << deferred_runtime_hook_retire_timeline_status
+        << " same_stream_queue_proof_status="
+        << deferred_runtime_hook_same_stream_queue_status
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_request_hook_plan_rows.emplace_back(
+        request_hook_row.str());
+  }
+  const auto field_or_value =
+      [](const std::map<std::string, std::string>& fields,
+         const char* key,
+         const std::string& fallback) {
+        const auto it = fields.find(key);
+        return it == fields.end() ? fallback : it->second;
+      };
+  for (const auto& row : submit_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    std::map<std::string, std::string> normalized_fields = fields;
+    const std::string live_boundary_id =
+        field_or(fields, "live_boundary_id", "none");
+    const std::string live_boundary_class =
+        field_or(fields, "live_boundary_class", "unknown");
+    const std::string live_pending_dispatch_list_identity = field_or(
+        fields, "live_pending_dispatch_list_identity", "missing");
+    const std::string stack_region_instance_id =
+        field_or(fields, "stack_region_instance_id", "") == ""
+        ? stack_region_instance_from_pending_identity(
+              live_pending_dispatch_list_identity)
+        : field_or(fields, "stack_region_instance_id", "missing");
+    normalized_fields["live_boundary_stack_phase"] = field_or_value(
+        fields,
+        "live_boundary_stack_phase",
+        field_or_value(
+            fields,
+            "live_phase",
+            field_or(fields, "phase", "missing")));
+    normalized_fields["stack_region_instance_id"] = stack_region_instance_id;
+    normalized_fields["phase_boundary_submit_epoch_before"] = field_or_value(
+        fields,
+        "phase_boundary_submit_epoch_before",
+        field_or_value(
+            fields,
+            "live_submit_epoch_before",
+            field_or(fields, "producer_submit_epoch", "missing")));
+    normalized_fields["phase_boundary_submit_epoch_after"] = field_or_value(
+        fields,
+        "phase_boundary_submit_epoch_after",
+        field_or_value(
+            fields,
+            "live_submit_epoch_after",
+            field_or(fields, "consumer_submit_epoch", "missing")));
+    const std::string exact_submit_key =
+        submit_level_key_for_fields(normalized_fields);
+    const std::string exact_submit_key_fields =
+        submit_level_key_fields_for_fields(normalized_fields);
+    const auto proof_it =
+        submit_level_proof_by_submit_key.find(exact_submit_key);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    std::string status;
+    std::string reason;
+    std::string proof_complete = "0";
+    std::string proof_reject_reason = "none";
+    std::string proof_candidate_status = "missing_submit_level_proof";
+    std::string proof_records = "0";
+    std::string proof_bytes = "0";
+    std::string proof_topology_signature = "missing";
+    std::string proof_pending_dispatch_completion_equivalence_status =
+        "missing_submit_level_proof";
+    std::string proof_pending_dispatch_completion_equivalence_reason =
+        "missing_submit_level_proof";
+    std::string proof_pending_dispatch_execution_visibility_status =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_execution_flush_contract_status =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_execution_flush_contract_reason =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_execution_flush_required_primitive =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_execution_flush_replacement_candidate =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_execution_flush_missing_source =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_command_buffer_continuity_status =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_command_buffer_continuity_reason =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_later_queue_submit_candidate_status =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_later_retire_coverage_status =
+        "missing_submit_level_proof";
+    std::string proof_phase_submit_command_buffer_continuity_missing_source =
+        "missing_submit_level_proof";
+    std::string proof_stack_region_deferred_submit_plan_status =
+        "missing_submit_level_proof";
+    std::string proof_stack_region_deferred_submit_plan_reason =
+        "missing_submit_level_proof";
+    std::string proof_stack_region_deferred_submit_later_point_status =
+        "missing_submit_level_proof";
+    std::string proof_stack_region_deferred_submit_top_migration_blocker =
+        "missing_submit_level_proof";
+    if (live_boundary_id == "none") {
+      status = "not_selected_boundary";
+      reason = "non_selected_boundary_out_of_scope";
+    } else if (proof_it == submit_level_proof_by_submit_key.end()) {
+      status = "no_exact_submit_level_proof_row_for_live_submit_key";
+      reason = "live_row_emitted_before_finalized_proof_table_or_key_mismatch";
+    } else {
+      const auto& proof = proof_it->second;
+      const bool ambiguous =
+          proof.submit_keys.size() > 1u ||
+          proof.stack_region_instance_ids.size() > 1u ||
+          proof.topology_signatures.size() > 1u;
+      proof_complete = proof.final_complete ? "1" : "0";
+      proof_reject_reason = proof.final_reject_reason;
+      proof_candidate_status =
+          top_count_key_from_map(proof.candidate_status_counts);
+      proof_records = std::to_string(proof.records);
+      proof_bytes = std::to_string(proof.bytes);
+      proof_topology_signature = proof.topology_signatures.empty()
+          ? "missing_current_run_topology_signature"
+          : *proof.topology_signatures.begin();
+      proof_pending_dispatch_completion_equivalence_status =
+          proof.pending_dispatch_completion_equivalence_status;
+      proof_pending_dispatch_completion_equivalence_reason =
+          proof.pending_dispatch_completion_equivalence_reason;
+      proof_pending_dispatch_execution_visibility_status =
+          proof.pending_dispatch_execution_visibility_status;
+      proof_phase_submit_execution_flush_contract_status =
+          proof.phase_submit_execution_flush_contract_status;
+      proof_phase_submit_execution_flush_contract_reason =
+          proof.phase_submit_execution_flush_contract_reason;
+      proof_phase_submit_execution_flush_required_primitive =
+          proof.phase_submit_execution_flush_required_primitive;
+      proof_phase_submit_execution_flush_replacement_candidate =
+          proof.phase_submit_execution_flush_replacement_candidate;
+      proof_phase_submit_execution_flush_missing_source =
+          proof.phase_submit_execution_flush_missing_source;
+      proof_phase_submit_command_buffer_continuity_status =
+          proof.phase_submit_command_buffer_continuity_proof_status;
+      proof_phase_submit_command_buffer_continuity_reason =
+          proof.phase_submit_command_buffer_continuity_proof_reason;
+      proof_phase_submit_later_queue_submit_candidate_status =
+          proof.phase_submit_later_queue_submit_candidate_status;
+      proof_phase_submit_later_retire_coverage_status =
+          proof.phase_submit_later_retire_coverage_status;
+      proof_phase_submit_command_buffer_continuity_missing_source =
+          proof.phase_submit_command_buffer_continuity_missing_source;
+      proof_stack_region_deferred_submit_plan_status =
+          proof.stack_region_deferred_submit_plan_status;
+      proof_stack_region_deferred_submit_plan_reason =
+          proof.stack_region_deferred_submit_plan_reason;
+      proof_stack_region_deferred_submit_later_point_status =
+          proof.stack_region_deferred_submit_later_point_status;
+      proof_stack_region_deferred_submit_top_migration_blocker =
+          proof.stack_region_deferred_submit_top_migration_blocker;
+      if (ambiguous) {
+        status = "ambiguous_multiple_proof_rows_for_live_submit_key";
+        reason = "exact_live_submit_key_maps_to_multiple_topology_records";
+      } else if (proof.final_complete) {
+        status = "exact_submit_level_proof_row_matched_complete";
+        reason = "exact_submit_level_proof_complete";
+      } else {
+        status = "exact_submit_level_proof_row_matched_incomplete";
+        reason = proof.final_reject_reason;
+      }
+    }
+    live_submit_equivalence_binding_exact_join_status_counts[status] += count;
+    std::ostringstream exact_row;
+    exact_row
+        << "schema=StackRegionLiveSubmitEquivalenceBindingExactJoin.v0"
+        << " live_submit_equivalence_binding=StackRegionLiveSubmitEquivalenceBinding.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " live_boundary_id=" << live_boundary_id
+        << " live_boundary_class=" << live_boundary_class
+        << " live_boundary_scope="
+        << field_or(fields, "live_boundary_scope", "unknown")
+        << " live_phase=" << field_or(fields, "live_phase", "missing")
+        << " live_block=" << field_or(fields, "live_block", "-1")
+        << " live_producer_block="
+        << field_or(fields, "live_producer_block", "-1")
+        << " live_consumer_block="
+        << field_or(fields, "live_consumer_block", "-1")
+        << " live_descriptor_binding="
+        << field_or(fields, "live_descriptor_binding", "-1")
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " live_command_buffer_recording_id="
+        << field_or(fields, "live_command_buffer_recording_id", "missing")
+        << " producer_command_buffer_id="
+        << field_or(fields, "producer_command_buffer_id", "missing")
+        << " consumer_command_buffer_id="
+        << field_or(fields, "consumer_command_buffer_id", "missing")
+        << " live_submit_epoch_before="
+        << field_or(fields, "live_submit_epoch_before", "missing")
+        << " live_submit_epoch_after="
+        << field_or(fields, "live_submit_epoch_after", "missing")
+        << " live_pending_dispatch_list_identity="
+        << live_pending_dispatch_list_identity
+        << " exact_submit_key=" << exact_submit_key
+        << " exact_submit_key_fields=" << exact_submit_key_fields
+        << " exact_submit_level_proof_join_status=" << status
+        << " exact_submit_level_proof_join_reason=" << reason
+        << " exact_submit_level_proof_complete=" << proof_complete
+        << " exact_submit_level_reject_reason=" << proof_reject_reason
+        << " exact_submit_level_candidate_status=" << proof_candidate_status
+        << " exact_submit_level_records=" << proof_records
+        << " exact_submit_level_bytes=" << proof_bytes
+        << " exact_submit_level_topology_signature="
+        << proof_topology_signature
+        << " exact_pending_dispatch_completion_equivalence_status="
+        << proof_pending_dispatch_completion_equivalence_status
+        << " exact_pending_dispatch_completion_equivalence_reason="
+        << proof_pending_dispatch_completion_equivalence_reason
+        << " exact_pending_dispatch_execution_visibility_status="
+        << proof_pending_dispatch_execution_visibility_status
+        << " exact_phase_submit_execution_flush_contract_status="
+        << proof_phase_submit_execution_flush_contract_status
+        << " exact_phase_submit_execution_flush_contract_reason="
+        << proof_phase_submit_execution_flush_contract_reason
+        << " exact_phase_submit_execution_flush_required_primitive="
+        << proof_phase_submit_execution_flush_required_primitive
+        << " exact_phase_submit_execution_flush_replacement_candidate="
+        << proof_phase_submit_execution_flush_replacement_candidate
+        << " exact_phase_submit_execution_flush_missing_source="
+        << proof_phase_submit_execution_flush_missing_source
+        << " exact_phase_submit_command_buffer_continuity_proof_status="
+        << proof_phase_submit_command_buffer_continuity_status
+        << " exact_phase_submit_command_buffer_continuity_proof_reason="
+        << proof_phase_submit_command_buffer_continuity_reason
+        << " exact_phase_submit_later_queue_submit_candidate_status="
+        << proof_phase_submit_later_queue_submit_candidate_status
+        << " exact_phase_submit_later_retire_coverage_status="
+        << proof_phase_submit_later_retire_coverage_status
+        << " exact_phase_submit_command_buffer_continuity_missing_source="
+        << proof_phase_submit_command_buffer_continuity_missing_source
+        << " exact_stack_region_deferred_submit_plan_status="
+        << proof_stack_region_deferred_submit_plan_status
+        << " exact_stack_region_deferred_submit_plan_reason="
+        << proof_stack_region_deferred_submit_plan_reason
+        << " exact_stack_region_deferred_submit_later_point_status="
+        << proof_stack_region_deferred_submit_later_point_status
+        << " exact_stack_region_deferred_submit_top_migration_blocker="
+        << proof_stack_region_deferred_submit_top_migration_blocker
+        << " live_cumulative_side_effect_completion_status="
+        << field_or(fields, "live_side_effect_completion_status", "missing")
+        << " live_cumulative_side_effect_completion_reason="
+        << field_or(fields, "live_side_effect_completion_reason", "missing")
+        << " live_cumulative_status_not_behavior_proof=1"
+        << " live_row_emission_order=live_row_emitted_before_finalized_proof_table"
+        << " phase_submit_epoch_visibility_contract_authorizes_submit_elision=0"
+        << " submits_removed=0 count=" << count;
+    live_submit_equivalence_binding_exact_join_rows.emplace_back(
+        exact_row.str());
   }
   for (const auto& item : submit_level_proof_by_submit_key) {
     const auto& proof = item.second;
@@ -11629,6 +13920,12 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       submit_level_pending_dispatch_completion_visibility_status_counts;
   std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_completion_equivalence_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_completion_equivalence_reason_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_execution_visibility_status_counts;
+  std::map<std::string, uint64_t>
       submit_level_pending_dispatch_command_buffer_identity_status_counts;
   std::map<std::string, uint64_t>
       submit_level_pending_dispatch_submit_epoch_transition_status_counts;
@@ -11648,6 +13945,247 @@ void append_stack_region_submit_epoch_ordering_json(
       submit_level_phase_submit_epoch_visibility_contract_predicate_status_counts;
   std::map<std::string, uint64_t>
       submit_level_phase_submit_epoch_visibility_contract_failed_predicate_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_execution_flush_contract_requirement_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_execution_flush_contract_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_execution_flush_contract_reason_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_execution_flush_required_primitive_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_execution_flush_replacement_candidate_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_execution_flush_missing_source_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_command_buffer_continuity_proof_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_command_buffer_continuity_proof_reason_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_command_buffer_continuity_same_scope_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_command_buffer_closed_before_consumer_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_later_queue_submit_candidate_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_retire_timeline_requirement_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_later_retire_coverage_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_pending_resource_escape_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_intervening_blocker_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_command_buffer_continuity_missing_source_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_plan_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_plan_reason_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_later_point_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_same_stream_queue_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_same_region_owner_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_retire_migration_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_descriptor_lifetime_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_command_pool_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_stack_region_deferred_submit_top_migration_blocker_counts;
+  std::map<std::string, uint64_t> stack_region_submit_point_kind_counts;
+  std::map<std::string, uint64_t> stack_region_submit_point_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_submit_point_deferred_target_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_submit_point_later_point_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_submit_point_top_migration_blocker_counts;
+  std::map<std::string, uint64_t> stack_region_planned_submit_point_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_planned_submit_point_candidate_target_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_planned_submit_point_same_region_owner_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_planned_submit_point_same_stream_queue_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_planned_submit_point_same_command_buffer_batch_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_planned_submit_point_implementation_hook_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_callsite_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_command_buffer_release_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_descriptor_release_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_retire_release_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_allocator_retire_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_point_command_pool_cleanup_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_contract_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_contract_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_owner_identity_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_command_buffer_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_queue_submit_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_descriptor_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_retire_timeline_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_allocator_resource_counts;
+  std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_command_pool_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_plan_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_top_missing_capability_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_region_owned_command_buffer_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_cross_phase_recording_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_retire_timeline_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_descriptor_lifetime_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_command_pool_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_same_stream_queue_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_ownership_plan_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_ownership_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_current_owner_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_region_owned_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_context_ownership_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_stack_owner_request_hook_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_same_stream_queue_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_contract_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_contract_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_contract_required_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_ownership_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_command_pool_lifetime_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_descriptor_lifetime_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_retire_timeline_counts;
+  std::map<std::string, uint64_t>
+      stack_region_owned_command_buffer_same_stream_queue_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_lifetime_reservation_api_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_lifetime_reservation_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_lifetime_reservation_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_lifetime_reservation_command_pool_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_lifetime_reservation_command_buffer_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_lifetime_reservation_release_point_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_lifetime_contract_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_lifetime_contract_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_lifetime_contract_owner_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_lifetime_contract_retention_api_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_lifetime_contract_reset_deferral_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_lifetime_contract_release_point_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_request_api_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_request_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_result_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_implementation_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_reset_deferral_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_release_point_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_retention_same_stream_queue_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_proof_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_api_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_current_reset_point_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_planned_release_point_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_retention_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_descriptor_lifetime_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_command_buffer_lifetime_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_retire_timeline_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_api_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_requested_resource_type_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_lifetime_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_result_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_result_available_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_result_region_owned_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_plan_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_requested_resource_type_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_installed_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_stack_entry_callsite_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_missing_api_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_region_lifetime_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_descriptor_lifetime_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_retire_timeline_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_request_hook_same_stream_queue_counts;
   for (const auto& row : submit_level_equivalence_proof_rows) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
@@ -11764,6 +14302,18 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "pending_dispatch_completion_visibility_status",
         "missing_pending_dispatch_completion_visibility_status")] += count;
+    submit_level_pending_dispatch_completion_equivalence_status_counts[field_or(
+        fields,
+        "pending_dispatch_completion_equivalence_status",
+        "missing_pending_dispatch_completion_equivalence_status")] += count;
+    submit_level_pending_dispatch_completion_equivalence_reason_counts[field_or(
+        fields,
+        "pending_dispatch_completion_equivalence_reason",
+        "missing_pending_dispatch_completion_equivalence_reason")] += count;
+    submit_level_pending_dispatch_execution_visibility_status_counts[field_or(
+        fields,
+        "pending_dispatch_execution_visibility_status",
+        "missing_pending_dispatch_execution_visibility_status")] += count;
     submit_level_pending_dispatch_command_buffer_identity_status_counts[field_or(
         fields,
         "pending_dispatch_command_buffer_identity_status",
@@ -11812,6 +14362,536 @@ void append_stack_region_submit_epoch_ordering_json(
             "phase_submit_epoch_visibility_contract_failed_predicate",
             "missing_phase_submit_epoch_visibility_contract_failed_predicate")] +=
         count;
+    submit_level_phase_submit_execution_flush_contract_requirement_status_counts
+        [field_or(
+            fields,
+            "phase_submit_execution_flush_contract_requirement_status",
+            "missing_phase_submit_execution_flush_contract_requirement_status")] +=
+        count;
+    submit_level_phase_submit_execution_flush_contract_status_counts[field_or(
+        fields,
+        "phase_submit_execution_flush_contract_status",
+        "missing_phase_submit_execution_flush_contract_status")] += count;
+    submit_level_phase_submit_execution_flush_contract_reason_counts[field_or(
+        fields,
+        "phase_submit_execution_flush_contract_reason",
+        "missing_phase_submit_execution_flush_contract_reason")] += count;
+    submit_level_phase_submit_execution_flush_required_primitive_counts[field_or(
+        fields,
+        "phase_submit_execution_flush_required_primitive",
+        "missing_phase_submit_execution_flush_required_primitive")] += count;
+    submit_level_phase_submit_execution_flush_replacement_candidate_counts
+        [field_or(
+            fields,
+            "phase_submit_execution_flush_replacement_candidate",
+            "missing_phase_submit_execution_flush_replacement_candidate")] +=
+        count;
+    submit_level_phase_submit_execution_flush_missing_source_counts[field_or(
+        fields,
+        "phase_submit_execution_flush_missing_source",
+        "missing_phase_submit_execution_flush_missing_source")] += count;
+    submit_level_phase_submit_command_buffer_continuity_proof_status_counts
+        [field_or(
+            fields,
+            "phase_submit_command_buffer_continuity_proof_status",
+            "missing_phase_submit_command_buffer_continuity_proof_status")] +=
+        count;
+    submit_level_phase_submit_command_buffer_continuity_proof_reason_counts
+        [field_or(
+            fields,
+            "phase_submit_command_buffer_continuity_proof_reason",
+            "missing_phase_submit_command_buffer_continuity_proof_reason")] +=
+        count;
+    submit_level_phase_submit_command_buffer_continuity_same_scope_status_counts
+        [field_or(
+            fields,
+            "phase_submit_command_buffer_continuity_same_scope_status",
+            "missing_phase_submit_command_buffer_continuity_same_scope_status")] +=
+        count;
+    submit_level_phase_submit_command_buffer_closed_before_consumer_status_counts
+        [field_or(
+            fields,
+            "phase_submit_command_buffer_closed_before_consumer_status",
+            "missing_phase_submit_command_buffer_closed_before_consumer_status")] +=
+        count;
+    submit_level_phase_submit_later_queue_submit_candidate_status_counts
+        [field_or(
+            fields,
+            "phase_submit_later_queue_submit_candidate_status",
+            "missing_phase_submit_later_queue_submit_candidate_status")] +=
+        count;
+    submit_level_phase_submit_retire_timeline_requirement_status_counts
+        [field_or(
+            fields,
+            "phase_submit_retire_timeline_requirement_status",
+            "missing_phase_submit_retire_timeline_requirement_status")] +=
+        count;
+    submit_level_phase_submit_later_retire_coverage_status_counts[field_or(
+        fields,
+        "phase_submit_later_retire_coverage_status",
+        "missing_phase_submit_later_retire_coverage_status")] += count;
+    submit_level_phase_submit_pending_resource_escape_status_counts[field_or(
+        fields,
+        "phase_submit_pending_resource_escape_status",
+        "missing_phase_submit_pending_resource_escape_status")] += count;
+    submit_level_phase_submit_intervening_blocker_status_counts[field_or(
+        fields,
+        "phase_submit_intervening_blocker_status",
+        "missing_phase_submit_intervening_blocker_status")] += count;
+    submit_level_phase_submit_command_buffer_continuity_missing_source_counts
+        [field_or(
+            fields,
+            "phase_submit_command_buffer_continuity_missing_source",
+            "missing_phase_submit_command_buffer_continuity_missing_source")] +=
+        count;
+    submit_level_stack_region_deferred_submit_plan_status_counts[field_or(
+        fields,
+        "stack_region_deferred_submit_plan_status",
+        "missing_stack_region_deferred_submit_plan_status")] += count;
+    submit_level_stack_region_deferred_submit_plan_reason_counts[field_or(
+        fields,
+        "stack_region_deferred_submit_plan_reason",
+        "missing_stack_region_deferred_submit_plan_reason")] += count;
+    submit_level_stack_region_deferred_submit_later_point_status_counts[field_or(
+        fields,
+        "stack_region_deferred_submit_later_point_status",
+        "missing_stack_region_deferred_submit_later_point_status")] += count;
+    submit_level_stack_region_deferred_submit_same_stream_queue_status_counts
+        [field_or(
+            fields,
+            "stack_region_deferred_submit_same_stream_queue_status",
+            "missing_stack_region_deferred_submit_same_stream_queue_status")] +=
+        count;
+    submit_level_stack_region_deferred_submit_same_region_owner_status_counts
+        [field_or(
+            fields,
+            "stack_region_deferred_submit_same_region_owner_status",
+            "missing_stack_region_deferred_submit_same_region_owner_status")] +=
+        count;
+    submit_level_stack_region_deferred_submit_retire_migration_status_counts
+        [field_or(
+            fields,
+            "stack_region_deferred_submit_retire_migration_status",
+            "missing_stack_region_deferred_submit_retire_migration_status")] +=
+        count;
+    submit_level_stack_region_deferred_submit_descriptor_lifetime_status_counts
+        [field_or(
+            fields,
+            "stack_region_deferred_submit_descriptor_lifetime_status",
+            "missing_stack_region_deferred_submit_descriptor_lifetime_status")] +=
+        count;
+    submit_level_stack_region_deferred_submit_command_pool_status_counts[field_or(
+        fields,
+        "stack_region_deferred_submit_command_pool_status",
+        "missing_stack_region_deferred_submit_command_pool_status")] += count;
+    submit_level_stack_region_deferred_submit_top_migration_blocker_counts
+        [field_or(
+            fields,
+            "stack_region_deferred_submit_top_migration_blocker",
+            "missing_stack_region_deferred_submit_top_migration_blocker")] +=
+        count;
+  }
+  for (const auto& row : stack_region_submit_point_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_submit_point_kind_counts[field_or(
+        fields, "submit_point_kind", "missing_submit_point_kind")] += count;
+    stack_region_submit_point_status_counts[field_or(
+        fields, "submit_point_status", "missing_submit_point_status")] += count;
+    stack_region_submit_point_deferred_target_status_counts[field_or(
+        fields,
+        "deferred_submit_candidate_target_status",
+        "missing_deferred_submit_candidate_target_status")] += count;
+    stack_region_submit_point_later_point_status_counts[field_or(
+        fields,
+        "later_region_submit_point_status",
+        "missing_later_region_submit_point_status")] += count;
+    stack_region_submit_point_top_migration_blocker_counts[field_or(
+        fields,
+        "top_migration_blocker",
+        "missing_top_migration_blocker")] += count;
+  }
+  for (const auto& row : stack_region_planned_submit_point_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_planned_submit_point_status_counts[field_or(
+        fields, "submit_point_status", "missing_submit_point_status")] +=
+        count;
+    stack_region_planned_submit_point_candidate_target_status_counts[field_or(
+        fields, "candidate_target_status", "missing_candidate_target_status")] +=
+        count;
+    stack_region_planned_submit_point_same_region_owner_status_counts[field_or(
+        fields,
+        "same_stack_region_owner_status",
+        "missing_same_stack_region_owner_status")] += count;
+    stack_region_planned_submit_point_same_stream_queue_status_counts[field_or(
+        fields,
+        "same_stream_queue_expected_status",
+        "missing_same_stream_queue_expected_status")] += count;
+    stack_region_planned_submit_point_same_command_buffer_batch_status_counts
+        [field_or(
+            fields,
+            "same_command_buffer_batch_possible_status",
+            "missing_same_command_buffer_batch_possible_status")] += count;
+    stack_region_planned_submit_point_implementation_hook_status_counts[field_or(
+        fields,
+        "real_implementation_hook_status",
+        "missing_real_implementation_hook_status")] += count;
+  }
+  for (const auto& row : stack_region_exit_release_point_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_exit_release_point_status_counts[field_or(
+        fields, "release_point_status", "missing_release_point_status")] +=
+        count;
+    stack_region_exit_release_point_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_exit_release_point_callsite_status_counts[field_or(
+        fields,
+        "planned_recording_exit_callsite_status",
+        "missing_planned_recording_exit_callsite_status")] += count;
+    stack_region_exit_release_point_command_buffer_release_counts[field_or(
+        fields,
+        "command_buffer_close_submit_responsibility",
+        "missing_command_buffer_close_submit_responsibility")] += count;
+    stack_region_exit_release_point_descriptor_release_counts[field_or(
+        fields,
+        "descriptor_lifetime_release_responsibility",
+        "missing_descriptor_lifetime_release_responsibility")] += count;
+    stack_region_exit_release_point_retire_release_counts[field_or(
+        fields,
+        "retire_timeline_release_responsibility",
+        "missing_retire_timeline_release_responsibility")] += count;
+    stack_region_exit_release_point_allocator_retire_counts[field_or(
+        fields,
+        "allocator_resource_retire_responsibility",
+        "missing_allocator_resource_retire_responsibility")] += count;
+    stack_region_exit_release_point_command_pool_cleanup_counts[field_or(
+        fields,
+        "command_pool_cleanup_reset_responsibility",
+        "missing_command_pool_cleanup_reset_responsibility")] += count;
+  }
+  for (const auto& row : stack_region_exit_release_ownership_contract_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_exit_release_ownership_contract_status_counts[field_or(
+        fields, "contract_status", "missing_contract_status")] += count;
+    stack_region_exit_release_ownership_contract_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_exit_release_ownership_owner_identity_counts[field_or(
+        fields,
+        "stack_region_owner_identity_status",
+        "missing_stack_region_owner_identity_status")] += count;
+    stack_region_exit_release_ownership_command_buffer_counts[field_or(
+        fields,
+        "command_buffer_close_submit_ownership_status",
+        "missing_command_buffer_close_submit_ownership_status")] += count;
+    stack_region_exit_release_ownership_queue_submit_counts[field_or(
+        fields,
+        "queue_submit_timeline_ownership_status",
+        "missing_queue_submit_timeline_ownership_status")] += count;
+    stack_region_exit_release_ownership_descriptor_counts[field_or(
+        fields,
+        "descriptor_lifetime_release_ownership_status",
+        "missing_descriptor_lifetime_release_ownership_status")] += count;
+    stack_region_exit_release_ownership_retire_timeline_counts[field_or(
+        fields,
+        "retire_timeline_release_ownership_status",
+        "missing_retire_timeline_release_ownership_status")] += count;
+    stack_region_exit_release_ownership_allocator_resource_counts[field_or(
+        fields,
+        "allocator_resource_release_ownership_status",
+        "missing_allocator_resource_release_ownership_status")] += count;
+    stack_region_exit_release_ownership_command_pool_counts[field_or(
+        fields,
+        "command_pool_cleanup_reset_ownership_status",
+        "missing_command_pool_cleanup_reset_ownership_status")] += count;
+  }
+  for (const auto& row : stack_region_deferred_submit_runtime_hook_plan_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_deferred_submit_runtime_hook_plan_status_counts[field_or(
+        fields, "runtime_hook_plan_status", "missing_runtime_hook_plan_status")] +=
+        count;
+    stack_region_deferred_submit_runtime_hook_top_missing_capability_counts
+        [field_or(
+            fields,
+            "top_missing_capability",
+            "missing_top_missing_capability")] += count;
+    stack_region_deferred_submit_runtime_hook_region_owned_command_buffer_counts
+        [field_or(
+            fields,
+            "region_owned_command_buffer_status",
+            "missing_region_owned_command_buffer_status")] += count;
+    stack_region_deferred_submit_runtime_hook_cross_phase_recording_counts
+        [field_or(
+            fields,
+            "cross_phase_recording_ownership_status",
+            "missing_cross_phase_recording_ownership_status")] += count;
+    stack_region_deferred_submit_runtime_hook_retire_timeline_counts[field_or(
+        fields,
+        "retire_timeline_migration_hook_status",
+        "missing_retire_timeline_migration_hook_status")] += count;
+    stack_region_deferred_submit_runtime_hook_descriptor_lifetime_counts[field_or(
+        fields,
+        "descriptor_lifetime_extension_hook_status",
+        "missing_descriptor_lifetime_extension_hook_status")] += count;
+    stack_region_deferred_submit_runtime_hook_command_pool_counts[field_or(
+        fields,
+        "command_pool_lifetime_extension_hook_status",
+        "missing_command_pool_lifetime_extension_hook_status")] += count;
+    stack_region_deferred_submit_runtime_hook_same_stream_queue_counts[field_or(
+        fields,
+        "same_stream_queue_proof_status",
+        "missing_same_stream_queue_proof_status")] += count;
+  }
+  for (const auto& row : stack_region_command_buffer_ownership_plan_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_ownership_plan_status_counts[field_or(
+        fields, "plan_status", "missing_plan_status")] += count;
+    stack_region_command_buffer_ownership_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_buffer_current_owner_scope_counts[field_or(
+        fields, "current_owner_scope", "missing_current_owner_scope")] += count;
+    stack_region_command_buffer_region_owned_status_counts[field_or(
+        fields,
+        "region_owned_command_buffer_abstraction_status",
+        "missing_region_owned_command_buffer_abstraction_status")] += count;
+    stack_region_command_buffer_context_ownership_status_counts[field_or(
+        fields,
+        "context_command_buffer_ownership_status",
+        "missing_context_command_buffer_ownership_status")] += count;
+    stack_region_command_buffer_stack_owner_request_hook_status_counts[field_or(
+        fields,
+        "stack_owner_region_command_buffer_request_hook_status",
+        "missing_stack_owner_region_command_buffer_request_hook_status")] +=
+        count;
+    stack_region_command_buffer_same_stream_queue_status_counts[field_or(
+        fields,
+        "same_stream_queue_guarantee_status",
+        "missing_same_stream_queue_guarantee_status")] += count;
+  }
+  for (const auto& row : stack_region_owned_command_buffer_contract_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_owned_command_buffer_contract_status_counts[field_or(
+        fields, "contract_status", "missing_contract_status")] += count;
+    stack_region_owned_command_buffer_contract_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_owned_command_buffer_contract_required_counts[field_or(
+        fields, "contract_required", "missing_contract_required")] += count;
+    stack_region_owned_command_buffer_ownership_status_counts[field_or(
+        fields,
+        "command_buffer_or_batch_ownership_status",
+        "missing_command_buffer_or_batch_ownership_status")] += count;
+    stack_region_owned_command_buffer_command_pool_lifetime_counts[field_or(
+        fields,
+        "command_pool_lifetime_scope_requirement",
+        "missing_command_pool_lifetime_scope_requirement")] += count;
+    stack_region_owned_command_buffer_descriptor_lifetime_counts[field_or(
+        fields,
+        "descriptor_lifetime_scope_requirement",
+        "missing_descriptor_lifetime_scope_requirement")] += count;
+    stack_region_owned_command_buffer_retire_timeline_counts[field_or(
+        fields,
+        "allocator_retire_timeline_scope_requirement",
+        "missing_allocator_retire_timeline_scope_requirement")] += count;
+    stack_region_owned_command_buffer_same_stream_queue_counts[field_or(
+        fields,
+        "same_stream_queue_requirement",
+        "missing_same_stream_queue_requirement")] += count;
+  }
+  for (const auto& row :
+       stack_region_command_buffer_lifetime_reservation_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_lifetime_reservation_api_status_counts
+        [field_or(fields, "reservation_api_status", "missing_api_status")] +=
+        count;
+    stack_region_command_buffer_lifetime_reservation_result_status_counts
+        [field_or(
+            fields, "reservation_result_status", "missing_result_status")] +=
+        count;
+    stack_region_command_buffer_lifetime_reservation_top_blocker_counts
+        [field_or(fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_buffer_lifetime_reservation_command_pool_counts
+        [field_or(
+            fields,
+            "command_pool_lifetime_status",
+            "missing_command_pool_lifetime_status")] += count;
+    stack_region_command_buffer_lifetime_reservation_command_buffer_counts
+        [field_or(
+            fields,
+            "command_buffer_lifetime_status",
+            "missing_command_buffer_lifetime_status")] += count;
+    stack_region_command_buffer_lifetime_reservation_release_point_counts
+        [field_or(
+            fields,
+            "region_exit_release_point_status",
+            "missing_region_exit_release_point_status")] += count;
+  }
+  for (const auto& row : stack_region_command_pool_lifetime_contract_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_pool_lifetime_contract_status_counts[field_or(
+        fields, "contract_status", "missing_contract_status")] += count;
+    stack_region_command_pool_lifetime_contract_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_pool_lifetime_contract_owner_status_counts[field_or(
+        fields,
+        "current_command_pool_owner_status",
+        "missing_current_command_pool_owner_status")] += count;
+    stack_region_command_pool_lifetime_contract_retention_api_counts[field_or(
+        fields,
+        "command_pool_retention_api_status",
+        "missing_command_pool_retention_api_status")] += count;
+    stack_region_command_pool_lifetime_contract_reset_deferral_counts[field_or(
+        fields,
+        "command_pool_reset_deferral_status",
+        "missing_command_pool_reset_deferral_status")] += count;
+    stack_region_command_pool_lifetime_contract_release_point_counts[field_or(
+        fields,
+        "planned_region_exit_release_point_status",
+        "missing_planned_region_exit_release_point_status")] += count;
+  }
+  for (const auto& row : stack_region_command_pool_retention_request_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_pool_retention_request_api_status_counts[field_or(
+        fields, "request_api_status", "missing_request_api_status")] += count;
+    stack_region_command_pool_retention_request_scope_counts[field_or(
+        fields, "requested_retention_scope", "missing_requested_scope")] +=
+        count;
+  }
+  for (const auto& row : stack_region_command_pool_retention_result_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_pool_retention_result_status_counts[field_or(
+        fields, "result_status", "missing_result_status")] += count;
+    stack_region_command_pool_retention_result_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_pool_retention_implementation_status_counts[field_or(
+        fields,
+        "implementation_status",
+        "missing_implementation_status")] += count;
+    stack_region_command_pool_retention_reset_deferral_status_counts[field_or(
+        fields,
+        "reset_deferral_proof_status",
+        "missing_reset_deferral_proof_status")] += count;
+    stack_region_command_pool_retention_release_point_status_counts[field_or(
+        fields,
+        "planned_release_point_status",
+        "missing_planned_release_point_status")] += count;
+    stack_region_command_pool_retention_same_stream_queue_status_counts
+        [field_or(
+            fields,
+            "same_stream_queue_status",
+            "missing_same_stream_queue_status")] += count;
+  }
+  for (const auto& row : stack_region_command_pool_reset_deferral_proof_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_pool_reset_deferral_proof_status_counts[field_or(
+        fields, "proof_status", "missing_proof_status")] += count;
+    stack_region_command_pool_reset_deferral_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_pool_reset_deferral_api_status_counts[field_or(
+        fields, "proof_api_status", "missing_proof_api_status")] += count;
+    stack_region_command_pool_reset_deferral_current_reset_point_counts
+        [field_or(
+            fields,
+            "current_reset_point_status",
+            "missing_current_reset_point_status")] += count;
+    stack_region_command_pool_reset_deferral_planned_release_point_counts
+        [field_or(
+            fields,
+            "planned_release_reset_point_status",
+            "missing_planned_release_reset_point_status")] += count;
+    stack_region_command_pool_reset_deferral_retention_status_counts[field_or(
+        fields,
+        "command_pool_retention_result_status",
+        "missing_command_pool_retention_result_status")] += count;
+    stack_region_command_pool_reset_deferral_descriptor_lifetime_counts
+        [field_or(
+            fields,
+            "descriptor_lifetime_status",
+            "missing_descriptor_lifetime_status")] += count;
+    stack_region_command_pool_reset_deferral_command_buffer_lifetime_counts
+        [field_or(
+            fields,
+            "command_buffer_lifetime_status",
+            "missing_command_buffer_lifetime_status")] += count;
+    stack_region_command_pool_reset_deferral_retire_timeline_counts[field_or(
+        fields,
+        "retire_timeline_status",
+        "missing_retire_timeline_status")] += count;
+  }
+  for (const auto& row : stack_region_command_buffer_request_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_request_api_status_counts[field_or(
+        fields, "request_api_status", "missing_request_api_status")] += count;
+    stack_region_command_buffer_request_requested_resource_type_counts[field_or(
+        fields, "requested_resource_type", "missing_requested_resource_type")] +=
+        count;
+    stack_region_command_buffer_request_lifetime_scope_counts[field_or(
+        fields, "requested_lifetime_scope", "missing_requested_lifetime_scope")] +=
+        count;
+  }
+  for (const auto& row : stack_region_command_buffer_request_result_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_request_result_status_counts[field_or(
+        fields, "request_result_status", "missing_request_result_status")] +=
+        count;
+    stack_region_command_buffer_request_result_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_buffer_request_result_available_counts[field_or(
+        fields, "result_available", "missing_result_available")] += count;
+    stack_region_command_buffer_request_result_region_owned_status_counts[field_or(
+        fields,
+        "region_owned_command_buffer_implementation_status",
+        "missing_region_owned_command_buffer_implementation_status")] += count;
+  }
+  for (const auto& row : stack_region_command_buffer_request_hook_plan_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_request_hook_plan_status_counts[field_or(
+        fields, "request_hook_plan_status", "missing_request_hook_plan_status")] +=
+        count;
+    stack_region_command_buffer_request_hook_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_buffer_request_hook_requested_resource_type_counts
+        [field_or(
+            fields,
+            "requested_resource_type",
+            "missing_requested_resource_type")] += count;
+    stack_region_command_buffer_request_hook_installed_counts[field_or(
+        fields, "hook_installed", "missing_hook_installed")] += count;
+    stack_region_command_buffer_request_hook_stack_entry_callsite_counts[field_or(
+        fields, "hook_callsite_stack_entry", "missing_hook_callsite_stack_entry")] +=
+        count;
+    stack_region_command_buffer_request_hook_missing_api_status_counts[field_or(
+        fields, "missing_hook_api_status", "missing_hook_api_status")] += count;
+    stack_region_command_buffer_request_hook_region_lifetime_scope_counts[field_or(
+        fields,
+        "region_lifetime_scope_status",
+        "missing_region_lifetime_scope_status")] += count;
+    stack_region_command_buffer_request_hook_descriptor_lifetime_scope_counts
+        [field_or(
+            fields,
+            "descriptor_lifetime_scope_status",
+            "missing_descriptor_lifetime_scope_status")] += count;
+    stack_region_command_buffer_request_hook_retire_timeline_scope_counts
+        [field_or(
+            fields,
+            "retire_timeline_ownership_scope_status",
+            "missing_retire_timeline_ownership_scope_status")] += count;
+    stack_region_command_buffer_request_hook_same_stream_queue_counts[field_or(
+        fields,
+        "same_stream_queue_proof_status",
+        "missing_same_stream_queue_proof_status")] += count;
   }
   const std::string submit_level_top_reject_reason =
       top_count_key(submit_level_reject_reason_counts);
@@ -13111,6 +16191,18 @@ void append_stack_region_submit_epoch_ordering_json(
   append_u64_map_object(
       out, submit_level_pending_dispatch_completion_visibility_status_counts);
   append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_completion_equivalence_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_completion_equivalence_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_completion_equivalence_reason_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_completion_equivalence_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_execution_visibility_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_pending_dispatch_execution_visibility_status_counts);
+  append_json_comma(out, submit_level_first);
   out << "\"pending_dispatch_command_buffer_identity_status_counts\":";
   append_u64_map_object(
       out,
@@ -13159,6 +16251,753 @@ void append_stack_region_submit_epoch_ordering_json(
       out,
       submit_level_phase_submit_epoch_visibility_contract_failed_predicate_counts);
   append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_execution_flush_contract_requirement_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_execution_flush_contract_requirement_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_execution_flush_contract_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_execution_flush_contract_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_execution_flush_contract_reason_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_execution_flush_contract_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_execution_flush_required_primitive_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_execution_flush_required_primitive_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_execution_flush_replacement_candidate_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_execution_flush_replacement_candidate_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_execution_flush_missing_source_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_execution_flush_missing_source_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_command_buffer_continuity_proof_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_command_buffer_continuity_proof_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_command_buffer_continuity_proof_reason_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_command_buffer_continuity_proof_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_command_buffer_continuity_same_scope_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_command_buffer_continuity_same_scope_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_command_buffer_closed_before_consumer_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_command_buffer_closed_before_consumer_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_later_queue_submit_candidate_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_later_queue_submit_candidate_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_retire_timeline_requirement_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_retire_timeline_requirement_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_later_retire_coverage_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_later_retire_coverage_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_pending_resource_escape_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_pending_resource_escape_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_intervening_blocker_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_phase_submit_intervening_blocker_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_command_buffer_continuity_missing_source_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_command_buffer_continuity_missing_source_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_plan_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_stack_region_deferred_submit_plan_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_plan_reason_counts\":";
+  append_u64_map_object(
+      out, submit_level_stack_region_deferred_submit_plan_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_later_point_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_stack_region_deferred_submit_later_point_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_stack_region_deferred_submit_same_stream_queue_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_same_region_owner_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_stack_region_deferred_submit_same_region_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_retire_migration_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_stack_region_deferred_submit_retire_migration_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_descriptor_lifetime_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_stack_region_deferred_submit_descriptor_lifetime_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_command_pool_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_stack_region_deferred_submit_command_pool_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_top_migration_blocker_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_stack_region_deferred_submit_top_migration_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_submit_point_kind_counts\":";
+  append_u64_map_object(out, stack_region_submit_point_kind_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_submit_point_status_counts\":";
+  append_u64_map_object(out, stack_region_submit_point_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_submit_point_deferred_target_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_submit_point_deferred_target_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_submit_point_later_point_status_counts\":";
+  append_u64_map_object(out, stack_region_submit_point_later_point_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_submit_point_top_migration_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_submit_point_top_migration_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_submit_point_records\":[";
+  for (size_t i = 0u; i < stack_region_submit_point_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out, stack_region_submit_point_rows[i], "stack_region_submit_point");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_planned_submit_point_status_counts\":";
+  append_u64_map_object(out, stack_region_planned_submit_point_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_planned_submit_point_candidate_target_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_planned_submit_point_candidate_target_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_planned_submit_point_same_region_owner_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_planned_submit_point_same_region_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_planned_submit_point_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_planned_submit_point_same_stream_queue_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_planned_submit_point_same_command_buffer_batch_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_planned_submit_point_same_command_buffer_batch_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_planned_submit_point_implementation_hook_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_planned_submit_point_implementation_hook_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_planned_submit_point_records\":[";
+  for (size_t i = 0u; i < stack_region_planned_submit_point_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_planned_submit_point_rows[i],
+        "stack_region_planned_submit_point");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_status_counts\":";
+  append_u64_map_object(out, stack_region_exit_release_point_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_top_blocker_counts\":";
+  append_u64_map_object(out, stack_region_exit_release_point_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_callsite_status_counts\":";
+  append_u64_map_object(out, stack_region_exit_release_point_callsite_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_command_buffer_release_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_point_command_buffer_release_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_descriptor_release_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_point_descriptor_release_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_retire_release_status_counts\":";
+  append_u64_map_object(out, stack_region_exit_release_point_retire_release_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_allocator_retire_status_counts\":";
+  append_u64_map_object(out, stack_region_exit_release_point_allocator_retire_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_command_pool_cleanup_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_point_command_pool_cleanup_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_point_records\":[";
+  for (size_t i = 0u; i < stack_region_exit_release_point_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_exit_release_point_rows[i],
+        "stack_region_exit_release_point");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_contract_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_contract_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_contract_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_contract_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_owner_identity_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_owner_identity_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_command_buffer_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_command_buffer_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_queue_submit_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_queue_submit_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_descriptor_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_descriptor_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_retire_timeline_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_retire_timeline_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_allocator_resource_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_allocator_resource_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_command_pool_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_command_pool_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_contract_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_exit_release_ownership_contract_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_exit_release_ownership_contract_rows[i],
+        "stack_region_exit_release_ownership_contract");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_runtime_hook_plan_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_deferred_submit_runtime_hook_plan_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_top_missing_capability_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_deferred_submit_runtime_hook_top_missing_capability_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_region_owned_command_buffer_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_deferred_submit_runtime_hook_region_owned_command_buffer_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_cross_phase_recording_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_deferred_submit_runtime_hook_cross_phase_recording_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_retire_timeline_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_deferred_submit_runtime_hook_retire_timeline_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_descriptor_lifetime_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_deferred_submit_runtime_hook_descriptor_lifetime_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_command_pool_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_deferred_submit_runtime_hook_command_pool_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_deferred_submit_runtime_hook_same_stream_queue_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_deferred_submit_runtime_hook_plan_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_deferred_submit_runtime_hook_plan_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_deferred_submit_runtime_hook_plan_rows[i],
+        "stack_region_deferred_submit_runtime_hook_plan");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_ownership_plan_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_ownership_plan_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_ownership_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_ownership_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_current_owner_scope_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_current_owner_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_region_owned_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_region_owned_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_context_ownership_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_context_ownership_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_stack_owner_request_hook_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_stack_owner_request_hook_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_same_stream_queue_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_ownership_plan_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_buffer_ownership_plan_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_ownership_plan_rows[i],
+        "stack_region_command_buffer_ownership_plan");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_contract_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_contract_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_contract_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_contract_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_contract_required_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_contract_required_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_ownership_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_ownership_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_command_pool_lifetime_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_command_pool_lifetime_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_descriptor_lifetime_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_descriptor_lifetime_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_retire_timeline_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_retire_timeline_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_owned_command_buffer_same_stream_queue_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_owned_command_buffer_contract_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_owned_command_buffer_contract_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_owned_command_buffer_contract_rows[i],
+        "stack_region_owned_command_buffer_contract");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_lifetime_reservation_api_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_lifetime_reservation_api_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_lifetime_reservation_result_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_lifetime_reservation_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_lifetime_reservation_top_blocker_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_lifetime_reservation_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_lifetime_reservation_command_pool_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_lifetime_reservation_command_pool_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_lifetime_reservation_command_buffer_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_lifetime_reservation_command_buffer_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_lifetime_reservation_release_point_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_lifetime_reservation_release_point_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_lifetime_reservation_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_buffer_lifetime_reservation_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_lifetime_reservation_rows[i],
+        "stack_region_command_buffer_lifetime_reservation");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_lifetime_contract_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_lifetime_contract_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_lifetime_contract_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_lifetime_contract_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_lifetime_contract_owner_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_lifetime_contract_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_lifetime_contract_retention_api_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_lifetime_contract_retention_api_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_lifetime_contract_reset_deferral_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_lifetime_contract_reset_deferral_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_lifetime_contract_release_point_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_lifetime_contract_release_point_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_lifetime_contract_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_pool_lifetime_contract_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_pool_lifetime_contract_rows[i],
+        "stack_region_command_pool_lifetime_contract");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_retention_request_api_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_request_api_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_request_scope_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_request_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_result_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_result_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_result_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_implementation_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_implementation_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_retention_reset_deferral_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_reset_deferral_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_release_point_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_release_point_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_retention_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_retention_same_stream_queue_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_request_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_pool_retention_request_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_pool_retention_request_rows[i],
+        "stack_region_command_pool_retention_request");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_retention_result_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_pool_retention_result_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_pool_retention_result_rows[i],
+        "stack_region_command_pool_retention_result");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_proof_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_proof_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_api_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_api_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_reset_deferral_current_reset_point_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_current_reset_point_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_reset_deferral_planned_release_point_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_pool_reset_deferral_planned_release_point_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_retention_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_retention_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_reset_deferral_descriptor_lifetime_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_pool_reset_deferral_descriptor_lifetime_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_reset_deferral_command_buffer_lifetime_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_pool_reset_deferral_command_buffer_lifetime_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_reset_deferral_retire_timeline_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_retire_timeline_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_proof_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_pool_reset_deferral_proof_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_pool_reset_deferral_proof_rows[i],
+        "stack_region_command_pool_reset_deferral_proof");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_api_status_counts\":";
+  append_u64_map_object(out, stack_region_command_buffer_request_api_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_requested_resource_type_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_request_requested_resource_type_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_lifetime_scope_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_lifetime_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_result_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_result_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_result_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_result_available_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_result_available_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_result_region_owned_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_request_result_region_owned_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_records\":[";
+  for (size_t i = 0u; i < stack_region_command_buffer_request_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_request_rows[i],
+        "stack_region_command_buffer_request");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_result_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_buffer_request_result_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_request_result_rows[i],
+        "stack_region_command_buffer_request_result");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_hook_plan_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_plan_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_hook_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_hook_requested_resource_type_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_request_hook_requested_resource_type_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_hook_installed_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_installed_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_hook_stack_entry_callsite_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_stack_entry_callsite_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_hook_missing_api_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_missing_api_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_hook_region_lifetime_scope_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_region_lifetime_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_hook_descriptor_lifetime_scope_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_request_hook_descriptor_lifetime_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_hook_retire_timeline_scope_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_retire_timeline_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_buffer_request_hook_same_stream_queue_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_request_hook_same_stream_queue_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_request_hook_plan_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_buffer_request_hook_plan_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_request_hook_plan_rows[i],
+        "stack_region_command_buffer_request_hook_plan");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"live_submit_equivalence_binding_exact_join_status_counts\":";
+  append_u64_map_object(
+      out, live_submit_equivalence_binding_exact_join_status_counts);
+  append_json_comma(out, submit_level_first);
   out << "\"records\":[";
   for (size_t i = 0u; i < submit_level_equivalence_proof_rows.size(); ++i) {
     if (i > 0u) {
@@ -13168,6 +17007,19 @@ void append_stack_region_submit_epoch_ordering_json(
         out,
         submit_level_equivalence_proof_rows[i],
         "submit_level_equivalence_proof");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"live_submit_equivalence_binding_exact_join_records\":[";
+  for (size_t i = 0u; i < live_submit_equivalence_binding_exact_join_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        live_submit_equivalence_binding_exact_join_rows[i],
+        "live_submit_equivalence_binding_exact_join");
   }
   out << "]}";
   append_json_comma(out, stack_boundary_first);
@@ -14128,6 +17980,410 @@ void maybe_write_stack_region_dependency_graph_dump() {
 }
 
 } // namespace
+
+StackRegionCommandBufferRequestResult request_stack_region_command_buffer(
+    const StackRegionCommandBufferRequest& request) {
+  StackRegionCommandBufferRequestResult result;
+  if (!request.contract_required) {
+    result.available = false;
+    result.api_status = "request_api_not_required";
+    result.result_status = "request_result_not_required";
+    result.reason = "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.region_owned_command_buffer_implementation_status =
+        "region_owned_command_buffer_not_required";
+    result.command_pool_lifetime_extension_status =
+        "command_pool_lifetime_extension_not_required";
+    result.descriptor_lifetime_extension_status =
+        "descriptor_lifetime_extension_not_required";
+    result.retire_timeline_migration_status =
+        "retire_timeline_migration_not_required";
+    result.same_stream_queue_status = "same_stream_queue_proof_not_required";
+    result.owned_command_buffer_contract_status =
+        "owned_command_buffer_contract_not_required";
+    result.owned_command_buffer_contract_reason =
+        "phase_submit_not_required_for_selected_pending_dispatch_range";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.available = false;
+    result.api_status = "request_api_rejected_host_fence_public_readback_blocker";
+    result.result_status =
+        "request_result_rejected_host_fence_public_readback_blocker";
+    result.reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.region_owned_command_buffer_implementation_status =
+        "region_owned_command_buffer_rejected_host_fence_public_readback_blocker";
+    result.command_pool_lifetime_extension_status =
+        "command_pool_lifetime_extension_blocked_by_host_fence_public_readback";
+    result.descriptor_lifetime_extension_status =
+        "descriptor_lifetime_extension_blocked_by_host_fence_public_readback";
+    result.retire_timeline_migration_status =
+        "retire_timeline_migration_blocked_by_host_fence_public_readback";
+    result.same_stream_queue_status =
+        "same_stream_queue_proof_blocked_by_host_fence_public_readback";
+    result.owned_command_buffer_contract_status =
+        "owned_command_buffer_contract_rejected_public_final_host_readback_boundary";
+    result.owned_command_buffer_contract_reason =
+        "host_fence_public_final_readback_blocker_observed";
+    return result;
+  }
+  result.same_stream_queue_status = request.require_same_stream_queue
+      ? "same_stream_queue_required_unproven"
+      : "same_stream_queue_not_required";
+  return result;
+}
+
+StackRegionCommandBufferLifetimeReservationResult
+reserve_stack_region_command_buffer_lifetime(
+    const StackRegionCommandBufferLifetimeReservationRequest& request) {
+  StackRegionCommandBufferLifetimeReservationResult result;
+  if (!request.reservation_required) {
+    result.available = false;
+    result.api_status =
+        "command_buffer_lifetime_reservation_api_not_required";
+    result.result_status =
+        "command_buffer_lifetime_reservation_not_required";
+    result.reason = "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.command_pool_lifetime_status =
+        "command_pool_lifetime_extension_not_required";
+    result.command_buffer_lifetime_status =
+        "command_buffer_lifetime_extension_not_required";
+    result.region_exit_release_point_status =
+        "region_exit_release_point_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.available = false;
+    result.api_status =
+        "command_buffer_lifetime_reservation_api_rejected_host_fence_public_readback_blocker";
+    result.result_status =
+        "command_buffer_lifetime_reservation_rejected_host_fence_public_readback_blocker";
+    result.reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.command_pool_lifetime_status =
+        "command_pool_lifetime_blocked_by_host_fence_public_readback";
+    result.command_buffer_lifetime_status =
+        "command_buffer_lifetime_blocked_by_host_fence_public_readback";
+    result.region_exit_release_point_status =
+        "region_exit_release_point_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  result.region_exit_release_point_status =
+      request.planned_region_exit_release_point_status;
+  if (request.planned_region_exit_release_point_status ==
+      "exit_release_point_synthetic_planned_only") {
+    result.reason = "region_exit_release_ownership_unimplemented";
+    result.top_blocker = "missing_region_exit_release_ownership";
+    return result;
+  }
+  return result;
+}
+
+StackRegionExitReleasePointResult evaluate_stack_region_exit_release_point(
+    const StackRegionExitReleasePointRequest& request) {
+  StackRegionExitReleasePointResult result;
+  if (!request.release_point_required) {
+    result.release_capable = false;
+    result.api_status = "stack_region_exit_release_point_api_not_required";
+    result.release_point_status = "exit_release_point_not_required";
+    result.release_point_reason =
+        "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.planned_recording_exit_callsite_status =
+        "planned_stack_recording_exit_callsite_not_required";
+    result.command_buffer_release_status =
+        "command_buffer_release_not_required";
+    result.descriptor_lifetime_release_status =
+        "descriptor_lifetime_release_not_required";
+    result.retire_timeline_release_status =
+        "retire_timeline_release_not_required";
+    result.allocator_resource_retire_status =
+        "allocator_resource_retire_not_required";
+    result.command_pool_cleanup_reset_status =
+        "command_pool_cleanup_reset_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.release_capable = false;
+    result.api_status =
+        "stack_region_exit_release_point_api_rejected_host_fence_public_readback_blocker";
+    result.release_point_status =
+        "exit_release_point_rejected_host_fence_public_readback_blocker";
+    result.release_point_reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.planned_recording_exit_callsite_status =
+        "planned_stack_recording_exit_callsite_blocked_by_host_fence_public_readback";
+    result.command_buffer_release_status =
+        "command_buffer_release_blocked_by_host_fence_public_readback";
+    result.descriptor_lifetime_release_status =
+        "descriptor_lifetime_release_blocked_by_host_fence_public_readback";
+    result.retire_timeline_release_status =
+        "retire_timeline_release_blocked_by_host_fence_public_readback";
+    result.allocator_resource_retire_status =
+        "allocator_resource_retire_blocked_by_host_fence_public_readback";
+    result.command_pool_cleanup_reset_status =
+        "command_pool_cleanup_reset_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  if (request.planned_submit_point_id.empty() ||
+      request.planned_submit_point_id == "missing") {
+    result.release_capable = false;
+    result.release_point_status = "exit_release_point_missing";
+    result.release_point_reason = "planned_region_exit_submit_point_missing";
+    result.top_blocker = "missing_region_exit_release_point";
+    result.planned_recording_exit_callsite_status =
+        "planned_stack_recording_exit_callsite_missing";
+    return result;
+  }
+  return result;
+}
+
+StackRegionExitReleaseOwnershipContractResult
+evaluate_stack_region_exit_release_ownership_contract(
+    const StackRegionExitReleaseOwnershipContractRequest& request) {
+  StackRegionExitReleaseOwnershipContractResult result;
+  if (!request.contract_required) {
+    result.contract_available = false;
+    result.api_status =
+        "stack_region_exit_release_ownership_contract_api_not_required";
+    result.contract_status =
+        "exit_release_ownership_contract_not_required";
+    result.contract_reason =
+        "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.stack_region_owner_identity_status =
+        "stack_region_owner_identity_not_required";
+    result.command_buffer_close_submit_ownership_status =
+        "command_buffer_close_submit_ownership_not_required";
+    result.queue_submit_timeline_ownership_status =
+        "queue_submit_timeline_ownership_not_required";
+    result.descriptor_lifetime_release_ownership_status =
+        "descriptor_release_ownership_not_required";
+    result.retire_timeline_release_ownership_status =
+        "retire_timeline_release_ownership_not_required";
+    result.allocator_resource_release_ownership_status =
+        "allocator_resource_release_ownership_not_required";
+    result.command_pool_cleanup_reset_ownership_status =
+        "command_pool_cleanup_reset_ownership_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.contract_available = false;
+    result.api_status =
+        "stack_region_exit_release_ownership_contract_api_rejected_host_fence_public_readback_blocker";
+    result.contract_status =
+        "exit_release_ownership_contract_rejected_host_fence_public_readback_blocker";
+    result.contract_reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.stack_region_owner_identity_status =
+        "stack_region_owner_identity_blocked_by_host_fence_public_readback";
+    result.command_buffer_close_submit_ownership_status =
+        "command_buffer_close_submit_ownership_blocked_by_host_fence_public_readback";
+    result.queue_submit_timeline_ownership_status =
+        "queue_submit_timeline_ownership_blocked_by_host_fence_public_readback";
+    result.descriptor_lifetime_release_ownership_status =
+        "descriptor_release_ownership_blocked_by_host_fence_public_readback";
+    result.retire_timeline_release_ownership_status =
+        "retire_timeline_release_ownership_blocked_by_host_fence_public_readback";
+    result.allocator_resource_release_ownership_status =
+        "allocator_resource_release_ownership_blocked_by_host_fence_public_readback";
+    result.command_pool_cleanup_reset_ownership_status =
+        "command_pool_cleanup_reset_ownership_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  if (request.stack_region_owner_identity.empty() ||
+      request.stack_region_owner_identity ==
+          "missing_stack_region_owner_identity") {
+    result.contract_available = false;
+    result.contract_status =
+        "exit_release_ownership_contract_missing_stack_region_owner_identity";
+    result.contract_reason = "stack_region_owner_identity_missing";
+    result.top_blocker =
+        "missing_stack_region_owner_identity_at_release_point";
+    result.stack_region_owner_identity_status =
+        "missing_stack_region_owner_identity_at_release_point";
+    return result;
+  }
+  return result;
+}
+
+StackRegionCommandPoolRetentionResult
+request_stack_region_command_pool_retention(
+    const StackRegionCommandPoolRetentionRequest& request) {
+  StackRegionCommandPoolRetentionResult result;
+  if (!request.retention_required) {
+    result.available = false;
+    result.api_status = "command_pool_retention_request_api_not_required";
+    result.result_status = "command_pool_retention_result_not_required";
+    result.reason = "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.implementation_status =
+        "command_pool_retention_implementation_not_required";
+    result.reset_deferral_proof_status =
+        "command_pool_reset_deferral_not_required";
+    result.planned_release_point_status =
+        "region_exit_release_point_not_required";
+    result.same_stream_queue_status = "same_stream_queue_proof_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.available = false;
+    result.api_status =
+        "command_pool_retention_request_api_rejected_host_fence_public_readback_blocker";
+    result.result_status =
+        "command_pool_retention_result_rejected_host_fence_public_readback_blocker";
+    result.reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.implementation_status =
+        "command_pool_retention_implementation_blocked_by_host_fence_public_readback";
+    result.reset_deferral_proof_status =
+        "command_pool_reset_deferral_blocked_by_host_fence_public_readback";
+    result.planned_release_point_status =
+        "region_exit_release_point_blocked_by_host_fence_public_readback";
+    result.same_stream_queue_status =
+        "same_stream_queue_proof_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  result.planned_release_point_status = request.planned_release_point_status;
+  if (request.planned_release_point_status ==
+      "exit_release_point_synthetic_planned_only") {
+    result.reason = "region_exit_release_ownership_unimplemented";
+    result.top_blocker = "missing_region_exit_release_ownership";
+    result.implementation_status =
+        "command_pool_retention_blocked_by_missing_region_exit_release_ownership";
+    result.reset_deferral_proof_status =
+        "command_pool_reset_deferral_proof_blocked_region_exit_release_unavailable";
+  }
+  result.same_stream_queue_status = request.require_same_stream_queue
+      ? "same_stream_queue_required_unproven"
+      : "same_stream_queue_not_required";
+  return result;
+}
+
+StackRegionCommandPoolResetDeferralProofResult
+evaluate_stack_region_command_pool_reset_deferral_proof(
+    const StackRegionCommandPoolResetDeferralProofRequest& request) {
+  StackRegionCommandPoolResetDeferralProofResult result;
+  result.current_reset_point_status = request.current_reset_point_status;
+  result.planned_release_reset_point_status =
+      request.planned_release_reset_point_status;
+  result.retention_result_status =
+      request.command_pool_retention_result_status;
+  if (!request.proof_required) {
+    result.proof_complete = false;
+    result.api_status =
+        "command_pool_reset_deferral_proof_api_not_required";
+    result.proof_status = "command_pool_reset_deferral_proof_not_required";
+    result.proof_reason =
+        "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.current_reset_point_status = "reset_point_not_required";
+    result.planned_release_reset_point_status =
+        "region_exit_release_point_not_required";
+    result.descriptor_lifetime_status =
+        "descriptor_lifetime_not_required_for_reset_deferral";
+    result.command_buffer_lifetime_status =
+        "command_buffer_lifetime_not_required_for_reset_deferral";
+    result.retire_timeline_status =
+        "retire_timeline_not_required_for_reset_deferral";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.proof_complete = false;
+    result.api_status =
+        "command_pool_reset_deferral_proof_api_rejected_host_fence_public_readback_blocker";
+    result.proof_status =
+        "command_pool_reset_deferral_proof_rejected_host_fence_public_readback_blocker";
+    result.proof_reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.current_reset_point_status =
+        "reset_point_blocked_by_host_fence_public_readback";
+    result.planned_release_reset_point_status =
+        "region_exit_release_point_blocked_by_host_fence_public_readback";
+    result.descriptor_lifetime_status =
+        "descriptor_lifetime_blocked_by_host_fence_public_readback";
+    result.command_buffer_lifetime_status =
+        "command_buffer_lifetime_blocked_by_host_fence_public_readback";
+    result.retire_timeline_status =
+        "retire_timeline_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  if (!request.command_pool_retention_available) {
+    result.proof_complete = false;
+    result.proof_status =
+        "command_pool_reset_deferral_proof_blocked_retention_unavailable";
+    result.proof_reason =
+        request.command_pool_retention_top_blocker ==
+            "missing_region_exit_release_ownership"
+        ? "region_exit_release_ownership_missing"
+        : "command_pool_retention_unavailable";
+    result.top_blocker = request.command_pool_retention_top_blocker;
+    return result;
+  }
+  if (request.planned_release_reset_point_status ==
+      "region_exit_release_point_unimplemented") {
+    result.proof_complete = false;
+    result.proof_status =
+        "command_pool_reset_deferral_proof_blocked_planned_release_point_missing";
+    result.proof_reason = "planned_region_exit_release_point_unimplemented";
+    result.top_blocker = "region_exit_release_point_unimplemented";
+    return result;
+  }
+  result.proof_complete = false;
+  result.proof_status =
+      "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing";
+  result.proof_reason = "command_pool_reset_deferral_implementation_missing";
+  result.top_blocker = "command_pool_reset_deferral_implementation_missing";
+  return result;
+}
+
+StackRegionCommandPoolLifetimeContractResult
+evaluate_stack_region_command_pool_lifetime_contract(
+    const StackRegionCommandPoolLifetimeContractRequest& request) {
+  StackRegionCommandPoolLifetimeContractResult result;
+  if (!request.contract_required) {
+    result.available = false;
+    result.contract_status = "command_pool_lifetime_contract_not_required";
+    result.reason = "phase_submit_not_required_for_selected_pending_dispatch_range";
+    result.top_blocker = "none";
+    result.current_command_pool_owner_status =
+        "command_pool_owner_not_required";
+    result.planned_region_exit_release_point_status =
+        "region_exit_release_point_not_required";
+    result.command_pool_retention_api_status =
+        "command_pool_retention_request_api_not_required";
+    result.command_pool_reset_deferral_status =
+        "command_pool_reset_deferral_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.available = false;
+    result.contract_status =
+        "command_pool_lifetime_contract_rejected_host_fence_public_readback_blocker";
+    result.reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.current_command_pool_owner_status =
+        "command_pool_owner_blocked_by_host_fence_public_readback";
+    result.planned_region_exit_release_point_status =
+        "region_exit_release_point_blocked_by_host_fence_public_readback";
+    result.command_pool_retention_api_status =
+        "command_pool_retention_request_api_rejected_host_fence_public_readback_blocker";
+    result.command_pool_reset_deferral_status =
+        "command_pool_reset_deferral_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  result.planned_region_exit_release_point_status =
+      request.planned_region_exit_release_point_status;
+  if (request.planned_region_exit_release_point_status ==
+      "exit_release_point_synthetic_planned_only") {
+    result.reason = "region_exit_release_ownership_unimplemented";
+    result.top_blocker = "missing_region_exit_release_ownership";
+    return result;
+  }
+  return result;
+}
 
 VulkanSyncCounters& vulkan_sync_counters() {
   static VulkanSyncCounters counters;

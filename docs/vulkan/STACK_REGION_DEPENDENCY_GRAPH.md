@@ -503,6 +503,205 @@ retire entries, and absence of public/final/host/readback blockers. This binding
 is still behavior-neutral. Rows keep
 `phase_submit_epoch_visibility_contract_authorizes_submit_elision=0` and
 `submits_removed=0`.
+Because those rows are emitted before the final submit-level proof table is
+rolled up, they are not behavior proof. The graph therefore also emits
+`StackRegionLiveSubmitEquivalenceBindingExactJoin.v0` rows from the finalized
+`StackBoundarySubmitLevelEquivalenceProof.v0` table. The exact join key uses
+the selected boundary id/class, producer and consumer blocks, stack-region
+instance id, descriptor binding, callsite/phase, producer and consumer
+command-buffer ids, submit epochs, and the pending-dispatch range identity.
+Join statuses distinguish an exact complete proof row, an exact incomplete
+proof row with its reject reason, no proof row for the live submit key, and
+ambiguous multiple proof rows. The original cumulative live counters remain
+available for diagnosing emission order only and are marked as not
+behavior-authoritative.
+`StackRegionPendingDispatchCompletionEquivalenceProof.v0` is emitted from the
+same exact submit-level row. It records whether the pending dispatch range has
+an exact command-list proof, whether command recording is complete, whether
+execution visibility is still submit-dependent, and whether any modeled side
+effects remain beyond phase-submit execution/flush semantics. The current
+status remains fail-closed: this proof surface can narrow the blocker, but it
+does not authorize submit elision or change barrier behavior.
+`PhaseSubmitExecutionFlushContract` is the named follow-up contract for that
+remaining blocker. It records whether a phase-submit execution/flush dependency
+is observed, whether the contract is required, the required primitive, the
+candidate replacement primitive, and the missing source. Current selected
+`residual2@0 -> norm1@1` rows can report that all modeled resource hazards are
+covered while execution visibility still depends on the phase submit. In that
+case the contract reports an absent replacement primitive, for example a
+queue-submit-equivalent execution visibility primitive such as an event,
+timeline, or other command-buffer-continuity proof. The field
+`phase_submit_execution_flush_authorizes_submit_elision` remains `0`.
+`PhaseSubmitCommandBufferContinuityProof.v0` is the first behavior-neutral
+shape of that replacement proof. It records same-active-command-buffer scope,
+whether the phase submit closes or submits the command buffer before the
+consumer, whether a later real queue-submit/timeline candidate is observed for
+the same command buffer or batch, whether the current phase submit supplies a
+retire timeline, whether later-retire coverage is proven, and whether
+intervening public, host, final, readback, stream/queue, fence, command-pool, or
+descriptor-pool blockers are modeled. Current selected rows remain fail-closed
+when command-buffer continuity is present but no later queue-submit/timeline
+candidate is observed. The field
+`phase_submit_command_buffer_continuity_authorizes_submit_elision` remains `0`.
+`StackRegionSubmitPoint.v0` exposes observed submit points as graph nodes. Each
+row records the submit-point id/key, stack-region instance, phase/scope/callsite,
+command-buffer recording identity, submit epoch before and after, submit-point
+kind such as `phase_boundary_submit`, and deferred target status. Current rows
+represent the existing phase-boundary real queue submits; they are not later
+region targets and report `authorizes_submit_elision=0`.
+`StackRegionPlannedSubmitPoint.v0` is the matching behavior-neutral planning
+surface for synthetic future targets. The current row shape names a planned
+`stack_exit` / `region_exit` submit point, stack-region owner, expected
+same-owner/same-stream relation, command-buffer continuity requirement,
+descriptor and command-pool lifetime requirements, retire timeline migration
+requirement, and the missing real implementation hook. These rows are
+`synthetic_planned_only`, do not create a queue submit, and also report
+`authorizes_submit_elision=0`.
+`StackRegionDeferredSubmitRuntimeHookPlan.v0` spells out that missing runtime
+hook. It is keyed by the planned submit point and records whether a hook is
+installed, whether it can close and submit a region-owned command buffer or
+batch, and the required capabilities for cross-phase recording ownership,
+retire timeline migration, descriptor lifetime extension, command-pool lifetime
+extension, same stream/queue proof, and host/fence/public/readback blockers.
+The current rows report `hook_installed=0`,
+`can_close_submit_region_owned_command_buffer=0`, and
+`missing_command_pool_lifetime_extension` as the first concrete missing
+capability behind the unavailable runtime API skeleton.
+`StackRegionCommandBufferOwnershipPlan.v0` decomposes that capability into the
+ownership shape a future runtime hook would need. It records the stack-region
+instance, current command-buffer recording id and scope, current owner scope,
+whether a region-owned command buffer or batch exists, whether ownership
+transfer is required, whether recording could remain open across phase
+boundaries, whether the phase submit could be suppressed while preserving
+recording, whether a planned region-exit close/submit and timeline/retire point
+could be provided, descriptor and command-pool lifetime coverage, same
+stream/queue guarantee status, and the stack-owner request hook status. Current
+rows report that the Vulkan context owns command buffers per submit phase, no
+region-owned command buffer or batch is present, and the stack owner has no
+region command-buffer request hook.
+`StackRegionCommandBufferRequest.v0` and
+`StackRegionCommandBufferRequestResult.v0` are the behavior-neutral request
+surface for that hook. The request row models a stack owner asking for a
+`command_buffer_or_batch` with stack-region lifetime, same stream/queue,
+descriptor lifetime, command-pool lifetime, retire timeline ownership,
+fallback, and public/final/host/readback policy requirements. The row is now
+backed by a minimal runtime API skeleton,
+`StackRegionCommandBufferRequestRuntimeApi.v0`, which is callable by
+diagnostics and always returns unavailable without allocating, switching, or
+submitting command buffers. The result row currently reports the API present
+but unavailable: `request_result_runtime_api_present_unavailable`.
+`StackRegionOwnedCommandBufferContract.v0` is the behavior-neutral design
+surface behind that unavailable result. It records whether the contract is
+required, the owner scope, same-stream/queue requirement, command-buffer or
+batch ownership, command-pool lifetime, descriptor lifetime,
+allocator/retire-timeline scope, planned stack-entry acquire point,
+stack-exit release/submit point, and public/final/host/readback policy. Current
+rows remain fail-closed with
+`owned_command_buffer_contract_runtime_api_present_result_unavailable`; they
+define the planned-region object and lifetime contract but do not allocate,
+switch, defer, or submit a command buffer. The first concrete blocker behind
+the API is command-pool lifetime extension for a region-owned command buffer or
+batch.
+`StackRegionCommandBufferLifetimeReservation.v0` is the behavior-neutral
+request/result surface for that first concrete blocker. It is keyed by the
+stack-region instance, selected boundary, and planned region-exit submit point,
+and records the requested command-buffer or batch identity, requested
+stack/region lifetime, command-pool lifetime scope, owner/requester scope,
+whether reservation is required, runtime API source, result status, and the
+specific command-pool, command-buffer, and region-exit release-point lifetime
+statuses. The current runtime API skeleton always returns unavailable and
+performs no allocation, command-buffer switch, submit, or defer operation.
+Current selected rows therefore report
+`command_buffer_lifetime_reservation_unavailable` with
+`command_pool_cannot_extend_beyond_phase_submit` as the top blocker.
+`StackRegionCommandPoolLifetimeContract.v0` is emitted below that reservation
+to decompose the command-pool lifetime failure. It records the stack-region
+instance, current command-pool owner/scope, selected phase-submit boundary id,
+requested region lifetime scope, planned region-exit release point id and
+status, linked command-buffer lifetime reservation key, command-pool retention
+API status, command-pool reset deferral status, and runtime API source. Current
+rows report `command_pool_lifetime_contract_unavailable`,
+`command_pool_owner_context_phase_submit_scope`,
+`command_pool_retention_request_api_present_result_unavailable`, and
+`missing_command_pool_reset_deferral_proof`. The contract authorizes no submit
+elision and performs no command-pool retention or command-buffer lifetime
+change.
+`StackRegionCommandPoolRetentionRequest.v0` and
+`StackRegionCommandPoolRetentionResult.v0` are emitted below the command-pool
+lifetime contract. They are keyed by the selected stack-region instance,
+boundary, planned region-exit release point, lifetime reservation, and
+command-pool lifetime contract. The request records the current context
+phase-submit command-pool owner scope, requested stack/region retention scope,
+same-stream/queue requirement, public/final/host/readback policy, and
+fail-closed runtime API source. The result distinguishes API-present but
+unavailable, missing region-exit release ownership, missing reset-deferral
+proof, planned release-point status, and same-stream/queue proof status. It
+does not retain command pools, defer resets, allocate command buffers, create
+queue submits, or authorize submit elision. Current selected rows report
+`command_pool_retention_result_api_present_unavailable` with
+`missing_region_exit_release_ownership` as the top blocker.
+`StackRegionExitReleasePoint.v0` is emitted beside the planned submit point to
+name the future stack/region exit release target. It records the stack-region
+instance, owner scope, planned recording/stack-exit callsite, planned submit
+point id, command-buffer/batch release target, and release responsibilities for
+command-buffer close/submit, descriptor lifetime, retire timeline,
+allocator/resource retirement, and command-pool cleanup. Current rows remain
+synthetic/planned-only and fail closed with
+`exit_release_point_synthetic_planned_only`; the command-buffer release target
+is not connected to a region-owned command-buffer abstraction. Ordinary phase
+submits are modeled as closing/submitting the active command buffer, consuming
+recording state, and creating a retire timeline, not as a literal command-pool
+reset.
+`StackRegionExitReleaseOwnershipContract.v0` is emitted for the same selected
+boundary and planned exit point. It is keyed by stack-region instance,
+boundary, and exit-release point, and records whether the future stack/region
+owner would own command-buffer close/submit, queue submit/timeline signaling,
+descriptor lifetime release, retire timeline release, allocator/resource
+release, and command-pool cleanup/reset. Current rows are behavior-neutral and
+fail closed with `exit_release_ownership_contract_unavailable`; the top blocker
+is `missing_region_exit_release_ownership_implementation`. The contract
+authorizes no submit elision and does not install a release hook.
+`StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
+result. It records the current phase-submit recording-epoch consumption point,
+planned region-exit release/reset point, linked retention result key/status,
+descriptor lifetime status, command-buffer lifetime status, retire-timeline
+status, and fail-closed top blocker. Current rows report
+`command_pool_reset_deferral_proof_blocked_retention_unavailable`, because the
+retention result is unavailable until region-exit release ownership exists;
+this refines the older `missing_command_pool_reset_deferral_proof` bucket
+without changing command-pool reset behavior.
+`StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair
+with the planned callsites. Current rows are behavior-neutral with
+`hook_installed=0`, `request_hook_plan_api_present_result_unavailable`, and
+`authorizes_submit_elision=0`.
+`StackRegionDeferredSubmitPlan.v0` is the corresponding architecture planning
+row. It models a future region-owned command-buffer or command-buffer-batch
+that would keep the selected pending dispatch range open and submit it later at
+a planned stack boundary with equivalent timeline and retire semantics. The row
+records the candidate phase-submit key, command-buffer scope, submit epochs,
+the current mandatory reason for the submit, whether a later region submit point
+is observed, same-stream/queue and same-region-owner status, retire timeline
+migration, descriptor lifetime and command-pool reset risk, host/fence/public
+blockers, and the top migration blocker. Current rows remain fail-closed with
+`stack_region_deferred_submit_authorizes_submit_elision=0`; when only the
+synthetic region-exit target exists the plan status is
+`stack_region_deferred_submit_plan_planned_target_unimplemented`, with
+`planned_region_submit_point_exists_but_unimplemented` as the reason and
+missing region-exit release ownership implementation as the top blocker.
+
+`StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
+any future phase-submit elision. It is documented in
+`docs/vulkan/STACK_BOUNDARY_VALUE_PRESERVATION.md` and requires both
+resource-side proof and submit-level value-preservation semantics: same
+recording scope, producer-before-consumer order, descriptor generation
+stability, actual consumer input barrier coverage, old-carry non-escape,
+absence of public/final/host/readback/requested-intermediate dependencies,
+pending-write coverage, lifetime/allocator side-effect safety, and a real
+replacement or proof for phase-submit execution/flush semantics. Current
+`vits_140` rows are barrier-ready but not behavior-ready because the stack
+owner can request a region-owned command buffer or batch only through a
+diagnostic API that returns unavailable; there is still no implementation that
+preserves the removed submit's execution, timeline, and retire role.
 
 ## Validation Gates
 

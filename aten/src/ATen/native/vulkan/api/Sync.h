@@ -356,6 +356,312 @@ struct VulkanStackOutputDeviceConsumerRegistration final {
   bool host_readback_before_consumption = true;
 };
 
+struct StackRegionCommandBufferRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string requester_scope = "stack_owner";
+  std::string owner_scope = "stack_region";
+  std::string requested_resource_type = "command_buffer_or_batch";
+  std::string requested_lifetime_scope = "stack_region";
+  std::string descriptor_lifetime_scope = "stack_region";
+  std::string command_pool_lifetime_scope = "stack_region";
+  std::string retire_timeline_ownership_scope = "stack_region";
+  std::string public_final_host_readback_policy =
+      "preserve_existing_phase_boundary_submit";
+  std::string fallback_policy = "preserve_existing_phase_boundary_submit";
+  bool contract_required = true;
+  bool require_same_stream_queue = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandBufferRequestResult final {
+  bool api_present = true;
+  bool available = false;
+  std::string api_status = "request_api_present_result_unavailable";
+  std::string result_status = "request_result_runtime_api_present_unavailable";
+  std::string reason =
+      "region_command_buffer_request_runtime_api_present_unavailable";
+  std::string top_blocker = "missing_command_pool_lifetime_extension";
+  std::string region_owned_command_buffer_implementation_status =
+      "runtime_api_present_region_owned_command_buffer_implementation_unavailable";
+  std::string command_pool_lifetime_extension_status =
+      "missing_command_pool_lifetime_extension";
+  std::string descriptor_lifetime_extension_status =
+      "descriptor_lifetime_extension_unimplemented";
+  std::string retire_timeline_migration_status =
+      "retire_timeline_migration_unimplemented";
+  std::string same_stream_queue_status = "same_stream_queue_required_unproven";
+  std::string owned_command_buffer_contract_status =
+      "owned_command_buffer_contract_runtime_api_present_result_unavailable";
+  std::string owned_command_buffer_contract_reason =
+      "region_command_buffer_request_runtime_api_present_unavailable";
+  std::string runtime_api_source =
+      "StackRegionCommandBufferRequestRuntimeApi.v0";
+};
+
+TORCH_API StackRegionCommandBufferRequestResult
+request_stack_region_command_buffer(
+    const StackRegionCommandBufferRequest& request);
+
+struct StackRegionCommandBufferLifetimeReservationRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string planned_submit_point_id = "missing";
+  std::string planned_region_exit_release_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string requested_command_buffer_identity =
+      "region_owned_command_buffer_or_batch";
+  std::string requested_lifetime_scope = "stack_region";
+  std::string command_pool_lifetime_scope = "stack_region";
+  std::string owner_scope = "stack_region";
+  std::string requester_scope = "stack_owner";
+  bool reservation_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandBufferLifetimeReservationResult final {
+  bool api_present = true;
+  bool available = false;
+  std::string api_status =
+      "command_buffer_lifetime_reservation_api_present_unavailable";
+  std::string result_status =
+      "command_buffer_lifetime_reservation_unavailable";
+  std::string reason =
+      "command_pool_cannot_extend_beyond_phase_submit";
+  std::string top_blocker =
+      "command_pool_cannot_extend_beyond_phase_submit";
+  std::string command_pool_lifetime_status =
+      "command_pool_cannot_extend_beyond_phase_submit";
+  std::string command_buffer_lifetime_status =
+      "command_buffer_lifetime_cannot_cross_phase_boundaries";
+  std::string region_exit_release_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string runtime_api_source =
+      "StackRegionCommandBufferLifetimeReservationRuntimeApi.v0";
+};
+
+TORCH_API StackRegionCommandBufferLifetimeReservationResult
+reserve_stack_region_command_buffer_lifetime(
+    const StackRegionCommandBufferLifetimeReservationRequest& request);
+
+struct StackRegionExitReleasePointRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string owner_scope = "stack_region";
+  std::string planned_recording_exit_callsite =
+      "stack_region_planned_recording_exit";
+  std::string planned_submit_point_id = "missing";
+  std::string command_buffer_batch_release_target_id =
+      "missing_region_owned_command_buffer_or_batch";
+  bool release_point_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionExitReleasePointResult final {
+  bool api_present = true;
+  bool release_capable = false;
+  std::string api_status =
+      "stack_region_exit_release_point_api_present_result_unavailable";
+  std::string release_point_status =
+      "exit_release_point_synthetic_planned_only";
+  std::string release_point_reason =
+      "region_exit_release_ownership_unimplemented";
+  std::string top_blocker = "missing_region_exit_release_ownership";
+  std::string planned_recording_exit_callsite_status =
+      "planned_stack_recording_exit_callsite_observed";
+  std::string command_buffer_release_status =
+      "exit_release_point_not_connected_to_command_buffer_ownership";
+  std::string descriptor_lifetime_release_status =
+      "descriptor_lifetime_release_unproven_at_region_exit";
+  std::string retire_timeline_release_status =
+      "retire_timeline_release_unproven_at_region_exit";
+  std::string allocator_resource_retire_status =
+      "allocator_resource_retire_release_unproven_at_region_exit";
+  std::string command_pool_cleanup_reset_status =
+      "command_pool_cleanup_reset_not_literal_phase_submit_reset";
+  std::string runtime_api_source =
+      "StackRegionExitReleasePointRuntimeApi.v0";
+};
+
+TORCH_API StackRegionExitReleasePointResult
+evaluate_stack_region_exit_release_point(
+    const StackRegionExitReleasePointRequest& request);
+
+struct StackRegionExitReleaseOwnershipContractRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string owner_scope = "stack_region";
+  std::string stack_region_owner_identity =
+      "missing_stack_region_owner_identity";
+  std::string exit_release_point_key = "missing";
+  std::string planned_submit_point_id = "missing";
+  std::string command_buffer_batch_release_target_id =
+      "missing_region_owned_command_buffer_or_batch";
+  bool contract_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionExitReleaseOwnershipContractResult final {
+  bool api_present = true;
+  bool contract_available = false;
+  std::string api_status =
+      "stack_region_exit_release_ownership_contract_api_present_result_unavailable";
+  std::string contract_status =
+      "exit_release_ownership_contract_unavailable";
+  std::string contract_reason =
+      "region_exit_release_ownership_implementation_missing";
+  std::string top_blocker =
+      "missing_region_exit_release_ownership_implementation";
+  std::string stack_region_owner_identity_status =
+      "stack_region_owner_identity_observed";
+  std::string command_buffer_close_submit_ownership_status =
+      "missing_command_buffer_close_submit_ownership";
+  std::string queue_submit_timeline_ownership_status =
+      "missing_queue_submit_timeline_ownership";
+  std::string descriptor_lifetime_release_ownership_status =
+      "missing_descriptor_release_ownership";
+  std::string retire_timeline_release_ownership_status =
+      "missing_retire_timeline_release_ownership";
+  std::string allocator_resource_release_ownership_status =
+      "missing_allocator_resource_release_ownership";
+  std::string command_pool_cleanup_reset_ownership_status =
+      "missing_command_pool_cleanup_reset_ownership";
+  std::string runtime_api_source =
+      "StackRegionExitReleaseOwnershipContractRuntimeApi.v0";
+};
+
+TORCH_API StackRegionExitReleaseOwnershipContractResult
+evaluate_stack_region_exit_release_ownership_contract(
+    const StackRegionExitReleaseOwnershipContractRequest& request);
+
+struct StackRegionCommandPoolRetentionRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string current_command_pool_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string requested_retention_scope = "stack_region";
+  std::string planned_release_point_id = "missing";
+  std::string planned_release_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string command_buffer_lifetime_reservation_key = "missing";
+  std::string command_pool_lifetime_contract_key = "missing";
+  bool retention_required = true;
+  bool require_same_stream_queue = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandPoolRetentionResult final {
+  bool api_present = true;
+  bool available = false;
+  std::string api_status =
+      "command_pool_retention_request_api_present_result_unavailable";
+  std::string result_status =
+      "command_pool_retention_result_api_present_unavailable";
+  std::string reason = "command_pool_retention_implementation_missing";
+  std::string top_blocker = "command_pool_retention_implementation_missing";
+  std::string implementation_status =
+      "command_pool_retention_implementation_missing";
+  std::string reset_deferral_proof_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string planned_release_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string same_stream_queue_status = "same_stream_queue_required_unproven";
+  std::string runtime_api_source =
+      "StackRegionCommandPoolRetentionRuntimeApi.v0";
+};
+
+TORCH_API StackRegionCommandPoolRetentionResult
+request_stack_region_command_pool_retention(
+    const StackRegionCommandPoolRetentionRequest& request);
+
+struct StackRegionCommandPoolResetDeferralProofRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string current_command_pool_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string current_reset_point_boundary_id = "missing";
+  std::string current_reset_point_status =
+      "reset_point_observed_at_phase_submit";
+  std::string planned_release_reset_point_id = "missing";
+  std::string planned_release_reset_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string command_pool_retention_result_key = "missing";
+  std::string command_pool_retention_result_status =
+      "command_pool_retention_result_api_present_unavailable";
+  std::string command_pool_retention_top_blocker =
+      "command_pool_retention_implementation_missing";
+  bool proof_required = true;
+  bool command_pool_retention_available = false;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandPoolResetDeferralProofResult final {
+  bool api_present = true;
+  bool proof_complete = false;
+  std::string api_status =
+      "command_pool_reset_deferral_proof_api_present_result_unavailable";
+  std::string proof_status =
+      "command_pool_reset_deferral_proof_blocked_retention_unavailable";
+  std::string proof_reason = "command_pool_retention_unavailable";
+  std::string top_blocker = "command_pool_retention_implementation_missing";
+  std::string current_reset_point_status =
+      "reset_point_observed_at_phase_submit";
+  std::string planned_release_reset_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string retention_result_status =
+      "command_pool_retention_result_api_present_unavailable";
+  std::string descriptor_lifetime_status =
+      "descriptor_lifetime_extension_unproven_for_reset_deferral";
+  std::string command_buffer_lifetime_status =
+      "command_buffer_lifetime_unproven_for_reset_deferral";
+  std::string retire_timeline_status =
+      "retire_timeline_migration_unproven_for_reset_deferral";
+  std::string runtime_api_source =
+      "StackRegionCommandPoolResetDeferralProofRuntimeApi.v0";
+};
+
+TORCH_API StackRegionCommandPoolResetDeferralProofResult
+evaluate_stack_region_command_pool_reset_deferral_proof(
+    const StackRegionCommandPoolResetDeferralProofRequest& request);
+
+struct StackRegionCommandPoolLifetimeContractRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string current_command_pool_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string current_phase_submit_boundary_id = "missing";
+  std::string requested_region_lifetime_scope = "stack_region";
+  std::string planned_region_exit_release_point_id = "missing";
+  std::string planned_region_exit_release_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string command_buffer_lifetime_reservation_key = "missing";
+  bool contract_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandPoolLifetimeContractResult final {
+  bool api_present = true;
+  bool available = false;
+  std::string contract_status =
+      "command_pool_lifetime_contract_unavailable";
+  std::string reason = "command_pool_retention_implementation_missing";
+  std::string top_blocker = "command_pool_retention_implementation_missing";
+  std::string current_command_pool_owner_status =
+      "command_pool_owner_context_phase_submit_scope";
+  std::string planned_region_exit_release_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string command_pool_retention_api_status =
+      "command_pool_retention_request_api_present_result_unavailable";
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string runtime_api_source =
+      "StackRegionCommandPoolLifetimeContractRuntimeApi.v0";
+};
+
+TORCH_API StackRegionCommandPoolLifetimeContractResult
+evaluate_stack_region_command_pool_lifetime_contract(
+    const StackRegionCommandPoolLifetimeContractRequest& request);
+
 class TORCH_API VulkanStackPlannedDispatchPositionScope final {
  public:
   explicit VulkanStackPlannedDispatchPositionScope(
