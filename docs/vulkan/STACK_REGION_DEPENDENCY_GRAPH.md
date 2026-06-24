@@ -335,12 +335,46 @@ when a stack-owner recording scope ends. The v0 schema is
   site. `pending_dispatch_list_status`,
   `pending_dispatch_range_completeness_status`,
   `pending_dispatch_completion_visibility_status`,
+  `pending_dispatch_command_buffer_identity_status`,
+  `pending_dispatch_submit_epoch_transition_status`,
   `pending_dispatch_command_buffer_epoch_relation`, and
   `command_buffer_submit_epoch_visibility_proof_status` separate missing lists,
-  contiguous range/set completeness, command-buffer epoch visibility, and fully
-  proven same-buffer/batch cases. Current rows are expected to stay fail-closed
-  unless both the range completeness proof and command-buffer epoch visibility
-  proof are complete.
+  contiguous range/set completeness, active command-buffer identity, submit
+  epoch transition, command-buffer epoch visibility, and fully proven
+  same-buffer/batch cases. The companion
+  `command_buffer_submit_epoch_visibility_missing_source` field names the
+  remaining source field or contract. Current rows are expected to stay
+  fail-closed unless both the range completeness proof and command-buffer epoch
+  visibility proof are complete.
+  `PhaseSubmitEpochVisibilityContract` is the behavior-neutral contract
+  skeleton for the phase-submit visibility gate. Submit-level rows expose
+  `phase_submit_epoch_visibility_contract`,
+  `phase_submit_epoch_visibility_contract_requirement_status`,
+  `phase_submit_epoch_visibility_contract_status`,
+  `phase_submit_epoch_visibility_contract_reason`,
+  `phase_submit_epoch_visibility_contract_required_fields`,
+  `phase_submit_epoch_visibility_contract_predicate_status`,
+  `phase_submit_epoch_visibility_contract_failed_predicate`,
+  `phase_submit_epoch_visibility_contract_predicate_details`,
+  `phase_submit_epoch_visibility_contract_proof_ready`,
+  `phase_submit_epoch_visibility_contract_behavior_enabled`, and
+  `phase_submit_epoch_visibility_contract_submits_removed`. The status taxonomy
+  distinguishes `no_phase_submit_epoch_crossing_observed`,
+  `phase_submit_epoch_crossing_contract_required`,
+  `phase_submit_epoch_crossing_contract_missing_unimplemented`,
+  `phase_submit_epoch_visibility_contract_rejected_missing_command_buffer_identity`,
+  `phase_submit_epoch_visibility_contract_rejected_predicate_failed`, and
+  `phase_submit_epoch_visibility_contract_proof_only_accepted`.
+  The proof-only accepted state requires the same active command-buffer
+  recording scope, complete pending dispatch range and side-effect rows,
+  actual descriptor update-generation evidence, a matched actual Norm1 input
+  barrier-only canary record, old-carry retire-only/non-escape proof, zero
+  unknown/order-required retire entries, no public/final/host/readback blocker,
+  and preserved submits. This state is still diagnostics only:
+  `phase_submit_epoch_visibility_contract_behavior_enabled=0`,
+  `phase_submit_epoch_visibility_contract_submits_removed=0`, and submit
+  elision remains disabled until a separate behavior slice explicitly consumes
+  the proof.
   Submit-level rows also report the backend-planning fields that CUDA and
   DirectML make explicit: compiled-session identity, descriptor/binding-table
   identity, descriptor update generation, command visibility status, resource
@@ -446,6 +480,29 @@ table: it may remove at most one non-capture boundary submit selected from
 matches the same command-buffer scope and proof id that recorded the real
 barrier. Capture, public, final, host-visible, and readback scopes stay
 ineligible regardless of environment flags.
+
+The first attempt to consume the proof-only
+`PhaseSubmitEpochVisibilityContract` for the selected `residual2@0 -> norm1@1`
+boundary removed one selected submit and failed bridge output sanity. That
+behavior was backed out. The graph may still emit
+`phase_contract_guard_proof_ready` rows under the opt-in submit-elision flag,
+but the current source preserves the submit and records `submits_removed=0`.
+Future behavior work must add a stronger value-preservation proof for removing
+the phase submit, not just the predicate-ready visibility contract.
+`StackRegionLiveSubmitEquivalenceBinding.v0` records the live-hook gap: whether
+the submit-elision decision site has command-buffer ids, submit epochs, pending
+dispatch range, and side-effect completion booleans before the submit executes.
+Current rows can observe the live command-buffer recording-scope id and submit
+epoch before/after values at the hook. They also bind the live pending-dispatch
+range using the same `scope:...:command_buffer:...:positions:first-last`
+identity convention as the graph proof rows. The live side-effect completion
+status is now bound from the selected-boundary submit-level predicates:
+descriptor update-generation evidence, matched actual Norm1 input barrier-only
+record, old-carry retire-only/non-escape proof, zero unknown/order-required
+retire entries, and absence of public/final/host/readback blockers. This binding
+is still behavior-neutral. Rows keep
+`phase_submit_epoch_visibility_contract_authorizes_submit_elision=0` and
+`submits_removed=0`.
 
 ## Validation Gates
 

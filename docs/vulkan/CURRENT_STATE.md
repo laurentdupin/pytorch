@@ -196,7 +196,49 @@ command-buffer submit-epoch visibility: a contiguous recorded range may match
 the pending descriptor/bookkeeping side-effect rows, while
 `command_buffer_submit_epoch_visibility_proof_status` still blocks submit
 equivalence if the range crosses a phase-boundary submit epoch without a proven
-visibility relation.
+visibility relation. That visibility gate is now split again into command-buffer
+identity, submit-epoch transition, and missing-source fields. Current rows can
+report `pending_dispatch_range_complete_side_effect_rows_match` while still
+failing closed with
+`pending_dispatches_span_completed_phase_submit_epoch_boundary_fail_closed` and
+`missing_phase_submit_epoch_visibility_contract`; this is diagnostics only and
+does not enable submit elision. The missing policy is now represented as the
+behavior-neutral `PhaseSubmitEpochVisibilityContract` skeleton in
+`StackBoundarySubmitLevelEquivalenceProof.v0`. It records whether a
+phase-submit epoch crossing was observed, whether the contract is required,
+the contract status, strict predicate details, and the required fields. Under
+the opt-in barrier-only canary, the selected `vits_140` bridge rows may report
+`phase_submit_epoch_visibility_contract_proof_only_accepted` after proving the
+active command-buffer scope, complete pending dispatch range, actual descriptor
+update generation, actual Norm1 input barrier, old-carry retire-only proof,
+zero unknown/order-required retire entries, no public/final/host/readback
+blocker, and preserved submits. This proof-ready state is not wired to submit
+elision: `phase_submit_epoch_visibility_contract_behavior_enabled=0`,
+`phase_submit_epoch_visibility_contract_submits_removed=0`, and
+`submit_elision_ready` remains false.
+
+The first opt-in submit-elision canary for the selected
+`residual2@0 -> norm1@1` boundary removed one selected submit but failed
+bridge output sanity, so the behavior-changing return path was backed out.
+The current source keeps only diagnostic guard rows: selected rows can report
+`phase_contract_guard_proof_ready`, but `submits_removed` remains zero. The
+next proof gap is that the current `PhaseSubmitEpochVisibilityContract`
+predicates are not sufficient to prove value preservation when the phase submit
+itself is removed.
+
+Post-failure hardening adds `StackRegionLiveSubmitEquivalenceBinding.v0`
+diagnostic fields to the submit-elision canary rows. They explicitly distinguish
+live command-buffer recording-scope identity, live submit-epoch identity,
+live pending-dispatch range identity, and live side-effect completion status
+at the live submit hook. The live pending range uses the same
+`scope:...:command_buffer:...:positions:first-last` identity convention as the
+graph proof rows. Side-effect completion is reported from the same selected
+boundary predicates used by the current-run proof guard: descriptor update
+generation, matched actual Norm1 input barrier, old-carry retire-only proof,
+zero unknown/order-required retire entries, and no public/final/host/readback
+blockers. The proof-only phase contract still reports
+`phase_submit_epoch_visibility_contract_authorizes_submit_elision=0`; this is a
+diagnostic binding only and does not remove submits.
 
 `ExecutionContracts.*` is the shared contract table for the current bounded
 operator-family envelopes. `ExecutionContracts.h` remains the public umbrella

@@ -502,6 +502,22 @@ struct StackRegionOptimizationEligibilitySummary final {
   uint64_t barrier_validated_bytes = 0u;
 };
 
+struct StackRegionSubmitElisionProofGuardSummary final {
+  uint64_t selected_submit_rows = 0u;
+  uint64_t proof_ready_rows = 0u;
+  uint64_t pending_range_complete_rows = 0u;
+  uint64_t same_active_command_buffer_rows = 0u;
+  uint64_t descriptor_update_generation_rows_for_selected = 0u;
+  uint64_t actual_norm1_input_barrier_rows = 0u;
+  uint64_t old_carry_retire_only_rows = 0u;
+  uint64_t unknown_ordering_retire_entries_zero_rows = 0u;
+  uint64_t no_public_final_host_readback_blocker_rows = 0u;
+  uint64_t descriptor_update_generation_rows = 0u;
+  uint64_t barrier_validated_records = 0u;
+  const char* status = "phase_contract_guard_not_evaluated";
+  const char* reason = "phase_contract_guard_not_evaluated";
+};
+
 std::map<std::string, StackDispatchDependencyDispatchValue>&
 stack_dispatch_dependency_dispatch_rows() {
   static std::map<std::string, StackDispatchDependencyDispatchValue> rows;
@@ -1458,11 +1474,26 @@ void record_stack_region_boundary_optimization_plan_locked(
 std::string stack_region_submit_elision_canary_key(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
     const char* const status,
+    const char* const guard_status,
+    const char* const guard_reason,
     const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
     const uint64_t barrier_validated_count,
+    const uint64_t proof_ready_records,
+    const uint64_t selected_submit_rows,
+    const uint64_t pending_range_complete_rows,
+    const uint64_t same_active_command_buffer_rows,
+    const uint64_t descriptor_update_generation_rows_for_selected,
+    const uint64_t actual_norm1_input_barrier_rows,
+    const uint64_t old_carry_retire_only_rows,
+    const uint64_t unknown_ordering_retire_entries_zero_rows,
+    const uint64_t no_public_final_host_readback_blocker_rows,
     const bool submit_removed) {
   const int64_t live_block = current_vision_stack_block_index();
   const bool live_selected_boundary =
@@ -1470,6 +1501,57 @@ std::string stack_region_submit_elision_canary_key(
           stack_region_submit_elision_canary_target()) &&
       current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
       live_block == 1;
+  const bool live_command_buffer_id_observed =
+      command_buffer_recording_id != 0u;
+  const uint64_t pending_dispatch_last_position =
+      g_stack_dispatch_dependency_position;
+  const bool live_pending_dispatch_range_available =
+      pending_dispatch_count > 0u &&
+      pending_dispatch_last_position >= pending_dispatch_count;
+  const uint64_t pending_dispatch_first_position =
+      live_pending_dispatch_range_available
+      ? pending_dispatch_last_position - pending_dispatch_count + 1u
+      : 0u;
+  const std::string live_pending_dispatch_list_identity =
+      live_pending_dispatch_range_available
+      ? "scope:" + std::to_string(g_stack_dispatch_dependency_scope_id) +
+          ":command_buffer:" + std::to_string(command_buffer_recording_id) +
+          ":positions:" + std::to_string(pending_dispatch_first_position) +
+          "-" + std::to_string(pending_dispatch_last_position)
+      : "missing_live_pending_dispatch_range";
+  const char* const live_pending_dispatch_range_status =
+      pending_dispatch_count == 0u
+      ? "no_live_pending_dispatches"
+      : (live_pending_dispatch_range_available
+             ? "live_pending_dispatch_range_observed"
+             : "missing_live_pending_dispatch_range_positions");
+  const char* const live_pending_dispatch_range_match_status =
+      pending_dispatch_count == 0u
+      ? "no_live_pending_dispatches"
+      : (live_pending_dispatch_range_available
+             ? "live_range_uses_stack_dispatch_dependency_position_convention"
+             : "missing_live_pending_dispatch_range_positions");
+  const bool live_submit_identity_and_range_observed =
+      live_command_buffer_id_observed && live_pending_dispatch_range_available;
+  const bool live_submit_epoch_observed = true;
+  const bool selected_boundary_side_effects_complete =
+      live_selected_boundary && selected_submit_rows > 0u &&
+      proof_ready_records >= selected_submit_rows &&
+      live_submit_identity_and_range_observed;
+  const char* const live_side_effect_completion_status =
+      !live_selected_boundary
+      ? "not_selected_boundary"
+      : (selected_boundary_side_effects_complete
+             ? "live_side_effect_completion_observed_complete"
+             : "live_side_effect_completion_fail_closed_predicate_incomplete");
+  const char* const live_side_effect_completion_reason =
+      !live_selected_boundary
+      ? "non_selected_boundary_out_of_scope"
+      : (selected_boundary_side_effects_complete
+             ? "selected_boundary_live_side_effect_predicates_complete"
+             : "selected_boundary_live_side_effect_predicate_missing");
+  const bool live_submit_equivalence_binding_complete =
+      selected_boundary_side_effects_complete;
   const std::string selected_boundary_id =
       non_capture_residual2_to_norm1_boundary_id(0, 1);
   std::ostringstream key;
@@ -1494,11 +1576,123 @@ std::string stack_region_submit_elision_canary_key(
       << " live_producer_block=" << (live_selected_boundary ? 0 : -1)
       << " live_consumer_block=" << (live_selected_boundary ? 1 : -1)
       << " live_descriptor_binding=" << (live_selected_boundary ? 6u : 0u)
-      << " producer_command_buffer_id=missing_live_submit_command_buffer_api"
-      << " barrier_command_buffer_id=missing_live_submit_command_buffer_api"
-      << " consumer_command_buffer_id=missing_live_submit_command_buffer_api"
-      << " producer_submit_epoch=missing_submit_epoch_api"
-      << " consumer_submit_epoch=missing_submit_epoch_api"
+      << " producer_command_buffer_id="
+      << (live_command_buffer_id_observed
+              ? std::to_string(command_buffer_recording_id)
+              : "missing_live_submit_command_buffer_api")
+      << " barrier_command_buffer_id="
+      << (live_command_buffer_id_observed
+              ? std::to_string(command_buffer_recording_id)
+              : "missing_live_submit_command_buffer_api")
+      << " consumer_command_buffer_id="
+      << (live_command_buffer_id_observed
+              ? std::to_string(command_buffer_recording_id)
+              : "missing_live_submit_command_buffer_api")
+      << " producer_submit_epoch=" << submit_epoch_before
+      << " consumer_submit_epoch=" << submit_epoch_after
+      << " live_submit_equivalence_binding=StackRegionLiveSubmitEquivalenceBinding.v0"
+      << " live_command_buffer_id_status="
+      << (live_command_buffer_id_observed
+              ? "live_command_buffer_recording_scope_observed"
+              : "missing_live_submit_command_buffer_binding_api")
+      << " live_command_buffer_id_source=context_command_buffer_recording"
+      << " live_command_buffer_recording_id="
+      << (live_command_buffer_id_observed
+              ? std::to_string(command_buffer_recording_id)
+              : "0")
+      << " live_submit_epoch_status=live_submit_epoch_observed"
+      << " live_submit_epoch_source=context_submit_epoch_counter"
+      << " live_submit_epoch_before=" << submit_epoch_before
+      << " live_submit_epoch_after=" << submit_epoch_after
+      << " live_pending_dispatch_range_status="
+      << live_pending_dispatch_range_status
+      << " live_pending_dispatch_count=" << pending_dispatch_count
+      << " live_pending_dispatch_position_range_source=stack_dispatch_dependency_recorded_positions"
+      << " live_pending_dispatch_position_range_available="
+      << (live_pending_dispatch_range_available ? 1 : 0)
+      << " live_pending_dispatch_position_first="
+      << pending_dispatch_first_position
+      << " live_pending_dispatch_position_last="
+      << pending_dispatch_last_position
+      << " live_pending_dispatch_list_identity="
+      << live_pending_dispatch_list_identity
+      << " live_pending_dispatch_range_match_status="
+      << live_pending_dispatch_range_match_status
+      << " live_pending_dispatch_range_proof_compare_status="
+      << (live_pending_dispatch_range_available
+              ? "live_range_observed_uses_graph_pending_range_identity"
+              : live_pending_dispatch_range_match_status)
+      << " live_side_effect_completion_status="
+      << live_side_effect_completion_status
+      << " live_side_effect_completion_reason="
+      << live_side_effect_completion_reason
+      << " live_side_effect_completion_binding_source=StackBoundarySubmitLevelEquivalenceProof.v0"
+      << " live_side_effect_completion_live_command_buffer_identity="
+      << (live_command_buffer_id_observed ? 1 : 0)
+      << " live_side_effect_completion_live_submit_epoch_identity="
+      << (live_submit_epoch_observed ? 1 : 0)
+      << " live_side_effect_completion_live_pending_dispatch_range="
+      << (live_pending_dispatch_range_available ? 1 : 0)
+      << " live_side_effect_completion_descriptor_updates="
+      << (selected_submit_rows > 0u &&
+              descriptor_update_generation_rows_for_selected >=
+                  selected_submit_rows
+          ? 1
+          : 0)
+      << " live_side_effect_completion_actual_norm1_input_barrier="
+      << (selected_submit_rows > 0u &&
+              actual_norm1_input_barrier_rows >= selected_submit_rows
+          ? 1
+          : 0)
+      << " live_side_effect_completion_old_carry_retire_only="
+      << (selected_submit_rows > 0u &&
+              old_carry_retire_only_rows >= selected_submit_rows
+          ? 1
+          : 0)
+      << " live_side_effect_completion_unknown_ordering_retire_entries_zero="
+      << (selected_submit_rows > 0u &&
+              unknown_ordering_retire_entries_zero_rows >=
+                  selected_submit_rows
+          ? 1
+          : 0)
+      << " live_side_effect_completion_no_public_final_host_readback_blocker="
+      << (selected_submit_rows > 0u &&
+              no_public_final_host_readback_blocker_rows >=
+                  selected_submit_rows
+          ? 1
+          : 0)
+      << " live_side_effect_completion_pending_range_complete_rows="
+      << pending_range_complete_rows
+      << " live_side_effect_completion_same_active_command_buffer_rows="
+      << same_active_command_buffer_rows
+      << " live_side_effect_completion_descriptor_update_rows="
+      << descriptor_update_generation_rows_for_selected
+      << " live_side_effect_completion_barrier_rows="
+      << actual_norm1_input_barrier_rows
+      << " live_side_effect_completion_old_carry_retire_only_rows="
+      << old_carry_retire_only_rows
+      << " live_side_effect_completion_unknown_ordering_zero_rows="
+      << unknown_ordering_retire_entries_zero_rows
+      << " live_side_effect_completion_no_public_blocker_rows="
+      << no_public_final_host_readback_blocker_rows
+      << " live_submit_equivalence_binding_status="
+      << (live_submit_equivalence_binding_complete
+              ? "complete_live_submit_equivalence_binding_observed_behavior_disabled"
+              : (live_submit_identity_and_range_observed
+                     ? "partial_live_submit_equivalence_binding_observed_command_epoch_and_pending_range"
+                     : (live_command_buffer_id_observed
+                            ? "partial_live_submit_equivalence_binding_observed_command_buffer_and_epoch"
+                            : "unavailable_missing_live_submit_equivalence_binding_api")))
+      << " live_submit_equivalence_proof_status="
+      << (live_submit_equivalence_binding_complete
+              ? "live_submit_equivalence_proof_complete_behavior_disabled"
+              : (live_pending_dispatch_range_available
+                     ? "unavailable_missing_or_incomplete_live_side_effect_completion"
+                     : (live_command_buffer_id_observed
+                            ? "unavailable_missing_live_pending_range_and_side_effect_completion"
+                            : "unavailable_missing_live_submit_equivalence_binding_api")))
+      << " phase_submit_epoch_visibility_contract_authorizes_submit_elision=0"
+      << " submit_elision_requires_live_submit_equivalence_binding=1"
       << " same_command_buffer_or_same_submit_batch_proven=0"
       << " removed_submit_pending_dispatch_set_complete=0"
       << " removed_submit_has_no_unmodeled_execution_side_effects=0"
@@ -1506,10 +1700,16 @@ std::string stack_region_submit_elision_canary_key(
       << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
       << " status=" << (status ? status : "missing")
       << " live_submit_eligibility_status=" << (status ? status : "missing")
+      << " phase_submit_epoch_visibility_contract_guard_status="
+      << (guard_status ? guard_status : "missing")
+      << " phase_submit_epoch_visibility_contract_guard_reason="
+      << (guard_reason ? guard_reason : "missing")
       << " candidate_records=" << candidate_records
       << " eligible_records=" << eligible_records
       << " eligible_boundary_count=" << eligible_boundary_count
       << " barrier_validated_count=" << barrier_validated_count
+      << " proof_ready_records=" << proof_ready_records
+      << " selected_submit_rows=" << selected_submit_rows
       << " barriers_inserted=" << barrier_validated_count
       << " submits_removed=" << (submit_removed ? 1 : 0);
   return key.str();
@@ -1518,21 +1718,51 @@ std::string stack_region_submit_elision_canary_key(
 void record_stack_region_submit_elision_canary_locked(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
     const char* const status,
+    const char* const guard_status,
+    const char* const guard_reason,
     const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
     const uint64_t barrier_validated_count,
+    const uint64_t proof_ready_records,
+    const uint64_t selected_submit_rows,
+    const uint64_t pending_range_complete_rows,
+    const uint64_t same_active_command_buffer_rows,
+    const uint64_t descriptor_update_generation_rows_for_selected,
+    const uint64_t actual_norm1_input_barrier_rows,
+    const uint64_t old_carry_retire_only_rows,
+    const uint64_t unknown_ordering_retire_entries_zero_rows,
+    const uint64_t no_public_final_host_readback_blocker_rows,
     const bool submit_removed) {
   auto& value = stack_region_submit_elision_canary_rows()
       [stack_region_submit_elision_canary_key(
           phase,
           callsite,
+          command_buffer_recording_id,
+          submit_epoch_before,
+          submit_epoch_after,
+          pending_dispatch_count,
           status,
+          guard_status,
+          guard_reason,
           candidate_records,
           eligible_records,
           eligible_boundary_count,
           barrier_validated_count,
+          proof_ready_records,
+          selected_submit_rows,
+          pending_range_complete_rows,
+          same_active_command_buffer_rows,
+          descriptor_update_generation_rows_for_selected,
+          actual_norm1_input_barrier_rows,
+          old_carry_retire_only_rows,
+          unknown_ordering_retire_entries_zero_rows,
+          no_public_final_host_readback_blocker_rows,
           submit_removed)];
   value.count += 1u;
   value.candidate_records += candidate_records;
@@ -1991,6 +2221,123 @@ stack_region_boundary_optimization_eligibility_summary_locked(
     summary.barrier_validated_bytes += item.second.bytes;
   }
   summary.eligible_boundary_count = eligible_boundary_ids.size();
+  return summary;
+}
+
+StackRegionSubmitElisionProofGuardSummary
+stack_region_submit_elision_phase_contract_guard_summary_locked(
+    const std::string& selected_boundary_id,
+    const StackRegionOptimizationEligibilitySummary& eligibility_summary) {
+  StackRegionSubmitElisionProofGuardSummary summary;
+  summary.descriptor_update_generation_rows =
+      stack_descriptor_set_update_generation_rows().size();
+  summary.barrier_validated_records =
+      eligibility_summary.barrier_validated_count;
+  if (eligibility_summary.eligible_boundary_count != 1u) {
+    summary.status = "phase_contract_guard_rejected_boundary_count";
+    summary.reason = "selected_boundary_count_not_exactly_one";
+    return summary;
+  }
+  if (eligibility_summary.eligible_records == 0u) {
+    summary.status = "phase_contract_guard_rejected_no_eligible_plan";
+    summary.reason = eligibility_summary.barrier_validated_count == 0u
+        ? "actual_norm1_input_barrier_record_missing"
+        : "submit_elision_optimization_plan_not_eligible";
+    return summary;
+  }
+  if (summary.descriptor_update_generation_rows == 0u) {
+    summary.status = "phase_contract_guard_rejected_descriptor_generation";
+    summary.reason = "actual_vk_descriptor_set_update_generation_missing";
+    return summary;
+  }
+  for (const auto& item : stack_region_boundary_submit_plan_rows()) {
+    const auto fields = parse_space_separated_fields(item.first);
+    if (field_or(fields, "live_boundary_id", "none") !=
+        selected_boundary_id) {
+      continue;
+    }
+    const uint64_t count = std::max<uint64_t>(item.second.count, 1u);
+    summary.selected_submit_rows += count;
+    const bool pending_range_complete =
+        field_or(
+            fields,
+            "pending_dispatch_range_completeness_status",
+            "missing") ==
+            "pending_dispatch_range_complete_side_effect_rows_match" &&
+        field_or(fields, "pending_dispatch_position_range_complete", "0") ==
+            "1";
+    const bool same_active_command_buffer =
+        field_or(
+            fields,
+            "pending_dispatch_command_buffer_identity_status",
+            "missing") == "same_active_command_buffer_recording_scope_observed";
+    const bool phase_submit_epoch_crossing =
+        field_or(
+            fields,
+            "pending_dispatch_submit_epoch_transition_status",
+            "missing") == "phase_submit_epoch_crossing_observed";
+    const bool descriptor_generation_observed =
+        summary.descriptor_update_generation_rows > 0u;
+    const bool actual_norm1_input_barrier_matched =
+        eligibility_summary.barrier_validated_count > 0u;
+    const uint64_t pending_resource_count =
+        parsed_u64(fields, "pending_resource_count");
+    const uint64_t safe_candidate_count =
+        parsed_u64(fields, "safe_candidate_count");
+    const uint64_t capture_sensitive_count =
+        parsed_u64(fields, "capture_sensitive_stack_activation_count");
+    const bool old_carry_retire_only_proven =
+        pending_resource_count > 0u &&
+        safe_candidate_count + capture_sensitive_count >=
+            pending_resource_count &&
+        capture_sensitive_count <= 1u;
+    const bool unknown_ordering_retire_entries_zero =
+        old_carry_retire_only_proven;
+    const bool no_public_final_host_readback_blocker =
+        parsed_u64(fields, "host_visible_or_requested_output_count") == 0u &&
+        field_or(fields, "public_scope_rejected", "0") == "0";
+    if (pending_range_complete) {
+      summary.pending_range_complete_rows += count;
+    }
+    if (same_active_command_buffer) {
+      summary.same_active_command_buffer_rows += count;
+    }
+    if (descriptor_generation_observed) {
+      summary.descriptor_update_generation_rows_for_selected += count;
+    }
+    if (actual_norm1_input_barrier_matched) {
+      summary.actual_norm1_input_barrier_rows += count;
+    }
+    if (old_carry_retire_only_proven) {
+      summary.old_carry_retire_only_rows += count;
+    }
+    if (unknown_ordering_retire_entries_zero) {
+      summary.unknown_ordering_retire_entries_zero_rows += count;
+    }
+    if (no_public_final_host_readback_blocker) {
+      summary.no_public_final_host_readback_blocker_rows += count;
+    }
+    if (
+        pending_range_complete && same_active_command_buffer &&
+        phase_submit_epoch_crossing && descriptor_generation_observed &&
+        actual_norm1_input_barrier_matched && old_carry_retire_only_proven &&
+        unknown_ordering_retire_entries_zero &&
+        no_public_final_host_readback_blocker) {
+      summary.proof_ready_rows += count;
+    }
+  }
+  if (summary.selected_submit_rows == 0u) {
+    summary.status = "phase_contract_guard_missing_live_submit_row";
+    summary.reason = "selected_boundary_live_submit_row_not_recorded_yet";
+    return summary;
+  }
+  if (summary.proof_ready_rows == 0u) {
+    summary.status = "phase_contract_guard_rejected_predicate_failed";
+    summary.reason = "selected_boundary_phase_contract_predicate_failed";
+    return summary;
+  }
+  summary.status = "phase_contract_guard_proof_ready";
+  summary.reason = "all_selected_boundary_phase_contract_predicates_satisfied";
   return summary;
 }
 
@@ -8178,6 +8525,7 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t old_carry_unsafe_bytes = 0u;
     std::string old_carry_proof_source = "missing";
     std::string old_carry_proof_range = "missing";
+    uint64_t public_final_host_readback_blocker_count = 0u;
     uint64_t unknown_unmodeled_side_effect_count = 0u;
     uint64_t unknown_resource_side_effect_count = 0u;
     uint64_t unknown_resource_side_effect_bytes = 0u;
@@ -8204,9 +8552,25 @@ void append_stack_region_submit_epoch_ordering_json(
     std::map<std::string, uint64_t>
         pending_dispatch_completion_visibility_status_counts;
     std::map<std::string, uint64_t>
+        pending_dispatch_command_buffer_identity_status_counts;
+    std::map<std::string, uint64_t>
+        pending_dispatch_submit_epoch_transition_status_counts;
+    std::map<std::string, uint64_t>
         pending_dispatch_command_buffer_epoch_relation_counts;
     std::map<std::string, uint64_t>
         command_buffer_submit_epoch_visibility_status_counts;
+    std::map<std::string, uint64_t>
+        command_buffer_submit_epoch_visibility_missing_source_counts;
+    std::map<std::string, uint64_t>
+        phase_submit_epoch_visibility_contract_requirement_status_counts;
+    std::map<std::string, uint64_t>
+        phase_submit_epoch_visibility_contract_status_counts;
+    std::map<std::string, uint64_t>
+        phase_submit_epoch_visibility_contract_reason_counts;
+    std::map<std::string, uint64_t>
+        phase_submit_epoch_visibility_contract_predicate_status_counts;
+    std::map<std::string, uint64_t>
+        phase_submit_epoch_visibility_contract_failed_predicate_counts;
   };
   std::map<std::string, BoundarySubmitLevelProofAggregate>
       submit_level_proof_by_boundary_id;
@@ -8631,6 +8995,15 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "pending_dispatch_command_buffer_epoch_relation",
         "missing_pending_dispatch_command_buffer_epoch_relation");
+    const std::string pending_dispatch_command_buffer_identity_status =
+        field_or(
+            fields,
+            "pending_dispatch_command_buffer_identity_status",
+            "missing_pending_dispatch_command_buffer_identity_status");
+    const std::string pending_dispatch_submit_epoch_transition_status = field_or(
+        fields,
+        "pending_dispatch_submit_epoch_transition_status",
+        "missing_pending_dispatch_submit_epoch_transition_status");
     std::string command_buffer_submit_epoch_visibility_status = field_or(
         fields,
         "command_buffer_submit_epoch_visibility_proof_status",
@@ -8641,6 +9014,24 @@ void append_stack_region_submit_epoch_ordering_json(
       command_buffer_submit_epoch_visibility_status =
           pending_dispatch_command_buffer_epoch_relation;
     }
+    const std::string command_buffer_submit_epoch_visibility_missing_source =
+        field_or(
+            fields,
+            "command_buffer_submit_epoch_visibility_missing_source",
+            "missing_command_buffer_submit_epoch_visibility_missing_source");
+    const std::string phase_submit_epoch_visibility_contract_status = field_or(
+        fields,
+        "phase_submit_epoch_visibility_contract_status",
+        "missing_phase_submit_epoch_visibility_contract_status");
+    const std::string
+        phase_submit_epoch_visibility_contract_requirement_status = field_or(
+            fields,
+            "phase_submit_epoch_visibility_contract_requirement_status",
+            "missing_phase_submit_epoch_visibility_contract_requirement_status");
+    const std::string phase_submit_epoch_visibility_contract_reason = field_or(
+        fields,
+        "phase_submit_epoch_visibility_contract_reason",
+        "missing_phase_submit_epoch_visibility_contract_reason");
     const std::string pending_dispatch_visibility_status =
         row_pending_dispatch_count == 0u
         ? "no_pending_dispatch_list"
@@ -8675,10 +9066,22 @@ void append_stack_region_submit_epoch_ordering_json(
         [pending_dispatch_range_completeness_status] += count;
     proof.pending_dispatch_completion_visibility_status_counts
         [pending_dispatch_completion_visibility_status] += count;
+    proof.pending_dispatch_command_buffer_identity_status_counts
+        [pending_dispatch_command_buffer_identity_status] += count;
+    proof.pending_dispatch_submit_epoch_transition_status_counts
+        [pending_dispatch_submit_epoch_transition_status] += count;
     proof.pending_dispatch_command_buffer_epoch_relation_counts
         [pending_dispatch_command_buffer_epoch_relation] += count;
     proof.command_buffer_submit_epoch_visibility_status_counts
         [command_buffer_submit_epoch_visibility_status] += count;
+    proof.command_buffer_submit_epoch_visibility_missing_source_counts
+        [command_buffer_submit_epoch_visibility_missing_source] += count;
+    proof.phase_submit_epoch_visibility_contract_requirement_status_counts
+        [phase_submit_epoch_visibility_contract_requirement_status] += count;
+    proof.phase_submit_epoch_visibility_contract_status_counts
+        [phase_submit_epoch_visibility_contract_status] += count;
+    proof.phase_submit_epoch_visibility_contract_reason_counts
+        [phase_submit_epoch_visibility_contract_reason] += count;
     append_unique_string(
         proof.pending_dispatch_identities,
         field_or(fields, "pending_dispatch_list_identity", "missing"));
@@ -8808,6 +9211,10 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "unknown_resource_side_effect_count") * count;
     proof.unknown_resource_side_effect_bytes +=
         parsed_u64(fields, "unknown_resource_side_effect_bytes") * count;
+    proof.public_final_host_readback_blocker_count +=
+        (parsed_u64(fields, "host_visible_or_requested_output_count") +
+         (field_or(fields, "public_scope_rejected", "0") == "1" ? 1u : 0u)) *
+        count;
     if (field_or(fields, "command_buffer_id_available", "0") == "1") {
       proof.command_buffer_id_available_records += count;
     }
@@ -8969,6 +9376,123 @@ void append_stack_region_submit_epoch_ordering_json(
         old_carry_submit_proof_status_count = status.second;
       }
     }
+    const std::string pending_dispatch_range_completeness_status =
+        top_count_key_from_map(
+            proof.pending_dispatch_range_completeness_status_counts);
+    const std::string pending_dispatch_command_buffer_identity_status =
+        top_count_key_from_map(
+            proof.pending_dispatch_command_buffer_identity_status_counts);
+    const std::string pending_dispatch_submit_epoch_transition_status =
+        top_count_key_from_map(
+            proof.pending_dispatch_submit_epoch_transition_status_counts);
+    const std::string phase_contract_requirement_status =
+        top_count_key_from_map(
+            proof.phase_submit_epoch_visibility_contract_requirement_status_counts);
+    const std::string observed_phase_contract_status =
+        top_count_key_from_map(
+            proof.phase_submit_epoch_visibility_contract_status_counts);
+    const bool phase_contract_required =
+        phase_contract_requirement_status ==
+        "phase_submit_epoch_crossing_contract_required";
+    const bool predicate_same_active_command_buffer =
+        pending_dispatch_command_buffer_identity_status ==
+        "same_active_command_buffer_recording_scope_observed";
+    const bool predicate_pending_dispatch_range_complete =
+        pending_dispatch_range_completeness_status ==
+            "pending_dispatch_range_complete_side_effect_rows_match" &&
+        proof.pending_dispatch_position_range_complete_records == proof.records;
+    const bool predicate_actual_descriptor_generation_observed =
+        proof.actual_descriptor_update_generation_records > 0u &&
+        proof.actual_descriptor_update_generation_status.find(
+            "actual_vk_descriptor_set_update_generation_observed") !=
+            std::string::npos;
+    const bool predicate_actual_norm1_input_barrier_matched =
+        proof.actual_consumer_matched_barrier_records > 0u &&
+        actual_consumer_barrier_status ==
+            "matching_actual_consumer_barrier_record_exists_submit_equivalence_still_blocked";
+    const bool predicate_old_carry_retire_only =
+        old_carry_submit_proof_status ==
+            "typed_old_carry_proof_matches_retire_only_nonescaping" &&
+        proof.old_carry_unsafe_records == 0u;
+    const bool predicate_no_unknown_ordering_retire_entries =
+        proof.retire_entry_unknown_or_ordering_required_count == 0u;
+    const bool predicate_no_public_final_host_readback_blocker =
+        proof.public_final_host_readback_blocker_count == 0u;
+    const bool predicate_barrier_opt_in_submits_preserved =
+        proof.actual_consumer_matched_barrier_records > 0u;
+    std::string phase_contract_failed_predicate = "none";
+    const auto note_failed_predicate =
+        [&](const bool predicate, const char* name) {
+          if (!predicate && phase_contract_failed_predicate == "none") {
+            phase_contract_failed_predicate = name;
+          }
+        };
+    note_failed_predicate(
+        predicate_same_active_command_buffer,
+        "same_active_command_buffer_recording_scope");
+    note_failed_predicate(
+        predicate_pending_dispatch_range_complete,
+        "pending_dispatch_range_complete_side_effect_rows_match");
+    note_failed_predicate(
+        predicate_actual_descriptor_generation_observed,
+        "actual_descriptor_update_generation_observed");
+    note_failed_predicate(
+        predicate_actual_norm1_input_barrier_matched,
+        "actual_norm1_input_barrier_record_matched");
+    note_failed_predicate(
+        predicate_old_carry_retire_only,
+        "old_carry_retire_only_nonescaping");
+    note_failed_predicate(
+        predicate_no_unknown_ordering_retire_entries,
+        "unknown_ordering_retire_entries_zero");
+    note_failed_predicate(
+        predicate_no_public_final_host_readback_blocker,
+        "public_final_host_readback_blocker_absent");
+    note_failed_predicate(
+        predicate_barrier_opt_in_submits_preserved,
+        "barrier_opt_in_record_present_submits_preserved");
+    const bool phase_contract_predicates_satisfied =
+        phase_contract_required && phase_contract_failed_predicate == "none";
+    const std::string phase_contract_predicate_status =
+        !phase_contract_required
+        ? "phase_submit_epoch_visibility_contract_not_required"
+        : (phase_contract_predicates_satisfied
+               ? "phase_submit_epoch_visibility_contract_predicates_satisfied"
+               : "phase_submit_epoch_visibility_contract_predicate_failed");
+    const std::string phase_contract_effective_status =
+        !phase_contract_required
+        ? observed_phase_contract_status
+        : (phase_contract_predicates_satisfied
+               ? "phase_submit_epoch_visibility_contract_proof_only_accepted"
+               : "phase_submit_epoch_visibility_contract_rejected_predicate_failed");
+    const std::string phase_contract_effective_reason =
+        !phase_contract_required
+        ? top_count_key_from_map(
+              proof.phase_submit_epoch_visibility_contract_reason_counts)
+        : (phase_contract_predicates_satisfied
+               ? "all_strict_phase_submit_epoch_visibility_predicates_satisfied_behavior_disabled"
+               : "predicate_failed_" + phase_contract_failed_predicate);
+    const std::string phase_contract_required_fields =
+        phase_contract_required
+        ? "command_buffer_recording_id,submit_epoch_before,submit_epoch_after,pending_dispatch_position_range,actual_descriptor_update_generation,actual_norm1_input_barrier,old_carry_retire_only,no_public_final_host_readback_blocker"
+        : "none";
+    const std::string phase_contract_predicate_details =
+        "same_active_command_buffer=" +
+        std::string(predicate_same_active_command_buffer ? "pass" : "fail") +
+        ",pending_dispatch_range_complete=" +
+        (predicate_pending_dispatch_range_complete ? "pass" : "fail") +
+        ",actual_descriptor_update_generation=" +
+        (predicate_actual_descriptor_generation_observed ? "pass" : "fail") +
+        ",actual_norm1_input_barrier=" +
+        (predicate_actual_norm1_input_barrier_matched ? "pass" : "fail") +
+        ",old_carry_retire_only=" +
+        (predicate_old_carry_retire_only ? "pass" : "fail") +
+        ",unknown_ordering_retire_entries_zero=" +
+        (predicate_no_unknown_ordering_retire_entries ? "pass" : "fail") +
+        ",public_final_host_readback_blocker_absent=" +
+        (predicate_no_public_final_host_readback_blocker ? "pass" : "fail") +
+        ",barrier_opt_in_submits_preserved=" +
+        (predicate_barrier_opt_in_submits_preserved ? "pass" : "fail");
     const std::string topology_signature =
         proof.topology_signatures.empty()
         ? "missing_current_run_topology_signature"
@@ -9061,12 +9585,42 @@ void append_stack_region_submit_epoch_ordering_json(
         << " pending_dispatch_completion_visibility_status="
         << top_count_key_from_map(
                proof.pending_dispatch_completion_visibility_status_counts)
+        << " pending_dispatch_command_buffer_identity_status="
+        << top_count_key_from_map(
+               proof.pending_dispatch_command_buffer_identity_status_counts)
+        << " pending_dispatch_submit_epoch_transition_status="
+        << top_count_key_from_map(
+               proof.pending_dispatch_submit_epoch_transition_status_counts)
         << " pending_dispatch_command_buffer_epoch_relation="
         << top_count_key_from_map(
                proof.pending_dispatch_command_buffer_epoch_relation_counts)
         << " command_buffer_submit_epoch_visibility_proof_status="
         << top_count_key_from_map(
                proof.command_buffer_submit_epoch_visibility_status_counts)
+        << " command_buffer_submit_epoch_visibility_missing_source="
+        << top_count_key_from_map(
+               proof.command_buffer_submit_epoch_visibility_missing_source_counts)
+        << " phase_submit_epoch_visibility_contract=PhaseSubmitEpochVisibilityContract"
+        << " phase_submit_epoch_visibility_contract_requirement_status="
+        << phase_contract_requirement_status
+        << " phase_submit_epoch_visibility_contract_status="
+        << phase_contract_effective_status
+        << " phase_submit_epoch_visibility_contract_reason="
+        << phase_contract_effective_reason
+        << " phase_submit_epoch_visibility_contract_required_fields="
+        << phase_contract_required_fields
+        << " phase_submit_epoch_visibility_contract_predicate_status="
+        << phase_contract_predicate_status
+        << " phase_submit_epoch_visibility_contract_failed_predicate="
+        << phase_contract_failed_predicate
+        << " phase_submit_epoch_visibility_contract_predicate_details="
+        << phase_contract_predicate_details
+        << " phase_submit_epoch_visibility_contract_public_final_host_readback_blocker_count="
+        << proof.public_final_host_readback_blocker_count
+        << " phase_submit_epoch_visibility_contract_proof_ready="
+        << (phase_contract_predicates_satisfied ? 1 : 0)
+        << " phase_submit_epoch_visibility_contract_behavior_enabled=0"
+        << " phase_submit_epoch_visibility_contract_submits_removed=0"
         << " pending_dispatch_same_command_buffer_or_batch_status="
         << (proof.same_batch_proven_records == proof.records
                 ? "same_command_buffer_or_submit_batch_proven"
@@ -11075,9 +11629,25 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       submit_level_pending_dispatch_completion_visibility_status_counts;
   std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_command_buffer_identity_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_pending_dispatch_submit_epoch_transition_status_counts;
+  std::map<std::string, uint64_t>
       submit_level_pending_dispatch_command_buffer_epoch_relation_counts;
   std::map<std::string, uint64_t>
       submit_level_command_buffer_submit_epoch_visibility_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_command_buffer_submit_epoch_visibility_missing_source_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_epoch_visibility_contract_requirement_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_epoch_visibility_contract_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_epoch_visibility_contract_reason_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_epoch_visibility_contract_predicate_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_phase_submit_epoch_visibility_contract_failed_predicate_counts;
   for (const auto& row : submit_level_equivalence_proof_rows) {
     const auto fields = parse_space_separated_fields(row);
     const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
@@ -11194,6 +11764,14 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "pending_dispatch_completion_visibility_status",
         "missing_pending_dispatch_completion_visibility_status")] += count;
+    submit_level_pending_dispatch_command_buffer_identity_status_counts[field_or(
+        fields,
+        "pending_dispatch_command_buffer_identity_status",
+        "missing_pending_dispatch_command_buffer_identity_status")] += count;
+    submit_level_pending_dispatch_submit_epoch_transition_status_counts[field_or(
+        fields,
+        "pending_dispatch_submit_epoch_transition_status",
+        "missing_pending_dispatch_submit_epoch_transition_status")] += count;
     submit_level_pending_dispatch_command_buffer_epoch_relation_counts[field_or(
         fields,
         "pending_dispatch_command_buffer_epoch_relation",
@@ -11202,6 +11780,38 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "command_buffer_submit_epoch_visibility_proof_status",
         "missing_command_buffer_submit_epoch_visibility_proof_status")] += count;
+    submit_level_command_buffer_submit_epoch_visibility_missing_source_counts
+        [field_or(
+            fields,
+            "command_buffer_submit_epoch_visibility_missing_source",
+            "missing_command_buffer_submit_epoch_visibility_missing_source")] +=
+        count;
+    submit_level_phase_submit_epoch_visibility_contract_requirement_status_counts
+        [field_or(
+            fields,
+            "phase_submit_epoch_visibility_contract_requirement_status",
+            "missing_phase_submit_epoch_visibility_contract_requirement_status")] +=
+        count;
+    submit_level_phase_submit_epoch_visibility_contract_status_counts[field_or(
+        fields,
+        "phase_submit_epoch_visibility_contract_status",
+        "missing_phase_submit_epoch_visibility_contract_status")] += count;
+    submit_level_phase_submit_epoch_visibility_contract_reason_counts[field_or(
+        fields,
+        "phase_submit_epoch_visibility_contract_reason",
+        "missing_phase_submit_epoch_visibility_contract_reason")] += count;
+    submit_level_phase_submit_epoch_visibility_contract_predicate_status_counts
+        [field_or(
+            fields,
+            "phase_submit_epoch_visibility_contract_predicate_status",
+            "missing_phase_submit_epoch_visibility_contract_predicate_status")] +=
+        count;
+    submit_level_phase_submit_epoch_visibility_contract_failed_predicate_counts
+        [field_or(
+            fields,
+            "phase_submit_epoch_visibility_contract_failed_predicate",
+            "missing_phase_submit_epoch_visibility_contract_failed_predicate")] +=
+        count;
   }
   const std::string submit_level_top_reject_reason =
       top_count_key(submit_level_reject_reason_counts);
@@ -12501,6 +13111,16 @@ void append_stack_region_submit_epoch_ordering_json(
   append_u64_map_object(
       out, submit_level_pending_dispatch_completion_visibility_status_counts);
   append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_command_buffer_identity_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_pending_dispatch_command_buffer_identity_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"pending_dispatch_submit_epoch_transition_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_pending_dispatch_submit_epoch_transition_status_counts);
+  append_json_comma(out, submit_level_first);
   out << "\"pending_dispatch_command_buffer_epoch_relation_counts\":";
   append_u64_map_object(
       out, submit_level_pending_dispatch_command_buffer_epoch_relation_counts);
@@ -12508,6 +13128,36 @@ void append_stack_region_submit_epoch_ordering_json(
   out << "\"command_buffer_submit_epoch_visibility_status_counts\":";
   append_u64_map_object(
       out, submit_level_command_buffer_submit_epoch_visibility_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"command_buffer_submit_epoch_visibility_missing_source_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_command_buffer_submit_epoch_visibility_missing_source_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_epoch_visibility_contract_requirement_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_epoch_visibility_contract_requirement_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_epoch_visibility_contract_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_epoch_visibility_contract_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_epoch_visibility_contract_reason_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_epoch_visibility_contract_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_epoch_visibility_contract_predicate_status_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_epoch_visibility_contract_predicate_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"phase_submit_epoch_visibility_contract_failed_predicate_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_phase_submit_epoch_visibility_contract_failed_predicate_counts);
   append_json_comma(out, submit_level_first);
   out << "\"records\":[";
   for (size_t i = 0u; i < submit_level_equivalence_proof_rows.size(); ++i) {
@@ -13290,7 +13940,16 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "raw_resource_producer_rows",
       raw_resource_producer_rows.size(),
       summary_first);
-  append_json_bool(out, "submit_elision_enabled", false, summary_first);
+  bool submit_elision_enabled = false;
+  for (const auto& row : submit_elision_canary_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    if (parsed_u64(fields, "submits_removed") > 0u) {
+      submit_elision_enabled = true;
+      break;
+    }
+  }
+  append_json_bool(
+      out, "submit_elision_enabled", submit_elision_enabled, summary_first);
   append_json_string(
       out,
       "current_submit_sync_reason",
@@ -17647,14 +18306,74 @@ void note_stack_region_boundary_submit_plan(
              : "pending_dispatch_range_missing");
   const bool pending_dispatch_position_range_complete =
       pending_dispatch_count == 0u || pending_dispatch_side_effect_rows_match;
+  const bool command_buffer_identity_available =
+      command_buffer_recording_id != 0u;
+  const bool phase_submit_epoch_crossing_observed =
+      queue_submit && submit_epoch_after > submit_epoch_before;
+  const std::string pending_dispatch_command_buffer_identity_status =
+      pending_dispatch_count == 0u
+      ? "no_pending_dispatches"
+      : (command_buffer_identity_available
+             ? (pending_dispatch_position_range_available
+                    ? "same_active_command_buffer_recording_scope_observed"
+                    : "command_buffer_identity_available_pending_range_missing")
+             : "no_command_buffer_identity_available");
+  const std::string pending_dispatch_submit_epoch_transition_status =
+      pending_dispatch_count == 0u
+      ? "no_pending_dispatches"
+      : (!command_buffer_identity_available
+             ? "no_command_buffer_identity_available"
+             : (submit_epoch_after == submit_epoch_before
+                    ? "same_submit_epoch"
+                    : (phase_submit_epoch_crossing_observed
+                           ? "phase_submit_epoch_crossing_observed"
+                           : "submit_epoch_changed_without_phase_submit_context")));
   const std::string command_buffer_submit_epoch_visibility_status =
       pending_dispatch_count == 0u
       ? "no_pending_dispatches"
-      : (command_buffer_recording_id == 0u
-             ? "missing_command_buffer_recording_id"
+      : (!command_buffer_identity_available
+             ? "no_command_buffer_identity_available"
+             : (!pending_dispatch_position_range_complete
+                    ? "pending_dispatch_range_incomplete"
              : (submit_epoch_after == submit_epoch_before
                     ? "same_command_buffer_same_submit_epoch_proven"
-                    : "same_command_buffer_crosses_phase_submit_epoch_visibility_unproven"));
+                    : (phase_submit_epoch_crossing_observed
+                           ? "pending_dispatches_span_completed_phase_submit_epoch_boundary_fail_closed"
+                           : "command_buffer_continuity_proven_submit_epoch_visibility_unproven"))));
+  const std::string command_buffer_submit_epoch_visibility_missing_source =
+      pending_dispatch_count == 0u
+      ? "none"
+      : (!command_buffer_identity_available
+             ? "missing_command_buffer_recording_id"
+             : (!pending_dispatch_position_range_complete
+                    ? "missing_pending_dispatch_range_completeness_proof"
+                    : (submit_epoch_after == submit_epoch_before
+                           ? "none"
+                           : (phase_submit_epoch_crossing_observed
+                                  ? "missing_phase_submit_epoch_visibility_contract"
+                                  : "missing_command_buffer_submit_epoch_visibility_relation"))));
+  const bool phase_submit_epoch_visibility_contract_required =
+      pending_dispatch_count > 0u && phase_submit_epoch_crossing_observed;
+  const std::string phase_submit_epoch_visibility_contract_requirement_status =
+      phase_submit_epoch_visibility_contract_required
+      ? "phase_submit_epoch_crossing_contract_required"
+      : "no_phase_submit_epoch_crossing_observed";
+  const std::string phase_submit_epoch_visibility_contract_status =
+      pending_dispatch_count == 0u || !phase_submit_epoch_crossing_observed
+      ? "no_phase_submit_epoch_crossing_observed"
+      : (!command_buffer_identity_available
+             ? "phase_submit_epoch_visibility_contract_rejected_missing_command_buffer_identity"
+             : "phase_submit_epoch_crossing_contract_missing_unimplemented");
+  const std::string phase_submit_epoch_visibility_contract_reason =
+      pending_dispatch_count == 0u || !phase_submit_epoch_crossing_observed
+      ? "no_contract_required"
+      : (!command_buffer_identity_available
+             ? "missing_command_buffer_recording_id"
+             : "phase_submit_epoch_crossing_rejected_visibility_semantics_unresolved");
+  const std::string phase_submit_epoch_visibility_contract_required_fields =
+      phase_submit_epoch_visibility_contract_required
+      ? "command_buffer_recording_id,submit_epoch_before,submit_epoch_after,pending_dispatch_position_range,phase_submit_epoch_visibility_contract"
+      : "none";
   const std::string pending_dispatch_list_status =
       pending_dispatch_count == 0u
       ? "no_pending_dispatch_list_available"
@@ -17670,7 +18389,10 @@ void note_stack_region_boundary_submit_plan(
              ? (command_buffer_submit_epoch_visibility_status ==
                         "same_command_buffer_same_submit_epoch_proven"
                     ? "pending_dispatch_range_complete_epoch_visibility_proven"
-                    : "pending_dispatch_range_complete_epoch_visibility_unproven")
+                    : (command_buffer_submit_epoch_visibility_status ==
+                               "pending_dispatches_span_completed_phase_submit_epoch_boundary_fail_closed"
+                           ? "pending_dispatch_range_complete_phase_submit_epoch_boundary_fail_closed"
+                           : "pending_dispatch_range_complete_epoch_visibility_unproven"))
              : "pending_dispatch_range_incomplete");
   const uint64_t descriptor_update_side_effect_count = pending_dispatch_count;
   const uint64_t upload_side_effect_count = 0u;
@@ -17789,6 +18511,10 @@ void note_stack_region_boundary_submit_plan(
       << (pending_dispatch_position_range_complete ? 1 : 0)
       << " pending_dispatch_position_range_complete_reason="
       << pending_dispatch_range_completeness_status
+      << " pending_dispatch_command_buffer_identity_status="
+      << pending_dispatch_command_buffer_identity_status
+      << " pending_dispatch_submit_epoch_transition_status="
+      << pending_dispatch_submit_epoch_transition_status
       << " pending_dispatch_command_buffer_recording_id="
       << command_buffer_recording_id
       << " pending_dispatch_submit_epoch_before=" << submit_epoch_before
@@ -17797,6 +18523,19 @@ void note_stack_region_boundary_submit_plan(
       << command_buffer_submit_epoch_visibility_status
       << " command_buffer_submit_epoch_visibility_proof_status="
       << command_buffer_submit_epoch_visibility_status
+      << " command_buffer_submit_epoch_visibility_missing_source="
+      << command_buffer_submit_epoch_visibility_missing_source
+      << " phase_submit_epoch_visibility_contract=PhaseSubmitEpochVisibilityContract"
+      << " phase_submit_epoch_visibility_contract_requirement_status="
+      << phase_submit_epoch_visibility_contract_requirement_status
+      << " phase_submit_epoch_visibility_contract_status="
+      << phase_submit_epoch_visibility_contract_status
+      << " phase_submit_epoch_visibility_contract_reason="
+      << phase_submit_epoch_visibility_contract_reason
+      << " phase_submit_epoch_visibility_contract_required="
+      << (phase_submit_epoch_visibility_contract_required ? 1 : 0)
+      << " phase_submit_epoch_visibility_contract_required_fields="
+      << phase_submit_epoch_visibility_contract_required_fields
       << " pending_dispatch_completion_visibility_status="
       << pending_dispatch_completion_visibility_status
       << " pending_dispatch_labels=stack_owner_phase_boundary_pending_command_buffer"
@@ -18003,7 +18742,11 @@ void note_stack_region_boundary_submit_plan(
 
 bool maybe_elide_stack_region_boundary_submit_canary(
     const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite) {
+    const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count) {
   const char* const target = stack_region_submit_elision_canary_target();
   if (
       !stack_region_submit_elision_canary_target_selected(target) ||
@@ -18017,12 +18760,15 @@ bool maybe_elide_stack_region_boundary_submit_canary(
       non_capture_residual2_to_norm1_boundary_id(0, 1);
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   uint64_t already_removed = 0u;
-  for (const auto& item : stack_region_boundary_optimization_plan_rows()) {
+  for (const auto& item : stack_region_submit_elision_canary_rows()) {
     already_removed += item.second.submit_removed_count;
   }
   const StackRegionOptimizationEligibilitySummary eligibility_summary =
       stack_region_boundary_optimization_eligibility_summary_locked(
           selected_boundary_id);
+  const StackRegionSubmitElisionProofGuardSummary proof_guard_summary =
+      stack_region_submit_elision_phase_contract_guard_summary_locked(
+          selected_boundary_id, eligibility_summary);
   const bool live_boundary_matches_selected =
       current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
       current_vision_stack_block_index() == 1;
@@ -18033,11 +18779,26 @@ bool maybe_elide_stack_region_boundary_submit_canary(
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
+        command_buffer_recording_id,
+        submit_epoch_before,
+        submit_epoch_after,
+        pending_dispatch_count,
         "already_removed_one_submit",
+        proof_guard_summary.status,
+        proof_guard_summary.reason,
         eligibility_summary.candidate_records,
         eligibility_summary.eligible_records,
         eligibility_summary.eligible_boundary_count,
         eligibility_summary.barrier_validated_count,
+        proof_guard_summary.proof_ready_rows,
+        proof_guard_summary.selected_submit_rows,
+        proof_guard_summary.pending_range_complete_rows,
+        proof_guard_summary.same_active_command_buffer_rows,
+        proof_guard_summary.descriptor_update_generation_rows_for_selected,
+        proof_guard_summary.actual_norm1_input_barrier_rows,
+        proof_guard_summary.old_carry_retire_only_rows,
+        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+        proof_guard_summary.no_public_final_host_readback_blocker_rows,
         /*submit_removed=*/false);
     return false;
   }
@@ -18045,11 +18806,26 @@ bool maybe_elide_stack_region_boundary_submit_canary(
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
+        command_buffer_recording_id,
+        submit_epoch_before,
+        submit_epoch_after,
+        pending_dispatch_count,
         live_submit_status,
+        proof_guard_summary.status,
+        proof_guard_summary.reason,
         eligibility_summary.candidate_records,
         eligibility_summary.eligible_records,
         eligibility_summary.eligible_boundary_count,
         eligibility_summary.barrier_validated_count,
+        proof_guard_summary.proof_ready_rows,
+        proof_guard_summary.selected_submit_rows,
+        proof_guard_summary.pending_range_complete_rows,
+        proof_guard_summary.same_active_command_buffer_rows,
+        proof_guard_summary.descriptor_update_generation_rows_for_selected,
+        proof_guard_summary.actual_norm1_input_barrier_rows,
+        proof_guard_summary.old_carry_retire_only_rows,
+        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+        proof_guard_summary.no_public_final_host_readback_blocker_rows,
         /*submit_removed=*/false);
     return false;
   }
@@ -18058,22 +18834,80 @@ bool maybe_elide_stack_region_boundary_submit_canary(
     record_stack_region_submit_elision_canary_locked(
         phase,
         callsite,
+        command_buffer_recording_id,
+        submit_epoch_before,
+        submit_epoch_after,
+        pending_dispatch_count,
         live_submit_status,
+        proof_guard_summary.status,
+        proof_guard_summary.reason,
         eligibility_summary.candidate_records,
         eligibility_summary.eligible_records,
         eligibility_summary.eligible_boundary_count,
         eligibility_summary.barrier_validated_count,
+        proof_guard_summary.proof_ready_rows,
+        proof_guard_summary.selected_submit_rows,
+        proof_guard_summary.pending_range_complete_rows,
+        proof_guard_summary.same_active_command_buffer_rows,
+        proof_guard_summary.descriptor_update_generation_rows_for_selected,
+        proof_guard_summary.actual_norm1_input_barrier_rows,
+        proof_guard_summary.old_carry_retire_only_rows,
+        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+        proof_guard_summary.no_public_final_host_readback_blocker_rows,
+        /*submit_removed=*/false);
+    return false;
+  }
+  if (std::string(proof_guard_summary.status) !=
+      "phase_contract_guard_proof_ready") {
+    record_stack_region_submit_elision_canary_locked(
+        phase,
+        callsite,
+        command_buffer_recording_id,
+        submit_epoch_before,
+        submit_epoch_after,
+        pending_dispatch_count,
+        "live_boundary_eligible_phase_contract_guard_failed",
+        proof_guard_summary.status,
+        proof_guard_summary.reason,
+        eligibility_summary.candidate_records,
+        eligibility_summary.eligible_records,
+        eligibility_summary.eligible_boundary_count,
+        eligibility_summary.barrier_validated_count,
+        proof_guard_summary.proof_ready_rows,
+        proof_guard_summary.selected_submit_rows,
+        proof_guard_summary.pending_range_complete_rows,
+        proof_guard_summary.same_active_command_buffer_rows,
+        proof_guard_summary.descriptor_update_generation_rows_for_selected,
+        proof_guard_summary.actual_norm1_input_barrier_rows,
+        proof_guard_summary.old_carry_retire_only_rows,
+        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+        proof_guard_summary.no_public_final_host_readback_blocker_rows,
         /*submit_removed=*/false);
     return false;
   }
   record_stack_region_submit_elision_canary_locked(
       phase,
       callsite,
-      live_submit_status,
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      pending_dispatch_count,
+      "live_boundary_eligible_phase_contract_guard_ready_behavior_disabled",
+      proof_guard_summary.status,
+      proof_guard_summary.reason,
       eligibility_summary.candidate_records,
       eligibility_summary.eligible_records,
       eligibility_summary.eligible_boundary_count,
       eligibility_summary.barrier_validated_count,
+      proof_guard_summary.proof_ready_rows,
+      proof_guard_summary.selected_submit_rows,
+      proof_guard_summary.pending_range_complete_rows,
+      proof_guard_summary.same_active_command_buffer_rows,
+      proof_guard_summary.descriptor_update_generation_rows_for_selected,
+      proof_guard_summary.actual_norm1_input_barrier_rows,
+      proof_guard_summary.old_carry_retire_only_rows,
+      proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+      proof_guard_summary.no_public_final_host_readback_blocker_rows,
       /*submit_removed=*/false);
   return false;
 }

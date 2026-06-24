@@ -838,7 +838,11 @@ TORCH_API void note_stack_region_boundary_submit_plan(
     const std::string& blockers);
 TORCH_API bool maybe_elide_stack_region_boundary_submit_canary(
     VulkanSubmitPhase phase,
-    VulkanRetireCallSite callsite);
+    VulkanRetireCallSite callsite,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before,
+    uint64_t submit_epoch_after,
+    uint64_t pending_dispatch_count);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

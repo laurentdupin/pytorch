@@ -20784,8 +20784,68 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_fields,
             )
             self.assertIn(
+                "pending_dispatch_command_buffer_identity_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "pending_dispatch_submit_epoch_transition_status",
+                submit_level_fields,
+            )
+            self.assertIn(
                 "command_buffer_submit_epoch_visibility_proof_status",
                 submit_level_fields,
+            )
+            self.assertIn(
+                "command_buffer_submit_epoch_visibility_missing_source",
+                submit_level_fields,
+            )
+            self.assertEqual(
+                submit_level_fields["phase_submit_epoch_visibility_contract"],
+                "PhaseSubmitEpochVisibilityContract",
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_requirement_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_reason",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_required_fields",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_predicate_status",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_failed_predicate",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_predicate_details",
+                submit_level_fields,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_proof_ready",
+                submit_level_fields,
+            )
+            self.assertEqual(
+                submit_level_fields[
+                    "phase_submit_epoch_visibility_contract_behavior_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                submit_level_fields[
+                    "phase_submit_epoch_visibility_contract_submits_removed"
+                ],
+                "0",
             )
             self.assertIn(
                 "pending_dispatch_position_range_available_records",
@@ -20845,8 +20905,64 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_proof,
             )
             self.assertIn(
+                "pending_dispatch_command_buffer_identity_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "pending_dispatch_submit_epoch_transition_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
                 "command_buffer_submit_epoch_visibility_status_counts",
                 submit_level_proof,
+            )
+            self.assertIn(
+                "command_buffer_submit_epoch_visibility_missing_source_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_requirement_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_reason_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_predicate_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "phase_submit_epoch_visibility_contract_failed_predicate_counts",
+                submit_level_proof,
+            )
+            contract_status_counts = submit_level_proof[
+                "phase_submit_epoch_visibility_contract_status_counts"
+            ]
+            self.assertTrue(
+                "phase_submit_epoch_visibility_contract_proof_only_accepted"
+                in contract_status_counts
+                or "phase_submit_epoch_visibility_contract_rejected_predicate_failed"
+                in contract_status_counts
+            )
+            if (
+                "phase_submit_epoch_visibility_contract_rejected_predicate_failed"
+                in contract_status_counts
+            ):
+                self.assertTrue(
+                    submit_level_proof[
+                        "phase_submit_epoch_visibility_contract_failed_predicate_counts"
+                    ]
+                )
+            self.assertNotIn(
+                "same_command_buffer_crosses_phase_submit_epoch_visibility_unproven",
+                submit_level_proof[
+                    "command_buffer_submit_epoch_visibility_status_counts"
+                ],
             )
             self.assertFalse(
                 submit_level_proof["submit_equivalence_proof_complete"]
@@ -20990,13 +21106,52 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(submit_rows)
             self.assertTrue(
                 any(
-                    "status=live_boundary_eligible_but_behavior_disabled"
-                    in row
-                    and "live_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
+                    "live_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
                     in row
                     and "live_boundary_scope=non_capture" in row
                     and "live_descriptor_binding=6" in row
-                    and "live_submit_eligibility_status=live_boundary_eligible_but_behavior_disabled"
+                    and "phase_submit_epoch_visibility_contract_guard_status="
+                    in row
+                    and "phase_submit_epoch_visibility_contract_guard_reason="
+                    in row
+                    and "live_submit_equivalence_binding=StackRegionLiveSubmitEquivalenceBinding.v0"
+                    in row
+                    and "live_command_buffer_id_status=live_command_buffer_recording_scope_observed"
+                    in row
+                    and "live_submit_epoch_status=live_submit_epoch_observed"
+                    in row
+                    and "live_command_buffer_recording_id=" in row
+                    and "live_submit_epoch_before=" in row
+                    and "live_submit_epoch_after=" in row
+                    and "live_pending_dispatch_range_status=live_pending_dispatch_range_observed"
+                    in row
+                    and "live_pending_dispatch_count=" in row
+                    and "live_pending_dispatch_position_range_available=1"
+                    in row
+                    and "live_pending_dispatch_list_identity=scope:" in row
+                    and "live_pending_dispatch_range_match_status=live_range_uses_stack_dispatch_dependency_position_convention"
+                    in row
+                    and "live_pending_dispatch_range_proof_compare_status=live_range_observed_uses_graph_pending_range_identity"
+                    in row
+                    and "live_side_effect_completion_status=" in row
+                    and "live_side_effect_completion_reason=" in row
+                    and "live_side_effect_completion_binding_source=StackBoundarySubmitLevelEquivalenceProof.v0"
+                    in row
+                    and "live_side_effect_completion_live_command_buffer_identity=1"
+                    in row
+                    and "live_side_effect_completion_live_submit_epoch_identity=1"
+                    in row
+                    and "live_side_effect_completion_live_pending_dispatch_range=1"
+                    in row
+                    and "live_side_effect_completion_descriptor_updates="
+                    in row
+                    and "live_side_effect_completion_actual_norm1_input_barrier="
+                    in row
+                    and "live_side_effect_completion_old_carry_retire_only="
+                    in row
+                    and "live_side_effect_completion_unknown_ordering_retire_entries_zero="
+                    in row
+                    and "phase_submit_epoch_visibility_contract_authorizes_submit_elision=0"
                     in row
                     and "candidate_records=" in row
                     and "eligible_records=" in row
