@@ -21817,6 +21817,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "stack_region_command_buffer_acquire_hook_present_behavior_disabled",
+                    "stack_region_command_buffer_acquire_hook_present_context_candidate_observed",
                     "stack_region_command_buffer_acquire_hook_rejected_host_fence_public_readback_blocker",
                     "stack_region_command_buffer_acquire_hook_not_required",
                 },
@@ -21827,6 +21828,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_command_buffer_lease_adapter_present_context_owner_only",
+                    "region_command_buffer_lease_adapter_context_candidate_not_region_owned",
                     "region_command_buffer_lease_adapter_rejected_host_fence_public_readback_blocker",
                     "region_command_buffer_lease_adapter_not_required",
                 },
@@ -21839,6 +21841,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
+                    "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21854,6 +21857,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "lease_available"
                 ],
                 "0",
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_acquire_hook_record[
+                    "planned_region_exit_submit_point_status"
+                ],
+                {
+                    "planned_region_exit_submit_point_synthetic_unimplemented",
+                    "planned_region_exit_submit_point_runtime_observed_context_submit_preserved",
+                    "planned_region_exit_submit_point_blocked_by_output_boundary",
+                    "planned_region_exit_submit_point_not_required",
+                },
             )
             self.assertIn(
                 first_stack_region_command_buffer_acquire_hook_record[
@@ -21937,6 +21951,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
+                    "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable",
                     "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback",
                     "region_owned_command_buffer_lease_not_required",
                 },
@@ -21947,6 +21962,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "descriptor_pool_context_phase_submit_owned",
+                    "descriptor_pool_candidate_context_phase_submit_owned_not_transferable",
                     "descriptor_pool_scope_not_required",
                 },
             )
@@ -21956,6 +21972,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "command_pool_context_phase_submit_owned",
+                    "command_pool_scope_candidate_context_phase_submit_owned_not_transferable",
                     "command_pool_scope_not_required",
                 },
             )
@@ -22136,6 +22153,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "stack_region_command_buffer_acquire_hook_present_behavior_disabled",
+                    "stack_region_command_buffer_acquire_hook_present_context_candidate_observed",
                     "stack_region_command_buffer_acquire_hook_rejected_host_fence_public_readback_blocker",
                     "stack_region_command_buffer_acquire_hook_not_required",
                 },
@@ -22148,6 +22166,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
+                    "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -22167,6 +22186,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
+                    "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable",
                     "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback",
                     "region_owned_command_buffer_lease_not_required",
                 },
@@ -22177,6 +22197,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "command_pool_lease_unavailable_phase_submit_owned",
+                    "command_pool_lease_candidate_context_phase_submit_owned_not_transferable",
                     "command_pool_lease_blocked_by_host_fence_public_readback",
                     "command_pool_lease_not_required",
                 },
@@ -22187,6 +22208,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "descriptor_lifetime_scope_requested_unavailable",
+                    "descriptor_lifetime_scope_candidate_context_phase_submit_owned_not_transferable",
                     "descriptor_lifetime_scope_blocked_by_host_fence_public_readback",
                     "descriptor_lifetime_scope_not_required",
                 },
@@ -22197,6 +22219,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "retire_timeline_scope_requested_unavailable",
+                    "retire_timeline_scope_candidate_context_phase_submit_owned_not_transferable",
                     "retire_timeline_scope_blocked_by_host_fence_public_readback",
                     "retire_timeline_scope_not_required",
                 },

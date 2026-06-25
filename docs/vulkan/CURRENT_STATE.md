@@ -367,15 +367,18 @@ transfer, and output ownership. It is not a behavior path yet: phase-boundary
 submits remain preserved and submit elision remains disabled.
 The first scaffold now emits behavior-neutral `RegionCommandBufferOwnership.v0`
 records. `stack_entry_acquire` rows now join
-inactive `StackRegionCommandBufferAcquireHook.v0` rows and
+`StackRegionCommandBufferAcquireHook.v0` rows and
 `RegionOwnedCommandBufferLease.v0`, which record the selected stack-region
 instance, boundary, planned region-exit release point, requested stack-region
-owner scope, current Vulkan context/phase-submit owner scope, unavailable
-region command-buffer or batch lease, unavailable command-pool lease,
-descriptor lifetime scope request, retire timeline scope request, same
-stream/queue requirement, and public/final/host/readback blocker status. The
-hook snapshots current stack planned-recording and command-buffer owner state
-near `Context`, but behavior remains disabled and no lease is granted.
+owner scope, current Vulkan context/phase-submit owner scope, preserved
+context phase-submit command-buffer candidate status, unavailable region
+command-buffer or batch lease, unavailable command-pool lease, descriptor
+lifetime scope request, retire timeline scope request, same stream/queue
+requirement, and public/final/host/readback blocker status. The hook snapshots
+current stack planned-recording and command-buffer owner state near `Context`.
+When stack planned recording is active it can name the preserved context
+command-buffer batch candidate, but that candidate is marked not transferable;
+behavior remains disabled and no stack-region lease is granted.
 `StackRegionSingleRecordingPlan.v0` now sits below that hook as the planned
 single-region recording scaffold. It is emitted for the selected boundary and
 records that execution still uses `context_phase_submit_recording`, phase
@@ -424,6 +427,12 @@ The owner record is joined into the acquire hook and
 `RegionOwnedCommandBufferLease.v0`, which now fails closed on missing
 single-recording owner close/submit ownership rather than on a missing owner
 surface.
+`StackRegionCommandBufferAcquireHook.v0` now also surfaces the active context
+phase-submit command-buffer batch candidate when the planned recording is
+owned by the current thread. This is a lease-candidate observation only:
+`lease_available=0`, `behavior_enabled=0`, `new_queue_submit_created=0`, and
+`authorizes_submit_elision=0` remain enforced, while downstream lease rows keep
+failing closed until a real region-owned command-buffer or batch lease exists.
 `StackRegionSingleRecordingCanary.v0` is now the first opt-in behavior canary
 above that owner surface. It is controlled by
 `PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY=non_capture_residual2_norm1_block1`

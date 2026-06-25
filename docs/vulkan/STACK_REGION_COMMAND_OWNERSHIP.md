@@ -12,10 +12,11 @@ records for the selected stack-region boundary. The records split stack-entry
 acquire from stack-exit release:
 
 - `stack_entry_acquire` records the region id, stack-region instance id,
-  owner/requester scope, inactive `StackRegionCommandBufferAcquireHook.v0`
-  status, `RegionOwnedCommandBufferLease.v0` status, unavailable
-  command-buffer and command-pool lease status, diagnostic descriptor
-  generation base, and scratch/temporary resource scope.
+  owner/requester scope, `StackRegionCommandBufferAcquireHook.v0` status,
+  `RegionOwnedCommandBufferLease.v0` status, preserved context submit
+  command-buffer candidate status, unavailable stack-region command-buffer and
+  command-pool lease status, diagnostic descriptor generation base, and
+  scratch/temporary resource scope.
 - `stack_exit_release` records public/private/captured/requested/final output
   release status, pending-retire transfer status, and command-pool reset
   deferral status.
@@ -50,7 +51,10 @@ buffer or batch lease. The stack-entry acquire row now emits a behavior-neutral
 `RegionOwnedCommandBufferLease.v0` lease row. The acquire hook is present near
 `Context` and snapshots current stack planned-recording ownership, current
 command-buffer recording id, and context-owned descriptor/command-pool scope,
-but it returns inactive/unavailable.
+but it returns unavailable. When stack planned recording is active, it now names
+the preserved context phase-submit command-buffer batch as a candidate and marks
+it `not_transferable`; no stack-region lease is granted and no submit behavior
+changes.
 `StackRegionSingleRecordingPlan.v0` is the next behavior-neutral scaffold under
 that hook. It records that the current execution mode remains
 `context_phase_submit_recording`, phase-boundary submits are preserved, command

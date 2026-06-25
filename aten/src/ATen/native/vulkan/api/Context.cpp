@@ -991,6 +991,8 @@ Context::request_stack_region_command_buffer_acquire(
   result.current_owner_scope = "vulkan_context_phase_submit_owner";
   result.requested_owner_scope_status =
       request.requested_owner_scope + "_owner_scope_requested";
+  result.planned_region_exit_submit_point_status =
+      request.planned_region_exit_submit_point_status;
   result.single_recording_plan_key = request.single_recording_plan_key;
   result.single_recording_plan_status = request.single_recording_plan_status;
   result.single_recording_plan_top_blocker =
@@ -1105,9 +1107,45 @@ Context::request_stack_region_command_buffer_acquire(
         "host_fence_public_final_readback_blocker";
     return result;
   }
-  result.top_blocker = request.single_recording_owner_top_blocker;
-  result.command_buffer_or_batch_lease_status =
-      request.single_recording_owner_top_blocker;
+  const bool runtime_exit_submit_point_candidate_observed =
+      request.planned_region_exit_submit_point_status ==
+      "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
+  const bool context_command_buffer_candidate_observed =
+      result.stack_planned_recording_owned_by_current_thread &&
+      result.current_command_buffer_recording_id != 0u;
+  if (context_command_buffer_candidate_observed ||
+      runtime_exit_submit_point_candidate_observed) {
+    result.hook_status =
+        "stack_region_command_buffer_acquire_hook_present_context_candidate_observed";
+    result.result_status =
+        "region_command_buffer_lease_adapter_context_candidate_not_region_owned";
+    result.top_blocker =
+        "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+    result.command_buffer_or_batch_lease_id =
+        context_command_buffer_candidate_observed
+        ? "context_phase_submit_command_buffer_batch:" +
+            std::to_string(result.current_command_buffer_recording_id)
+        : "context_phase_submit_command_buffer_batch:" +
+            request.planned_region_exit_submit_point_id;
+    result.command_buffer_or_batch_lease_status =
+        "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable";
+    result.command_pool_lease_id =
+        "context_phase_submit_command_pool_candidate";
+    result.command_pool_lease_status =
+        "command_pool_lease_candidate_context_phase_submit_owned_not_transferable";
+    result.descriptor_lifetime_scope_status =
+        "descriptor_lifetime_scope_candidate_context_phase_submit_owned_not_transferable";
+    result.retire_timeline_scope_status =
+        "retire_timeline_scope_candidate_context_phase_submit_owned_not_transferable";
+    result.descriptor_pool_scope_status =
+        "descriptor_pool_candidate_context_phase_submit_owned_not_transferable";
+    result.command_pool_scope_status =
+        "command_pool_scope_candidate_context_phase_submit_owned_not_transferable";
+  } else {
+    result.top_blocker = request.single_recording_owner_top_blocker;
+    result.command_buffer_or_batch_lease_status =
+        request.single_recording_owner_top_blocker;
+  }
   result.same_stream_queue_status = request.require_same_stream_queue
       ? "same_stream_queue_required_unproven"
       : "same_stream_queue_not_required";

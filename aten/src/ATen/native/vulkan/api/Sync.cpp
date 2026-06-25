@@ -10735,6 +10735,8 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.boundary_class;
     stack_region_command_buffer_acquire_hook_request
         .planned_region_exit_submit_point_id = planned_submit_point_id;
+    stack_region_command_buffer_acquire_hook_request
+        .planned_region_exit_submit_point_status = planned_submit_point_status;
     stack_region_command_buffer_acquire_hook_request.requested_owner_scope =
         "stack_region";
     stack_region_command_buffer_acquire_hook_request.requested_lifetime_scope =
@@ -12444,6 +12446,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << " current_command_buffer_recording_id="
         << stack_region_command_buffer_acquire_hook_result
                .current_command_buffer_recording_id
+        << " planned_region_exit_submit_point_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .planned_region_exit_submit_point_status
         << " current_owner_scope="
         << stack_region_command_buffer_acquire_hook_result.current_owner_scope
         << " requested_owner_scope_status="

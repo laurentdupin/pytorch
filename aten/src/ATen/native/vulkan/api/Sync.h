@@ -724,6 +724,8 @@ struct StackRegionCommandBufferAcquireHookRequest final {
   std::string boundary_id = "missing";
   std::string boundary_class = "unknown";
   std::string planned_region_exit_submit_point_id = "missing";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string requested_owner_scope = "stack_region";
   std::string requested_lifetime_scope = "stack_region";
   std::string single_recording_plan_key = "missing";
@@ -775,6 +777,8 @@ struct StackRegionCommandBufferAcquireHookResult final {
   std::string current_owner_scope = "vulkan_context_phase_submit_owner";
   std::string requested_owner_scope_status =
       "stack_region_owner_scope_requested";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string command_buffer_or_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_or_batch_lease_status =

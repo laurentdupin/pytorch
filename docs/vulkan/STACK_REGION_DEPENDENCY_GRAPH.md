@@ -664,20 +664,22 @@ authorizes no submit elision and does not install a release hook.
 `RegionCommandBufferOwnership.v0` is the first scaffold for that ownership
 direction. It emits paired `stack_entry_acquire` and `stack_exit_release`
 records for the selected stack-region instance. Acquire rows expose the region
-id, inactive `StackRegionCommandBufferAcquireHook.v0` key/status,
-`RegionOwnedCommandBufferLease.v0` key/status, unavailable command-buffer and
-command-pool lease identities, descriptor generation base, scratch/temporary
-resource scope, and owner/requester scope.
+id, `StackRegionCommandBufferAcquireHook.v0` key/status,
+`RegionOwnedCommandBufferLease.v0` key/status, preserved context phase-submit
+command-buffer candidate identity/status, unavailable stack-region
+command-buffer and command-pool lease identities, descriptor generation base,
+scratch/temporary resource scope, and owner/requester scope.
 Release rows expose output release status, pending-retire transfer status, and
 command-pool reset deferral status. The rows are diagnostic-only: phase submits
 are preserved, deferred submit is disabled, and `authorizes_submit_elision=0`.
-`StackRegionCommandBufferAcquireHook.v0` is the inactive runtime hook surface
-behind the acquire-side lease. It snapshots current stack planned-recording
-ownership, current command-buffer recording id, the current
+`StackRegionCommandBufferAcquireHook.v0` is the behavior-neutral runtime hook
+surface behind the acquire-side lease. It snapshots current stack
+planned-recording ownership, current command-buffer recording id, the current
 `vulkan_context_phase_submit_owner` scope, and context/phase-submit-owned
-descriptor and command-pool scopes. It always reports
-`behavior_enabled=0`, `lease_available=0`, `submit_elision_enabled=0`, and
-`new_queue_submit_created=0` in this slice.
+descriptor and command-pool scopes. When the stack planned recording is active,
+it records the preserved context command-buffer batch as a non-transferable
+candidate. It still reports `behavior_enabled=0`, `lease_available=0`,
+`submit_elision_enabled=0`, and `new_queue_submit_created=0` in this slice.
 
 `StackRegionSingleRecordingPlan.v0` is emitted between that acquire hook and
 the lease rows. It records the planned single-region recording status,
