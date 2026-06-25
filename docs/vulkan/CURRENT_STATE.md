@@ -493,7 +493,9 @@ therefore distinguish the observed preserved exit submit point from the missing
 region-owned lease: `StackRegionPlannedSubmitPoint.v0` can report
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`,
 and the close/submit owner surface advances to
-`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`.
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
+because the observed command-buffer batch candidate is still context-owned and
+not transferable to a stack region.
 This remains fail-closed and behavior-neutral: no submit is removed, deferred,
 batched, replayed, or newly created.
 `StackRegionCommandPoolRetentionRequest.v0` and

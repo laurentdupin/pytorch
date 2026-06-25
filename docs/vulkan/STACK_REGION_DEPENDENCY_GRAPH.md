@@ -760,7 +760,9 @@ present for the planned bridge context, `StackRegionPlannedSubmitPoint.v0` and
 the close/submit owner rows advance from a synthetic planned target to
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`.
 The next blocker remains fail-closed:
-`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`.
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
+because the observed command-buffer batch candidate is still context-owned and
+not transferable to a stack region.
 This does not remove, defer, batch, replay, or create a submit.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
@@ -790,10 +792,10 @@ region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
 fail-closed reason. Current rows fail closed with
-`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`;
-the
-surface is diagnostic-only and does not create, defer, close, or submit command
-buffers.
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
+once the context phase-submit command-buffer candidate is observed but remains
+non-transferable; the surface is diagnostic-only and does not create, defer,
+close, or submit command buffers.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,

@@ -21746,22 +21746,33 @@ request_region_owned_command_buffer_lease(
   const bool runtime_exit_submit_point_observed =
       request.planned_region_exit_submit_point_status ==
       "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
-  result.result_status = runtime_exit_submit_point_observed
-      ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
-      : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
-  result.top_blocker = runtime_exit_submit_point_observed
-      ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
+  const bool context_phase_submit_candidate_observed =
+      request.acquire_hook_command_buffer_or_batch_lease_status ==
+      "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable";
+  const char* const unavailable_status = [&]() -> const char* {
+    if (context_phase_submit_candidate_observed) {
+      return "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+    }
+    if (runtime_exit_submit_point_observed) {
+      return "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease";
+    }
+    return "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  }();
+  result.result_status = unavailable_status;
+  result.top_blocker = context_phase_submit_candidate_observed ||
+          runtime_exit_submit_point_observed
+      ? unavailable_status
       : request.single_recording_owner_top_blocker;
   if (result.top_blocker.empty() ||
       result.top_blocker == "missing_stack_region_single_recording_owner") {
-    result.top_blocker =
-        runtime_exit_submit_point_observed
-        ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
-        : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+    result.top_blocker = unavailable_status;
   }
   result.command_buffer_batch_lease_id =
       request.acquire_hook_command_buffer_or_batch_lease_id;
-  result.command_buffer_or_batch_lease_status = result.top_blocker;
+  result.command_buffer_or_batch_lease_status =
+      context_phase_submit_candidate_observed
+      ? request.acquire_hook_command_buffer_or_batch_lease_status
+      : result.top_blocker;
   result.command_pool_lease_id = request.acquire_hook_command_pool_lease_id;
   result.command_pool_lease_status =
       request.acquire_hook_command_pool_lease_status;
@@ -21778,8 +21789,9 @@ request_region_owned_command_buffer_lease(
   }
   result.public_final_host_readback_blocker_status =
       request.acquire_hook_public_final_host_readback_blocker_status;
-  result.current_owner_status =
-      "region_command_buffer_lease_adapter_present_context_owner_only";
+  result.current_owner_status = context_phase_submit_candidate_observed
+      ? "region_command_buffer_lease_adapter_present_context_candidate_not_region_owned"
+      : "region_command_buffer_lease_adapter_present_context_owner_only";
   result.runtime_api_source =
       "RegionOwnedCommandBufferLeaseRuntimeApi.v0+StackRegionCommandBufferAcquireHook.v0";
   return result;
@@ -21815,6 +21827,11 @@ request_stack_region_exit_close_submit_owner(
   const bool runtime_exit_submit_point_observed =
       request.planned_region_exit_submit_point_status ==
       "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
+  const bool context_phase_submit_candidate_observed =
+      request.command_buffer_batch_lease_status ==
+          "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable" ||
+      request.command_buffer_batch_lease_top_blocker ==
+          "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
   if (request.stack_scope_planned_region_present) {
     result.planned_region_scope_status =
         "stack_scope_planned_region_topology_present";
@@ -21841,8 +21858,18 @@ request_stack_region_exit_close_submit_owner(
         "descriptor_release_ownership_blocked_by_host_fence_public_readback";
     return result;
   }
+  if (context_phase_submit_candidate_observed) {
+    result.reason = request.command_buffer_batch_lease_status;
+    result.top_blocker =
+        "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+    result.implementation_status =
+        "region_exit_close_submit_owner_context_phase_submit_candidate_not_transferable";
+    result.region_owned_command_buffer_status =
+        "context_phase_submit_command_buffer_candidate_not_region_owned";
+  }
   if (request.stack_scope_planned_region_present &&
-      !runtime_exit_submit_point_observed) {
+      !runtime_exit_submit_point_observed &&
+      !context_phase_submit_candidate_observed) {
     result.reason = "planned_region_close_submit_still_context_owned";
     result.top_blocker =
         "planned_region_topology_present_close_submit_still_context_owned";
@@ -21851,9 +21878,10 @@ request_stack_region_exit_close_submit_owner(
     result.region_owned_command_buffer_status =
         "planned_region_present_but_command_buffer_not_region_owned";
   }
-  if (request.command_buffer_batch_lease_id.empty() ||
-      request.command_buffer_batch_lease_id ==
-          "missing_region_owned_command_buffer_or_batch") {
+  if (!context_phase_submit_candidate_observed &&
+      (request.command_buffer_batch_lease_id.empty() ||
+       request.command_buffer_batch_lease_id ==
+           "missing_region_owned_command_buffer_or_batch")) {
     if (!request.stack_scope_planned_region_present ||
         runtime_exit_submit_point_observed) {
       result.reason = request.command_buffer_batch_lease_status;
@@ -21928,6 +21956,28 @@ evaluate_stack_region_exit_close_submit_owner_surface(
         "descriptor_lifetime_handoff_blocked_by_host_fence_public_readback";
     result.command_pool_lifetime_cleanup_status =
         "command_pool_lifetime_cleanup_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  const bool context_phase_submit_candidate_observed =
+      request.command_buffer_batch_lease_status ==
+          "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable" ||
+      request.command_buffer_batch_lease_top_blocker ==
+          "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  if (context_phase_submit_candidate_observed) {
+    if (request.stack_scope_planned_region_present) {
+      result.planned_region_scope_status =
+          "stack_scope_planned_region_topology_present";
+    }
+    result.owner_status =
+        "region_exit_close_submit_owner_context_phase_submit_candidate_fail_closed";
+    result.final_fail_closed_reason =
+        "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+    result.current_command_buffer_owner_status =
+        "current_phase_submit_owns_context_command_buffer_batch";
+    result.requested_region_exit_ownership_status =
+        "requested_region_exit_close_submit_ownership_blocked_context_candidate_not_transferable";
+    result.region_owned_command_buffer_status =
+        "context_phase_submit_command_buffer_candidate_not_region_owned";
     return result;
   }
   if (request.command_buffer_batch_lease_id.empty() ||

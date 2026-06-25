@@ -129,8 +129,10 @@ observation for the existing stack planned recording exit submit. It changes
 diagnostic classification only: planned bridge rows can report
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`
 and then fail closed on
-`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`
-until a real region-owned close/submit lease exists.
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
+while the observed command-buffer batch candidate is still context-owned and
+not transferable. It remains fail-closed until a real region-owned
+close/submit lease exists.
 
 ## Design Card
 
