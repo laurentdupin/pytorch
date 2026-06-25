@@ -137,4 +137,5 @@ from torch.backends import (
     opt_einsum as opt_einsum,
     python_native as python_native,
     quantized as quantized,
+    vulkan as vulkan,
 )

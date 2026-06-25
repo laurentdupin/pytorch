@@ -161,6 +161,13 @@ exit: the planned stack-region scope can be observed, but
 The emitted-record fields mean the ownership surface was populated; they do not
 mean command-buffer, command-pool, descriptor, or retire ownership transferred
 away from the current context phase-submit path.
+Rows also spell out the fail-closed ownership facts:
+`region_owned_close_submit_available=0`,
+`close_submit_ownership_status=close_submit_still_context_phase_submit_owned`,
+`command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred`,
+`descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable`,
+and
+`retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred`.
 The acquire/release observation is backed by a separate
 `ContextRegionCommandBufferOwnershipState.v0` lifecycle id/state. Its states
 are deliberately named as context-owned fail-closed states:

@@ -784,6 +784,12 @@ phase-submit batch lifecycle, but it keeps
 The acquire/release emitted-record fields only prove the ownership rows were
 populated from the graph/runtime context; command-buffer, command-pool,
 descriptor, and retire ownership remain with the preserved context submit path.
+The rows expose that explicitly with `region_owned_close_submit_available=0`,
+`close_submit_ownership_status=close_submit_still_context_phase_submit_owned`,
+`command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred`,
+`descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable`,
+and
+`retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred`.
 Those rows also carry `ContextRegionCommandBufferOwnershipState.v0`, a separate
 context lifecycle for acquire/release observation. The lifecycle states are
 context-owned and fail-closed; they do not make the close/submit owner

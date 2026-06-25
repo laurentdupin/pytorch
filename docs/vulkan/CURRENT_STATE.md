@@ -507,6 +507,13 @@ Context-owned acquire/release lifecycle id and status created at stack planned
 recording entry and finalized at stack exit submit or cancel. This anchors the
 stack-entry acquire and stack-exit release records to runtime stack scope while
 still reporting that the command buffer remains context/phase-submit owned.
+The current row contract makes that fail-closed ownership explicit:
+`region_owned_close_submit_available=0`,
+`close_submit_ownership_status=close_submit_still_context_phase_submit_owned`,
+`command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred`,
+`descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable`,
+and
+`retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred`.
 This remains fail-closed and behavior-neutral: no submit is removed, deferred,
 batched, replayed, or newly created.
 `StackRegionSingleRecordingCanary.v0` now mirrors that ownership state in its

@@ -13143,6 +13143,7 @@ void append_stack_region_submit_epoch_ordering_json(
         << " ownership_available="
         << (region_exit_close_submit_owner_result.ownership_available ? "1"
                                                                       : "0")
+        << " region_owned_close_submit_available=0"
         << " region_exit_close_submit_owner_lifecycle_id="
         << region_exit_close_submit_owner_result
                .region_exit_close_submit_owner_lifecycle_id
@@ -13175,6 +13176,7 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_exit_close_submit_owner_request
                .current_command_buffer_owner_scope
         << " current_phase_submit_close_submit_owner_preserved=1"
+        << " close_submit_ownership_status=close_submit_still_context_phase_submit_owned"
         << " current_phase_submit_owner_status="
         << region_exit_close_submit_owner_result
                .current_command_buffer_owner_status
@@ -13205,6 +13207,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << " queue_timeline_owner_status="
         << region_exit_close_submit_owner_result
                .queue_timeline_owner_status
+        << " command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred"
+        << " descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable"
+        << " retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred"
         << " retire_timeline_handoff_status="
         << region_exit_close_submit_owner_result
                .retire_timeline_handoff_status
@@ -13218,6 +13223,7 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " close_submit_behavior_changed=0"
         << " phase_boundary_submits_preserved=1"
+        << " behavior_enabled=0"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"
         << " new_queue_submit_created=0"
@@ -13485,6 +13491,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_scope_acquired="
         << (planned_region_context_present ? "1" : "0")
         << " region_command_buffer_ownership_acquired=0"
+        << " region_owned_close_submit_available=0"
+        << " close_submit_ownership_status=close_submit_still_context_phase_submit_owned"
         << " region_command_buffer_ownership_acquire_owner_status="
         << (planned_region_context_present
                 ? "region_scope_observed_command_buffer_still_context_owned"
@@ -13576,6 +13584,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << " scratch_temporary_resource_scope=stack_region_scratch_scope_diagnostic_only"
         << " pending_retires_transfer_release_status=pending_retires_transfer_not_applicable_to_acquire"
         << " command_pool_reset_deferral_status=command_pool_reset_deferral_not_applicable_to_acquire"
+        << " command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred"
+        << " descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable"
+        << " retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred"
         << " acquire_status=" << region_command_ownership_acquire_status
         << " release_status=" << region_command_ownership_release_status
         << " top_blocker=" << region_command_ownership_top_blocker
@@ -13611,6 +13622,7 @@ void append_stack_region_submit_epoch_ordering_json(
         << " phase_boundary_submits_preserved=1"
         << " preserved_phase_boundary_submit_count=" << proof.records
         << " actual_elided_submit_count=0"
+        << " behavior_enabled=0"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"
         << " command_buffer_replay_enabled=0"
@@ -13639,6 +13651,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_scope_released="
         << (planned_region_context_present ? "1" : "0")
         << " region_command_buffer_ownership_released=0"
+        << " region_owned_close_submit_available=0"
+        << " close_submit_ownership_status=close_submit_still_context_phase_submit_owned"
         << " region_command_buffer_ownership_release_owner_status="
         << (planned_region_context_present
                 ? "region_scope_observed_command_buffer_still_context_owned"
@@ -13715,6 +13729,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_release_pending_retires_status
         << " command_pool_reset_deferral_status="
         << command_pool_reset_deferral_proof_result.proof_status
+        << " command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred"
+        << " descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable"
+        << " retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred"
         << " command_pool_reset_proven_after_region_release=0"
         << " command_pool_reset_fail_closed=1"
         << " acquire_status=" << region_command_ownership_acquire_status
@@ -13765,6 +13782,7 @@ void append_stack_region_submit_epoch_ordering_json(
         << " preserved_phase_boundary_submit_count=" << proof.records
         << " actual_elided_submit_count=0"
         << " command_pool_reset_deferred_to_region_release=0"
+        << " behavior_enabled=0"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"
         << " command_buffer_replay_enabled=0"
