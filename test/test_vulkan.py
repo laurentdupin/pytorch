@@ -20462,6 +20462,106 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_proof,
             )
             self.assertIn(
+                "stack_region_exit_release_ownership_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_private_bridge_outputs_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_pending_retires_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_command_buffer_close_submit_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_command_pool_cleanup_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_close_submit_ownership_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_close_submit_ownership_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_close_submit_ownership_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_close_submit_current_owner_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_close_submit_region_owner_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_close_submit_owner_request_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_close_submit_owner_result_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_close_submit_owner_request_api_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_close_submit_owner_result_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_close_submit_owner_result_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_close_submit_owner_implementation_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_phase_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_acquire_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_release_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_command_buffer_lease_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_command_pool_lease_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_command_pool_reset_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
                 "stack_region_command_pool_retention_request_records",
                 submit_level_proof,
             )
@@ -20754,6 +20854,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == selected_non_capture_boundary
                 )
 
+            def selected_plan_records(records_key):
+                return [
+                    record["fields"]
+                    for record in submit_level_proof[records_key]
+                    if record["fields"].get("boundary_id")
+                    == selected_non_capture_boundary
+                ]
+
             first_exit_release_point_record = selected_plan_record(
                 "stack_region_exit_release_point_records"
             )
@@ -20833,6 +20941,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_exit_release_ownership_record["top_blocker"],
                 {
                     "missing_region_exit_release_ownership_implementation",
+                    "missing_command_buffer_close_submit_release_ownership",
                     "missing_stack_region_owner_identity_at_release_point",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -20907,6 +21016,415 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "authorizes_submit_elision"
                 ],
                 "0",
+            )
+            first_exit_release_ownership_scaffold_record = selected_plan_record(
+                "stack_region_exit_release_ownership_records"
+            )
+            self.assertEqual(
+                first_exit_release_ownership_scaffold_record["schema"],
+                "StackRegionExitReleaseOwnership.v0",
+            )
+            self.assertEqual(
+                first_exit_release_ownership_scaffold_record[
+                    "release_ownership_complete"
+                ],
+                "0",
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "release_ownership_status"
+                ],
+                {
+                    "exit_release_ownership_scaffold_present_fail_closed",
+                    "exit_release_ownership_rejected_public_final_host_readback_requested_output",
+                    "exit_release_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record["top_blocker"],
+                {
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "private_bridge_outputs_release_status"
+                ],
+                {
+                    "private_bridge_outputs_existing_same_region_policy_observed",
+                    "private_bridge_outputs_blocked_by_public_boundary",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "pending_retires_transfer_release_status"
+                ],
+                {
+                    "pending_retires_not_transferred_phase_submit_retire_timeline_preserved",
+                    "pending_retires_transfer_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "descriptor_lifetime_release_ownership_status"
+                ],
+                {
+                    "missing_descriptor_release_ownership",
+                    "descriptor_release_ownership_blocked_by_output_boundary",
+                    "descriptor_release_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "retire_timeline_release_ownership_status"
+                ],
+                {
+                    "missing_retire_timeline_release_ownership",
+                    "retire_timeline_release_ownership_blocked_by_output_boundary",
+                    "retire_timeline_release_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "allocator_resource_lifetime_release_ownership_status"
+                ],
+                {
+                    "missing_allocator_resource_release_ownership",
+                    "allocator_resource_release_ownership_blocked_by_output_boundary",
+                    "allocator_resource_release_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "command_buffer_close_submit_ownership_status"
+                ],
+                {
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "command_buffer_close_submit_release_ownership_scaffold_present_fail_closed",
+                    "command_buffer_close_submit_release_ownership_request_api_present_result_unavailable",
+                    "command_buffer_close_submit_release_ownership_blocked_by_output_boundary",
+                    "command_buffer_close_submit_release_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "command_pool_cleanup_reset_ownership_status"
+                ],
+                {
+                    "missing_command_pool_cleanup_reset_release_ownership",
+                    "command_pool_cleanup_reset_release_ownership_blocked_by_output_boundary",
+                    "command_pool_cleanup_reset_release_ownership_not_required",
+                },
+            )
+            self.assertEqual(
+                first_exit_release_ownership_scaffold_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            first_close_submit_ownership_record = selected_plan_record(
+                "stack_region_command_buffer_close_submit_ownership_records"
+            )
+            self.assertEqual(
+                first_close_submit_ownership_record["schema"],
+                "StackRegionCommandBufferCloseSubmitOwnership.v0",
+            )
+            self.assertEqual(
+                first_close_submit_ownership_record["ownership_complete"],
+                "0",
+            )
+            self.assertIn(
+                first_close_submit_ownership_record["ownership_status"],
+                {
+                    "command_buffer_close_submit_ownership_scaffold_present_fail_closed",
+                    "command_buffer_close_submit_ownership_request_api_present_result_unavailable",
+                    "command_buffer_close_submit_ownership_rejected_public_final_host_readback_requested_output",
+                    "command_buffer_close_submit_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_close_submit_ownership_record[
+                    "current_phase_submit_owner_status"
+                ],
+                {
+                    "current_phase_submit_owns_command_buffer_close_submit",
+                    "current_phase_submit_close_submit_owner_not_required",
+                },
+            )
+            self.assertIn(
+                first_close_submit_ownership_record[
+                    "region_exit_close_submit_owner_status"
+                ],
+                {
+                    "region_exit_close_submit_owner_missing",
+                    "exit_close_submit_owner_result_api_present_unavailable",
+                    "region_exit_close_submit_owner_blocked_by_output_boundary",
+                    "region_exit_close_submit_owner_not_required",
+                },
+            )
+            self.assertIn(
+                first_close_submit_ownership_record[
+                    "command_buffer_region_ownership_status"
+                ],
+                {
+                    "command_buffer_not_region_owned",
+                    "command_buffer_region_ownership_blocked_by_output_boundary",
+                    "command_buffer_region_ownership_not_required",
+                },
+            )
+            self.assertIn(
+                first_close_submit_ownership_record[
+                    "planned_region_exit_submit_point_status"
+                ],
+                {
+                    "planned_region_exit_submit_point_synthetic_unimplemented",
+                    "planned_region_exit_submit_point_blocked_by_output_boundary",
+                    "planned_region_exit_submit_point_not_required",
+                },
+            )
+            self.assertIn(
+                first_close_submit_ownership_record["top_blocker"],
+                {
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertEqual(
+                first_close_submit_ownership_record[
+                    "exit_close_submit_owner_request"
+                ],
+                "StackRegionExitCloseSubmitOwnerRequest.v0",
+            )
+            self.assertEqual(
+                first_close_submit_ownership_record[
+                    "exit_close_submit_owner_result"
+                ],
+                "StackRegionExitCloseSubmitOwnerResult.v0",
+            )
+            self.assertIn(
+                first_close_submit_ownership_record[
+                    "exit_close_submit_owner_request_api_status"
+                ],
+                {
+                    "exit_close_submit_owner_request_api_present_result_unavailable",
+                    "exit_close_submit_owner_request_api_rejected_host_fence_public_readback_blocker",
+                    "exit_close_submit_owner_request_api_not_required",
+                },
+            )
+            self.assertIn(
+                first_close_submit_ownership_record[
+                    "region_exit_close_submit_owner_implementation_status"
+                ],
+                {
+                    "region_exit_close_submit_owner_implementation_missing",
+                    "region_exit_close_submit_owner_implementation_blocked_by_host_fence_public_readback",
+                    "region_exit_close_submit_owner_implementation_not_required",
+                },
+            )
+            self.assertEqual(
+                first_close_submit_ownership_record["authorizes_submit_elision"],
+                "0",
+            )
+            first_exit_close_submit_owner_request_record = selected_plan_record(
+                "stack_region_exit_close_submit_owner_request_records"
+            )
+            self.assertEqual(
+                first_exit_close_submit_owner_request_record["schema"],
+                "StackRegionExitCloseSubmitOwnerRequest.v0",
+            )
+            self.assertEqual(
+                first_exit_close_submit_owner_request_record[
+                    "requested_operation"
+                ],
+                "close_and_submit_region_command_buffer_or_batch",
+            )
+            self.assertIn(
+                first_exit_close_submit_owner_request_record[
+                    "request_api_status"
+                ],
+                {
+                    "exit_close_submit_owner_request_api_present_result_unavailable",
+                    "exit_close_submit_owner_request_api_rejected_host_fence_public_readback_blocker",
+                    "exit_close_submit_owner_request_api_not_required",
+                },
+            )
+            self.assertEqual(
+                first_exit_close_submit_owner_request_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            first_exit_close_submit_owner_result_record = selected_plan_record(
+                "stack_region_exit_close_submit_owner_result_records"
+            )
+            self.assertEqual(
+                first_exit_close_submit_owner_result_record["schema"],
+                "StackRegionExitCloseSubmitOwnerResult.v0",
+            )
+            self.assertEqual(
+                first_exit_close_submit_owner_result_record[
+                    "owner_available"
+                ],
+                "0",
+            )
+            self.assertIn(
+                first_exit_close_submit_owner_result_record["result_status"],
+                {
+                    "exit_close_submit_owner_result_api_present_unavailable",
+                    "exit_close_submit_owner_result_rejected_host_fence_public_readback_blocker",
+                    "exit_close_submit_owner_result_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_close_submit_owner_result_record[
+                    "implementation_status"
+                ],
+                {
+                    "region_exit_close_submit_owner_implementation_missing",
+                    "region_exit_close_submit_owner_implementation_blocked_by_host_fence_public_readback",
+                    "region_exit_close_submit_owner_implementation_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_close_submit_owner_result_record["top_blocker"],
+                {
+                    "region_exit_close_submit_owner_implementation_missing",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertEqual(
+                first_exit_close_submit_owner_result_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            command_ownership_records = selected_plan_records(
+                "region_command_buffer_ownership_records"
+            )
+            self.assertGreaterEqual(len(command_ownership_records), 2)
+            command_ownership_by_phase = {
+                record["record_phase"]: record
+                for record in command_ownership_records
+            }
+            self.assertIn("stack_entry_acquire", command_ownership_by_phase)
+            self.assertIn("stack_exit_release", command_ownership_by_phase)
+            first_command_acquire_record = command_ownership_by_phase[
+                "stack_entry_acquire"
+            ]
+            self.assertEqual(
+                first_command_acquire_record["schema"],
+                "RegionCommandBufferOwnership.v0",
+            )
+            self.assertIn(
+                first_command_acquire_record["acquire_status"],
+                {
+                    "region_command_buffer_ownership_acquire_unavailable",
+                    "region_command_buffer_ownership_acquire_not_required",
+                },
+            )
+            self.assertIn(
+                first_command_acquire_record["command_buffer_lease_status"],
+                {
+                    "command_buffer_lease_unavailable_context_phase_submit_owner",
+                    "command_buffer_lease_not_required",
+                },
+            )
+            self.assertIn(
+                first_command_acquire_record["command_pool_lease_status"],
+                {
+                    "command_pool_lease_unavailable_phase_submit_owned",
+                    "command_pool_lease_not_required",
+                },
+            )
+            self.assertIn(
+                "descriptor_generation_base_status",
+                first_command_acquire_record,
+            )
+            self.assertEqual(
+                first_command_acquire_record["phase_boundary_submits_preserved"],
+                "1",
+            )
+            self.assertEqual(
+                first_command_acquire_record["submit_elision_enabled"], "0"
+            )
+            self.assertEqual(
+                first_command_acquire_record["deferred_submit_enabled"], "0"
+            )
+            self.assertEqual(
+                first_command_acquire_record["authorizes_submit_elision"], "0"
+            )
+            first_command_release_record = command_ownership_by_phase[
+                "stack_exit_release"
+            ]
+            self.assertEqual(
+                first_command_release_record["schema"],
+                "RegionCommandBufferOwnership.v0",
+            )
+            self.assertIn(
+                first_command_release_record["release_status"],
+                {
+                    "region_command_buffer_ownership_release_fail_closed",
+                    "region_command_buffer_ownership_release_not_required",
+                },
+            )
+            self.assertIn(
+                first_command_release_record[
+                    "pending_retires_transfer_release_status"
+                ],
+                {
+                    "pending_retires_not_transferred_phase_submit_retire_timeline_preserved",
+                    "pending_retires_transfer_not_required",
+                },
+            )
+            self.assertEqual(
+                first_command_release_record[
+                    "stack_region_exit_release_ownership"
+                ],
+                "StackRegionExitReleaseOwnership.v0",
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_status",
+                first_command_release_record,
+            )
+            self.assertEqual(
+                first_command_release_record[
+                    "command_buffer_close_submit_ownership"
+                ],
+                "StackRegionCommandBufferCloseSubmitOwnership.v0",
+            )
+            self.assertIn(
+                "command_buffer_close_submit_ownership_status",
+                first_command_release_record,
+            )
+            self.assertEqual(
+                first_command_release_record[
+                    "command_pool_reset_proven_after_region_release"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_command_release_record["command_pool_reset_fail_closed"],
+                "1",
+            )
+            self.assertEqual(
+                first_command_release_record["phase_boundary_submits_preserved"],
+                "1",
+            )
+            self.assertEqual(
+                first_command_release_record["submit_elision_enabled"], "0"
+            )
+            self.assertEqual(
+                first_command_release_record["deferred_submit_enabled"], "0"
+            )
+            self.assertEqual(
+                first_command_release_record["authorizes_submit_elision"], "0"
             )
 
             first_ownership_record = selected_plan_record(
@@ -21026,6 +21544,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
                     "missing_region_exit_release_ownership_implementation",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21057,6 +21578,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
                     "missing_region_exit_release_ownership_implementation",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21115,6 +21639,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
                     "missing_region_exit_release_ownership_implementation",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21151,6 +21678,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
                     "missing_region_exit_release_ownership_implementation",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21250,6 +21780,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21330,6 +21863,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_region_exit_release_ownership",
                     "region_exit_release_point_unimplemented",
                     "command_pool_reset_deferral_implementation_missing",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21366,6 +21902,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_region_exit_release_ownership",
                     "region_exit_release_point_unimplemented",
                     "command_pool_reset_deferral_implementation_missing",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21517,6 +22056,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
                     "missing_region_exit_release_ownership_implementation",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21607,6 +22149,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_command_pool_retention_api",
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },

@@ -359,6 +359,41 @@ allocator/resource release ownership, and command-pool cleanup/reset
 ownership. The contract is diagnostic-only and remains unavailable; selected
 rows refine the blocker to
 `missing_region_exit_release_ownership_implementation`.
+The next architecture direction is `RegionCommandBufferOwnership.v0`, described
+in `docs/vulkan/STACK_REGION_COMMAND_OWNERSHIP.md`. That design card defines a
+stack-entry acquire and stack-exit release owner for command-buffer leases,
+command-pool leases, descriptor generations, temporary resource scope, retire
+transfer, and output ownership. It is not a behavior path yet: phase-boundary
+submits remain preserved and submit elision remains disabled.
+The first scaffold now emits behavior-neutral `RegionCommandBufferOwnership.v0`
+records. `stack_entry_acquire` rows make the unavailable command-buffer lease,
+command-pool lease, descriptor generation base, and scratch resource scope
+explicit. `stack_exit_release` rows make public/private/captured/requested/final
+output release, pending retire transfer, and command-pool reset deferral
+explicit. The scaffold proves current behavior is preserved: no submit elision,
+no deferred submit, no command-buffer replay, no new queue submit, and no
+command-pool reset behavior change.
+`StackRegionExitReleaseOwnership.v0` now refines the release rows into concrete
+release responsibilities. It records output release classes, pending-retire
+transfer, descriptor lifetime release, retire timeline release,
+allocator/resource release, command-buffer close/submit ownership,
+queue-submit/timeline ownership, and command-pool cleanup/reset ownership. It
+is still behavior-neutral and fail-closed: phase submits are preserved, pending
+retires remain on the current phase-submit timeline, and the refined blocker is
+`missing_command_buffer_close_submit_release_ownership`.
+`StackRegionCommandBufferCloseSubmitOwnership.v0` now splits that first
+component out as its own behavior-neutral row. It records the current
+command-buffer recording id/scope, planned region-exit release point, current
+phase-submit close/submit owner, region-exit owner status, and region-owned
+command-buffer status. Current selected rows still preserve every phase submit
+and fail closed because the region-exit close/submit owner request API returns
+unavailable; the refined blocker is
+`region_exit_close_submit_owner_implementation_missing`.
+`StackRegionExitCloseSubmitOwnerRequest.v0` and
+`StackRegionExitCloseSubmitOwnerResult.v0` are the behavior-neutral request
+surface behind that blocker. They model a future stack-exit owner asking to
+close and submit a region-owned command buffer or batch, but currently return
+unavailable and do not create, submit, defer, or retain any command buffer.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

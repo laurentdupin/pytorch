@@ -177,17 +177,21 @@ proof-status refinement, not reset deferral.
 This mirrors the CUDA/DirectML research direction at a contract level only:
 safe boundary removal needs one owner for command recording, descriptor and
 resource lifetime, allocator/retire lifetime, and execution completion. Vulkan
-does not have that owner yet.
+does not have that owner yet. The planned ownership design is captured in
+`docs/vulkan/STACK_REGION_COMMAND_OWNERSHIP.md`; it is the next architecture
+direction, not a submit-elision implementation.
 
 ## Current vits_140 Status
 
 The latest one-image `vits_140` bridge graph with the opt-in barrier-only
 canary classifies all selected `residual2@0 -> norm1@1` rows as
 `barrier_ready_but_submit_proof_incomplete`. The exact missing semantic proof is
-`missing_region_exit_release_ownership_implementation`, after the planned
-exit-release point is identified but not connected to a region-owned command
-buffer/batch, descriptor lifetime, allocator/retire ownership, and timeline
-release contract.
+`region_exit_close_submit_owner_implementation_missing`, after the planned
+exit-release point and close/submit component are identified and the
+`StackRegionExitCloseSubmitOwnerRequest.v0` API exists but returns unavailable.
+The missing owner must close and submit a region-owned command buffer or batch,
+release descriptor lifetime, transfer allocator/retire ownership, and provide
+the timeline release contract.
 That release ownership is the first concrete runtime capability needed before a
 region-owned command buffer or batch could replace the current phase submit's
 execution/flush/timeline role.

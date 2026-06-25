@@ -661,6 +661,36 @@ release, and command-pool cleanup/reset. Current rows are behavior-neutral and
 fail closed with `exit_release_ownership_contract_unavailable`; the top blocker
 is `missing_region_exit_release_ownership_implementation`. The contract
 authorizes no submit elision and does not install a release hook.
+`RegionCommandBufferOwnership.v0` is the first scaffold for that ownership
+direction. It emits paired `stack_entry_acquire` and `stack_exit_release`
+records for the selected stack-region instance. Acquire rows expose the region
+id, unavailable command-buffer and command-pool lease identities, descriptor
+generation base, scratch/temporary resource scope, and owner/requester scope.
+Release rows expose output release status, pending-retire transfer status, and
+command-pool reset deferral status. The rows are diagnostic-only: phase submits
+are preserved, deferred submit is disabled, and `authorizes_submit_elision=0`.
+`StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
+classify the release responsibilities that a future stack/region owner would
+need to take over. It reports public, private bridge, captured,
+requested-intermediate, and final output release status; pending-retire
+transfer; descriptor, retire-timeline, allocator/resource, command-buffer
+close/submit, queue-submit/timeline, and command-pool cleanup ownership. Current
+rows preserve all runtime behavior and fail closed with
+`missing_command_buffer_close_submit_release_ownership` after observing that the
+phase submit still owns command-buffer close/submit and retire-timeline
+creation.
+`StackRegionCommandBufferCloseSubmitOwnership.v0` is the typed component row
+for that first missing release owner. It is keyed by stack-region instance and
+selected boundary, carries the current command-buffer recording id/scope and
+planned region-exit release point, and reports whether close/submit ownership
+belongs to the current phase submit or a future region-exit owner. Current rows
+report `current_phase_submit_owns_command_buffer_close_submit`,
+`command_buffer_not_region_owned`, and
+`planned_region_exit_submit_point_synthetic_unimplemented`, with
+`StackRegionExitCloseSubmitOwnerRequest.v0` /
+`StackRegionExitCloseSubmitOwnerResult.v0` now turning that into
+`region_exit_close_submit_owner_implementation_missing`. The API is
+diagnostic-only and does not create, defer, close, or submit command buffers.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,

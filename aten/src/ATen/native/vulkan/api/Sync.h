@@ -534,6 +534,53 @@ TORCH_API StackRegionExitReleaseOwnershipContractResult
 evaluate_stack_region_exit_release_ownership_contract(
     const StackRegionExitReleaseOwnershipContractRequest& request);
 
+struct StackRegionExitCloseSubmitOwnerRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string planned_region_exit_submit_point_id = "missing";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string command_buffer_batch_lease_id =
+      "missing_region_owned_command_buffer_or_batch";
+  std::string owner_scope = "stack_region";
+  std::string requester_scope = "stack_owner";
+  std::string requested_operation =
+      "close_and_submit_region_command_buffer_or_batch";
+  bool request_required = true;
+  bool require_same_stream_queue = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionExitCloseSubmitOwnerResult final {
+  bool api_present = true;
+  bool owner_available = false;
+  std::string request_api_status =
+      "exit_close_submit_owner_request_api_present_result_unavailable";
+  std::string result_status =
+      "exit_close_submit_owner_result_api_present_unavailable";
+  std::string reason =
+      "region_exit_close_submit_owner_implementation_missing";
+  std::string top_blocker =
+      "region_exit_close_submit_owner_implementation_missing";
+  std::string implementation_status =
+      "region_exit_close_submit_owner_implementation_missing";
+  std::string region_owned_command_buffer_status =
+      "region_owned_command_buffer_missing";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string same_stream_queue_status = "same_stream_queue_required_unproven";
+  std::string retire_timeline_ownership_status =
+      "missing_retire_timeline_release_ownership";
+  std::string descriptor_lifetime_ownership_status =
+      "missing_descriptor_release_ownership";
+  std::string runtime_api_source =
+      "StackRegionExitCloseSubmitOwnerRuntimeApi.v0";
+};
+
+TORCH_API StackRegionExitCloseSubmitOwnerResult
+request_stack_region_exit_close_submit_owner(
+    const StackRegionExitCloseSubmitOwnerRequest& request);
+
 struct StackRegionCommandPoolRetentionRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";
