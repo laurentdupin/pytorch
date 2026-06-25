@@ -21684,6 +21684,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_topology_unavailable_missing_region_topology_owner",
+                    "planned_region_topology_present_close_submit_still_context_owned",
                     "region_owned_command_buffer_topology_rejected_host_fence_public_readback_blocker",
                     "region_owned_command_buffer_topology_not_required",
                 },
@@ -21694,6 +21695,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "missing_region_owned_command_buffer_topology_owner_above_stack_scope",
+                    "planned_region_topology_present_close_submit_still_context_owned",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -31926,6 +31928,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(graph_path, encoding="utf-8") as handle:
                 graph = json.load(handle)
             self.assertEqual(graph["schema"], "StackRegionDependencyGraph.v0")
+            region = graph["region"]
+            self.assertTrue(region["planned_region_context_present"])
+            self.assertEqual(
+                region["region_id"], "vision_stack_decoder_bridge_region"
+            )
+            self.assertEqual(
+                region["stack_context_id"], "VisionBackboneStackContext"
+            )
+            self.assertEqual(
+                region["bridge_session_id"], "vision_stack_output_device_bridge"
+            )
+            self.assertEqual(
+                region["stack_plan_id"],
+                "vision_stack_capture_decoder_preprocess_plan",
+            )
+            self.assertEqual(region["missing_fields"], [])
             self.assertGreater(
                 graph["summary"]["stack_output_device_consumer_registration_rows"],
                 0,
@@ -31937,6 +31955,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     row["fields"].get("consumer_in_same_planned_region") == "1"
                     and row["fields"].get("python_public_boundary_before_consumption")
                     == "0"
+                    and row["fields"].get("stack_plan_id")
+                    == "vision_stack_capture_decoder_preprocess_plan"
                     for row in registrations
                 )
             )

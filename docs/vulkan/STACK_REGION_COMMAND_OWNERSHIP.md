@@ -100,9 +100,13 @@ phase submits in the current topology.
 
 `StackRegionCommandBufferTopologyPlan.v0` is the behavior-neutral row for that
 next path. It preserves current phase-boundary submits while naming the
-requested stack-entry to stack-exit region-owned command-buffer topology and
-the current blocker:
-`missing_region_owned_command_buffer_topology_owner_above_stack_scope`.
+requested stack-entry to stack-exit region-owned command-buffer topology. The
+vision stack capture-to-decoder bridge now installs a
+`VulkanStackPlannedRegionScope` with the stack context, bridge session, stack
+plan, producer role, consumer role, and capture ids. That moves the bridge
+blocker to `planned_region_topology_present_close_submit_still_context_owned`
+while keeping ordinary non-bridge stack dumps fail-closed if region identity is
+missing.
 
 ## Design Card
 

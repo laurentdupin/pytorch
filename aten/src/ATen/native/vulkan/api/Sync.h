@@ -356,6 +356,16 @@ struct VulkanStackOutputDeviceConsumerRegistration final {
   bool host_readback_before_consumption = true;
 };
 
+struct VulkanStackPlannedRegionContext final {
+  std::string region_id = "missing_region_id";
+  std::string stack_context_id = "missing_stack_context_id";
+  std::string bridge_session_id = "missing_bridge_session_id";
+  std::string stack_plan_id = "missing_stack_plan_id";
+  std::string producer_role = "missing_producer_role";
+  std::string consumer_role = "missing_consumer_role";
+  std::vector<int64_t> capture_indices;
+};
+
 struct StackRegionCommandBufferRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";
@@ -636,6 +646,11 @@ struct StackRegionSingleRecordingOwnerResult final {
 struct StackRegionCommandBufferTopologyPlanRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";
+  std::string stack_context_id = "missing_stack_context_id";
+  std::string bridge_session_id = "missing_bridge_session_id";
+  std::string stack_plan_id = "missing_stack_plan_id";
+  std::string producer_role = "missing_producer_role";
+  std::string consumer_role = "missing_consumer_role";
   std::string boundary_id = "missing";
   std::string boundary_class = "unknown";
   std::string planned_region_exit_submit_point_id = "missing";
@@ -647,6 +662,7 @@ struct StackRegionCommandBufferTopologyPlanRequest final {
   std::string requested_owner_scope = "stack_region";
   bool plan_required = true;
   bool public_final_host_readback_boundary = false;
+  bool stack_scope_planned_region_present = false;
 };
 
 struct StackRegionCommandBufferTopologyPlanResult final {
@@ -682,6 +698,13 @@ struct StackRegionCommandBufferTopologyPlanResult final {
   std::string single_recording_owner_key = "missing";
   std::string current_owner_scope = "vulkan_context_phase_submit_owner";
   std::string requested_owner_scope = "stack_region";
+  std::string planned_region_scope_status =
+      "stack_scope_planned_region_missing";
+  std::string stack_context_id = "missing_stack_context_id";
+  std::string bridge_session_id = "missing_bridge_session_id";
+  std::string stack_plan_id = "missing_stack_plan_id";
+  std::string producer_role = "missing_producer_role";
+  std::string consumer_role = "missing_consumer_role";
   std::string single_recording_plan_lifecycle_status =
       "stack_region_single_recording_plan_not_started";
   std::string single_recording_owner_lifecycle_status =
@@ -1189,6 +1212,20 @@ class TORCH_API VulkanStackPlannedDispatchPositionScope final {
 
  private:
   std::vector<VulkanStackPlannedDispatchPosition> previous_;
+};
+
+class TORCH_API VulkanStackPlannedRegionScope final {
+ public:
+  explicit VulkanStackPlannedRegionScope(VulkanStackPlannedRegionContext);
+  ~VulkanStackPlannedRegionScope();
+
+  VulkanStackPlannedRegionScope(const VulkanStackPlannedRegionScope&) = delete;
+  VulkanStackPlannedRegionScope& operator=(
+      const VulkanStackPlannedRegionScope&) = delete;
+
+ private:
+  VulkanStackPlannedRegionContext previous_;
+  bool previous_active_;
 };
 
 class TORCH_API VulkanStackLastUseProofScope final {
@@ -1716,6 +1753,8 @@ TORCH_API bool vision_stack_capture_dependency_reaches_block(
 
 TORCH_API void begin_stack_dispatch_dependency_recording_scope();
 TORCH_API void end_stack_dispatch_dependency_recording_scope();
+TORCH_API bool stack_planned_region_context_active();
+TORCH_API VulkanStackPlannedRegionContext current_stack_planned_region_context();
 TORCH_API void set_stack_region_command_buffer_diagnostic_context(
     uint64_t command_buffer_recording_id,
     uint64_t submit_epoch_before);

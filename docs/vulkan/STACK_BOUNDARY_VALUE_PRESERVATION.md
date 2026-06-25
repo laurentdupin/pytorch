@@ -186,7 +186,7 @@ direction, not a submit-elision implementation.
 The latest one-image `vits_140` bridge graph with the opt-in barrier-only
 canary classifies all selected `residual2@0 -> norm1@1` rows as
 `barrier_ready_but_submit_proof_incomplete`. The exact missing semantic proof is
-`missing_region_owned_command_buffer_topology_owner_above_stack_scope`.
+`planned_region_topology_present_close_submit_still_context_owned`.
 The planned exit-release point, close/submit component, and lifecycle-only
 `StackRegionSingleRecordingOwner.v0` are identified. That owner records stack
 planned-recording lifetime but cannot take responsibility because close/submit,

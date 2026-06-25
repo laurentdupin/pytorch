@@ -11025,6 +11025,20 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       " exceeds input token count ",
       input_token_count);
 
+  api::VulkanStackPlannedRegionContext planned_region_context;
+  planned_region_context.region_id = "vision_stack_decoder_bridge_region";
+  planned_region_context.stack_context_id = "VisionBackboneStackContext";
+  planned_region_context.bridge_session_id =
+      "vision_stack_output_device_bridge";
+  planned_region_context.stack_plan_id =
+      "vision_stack_capture_decoder_preprocess_plan";
+  planned_region_context.producer_role =
+      "vision_backbone_stack_residual2_captures";
+  planned_region_context.consumer_role = "vision_decoder_preprocess_head";
+  planned_region_context.capture_indices = capture_indices.vec();
+  api::VulkanStackPlannedRegionScope planned_region_scope(
+      planned_region_context);
+
   const auto bridge_capture_shape = [&]() {
     std::vector<int64_t> shape;
     shape.reserve(input_arg.dim());
@@ -11052,9 +11066,9 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     registration.captured_substep = "residual2";
     registration.output_role = "stack_residual2_output";
     registration.output_shape = bridge_capture_shape;
-    registration.stack_context_id = "VisionBackboneStackContext";
-    registration.stack_session_id = "vision_stack_output_device_bridge";
-    registration.stack_plan_id = "missing_stack_plan_id";
+    registration.stack_context_id = planned_region_context.stack_context_id;
+    registration.stack_session_id = planned_region_context.bridge_session_id;
+    registration.stack_plan_id = planned_region_context.stack_plan_id;
     registration.output_layout = "vulkan_buffer_token_sequence_with_prefix";
     registration.strip_or_view_relation =
         "strip_prefix_tokens_" + std::to_string(strip_prefix_tokens);

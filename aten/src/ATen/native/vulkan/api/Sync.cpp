@@ -35,6 +35,8 @@ thread_local VulkanRetiredResourceRole g_retired_resource_role =
 thread_local std::vector<VulkanStackLastUseProof> g_stack_last_use_proofs;
 thread_local std::vector<VulkanStackPlannedDispatchPosition>
     g_stack_planned_dispatch_positions;
+thread_local VulkanStackPlannedRegionContext g_stack_planned_region_context;
+thread_local bool g_stack_planned_region_context_active = false;
 thread_local uint64_t g_stack_dispatch_dependency_scope_id = 0u;
 thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
 thread_local uint64_t g_stack_command_buffer_recording_id = 0u;
@@ -10289,6 +10291,13 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_instance_id_count == 1u
         ? *proof.stack_region_instance_ids.begin()
         : (stack_region_instance_id_count == 0u ? "missing" : "ambiguous");
+    const bool planned_region_context_present =
+        stack_planned_region_context_active();
+    const VulkanStackPlannedRegionContext planned_region_context =
+        current_stack_planned_region_context();
+    const std::string stack_region_id = planned_region_context_present
+        ? planned_region_context.region_id
+        : "stack_region_instance:" + stack_region_instance_id;
     const std::string planned_submit_point_id =
         "planned_region_exit_submit_point:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -10311,8 +10320,7 @@ void append_stack_region_submit_epoch_ordering_json(
         "stack_region_command_pool_reset_deferral_proof:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
     StackRegionCommandBufferRequest command_buffer_request;
-    command_buffer_request.stack_region_id =
-        "stack_region_instance:" + stack_region_instance_id;
+    command_buffer_request.stack_region_id = stack_region_id;
     command_buffer_request.stack_region_instance_id = stack_region_instance_id;
     command_buffer_request.contract_required =
         phase_submit_execution_flush_dependency_observed;
@@ -10323,8 +10331,7 @@ void append_stack_region_submit_epoch_ordering_json(
         command_buffer_request_runtime_result =
             request_stack_region_command_buffer(command_buffer_request);
     StackRegionExitReleasePointRequest exit_release_point_request;
-    exit_release_point_request.stack_region_id =
-        "stack_region_instance:" + stack_region_instance_id;
+    exit_release_point_request.stack_region_id = stack_region_id;
     exit_release_point_request.stack_region_instance_id =
         stack_region_instance_id;
     exit_release_point_request.owner_scope = "stack_region";
@@ -10348,7 +10355,7 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_instance_id;
     exit_release_ownership_contract_request.owner_scope = "stack_region";
     exit_release_ownership_contract_request.stack_region_owner_identity =
-        "stack_region_instance:" + stack_region_instance_id;
+        stack_region_id;
     exit_release_ownership_contract_request.exit_release_point_key =
         exit_release_point_key;
     exit_release_ownership_contract_request.planned_submit_point_id =
@@ -10366,8 +10373,7 @@ void append_stack_region_submit_epoch_ordering_json(
             evaluate_stack_region_exit_release_ownership_contract(
                 exit_release_ownership_contract_request);
     StackRegionCommandBufferLifetimeReservationRequest lifetime_reservation_request;
-    lifetime_reservation_request.stack_region_id =
-        "stack_region_instance:" + stack_region_instance_id;
+    lifetime_reservation_request.stack_region_id = stack_region_id;
     lifetime_reservation_request.stack_region_instance_id =
         stack_region_instance_id;
     lifetime_reservation_request.planned_submit_point_id =
@@ -10545,6 +10551,16 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_single_recording_plan_request.stack_region_id;
     stack_region_command_buffer_topology_plan_request
         .stack_region_instance_id = stack_region_instance_id;
+    stack_region_command_buffer_topology_plan_request.stack_context_id =
+        planned_region_context.stack_context_id;
+    stack_region_command_buffer_topology_plan_request.bridge_session_id =
+        planned_region_context.bridge_session_id;
+    stack_region_command_buffer_topology_plan_request.stack_plan_id =
+        planned_region_context.stack_plan_id;
+    stack_region_command_buffer_topology_plan_request.producer_role =
+        planned_region_context.producer_role;
+    stack_region_command_buffer_topology_plan_request.consumer_role =
+        planned_region_context.consumer_role;
     stack_region_command_buffer_topology_plan_request.boundary_id =
         proof.boundary_id;
     stack_region_command_buffer_topology_plan_request.boundary_class =
@@ -10564,6 +10580,8 @@ void append_stack_region_submit_epoch_ordering_json(
     stack_region_command_buffer_topology_plan_request
         .public_final_host_readback_boundary =
             !predicate_no_public_final_host_readback_blocker;
+    stack_region_command_buffer_topology_plan_request
+        .stack_scope_planned_region_present = planned_region_context_present;
     const StackRegionCommandBufferTopologyPlanResult
         stack_region_command_buffer_topology_plan_result =
             context()->snapshot_stack_region_command_buffer_topology_plan(
@@ -12050,6 +12068,19 @@ void append_stack_region_submit_epoch_ordering_json(
         << " requested_owner_scope="
         << stack_region_command_buffer_topology_plan_result
                .requested_owner_scope
+        << " stack_context_id="
+        << stack_region_command_buffer_topology_plan_result.stack_context_id
+        << " bridge_session_id="
+        << stack_region_command_buffer_topology_plan_result.bridge_session_id
+        << " stack_plan_id="
+        << stack_region_command_buffer_topology_plan_result.stack_plan_id
+        << " producer_role="
+        << stack_region_command_buffer_topology_plan_result.producer_role
+        << " consumer_role="
+        << stack_region_command_buffer_topology_plan_result.consumer_role
+        << " planned_region_scope_status="
+        << stack_region_command_buffer_topology_plan_result
+               .planned_region_scope_status
         << " topology_record_emitted="
         << (stack_region_command_buffer_topology_plan_result
                     .topology_record_emitted
@@ -20735,15 +20766,58 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   append_json_comma(out, first);
   out << "\"region\":{";
   bool region_first = true;
-  append_json_string(out, "region_id", "missing_region_id", region_first);
+  const bool planned_region_context_present =
+      stack_planned_region_context_active();
+  const VulkanStackPlannedRegionContext planned_region_context =
+      current_stack_planned_region_context();
+  std::vector<std::string> missing_region_fields;
+  const auto missing_region_field = [](const std::string& value) {
+    return value.empty() || value.rfind("missing_", 0) == 0;
+  };
+  if (!planned_region_context_present ||
+      missing_region_field(planned_region_context.region_id)) {
+    missing_region_fields.emplace_back("region_id");
+  }
+  if (!planned_region_context_present ||
+      missing_region_field(planned_region_context.stack_context_id)) {
+    missing_region_fields.emplace_back("stack_context_id");
+  }
+  if (!planned_region_context_present ||
+      missing_region_field(planned_region_context.bridge_session_id)) {
+    missing_region_fields.emplace_back("bridge_session_id");
+  }
   append_json_string(
-      out, "stack_context_id", "missing_stack_context_id", region_first);
+      out, "region_id", planned_region_context.region_id, region_first);
   append_json_string(
-      out, "bridge_session_id", "missing_bridge_session_id", region_first);
+      out,
+      "stack_context_id",
+      planned_region_context.stack_context_id,
+      region_first);
+  append_json_string(
+      out,
+      "bridge_session_id",
+      planned_region_context.bridge_session_id,
+      region_first);
+  append_json_string(
+      out, "stack_plan_id", planned_region_context.stack_plan_id, region_first);
+  append_json_string(
+      out, "producer_role", planned_region_context.producer_role, region_first);
+  append_json_string(
+      out, "consumer_role", planned_region_context.consumer_role, region_first);
+  append_json_string(
+      out,
+      "capture_indices",
+      format_sizes(planned_region_context.capture_indices),
+      region_first);
+  append_json_bool(
+      out,
+      "planned_region_context_present",
+      planned_region_context_present,
+      region_first);
   append_json_string_array(
       out,
       "missing_fields",
-      {"region_id", "stack_context_id", "bridge_session_id"},
+      missing_region_fields,
       region_first);
   out << "}";
 
@@ -22776,6 +22850,19 @@ VulkanStackPlannedDispatchPositionScope::
 VulkanStackPlannedDispatchPositionScope::
     ~VulkanStackPlannedDispatchPositionScope() {
   g_stack_planned_dispatch_positions = std::move(previous_);
+}
+
+VulkanStackPlannedRegionScope::VulkanStackPlannedRegionScope(
+    VulkanStackPlannedRegionContext context)
+    : previous_(std::move(g_stack_planned_region_context)),
+      previous_active_(g_stack_planned_region_context_active) {
+  g_stack_planned_region_context = std::move(context);
+  g_stack_planned_region_context_active = true;
+}
+
+VulkanStackPlannedRegionScope::~VulkanStackPlannedRegionScope() {
+  g_stack_planned_region_context = std::move(previous_);
+  g_stack_planned_region_context_active = previous_active_;
 }
 
 VulkanVisionStackPhaseScope::VulkanVisionStackPhaseScope(
@@ -27028,6 +27115,14 @@ void end_stack_dispatch_dependency_recording_scope() {
   g_stack_dispatch_dependency_position = 0u;
   g_stack_command_buffer_recording_id = 0u;
   g_stack_submit_epoch_before = 0u;
+}
+
+bool stack_planned_region_context_active() {
+  return g_stack_planned_region_context_active;
+}
+
+VulkanStackPlannedRegionContext current_stack_planned_region_context() {
+  return g_stack_planned_region_context;
 }
 
 void set_stack_region_command_buffer_diagnostic_context(

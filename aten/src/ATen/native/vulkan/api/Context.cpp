@@ -912,6 +912,19 @@ Context::snapshot_stack_region_command_buffer_topology_plan(
   result.single_recording_owner_key = request.single_recording_owner_key;
   result.current_owner_scope = request.current_owner_scope;
   result.requested_owner_scope = request.requested_owner_scope;
+  result.stack_context_id = request.stack_context_id;
+  result.bridge_session_id = request.bridge_session_id;
+  result.stack_plan_id = request.stack_plan_id;
+  result.producer_role = request.producer_role;
+  result.consumer_role = request.consumer_role;
+  if (request.stack_scope_planned_region_present) {
+    result.planned_region_scope_status =
+        "stack_scope_planned_region_topology_present";
+    result.region_owned_topology_status =
+        "planned_region_topology_present_close_submit_still_context_owned";
+    result.top_blocker =
+        "planned_region_topology_present_close_submit_still_context_owned";
+  }
   result.single_recording_plan_lifecycle_status =
       stack_region_single_recording_plan_state_name(
           stack_region_single_recording_plan_state_.load(

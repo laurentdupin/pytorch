@@ -455,10 +455,14 @@ topology rather than another local phase-submit deferral.
 explicitly. It is behavior-neutral and shows the current execution topology is
 still `context_phase_submit_command_buffer_topology_preserved`, while the
 requested future topology is a region-owned command buffer or batch from stack
-entry to stack exit. Current rows fail closed with
-`missing_region_owned_command_buffer_topology_owner_above_stack_scope`; they do
-not remove submits, defer submits, create a queue submit, or switch command
-buffers.
+entry to stack exit. The vision stack capture-to-decoder bridge now installs a
+`VulkanStackPlannedRegionScope` so graph dumps expose
+`vision_stack_decoder_bridge_region`, `VisionBackboneStackContext`,
+`vision_stack_output_device_bridge`, and
+`vision_stack_capture_decoder_preprocess_plan` instead of graph-level missing
+region fields. Rows still fail closed, but the bridge blocker advances to
+`planned_region_topology_present_close_submit_still_context_owned`; they do not
+remove submits, defer submits, create a queue submit, or switch command buffers.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

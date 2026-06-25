@@ -737,10 +737,14 @@ above that local submit hook. It records the selected stack-region instance,
 planned stack-exit submit point, linked single-recording plan/owner, current
 context phase-submit topology, and requested region-owned stack-entry-to-exit
 command-buffer or batch topology. Current rows preserve phase-boundary submits
+and fail closed. Bridge-scoped rows now observe
+`vision_stack_decoder_bridge_region` through `VulkanStackPlannedRegionScope`
 and fail closed with
+`planned_region_topology_present_close_submit_still_context_owned`. Non-bridge
+rows can still report
 `missing_region_owned_command_buffer_topology_owner_above_stack_scope`. This
-states that a borrowed context command buffer kept open across one boundary is
-not a valid region-owned topology proof.
+states that a planned region identity is necessary but not sufficient: close
+and submit still belong to the context phase-submit topology.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,
