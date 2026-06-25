@@ -189,6 +189,7 @@ class TORCH_API Context final {
       VulkanSubmitOrigin origin,
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
+  VulkanSubmission close_submit_stack_planned_region_exit();
   std::string format_submit_failure_diagnostics(
       const VulkanStreamState&,
       VulkanSubmitOrigin origin,

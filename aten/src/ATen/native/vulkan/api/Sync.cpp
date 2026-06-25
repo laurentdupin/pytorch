@@ -505,6 +505,17 @@ struct StackRegionSingleRecordingCanaryValue final {
   uint64_t outside_selected_submit_removed_count = 0u;
 };
 
+struct StackRegionExitSubmitRuntimePointValue final {
+  uint64_t count = 0u;
+  uint64_t had_cmd_count = 0u;
+  uint64_t no_cmd_count = 0u;
+  uint64_t command_buffer_recording_id = 0u;
+  uint64_t submit_epoch_before = 0u;
+  uint64_t submit_epoch_after = 0u;
+  uint64_t timeline_value = 0u;
+  uint64_t pending_dispatch_count = 0u;
+};
+
 struct StackRawResourceProducerRegistrationValue final {
   uint64_t count = 0u;
   uint64_t byte_range = 0u;
@@ -607,6 +618,12 @@ stack_region_single_recording_canary_rows() {
   return rows;
 }
 
+std::map<std::string, StackRegionExitSubmitRuntimePointValue>&
+stack_region_exit_submit_runtime_point_rows() {
+  static std::map<std::string, StackRegionExitSubmitRuntimePointValue> rows;
+  return rows;
+}
+
 std::map<std::string, StackRawResourceProducerRegistrationValue>&
 stack_raw_resource_producer_registration_rows() {
   static std::map<std::string, StackRawResourceProducerRegistrationValue> rows;
@@ -626,6 +643,38 @@ std::string stack_region_row_token(const std::string& value) {
     }
   }
   return token;
+}
+
+std::string stack_region_exit_submit_runtime_point_key(
+    const char* const submit_origin,
+    const bool planned_region_context_present,
+    const VulkanStackPlannedRegionContext& planned_region_context) {
+  std::ostringstream key;
+  key << "stack_region_exit_submit_runtime_point=1"
+      << " schema=StackRegionExitSubmitRuntimePoint.v0"
+      << " context_present="
+      << (planned_region_context_present ? "1" : "0")
+      << " stack_region_id="
+      << stack_region_row_token(
+             planned_region_context_present ? planned_region_context.region_id
+                                            : "missing_stack_region_id")
+      << " stack_context_id="
+      << stack_region_row_token(
+             planned_region_context_present
+                 ? planned_region_context.stack_context_id
+                 : "missing_stack_context_id")
+      << " bridge_session_id="
+      << stack_region_row_token(
+             planned_region_context_present
+                 ? planned_region_context.bridge_session_id
+                 : "missing_bridge_session_id")
+      << " stack_plan_id="
+      << stack_region_row_token(
+             planned_region_context_present ? planned_region_context.stack_plan_id
+                                            : "missing_stack_plan_id")
+      << " submit_origin="
+      << stack_region_row_token(submit_origin ? submit_origin : "unknown");
+  return key.str();
 }
 
 std::string stack_dispatch_dependency_dispatch_key(
@@ -8176,6 +8225,62 @@ void append_stack_region_boundary_optimization_plan_json(
   out << "]}";
 }
 
+struct StackRegionExitSubmitRuntimePointSummary final {
+  bool observed = false;
+  uint64_t count = 0u;
+  uint64_t had_cmd_count = 0u;
+  uint64_t command_buffer_recording_id = 0u;
+  uint64_t submit_epoch_before = 0u;
+  uint64_t submit_epoch_after = 0u;
+  uint64_t timeline_value = 0u;
+  uint64_t pending_dispatch_count = 0u;
+};
+
+StackRegionExitSubmitRuntimePointSummary
+summarize_stack_region_exit_submit_runtime_points(
+    const std::vector<std::string>& rows,
+    const bool planned_region_context_present,
+    const VulkanStackPlannedRegionContext& planned_region_context) {
+  StackRegionExitSubmitRuntimePointSummary summary;
+  if (!planned_region_context_present) {
+    return summary;
+  }
+  const std::string expected_stack_region_id =
+      stack_region_row_token(planned_region_context.region_id);
+  const std::string expected_stack_context_id =
+      stack_region_row_token(planned_region_context.stack_context_id);
+  const std::string expected_bridge_session_id =
+      stack_region_row_token(planned_region_context.bridge_session_id);
+  const std::string expected_stack_plan_id =
+      stack_region_row_token(planned_region_context.stack_plan_id);
+  for (const auto& row : rows) {
+    const auto fields = parse_space_separated_fields(row);
+    if (
+        field_or(fields, "context_present", "0") != "1" ||
+        field_or(fields, "stack_region_id", "missing") !=
+            expected_stack_region_id ||
+        field_or(fields, "stack_context_id", "missing") !=
+            expected_stack_context_id ||
+        field_or(fields, "bridge_session_id", "missing") !=
+            expected_bridge_session_id ||
+        field_or(fields, "stack_plan_id", "missing") !=
+            expected_stack_plan_id) {
+      continue;
+    }
+    summary.count += parsed_u64(fields, "count");
+    summary.had_cmd_count += parsed_u64(fields, "had_cmd_count");
+    summary.command_buffer_recording_id =
+        parsed_u64(fields, "command_buffer_recording_id");
+    summary.submit_epoch_before = parsed_u64(fields, "submit_epoch_before");
+    summary.submit_epoch_after = parsed_u64(fields, "submit_epoch_after");
+    summary.timeline_value = parsed_u64(fields, "timeline_value");
+    summary.pending_dispatch_count =
+        parsed_u64(fields, "pending_dispatch_count");
+  }
+  summary.observed = summary.count > 0u && summary.had_cmd_count > 0u;
+  return summary;
+}
+
 void append_stack_region_submit_epoch_ordering_json(
     std::ostream& out,
     const std::vector<std::string>& optimization_rows,
@@ -8187,6 +8292,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& consumer_registration_rows,
     const std::vector<std::string>& barrier_only_canary_rows,
     const std::vector<std::string>& submit_rows,
+    const std::vector<std::string>& exit_submit_runtime_point_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
   uint64_t submit_records = 0u;
@@ -10301,6 +10407,30 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string planned_submit_point_id =
         "planned_region_exit_submit_point:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const StackRegionExitSubmitRuntimePointSummary
+        exit_submit_runtime_point_summary =
+            summarize_stack_region_exit_submit_runtime_points(
+                exit_submit_runtime_point_rows,
+                planned_region_context_present,
+                planned_region_context);
+    const bool runtime_exit_submit_point_observed =
+        exit_submit_runtime_point_summary.observed;
+    const std::string planned_submit_point_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "synthetic_planned_submit_point_not_required"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "synthetic_planned_rejected_intervening_blocker"
+               : (runtime_exit_submit_point_observed
+                      ? "planned_region_exit_submit_point_runtime_observed_context_submit_preserved"
+                      : "synthetic_planned_only"));
+    const std::string planned_submit_candidate_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "deferred_submit_target_not_required"
+        : (!predicate_no_public_final_host_readback_blocker
+               ? "planned_region_exit_submit_point_rejected_intervening_blocker"
+               : (runtime_exit_submit_point_observed
+                      ? "planned_region_exit_submit_point_runtime_observed_context_submit_preserved"
+                      : "planned_region_exit_submit_point_available_synthetic_unimplemented"));
     const std::string exit_release_point_key =
         "stack_region_exit_release_point:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -10339,6 +10469,10 @@ void append_stack_region_submit_epoch_ordering_json(
         "stack_region_planned_recording_exit";
     exit_release_point_request.planned_submit_point_id =
         planned_submit_point_id;
+    exit_release_point_request.planned_submit_point_status =
+        planned_submit_point_status;
+    exit_release_point_request.planned_submit_point_runtime_observed =
+        runtime_exit_submit_point_observed;
     exit_release_point_request.command_buffer_batch_release_target_id =
         "missing_region_owned_command_buffer_or_batch";
     exit_release_point_request.release_point_required =
@@ -10861,6 +10995,9 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.boundary_class;
     region_exit_close_submit_owner_request.planned_region_exit_submit_point_id =
         planned_submit_point_id;
+    region_exit_close_submit_owner_request
+        .planned_region_exit_submit_point_status =
+            exit_release_point_result.release_point_status;
     region_exit_close_submit_owner_request.current_command_buffer_recording_id =
         current_command_buffer_recording_id;
     region_exit_close_submit_owner_request.current_command_buffer_owner_scope =
@@ -10911,7 +11048,7 @@ void append_stack_region_submit_epoch_ordering_json(
         ? "planned_region_exit_submit_point_not_required"
         : (release_output_boundary_blocker
                ? "planned_region_exit_submit_point_blocked_by_output_boundary"
-               : "planned_region_exit_submit_point_synthetic_unimplemented");
+               : exit_release_point_result.release_point_status);
     const std::string command_buffer_close_submit_ownership_top_blocker =
         !phase_submit_execution_flush_dependency_observed
         ? "none"
@@ -11559,18 +11696,6 @@ void append_stack_region_submit_epoch_ordering_json(
         << " count=" << proof.records
         << " bytes=" << proof.bytes;
     stack_region_submit_point_rows.emplace_back(submit_point_row.str());
-    const std::string planned_submit_point_status =
-        !phase_submit_execution_flush_dependency_observed
-        ? "synthetic_planned_submit_point_not_required"
-        : (predicate_no_public_final_host_readback_blocker
-               ? "synthetic_planned_only"
-               : "synthetic_planned_rejected_intervening_blocker");
-    const std::string planned_submit_candidate_status =
-        !phase_submit_execution_flush_dependency_observed
-        ? "deferred_submit_target_not_required"
-        : (predicate_no_public_final_host_readback_blocker
-               ? "planned_region_exit_submit_point_available_synthetic_unimplemented"
-               : "planned_region_exit_submit_point_rejected_intervening_blocker");
     const std::string planned_same_command_buffer_batch_status =
         !phase_submit_execution_flush_dependency_observed
         ? "same_command_buffer_batch_not_required"
@@ -11580,7 +11705,9 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string planned_later_than_phase_boundary_status =
         !phase_submit_execution_flush_dependency_observed
         ? "later_than_phase_boundary_not_required"
-        : "planned_later_than_phase_boundary_unimplemented";
+        : (runtime_exit_submit_point_observed
+               ? "planned_later_than_phase_boundary_runtime_exit_submit_observed"
+               : "planned_later_than_phase_boundary_unimplemented");
     std::ostringstream planned_submit_point_row;
     planned_submit_point_row
         << "schema=StackRegionPlannedSubmitPoint.v0"
@@ -11592,21 +11719,46 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_instance_id=" << stack_region_instance_id
         << " planned_phase=stack_exit"
         << " planned_scope=region_exit"
-        << " planned_callsite=synthetic_region_exit_submit_point"
+        << " planned_callsite="
+        << (runtime_exit_submit_point_observed
+                ? "stack_planned_recording_exit_submit_runtime"
+                : "synthetic_region_exit_submit_point")
         << " owner_path=stack_region_instance:" << stack_region_instance_id
         << " submit_point_kind=stack_region_exit_submit"
         << " submit_point_status=" << planned_submit_point_status
-        << " observed_real_queue_submit=0"
-        << " synthetic_planned_only=1"
+        << " observed_real_queue_submit="
+        << (runtime_exit_submit_point_observed ? "1" : "0")
+        << " synthetic_planned_only="
+        << (runtime_exit_submit_point_observed ? "0" : "1")
         << " command_buffer_recording_id="
-        << submit_key_fields_value(
-               proof.submit_key_fields,
-               "consumer_command_buffer_id")
+        << (runtime_exit_submit_point_observed
+                ? std::to_string(
+                      exit_submit_runtime_point_summary
+                          .command_buffer_recording_id)
+                : submit_key_fields_value(
+                      proof.submit_key_fields,
+                      "consumer_command_buffer_id"))
         << " submit_epoch_before="
-        << submit_key_fields_value(
-               proof.submit_key_fields,
-               "submit_epoch_after")
-        << " submit_epoch_after=planned_future_submit_epoch"
+        << (runtime_exit_submit_point_observed
+                ? std::to_string(
+                      exit_submit_runtime_point_summary.submit_epoch_before)
+                : submit_key_fields_value(
+                      proof.submit_key_fields,
+                      "submit_epoch_after"))
+        << " submit_epoch_after="
+        << (runtime_exit_submit_point_observed
+                ? std::to_string(
+                      exit_submit_runtime_point_summary.submit_epoch_after)
+                : "planned_future_submit_epoch")
+        << " timeline_value="
+        << (runtime_exit_submit_point_observed
+                ? std::to_string(exit_submit_runtime_point_summary.timeline_value)
+                : "planned_future_timeline_value")
+        << " pending_dispatch_count="
+        << (runtime_exit_submit_point_observed
+                ? std::to_string(
+                      exit_submit_runtime_point_summary.pending_dispatch_count)
+                : "planned_future_pending_dispatch_count")
         << " candidate_target_status=" << planned_submit_candidate_status
         << " same_stack_region_owner_status="
         << proof.stack_region_deferred_submit_same_region_owner_status
@@ -11630,12 +11782,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << proof.stack_region_deferred_submit_host_fence_public_blocker_status
         << " stream_queue_switch_blocker_status="
         << proof.stack_region_deferred_submit_stream_queue_switch_status
-        << " real_implementation_hook_exists=0"
+        << " real_implementation_hook_exists="
+        << (runtime_exit_submit_point_observed ? "1" : "0")
         << " real_implementation_hook_status="
-        << (planned_submit_candidate_status ==
-                    "planned_region_exit_submit_point_available_synthetic_unimplemented"
-                ? "missing_region_owned_deferred_submit_runtime_hook"
-                : "not_applicable")
+        << (runtime_exit_submit_point_observed
+                ? "planned_region_exit_submit_runtime_hook_observed_submit_preserved"
+                : (planned_submit_candidate_status ==
+                           "planned_region_exit_submit_point_available_synthetic_unimplemented"
+                       ? "missing_region_owned_deferred_submit_runtime_hook"
+                       : "not_applicable"))
         << " exit_release_point=StackRegionExitReleasePoint.v0"
         << " exit_release_point_key=" << exit_release_point_key
         << " exit_release_point_status="
@@ -20645,8 +20800,15 @@ void split_stack_graph_rows(
     std::vector<std::string>& boundary_optimization_plan_rows,
     std::vector<std::string>& submit_elision_canary_rows,
     std::vector<std::string>& single_recording_canary_rows,
+    std::vector<std::string>& exit_submit_runtime_point_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
+    if (
+        row.find("stack_region_exit_submit_runtime_point=1") !=
+        std::string::npos) {
+      exit_submit_runtime_point_rows.emplace_back(row);
+      continue;
+    }
     if (
         row.find("stack_region_single_recording_canary=1") !=
         std::string::npos) {
@@ -20748,6 +20910,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> boundary_optimization_plan_rows;
   std::vector<std::string> submit_elision_canary_rows;
   std::vector<std::string> single_recording_canary_rows;
+  std::vector<std::string> exit_submit_runtime_point_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
@@ -20764,6 +20927,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       boundary_optimization_plan_rows,
       submit_elision_canary_rows,
       single_recording_canary_rows,
+      exit_submit_runtime_point_rows,
       raw_resource_producer_rows);
 
   std::vector<std::string> resource_nodes;
@@ -21107,6 +21271,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "stack_region_exit_submit_runtime_point_rows",
+      exit_submit_runtime_point_rows,
+      "stack_region_exit_submit_runtime_point",
+      first);
+  append_graph_array(
+      out,
       "raw_resource_producer_nodes",
       raw_resource_producer_rows,
       "raw_resource_producer",
@@ -21142,6 +21312,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       consumer_registration_rows,
       barrier_only_canary_rows,
       submit_elision_canary_rows,
+      exit_submit_runtime_point_rows,
       first);
   append_barrier_plan_json(
       out,
@@ -21341,6 +21512,18 @@ StackRegionExitReleasePointResult evaluate_stack_region_exit_release_point(
         "allocator_resource_retire_blocked_by_host_fence_public_readback";
     result.command_pool_cleanup_reset_status =
         "command_pool_cleanup_reset_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  if (request.planned_submit_point_runtime_observed) {
+    result.release_capable = false;
+    result.release_point_status = request.planned_submit_point_status;
+    result.release_point_reason =
+        "stack_planned_recording_exit_submit_runtime_observed_submit_preserved";
+    result.top_blocker = "missing_region_exit_release_ownership";
+    result.planned_recording_exit_callsite_status =
+        "planned_stack_recording_exit_runtime_submit_observed";
+    result.command_buffer_release_status =
+        "exit_submit_point_runtime_observed_context_still_owns_close_submit";
     return result;
   }
   if (request.planned_submit_point_id.empty() ||
@@ -21603,6 +21786,9 @@ request_stack_region_exit_close_submit_owner(
   }
   result.planned_region_exit_submit_point_status =
       request.planned_region_exit_submit_point_status;
+  const bool runtime_exit_submit_point_observed =
+      request.planned_region_exit_submit_point_status ==
+      "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
   if (request.stack_scope_planned_region_present) {
     result.planned_region_scope_status =
         "stack_scope_planned_region_topology_present";
@@ -21629,7 +21815,8 @@ request_stack_region_exit_close_submit_owner(
         "descriptor_release_ownership_blocked_by_host_fence_public_readback";
     return result;
   }
-  if (request.stack_scope_planned_region_present) {
+  if (request.stack_scope_planned_region_present &&
+      !runtime_exit_submit_point_observed) {
     result.reason = "planned_region_close_submit_still_context_owned";
     result.top_blocker =
         "planned_region_topology_present_close_submit_still_context_owned";
@@ -21641,14 +21828,22 @@ request_stack_region_exit_close_submit_owner(
   if (request.command_buffer_batch_lease_id.empty() ||
       request.command_buffer_batch_lease_id ==
           "missing_region_owned_command_buffer_or_batch") {
-    if (!request.stack_scope_planned_region_present) {
+    if (!request.stack_scope_planned_region_present ||
+        runtime_exit_submit_point_observed) {
       result.reason = request.command_buffer_batch_lease_status;
-      result.top_blocker = request.command_buffer_batch_lease_top_blocker;
+      result.top_blocker = runtime_exit_submit_point_observed
+          ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
+          : request.command_buffer_batch_lease_top_blocker;
+      if (runtime_exit_submit_point_observed) {
+        result.implementation_status =
+            "region_exit_close_submit_owner_runtime_submit_point_observed_missing_region_owned_lease";
+      }
     }
-    result.region_owned_command_buffer_status =
-        request.stack_scope_planned_region_present
-        ? "planned_region_present_but_command_buffer_not_region_owned"
-        : "region_owned_command_buffer_or_batch_unavailable";
+    result.region_owned_command_buffer_status = runtime_exit_submit_point_observed
+        ? "planned_region_exit_submit_point_observed_but_region_owned_command_buffer_missing"
+        : (request.stack_scope_planned_region_present
+               ? "planned_region_present_but_command_buffer_not_region_owned"
+               : "region_owned_command_buffer_or_batch_unavailable");
   }
   if (
       request.planned_region_exit_submit_point_status ==
@@ -21712,15 +21907,27 @@ evaluate_stack_region_exit_close_submit_owner_surface(
   if (request.command_buffer_batch_lease_id.empty() ||
       request.command_buffer_batch_lease_id ==
           "missing_region_owned_command_buffer_or_batch") {
+    const bool runtime_exit_submit_point_observed =
+        request.planned_region_exit_submit_point_status ==
+        "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
     if (request.stack_scope_planned_region_present) {
       result.planned_region_scope_status =
           "stack_scope_planned_region_topology_present";
-      result.final_fail_closed_reason =
-          "planned_region_topology_present_close_submit_still_context_owned";
-      result.owner_status =
-          "region_exit_close_submit_owner_planned_region_present_fail_closed";
-      result.region_owned_command_buffer_status =
-          "planned_region_present_but_command_buffer_not_region_owned";
+      if (runtime_exit_submit_point_observed) {
+        result.final_fail_closed_reason =
+            "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease";
+        result.owner_status =
+            "region_exit_close_submit_owner_runtime_submit_point_observed_fail_closed";
+        result.region_owned_command_buffer_status =
+            "planned_region_exit_submit_point_observed_but_region_owned_command_buffer_missing";
+      } else {
+        result.final_fail_closed_reason =
+            "planned_region_topology_present_close_submit_still_context_owned";
+        result.owner_status =
+            "region_exit_close_submit_owner_planned_region_present_fail_closed";
+        result.region_owned_command_buffer_status =
+            "planned_region_present_but_command_buffer_not_region_owned";
+      }
     } else {
       result.final_fail_closed_reason =
           request.command_buffer_batch_lease_top_blocker;
@@ -27223,6 +27430,37 @@ void set_stack_region_command_buffer_diagnostic_context(
   g_stack_submit_epoch_before = submit_epoch_before;
 }
 
+void note_stack_region_exit_submit_runtime_point(
+    const char* const submit_origin,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t timeline_value,
+    const uint64_t pending_dispatch_count,
+    const bool had_cmd) {
+  const bool planned_region_context_present =
+      stack_planned_region_context_active();
+  const VulkanStackPlannedRegionContext planned_region_context =
+      current_stack_planned_region_context();
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  auto& value = stack_region_exit_submit_runtime_point_rows()
+      [stack_region_exit_submit_runtime_point_key(
+          submit_origin,
+          planned_region_context_present,
+          planned_region_context)];
+  value.count += 1u;
+  if (had_cmd) {
+    value.had_cmd_count += 1u;
+  } else {
+    value.no_cmd_count += 1u;
+  }
+  value.command_buffer_recording_id = command_buffer_recording_id;
+  value.submit_epoch_before = submit_epoch_before;
+  value.submit_epoch_after = submit_epoch_after;
+  value.timeline_value = timeline_value;
+  value.pending_dispatch_count = pending_dispatch_count;
+}
+
 void note_vulkan_stack_pre_dispatch_insertion_point(const char* shader_name) {
   if (!inside_vision_stack_phase()) {
     return;
@@ -27911,6 +28149,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_boundary_optimization_plan_rows().size() +
       stack_region_submit_elision_canary_rows().size() +
       stack_region_single_recording_canary_rows().size() +
+      stack_region_exit_submit_runtime_point_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
@@ -28032,6 +28271,24 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << item.second.outside_selected_submit_removed_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_exit_submit_runtime_point_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " had_cmd_count=" << item.second.had_cmd_count
+        << " no_cmd_count=" << item.second.no_cmd_count
+        << " command_buffer_recording_id="
+        << item.second.command_buffer_recording_id
+        << " submit_epoch_before=" << item.second.submit_epoch_before
+        << " submit_epoch_after=" << item.second.submit_epoch_after
+        << " timeline_value=" << item.second.timeline_value
+        << " pending_dispatch_count=" << item.second.pending_dispatch_count
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " phase_boundary_submits_preserved=1"
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " authorizes_submit_elision=0";
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_raw_resource_producer_registration_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -28066,6 +28323,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_boundary_optimization_plan_rows().clear();
   stack_region_submit_elision_canary_rows().clear();
   stack_region_single_recording_canary_rows().clear();
+  stack_region_exit_submit_runtime_point_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }

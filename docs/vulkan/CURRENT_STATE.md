@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `8a537fd76e2d` plus the
-planned bridge close/submit ownership classification slice.
+Last refreshed: 2026-06-25 at local HEAD `03aeec87881` plus the
+planned bridge exit-submit runtime observation slice.
 
 ## Repo State Summary
 
@@ -474,6 +474,16 @@ planned region scope is present but command-buffer close/submit still belongs
 to the context phase-submit path. This is still behavior-neutral: phase-boundary
 submits are preserved and no region-owned command buffer or batch is closed or
 submitted.
+`StackRegionExitSubmitRuntimePoint.v0` now records the real stack planned
+recording exit submit point at `Context::end_stack_planned_recording_and_submit`
+while preserving the existing `StackPlannedRecordingSubmit` path. Bridge rows
+therefore distinguish the observed preserved exit submit point from the missing
+region-owned lease: `StackRegionPlannedSubmitPoint.v0` can report
+`planned_region_exit_submit_point_runtime_observed_context_submit_preserved`,
+and the close/submit owner surface advances to
+`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`.
+This remains fail-closed and behavior-neutral: no submit is removed, deferred,
+batched, replayed, or newly created.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

@@ -751,6 +751,14 @@ bridge context so the release-owner proof can report the precise blocker
 fail-closed classification only; it does not create a region-owned command
 buffer, defer a submit, close a command buffer at stack exit, or change
 descriptor/retire ownership.
+`StackRegionExitSubmitRuntimePoint.v0` records the real preserved
+`StackPlannedRecordingSubmit` at stack planned-recording exit. When that row is
+present for the planned bridge context, `StackRegionPlannedSubmitPoint.v0` and
+the close/submit owner rows advance from a synthetic planned target to
+`planned_region_exit_submit_point_runtime_observed_context_submit_preserved`.
+The next blocker remains fail-closed:
+`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`.
+This does not remove, defer, batch, replay, or create a submit.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,
@@ -768,7 +776,8 @@ planned region-exit release point, and reports whether close/submit ownership
 belongs to the current phase submit or a future region-exit owner. Current rows
 report `current_phase_submit_owns_command_buffer_close_submit`,
 `command_buffer_not_region_owned`, and
-`planned_region_exit_submit_point_synthetic_unimplemented`, with
+`planned_region_exit_submit_point_runtime_observed_context_submit_preserved`
+when the real preserved stack-exit submit point is observed, with
 `StackRegionExitCloseSubmitOwnerRequest.v0` /
 `StackRegionExitCloseSubmitOwnerResult.v0` feeding a first-class
 `RegionExitCloseSubmitOwner.v0` owner surface. The owner row is emitted for the
@@ -778,7 +787,7 @@ region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
 fail-closed reason. Current rows fail closed with
-`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`;
+`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`;
 the
 surface is diagnostic-only and does not create, defer, close, or submit command
 buffers.

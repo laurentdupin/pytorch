@@ -42,8 +42,10 @@ that release scaffold. It records the selected stack-region instance, boundary,
 current command-buffer recording id/scope, planned region-exit release point,
 and who owns close/submit today. The current phase submit still owns
 command-buffer close/submit, the command buffer is not region-owned, and the
-planned region-exit submit point remains synthetic/unimplemented. The
-stack-entry acquire row now emits a behavior-neutral
+planned region-exit submit point can now be observed at the real stack planned
+recording exit submit callsite. The observed submit is still the existing
+context-owned `StackPlannedRecordingSubmit`; it is not a region-owned command
+buffer or batch lease. The stack-entry acquire row now emits a behavior-neutral
 `StackRegionCommandBufferAcquireHook.v0` row and a
 `RegionOwnedCommandBufferLease.v0` lease row. The acquire hook is present near
 `Context` and snapshots current stack planned-recording ownership, current
@@ -64,8 +66,10 @@ unavailable, and same-stream/queue proof is still only a requirement. The
 supporting
 `StackRegionExitCloseSubmitOwnerRequest.v0` /
 `StackRegionExitCloseSubmitOwnerResult.v0` request surface feeds
-`RegionExitCloseSubmitOwner.v0`, which now fails closed on that lease blocker.
-This preserves all phase-boundary submits and queue-submit behavior.
+`RegionExitCloseSubmitOwner.v0`, which now fails closed on the missing
+region-owned command-buffer or batch lease once the real preserved stack-exit
+submit point is observed. This preserves all phase-boundary submits and
+queue-submit behavior.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,
@@ -114,6 +118,13 @@ The close/submit owner surface now carries that planned-region context through
 the older generic missing-topology bucket: they fail closed because the planned
 region exists, but close/submit is still owned by the context phase-submit
 path. This does not close, defer, submit, or switch command buffers.
+`StackRegionExitSubmitRuntimePoint.v0` is the behavior-neutral runtime
+observation for the existing stack planned recording exit submit. It changes
+diagnostic classification only: planned bridge rows can report
+`planned_region_exit_submit_point_runtime_observed_context_submit_preserved`
+and then fail closed on
+`region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease`
+until a real region-owned close/submit lease exists.
 
 ## Design Card
 

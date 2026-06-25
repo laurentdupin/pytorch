@@ -461,10 +461,13 @@ struct StackRegionExitReleasePointRequest final {
   std::string planned_recording_exit_callsite =
       "stack_region_planned_recording_exit";
   std::string planned_submit_point_id = "missing";
+  std::string planned_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string command_buffer_batch_release_target_id =
       "missing_region_owned_command_buffer_or_batch";
   bool release_point_required = true;
   bool public_final_host_readback_boundary = false;
+  bool planned_submit_point_runtime_observed = false;
 };
 
 struct StackRegionExitReleasePointResult final {
@@ -1035,6 +1038,8 @@ struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
   std::string boundary_id = "missing";
   std::string boundary_class = "unknown";
   std::string planned_region_exit_submit_point_id = "missing";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string current_command_buffer_recording_id = "missing";
   std::string current_command_buffer_owner_scope =
       "vulkan_context_phase_submit_owner";
@@ -1789,6 +1794,14 @@ TORCH_API void note_vulkan_stack_pre_dispatch_proof_table_descriptor(
     uint32_t binding_idx,
     const char* shader_name,
     const VulkanBuffer& buffer);
+TORCH_API void note_stack_region_exit_submit_runtime_point(
+    const char* submit_origin,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before,
+    uint64_t submit_epoch_after,
+    uint64_t timeline_value,
+    uint64_t pending_dispatch_count,
+    bool had_cmd);
 TORCH_API bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     uint32_t binding_idx,
     const char* shader_name,

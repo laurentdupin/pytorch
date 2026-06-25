@@ -2400,6 +2400,28 @@ VulkanSubmission Context::submit_cmd_to_gpu(
   return submission;
 }
 
+VulkanSubmission Context::close_submit_stack_planned_region_exit() {
+  const bool had_cmd = static_cast<bool>(cmd_);
+  const uint64_t command_buffer_recording_id = command_buffer_recording_id_;
+  const uint64_t submit_epoch_before =
+      current_stream().last_submitted_value.load(std::memory_order_relaxed);
+  const uint64_t pending_dispatch_count = submit_count_;
+  VulkanSubmission submission = submit_cmd_to_gpu(
+      VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
+  const uint64_t submit_epoch_after =
+      submission.timeline_value != 0u ? submission.timeline_value
+                                      : submit_epoch_before;
+  note_stack_region_exit_submit_runtime_point(
+      "StackPlannedRecordingSubmit",
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      submission.timeline_value,
+      pending_dispatch_count,
+      had_cmd);
+  return submission;
+}
+
 void Context::flush_pending_cmds(VkFence fence_handle) {
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
@@ -2451,8 +2473,7 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       stack_planned_recording_owner_ == std::this_thread::get_id(),
       "Vulkan stack planned recording ended from the wrong thread");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
-  VulkanSubmission submission = submit_cmd_to_gpu(
-      VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
+  VulkanSubmission submission = close_submit_stack_planned_region_exit();
   retire_stack_internal_temp_retire_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
