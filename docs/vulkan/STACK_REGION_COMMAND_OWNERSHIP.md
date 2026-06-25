@@ -108,6 +108,14 @@ output parity and fail-closed behavior when barrier coverage is incomplete,
 while still checking the single-recording owner, live command-buffer id,
 pending dispatch range, actual Norm1 input barrier proof, and
 host/final/readback blocker checks.
+The canary row now mirrors the preserved phase-submit batch lease when the
+planned stack scope is active:
+`region_owned_command_buffer_batch_lease_available_preserved_phase_submits`
+with a fail-closed
+`region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed`
+close/submit owner status. This does not promote that batch into a region
+close/submit owner; the blocker stays
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
 
 The first real `vits_140` bridge run with this canary is not a valid
 performance result. It removed exactly one selected submit, but bridge sanity

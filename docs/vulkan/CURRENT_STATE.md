@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `03aeec87881` plus the
-planned bridge exit-submit runtime observation slice.
+Last refreshed: 2026-06-25 at local HEAD `f6a195317b1` plus the
+single-recording canary preserved-batch alignment slice.
 
 ## Repo State Summary
 
@@ -504,6 +504,13 @@ are recorded, command-pool reset is not deferred to region release, and actual
 submit elision remains `0`.
 This remains fail-closed and behavior-neutral: no submit is removed, deferred,
 batched, replayed, or newly created.
+`StackRegionSingleRecordingCanary.v0` now mirrors that ownership state in its
+own selected-boundary rows: active planned-recording scopes report the preserved
+phase-submit batch lease as available for accounting, then fail closed on
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
+This only aligns the canary readiness report with the ownership rows; it does
+not authorize submit elision, make the batch a region close/submit owner, or
+change the `pending_dispatch_barrier_coverage_incomplete` guard.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

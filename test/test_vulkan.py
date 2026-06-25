@@ -24406,15 +24406,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 row["single_recording_owner_close_submit_status"],
-                "close_submit_still_context_phase_submit_owned",
+                "close_submit_preserved_phase_submit_batch_context_owned",
             )
             self.assertEqual(
                 row["region_owned_command_buffer_lease_status"],
-                "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
+                "region_owned_command_buffer_batch_lease_available_preserved_phase_submits",
+            )
+            self.assertEqual(
+                row["region_owned_command_buffer_lease_top_blocker"],
+                "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
             )
             self.assertEqual(
                 row["region_exit_close_submit_owner_status"],
-                "region_exit_close_submit_owner_surface_present_fail_closed",
+                "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
+            )
+            self.assertEqual(
+                row["region_exit_close_submit_owner_fail_closed_reason"],
+                "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
             )
             self.assertEqual(row["single_recording_canary_enabled"], "0")
             self.assertEqual(row["final_use_false"], "0")

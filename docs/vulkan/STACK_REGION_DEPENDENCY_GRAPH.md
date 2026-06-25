@@ -735,6 +735,15 @@ harness therefore marks those timings invalid through
 `performance_invalid_reasons=["vulkan_stack_output_device_bridge_sanity_failed"]`.
 The canary remains a diagnostic proof surface only; it must not be promoted as
 a performance path.
+When the planned stack scope is active, the canary rows now report the same
+preserved phase-submit batch lease seen by the region ownership rows:
+`region_owned_command_buffer_batch_lease_available_preserved_phase_submits`
+with
+`region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed`.
+That lease is still accounting-only. The close/submit owner blocker remains
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`,
+and the pending-dispatch barrier coverage guard still prevents submit
+deferral.
 `StackRegionCommandBufferTopologyPlan.v0` is the bounded post-failure scaffold
 above that local submit hook. It records the selected stack-region instance,
 planned stack-exit submit point, linked single-recording plan/owner, current

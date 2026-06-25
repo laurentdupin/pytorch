@@ -1887,6 +1887,10 @@ std::string stack_region_single_recording_canary_key(
       single_recording_owner_id != 0u && single_recording_owner_state == 1u;
   const bool live_command_buffer_id_observed =
       command_buffer_recording_id != 0u;
+  const bool preserved_phase_submit_batch_scope_observed =
+      !submit_removed && stack_planned_recording_active &&
+      stack_planned_recording_owned_by_current_thread &&
+      single_recording_owner_active && live_command_buffer_id_observed;
   const uint64_t pending_dispatch_last_position =
       g_stack_dispatch_dependency_position;
   const bool live_pending_dispatch_range_available =
@@ -1912,15 +1916,33 @@ std::string stack_region_single_recording_canary_key(
   const char* const close_submit_status =
       submit_removed
       ? "close_submit_owned_by_stack_region_single_recording_owner_canary"
-      : "close_submit_still_context_phase_submit_owned";
+      : (preserved_phase_submit_batch_scope_observed
+             ? "close_submit_preserved_phase_submit_batch_context_owned"
+             : "close_submit_still_context_phase_submit_owned");
   const char* const lease_status =
       submit_removed
       ? "region_owned_command_buffer_lease_available_single_recording_owner_canary"
-      : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+      : (preserved_phase_submit_batch_scope_observed
+             ? "region_owned_command_buffer_batch_lease_available_preserved_phase_submits"
+             : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership");
   const char* const exit_owner_status =
       submit_removed
       ? "region_exit_close_submit_owner_available_single_recording_owner_canary"
-      : "region_exit_close_submit_owner_surface_present_fail_closed";
+      : (preserved_phase_submit_batch_scope_observed
+             ? "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed"
+             : "region_exit_close_submit_owner_surface_present_fail_closed");
+  const char* const exit_owner_fail_closed_reason =
+      submit_removed
+      ? "none"
+      : (preserved_phase_submit_batch_scope_observed
+             ? "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only"
+             : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership");
+  const char* const region_lease_top_blocker =
+      submit_removed
+      ? "none"
+      : (preserved_phase_submit_batch_scope_observed
+             ? "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only"
+             : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership");
   std::ostringstream key;
   key << "stack_region_single_recording_canary=1"
       << " contract=RegionCommandBufferOwnership"
@@ -1946,7 +1968,11 @@ std::string stack_region_single_recording_canary_key(
       << " single_recording_owner_status=" << owner_status
       << " single_recording_owner_close_submit_status=" << close_submit_status
       << " region_owned_command_buffer_lease_status=" << lease_status
+      << " region_owned_command_buffer_lease_top_blocker="
+      << region_lease_top_blocker
       << " region_exit_close_submit_owner_status=" << exit_owner_status
+      << " region_exit_close_submit_owner_fail_closed_reason="
+      << exit_owner_fail_closed_reason
       << " stack_region_owned_phase_submit_status="
       << (submit_removed
               ? "stack_region_owned_phase_submit_deferred_to_stack_exit_canary"
