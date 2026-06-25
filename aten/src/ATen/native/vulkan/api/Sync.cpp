@@ -13097,6 +13097,10 @@ void append_stack_region_submit_epoch_ordering_json(
         phase_submit_execution_flush_dependency_observed
         ? exit_release_ownership_top_blocker
         : "none";
+    const bool context_command_buffer_batch_candidate_observed =
+        region_owned_command_buffer_lease_result
+            .command_buffer_or_batch_lease_status ==
+        "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable";
     std::ostringstream region_command_acquire_row;
     region_command_acquire_row
         << "schema=RegionCommandBufferOwnership.v0"
@@ -13110,6 +13114,11 @@ void append_stack_region_submit_epoch_ordering_json(
         << " owner_scope=stack_region"
         << " requester_scope=stack_owner"
         << " region_id=" << exit_release_point_request.stack_region_id
+        << " stack_region_scope_acquired="
+        << (planned_region_context_present ? "1" : "0")
+        << " region_command_buffer_ownership_acquired=0"
+        << " context_command_buffer_batch_candidate_observed="
+        << (context_command_buffer_batch_candidate_observed ? "1" : "0")
         << " region_owned_command_buffer_lease=RegionOwnedCommandBufferLease.v0"
         << " region_owned_command_buffer_lease_key="
         << region_owned_command_buffer_lease_key
@@ -13129,6 +13138,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << " command_buffer_lease_identity="
         << region_owned_command_buffer_lease_result
                .command_buffer_batch_lease_id
+        << " command_buffer_batch_lease_lifecycle_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_buffer_batch_lease_lifecycle_status
         << " command_buffer_lease_status="
         << region_owned_command_buffer_lease_result
                .command_buffer_or_batch_lease_status
@@ -13183,6 +13195,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_close_submit_owner_fail_closed_reason="
         << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " phase_boundary_submits_preserved=1"
+        << " preserved_phase_boundary_submit_count=" << proof.records
+        << " actual_elided_submit_count=0"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"
         << " command_buffer_replay_enabled=0"
@@ -13203,6 +13217,11 @@ void append_stack_region_submit_epoch_ordering_json(
         << " boundary_class=" << proof.boundary_class
         << " owner_scope=stack_region"
         << " requester_scope=stack_owner"
+        << " stack_region_scope_released="
+        << (planned_region_context_present ? "1" : "0")
+        << " region_command_buffer_ownership_released=0"
+        << " context_command_buffer_batch_candidate_observed="
+        << (context_command_buffer_batch_candidate_observed ? "1" : "0")
         << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
         << " acquire_hook_key="
         << stack_region_command_buffer_acquire_hook_key
@@ -13213,6 +13232,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << " acquire_hook_top_blocker="
         << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " command_buffer_lease_status=command_buffer_lease_not_applicable_to_release"
+        << " command_buffer_batch_lease_lifecycle_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_buffer_batch_lease_lifecycle_status
         << " command_pool_lease_status=command_pool_lease_not_applicable_to_release"
         << " public_outputs_release_status="
         << exit_release_public_outputs_status
@@ -13275,6 +13297,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << " command_pool_reset_deferral_proof_key="
         << command_pool_reset_deferral_proof_key
         << " phase_boundary_submits_preserved=1"
+        << " preserved_phase_boundary_submit_count=" << proof.records
+        << " actual_elided_submit_count=0"
+        << " command_pool_reset_deferred_to_region_release=0"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"
         << " command_buffer_replay_enabled=0"

@@ -763,6 +763,13 @@ The next blocker remains fail-closed:
 `region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
 because the observed command-buffer batch candidate is still context-owned and
 not transferable to a stack region.
+`RegionCommandBufferOwnership.v0` mirrors that lifecycle at stack entry and
+stack exit. It can report the planned stack-region scope and the context
+command-buffer batch candidate lifecycle, but it keeps
+`region_command_buffer_ownership_acquired=0`,
+`region_command_buffer_ownership_released=0`,
+`command_pool_reset_deferred_to_region_release=0`, and
+`actual_elided_submit_count=0`.
 This does not remove, defer, batch, replay, or create a submit.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would

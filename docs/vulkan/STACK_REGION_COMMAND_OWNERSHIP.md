@@ -16,10 +16,18 @@ acquire from stack-exit release:
   `RegionOwnedCommandBufferLease.v0` status, preserved context submit
   command-buffer candidate status, unavailable stack-region command-buffer and
   command-pool lease status, diagnostic descriptor generation base, and
-  scratch/temporary resource scope.
+  scratch/temporary resource scope. It also records whether the planned
+  stack-region scope was observed, whether an actual region command-buffer
+  owner was acquired, whether the context command-buffer batch candidate was
+  observed, the candidate lifecycle status, preserved phase-boundary submit
+  count, and actual elided submit count.
 - `stack_exit_release` records public/private/captured/requested/final output
   release status, pending-retire transfer status, and command-pool reset
-  deferral status.
+  deferral status. It also records whether the planned stack-region scope was
+  released, whether an actual region command-buffer owner was released,
+  candidate lifecycle status, preserved phase-boundary submit count, actual
+  elided submit count, and whether command-pool reset was deferred to region
+  release.
 
 The scaffold preserves current behavior. Phase-boundary submits remain
 preserved, actual submit elision remains zero, deferred submit remains disabled,
@@ -133,6 +141,11 @@ and then fail closed on
 while the observed command-buffer batch candidate is still context-owned and
 not transferable. It remains fail-closed until a real region-owned
 close/submit lease exists.
+The ownership rows now preserve that distinction at both stack entry and stack
+exit: the planned stack-region scope can be observed, but
+`region_command_buffer_ownership_acquired=0`,
+`region_command_buffer_ownership_released=0`, and
+`actual_elided_submit_count=0`.
 
 ## Design Card
 

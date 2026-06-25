@@ -22541,6 +22541,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "RegionCommandBufferOwnership.v0",
             )
             self.assertIn(
+                first_command_acquire_record["stack_region_scope_acquired"],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_command_acquire_record[
+                    "region_command_buffer_ownership_acquired"
+                ],
+                "0",
+            )
+            self.assertIn(
+                first_command_acquire_record[
+                    "context_command_buffer_batch_candidate_observed"
+                ],
+                {"0", "1"},
+            )
+            self.assertIn(
                 first_command_acquire_record["acquire_status"],
                 {
                     "region_command_buffer_ownership_acquire_unavailable",
@@ -22582,6 +22598,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_command_acquire_record,
             )
             self.assertIn(
+                "command_buffer_batch_lease_lifecycle_status",
+                first_command_acquire_record,
+            )
+            self.assertIn(
                 "acquire_hook_top_blocker",
                 first_command_acquire_record,
             )
@@ -22592,6 +22612,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_command_acquire_record["phase_boundary_submits_preserved"],
                 "1",
+            )
+            self.assertIn(
+                "preserved_phase_boundary_submit_count",
+                first_command_acquire_record,
+            )
+            self.assertEqual(
+                first_command_acquire_record["actual_elided_submit_count"],
+                "0",
             )
             self.assertEqual(
                 first_command_acquire_record["submit_elision_enabled"], "0"
@@ -22608,6 +22636,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_command_release_record["schema"],
                 "RegionCommandBufferOwnership.v0",
+            )
+            self.assertIn(
+                first_command_release_record["stack_region_scope_released"],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_command_release_record[
+                    "region_command_buffer_ownership_released"
+                ],
+                "0",
+            )
+            self.assertIn(
+                first_command_release_record[
+                    "context_command_buffer_batch_candidate_observed"
+                ],
+                {"0", "1"},
             )
             self.assertIn(
                 first_command_release_record["release_status"],
@@ -22656,8 +22700,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "1",
             )
             self.assertEqual(
+                first_command_release_record[
+                    "command_pool_reset_deferred_to_region_release"
+                ],
+                "0",
+            )
+            self.assertIn(
+                "command_buffer_batch_lease_lifecycle_status",
+                first_command_release_record,
+            )
+            self.assertEqual(
                 first_command_release_record["phase_boundary_submits_preserved"],
                 "1",
+            )
+            self.assertIn(
+                "preserved_phase_boundary_submit_count",
+                first_command_release_record,
+            )
+            self.assertEqual(
+                first_command_release_record["actual_elided_submit_count"],
+                "0",
             )
             self.assertEqual(
                 first_command_release_record["submit_elision_enabled"], "0"

@@ -496,6 +496,12 @@ and the close/submit owner surface advances to
 `region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
 because the observed command-buffer batch candidate is still context-owned and
 not transferable to a stack region.
+`RegionCommandBufferOwnership.v0` now carries this through explicit
+stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
+observed, the context command-buffer batch candidate lifecycle is recorded, but
+actual region command-buffer acquire/release remains `0`, preserved phase-submit
+counts are recorded, command-pool reset is not deferred to region release, and
+actual submit elision remains `0`.
 This remains fail-closed and behavior-neutral: no submit is removed, deferred,
 batched, replayed, or newly created.
 `StackRegionCommandPoolRetentionRequest.v0` and
