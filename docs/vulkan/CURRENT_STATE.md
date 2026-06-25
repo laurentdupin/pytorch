@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `9313ecb35b2` plus the
-live close/submit owner lifecycle gate slice.
+Last refreshed: 2026-06-25 at local HEAD `522eef81ad1` plus the
+close/submit owner lifecycle ownership-row propagation slice.
 
 ## Repo State Summary
 
@@ -526,6 +526,17 @@ phase-boundary submits are preserved, and the fail-closed reason remains
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 until a real region-owned close/submit owner replaces the preserved batch
 accounting state.
+The same lifecycle source is now threaded through the ownership row chain:
+`StackRegionSingleRecordingOwner.v0`,
+`StackRegionCommandBufferAcquireHook.v0`,
+`RegionOwnedCommandBufferLease.v0`,
+`StackRegionExitCloseSubmitOwnerRequest.v0`,
+`StackRegionExitCloseSubmitOwnerResult.v0`,
+`RegionExitCloseSubmitOwner.v0`,
+`StackRegionCommandBufferCloseSubmitOwnership.v0`, and
+`RegionCommandBufferOwnership.v0`. This is row-schema propagation only. Those
+rows still report behavior disabled, no submit authorization, preserved
+phase-boundary submits, and unavailable region close/submit ownership.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

@@ -10880,6 +10880,30 @@ void append_stack_region_submit_epoch_ordering_json(
     stack_region_command_buffer_acquire_hook_request
         .single_recording_owner_behavior_enabled =
             stack_region_single_recording_owner_result.behavior_enabled;
+    stack_region_command_buffer_acquire_hook_request
+        .region_exit_close_submit_owner_lifecycle_id =
+            stack_region_single_recording_owner_result
+                .region_exit_close_submit_owner_lifecycle_id;
+    stack_region_command_buffer_acquire_hook_request
+        .region_exit_close_submit_owner_lifecycle_state =
+            stack_region_single_recording_owner_result
+                .region_exit_close_submit_owner_lifecycle_state;
+    stack_region_command_buffer_acquire_hook_request
+        .region_exit_close_submit_owner_lifecycle_status =
+            stack_region_single_recording_owner_result
+                .region_exit_close_submit_owner_lifecycle_status;
+    stack_region_command_buffer_acquire_hook_request
+        .region_exit_close_submit_owner_behavior_enabled =
+            stack_region_single_recording_owner_result
+                .region_exit_close_submit_owner_behavior_enabled;
+    stack_region_command_buffer_acquire_hook_request
+        .region_exit_close_submit_owner_authorizes_submit_elision =
+            stack_region_single_recording_owner_result
+                .region_exit_close_submit_owner_authorizes_submit_elision;
+    stack_region_command_buffer_acquire_hook_request
+        .region_exit_close_submit_owner_availability_source =
+            stack_region_single_recording_owner_result
+                .region_exit_close_submit_owner_availability_source;
     stack_region_command_buffer_acquire_hook_request.hook_required =
         phase_submit_execution_flush_dependency_observed;
     stack_region_command_buffer_acquire_hook_request.require_same_stream_queue =
@@ -11013,6 +11037,30 @@ void append_stack_region_submit_epoch_ordering_json(
         .single_recording_owner_behavior_enabled =
             stack_region_command_buffer_acquire_hook_result
                 .single_recording_owner_behavior_enabled;
+    region_owned_command_buffer_lease_request
+        .region_exit_close_submit_owner_lifecycle_id =
+            stack_region_command_buffer_acquire_hook_result
+                .region_exit_close_submit_owner_lifecycle_id;
+    region_owned_command_buffer_lease_request
+        .region_exit_close_submit_owner_lifecycle_state =
+            stack_region_command_buffer_acquire_hook_result
+                .region_exit_close_submit_owner_lifecycle_state;
+    region_owned_command_buffer_lease_request
+        .region_exit_close_submit_owner_lifecycle_status =
+            stack_region_command_buffer_acquire_hook_result
+                .region_exit_close_submit_owner_lifecycle_status;
+    region_owned_command_buffer_lease_request
+        .region_exit_close_submit_owner_behavior_enabled =
+            stack_region_command_buffer_acquire_hook_result
+                .region_exit_close_submit_owner_behavior_enabled;
+    region_owned_command_buffer_lease_request
+        .region_exit_close_submit_owner_authorizes_submit_elision =
+            stack_region_command_buffer_acquire_hook_result
+                .region_exit_close_submit_owner_authorizes_submit_elision;
+    region_owned_command_buffer_lease_request
+        .region_exit_close_submit_owner_availability_source =
+            stack_region_command_buffer_acquire_hook_result
+                .region_exit_close_submit_owner_availability_source;
     region_owned_command_buffer_lease_request.acquire_hook_behavior_enabled =
         stack_region_command_buffer_acquire_hook_result.behavior_enabled;
     region_owned_command_buffer_lease_request.acquire_hook_lease_available =
@@ -11059,6 +11107,30 @@ void append_stack_region_submit_epoch_ordering_json(
             .command_buffer_or_batch_lease_status;
     exit_close_submit_owner_request.command_buffer_batch_lease_top_blocker =
         region_owned_command_buffer_lease_result.top_blocker;
+    exit_close_submit_owner_request
+        .region_exit_close_submit_owner_lifecycle_id =
+            region_owned_command_buffer_lease_result
+                .region_exit_close_submit_owner_lifecycle_id;
+    exit_close_submit_owner_request
+        .region_exit_close_submit_owner_lifecycle_state =
+            region_owned_command_buffer_lease_result
+                .region_exit_close_submit_owner_lifecycle_state;
+    exit_close_submit_owner_request
+        .region_exit_close_submit_owner_lifecycle_status =
+            region_owned_command_buffer_lease_result
+                .region_exit_close_submit_owner_lifecycle_status;
+    exit_close_submit_owner_request
+        .region_exit_close_submit_owner_behavior_enabled =
+            region_owned_command_buffer_lease_result
+                .region_exit_close_submit_owner_behavior_enabled;
+    exit_close_submit_owner_request
+        .region_exit_close_submit_owner_authorizes_submit_elision =
+            region_owned_command_buffer_lease_result
+                .region_exit_close_submit_owner_authorizes_submit_elision;
+    exit_close_submit_owner_request
+        .region_exit_close_submit_owner_availability_source =
+            region_owned_command_buffer_lease_result
+                .region_exit_close_submit_owner_availability_source;
     exit_close_submit_owner_request.request_required =
         phase_submit_execution_flush_dependency_observed;
     exit_close_submit_owner_request.public_final_host_readback_boundary =
@@ -11103,6 +11175,30 @@ void append_stack_region_submit_epoch_ordering_json(
             .command_buffer_or_batch_lease_status;
     region_exit_close_submit_owner_request.command_buffer_batch_lease_top_blocker =
         region_owned_command_buffer_lease_result.top_blocker;
+    region_exit_close_submit_owner_request
+        .region_exit_close_submit_owner_lifecycle_id =
+            exit_close_submit_owner_result
+                .region_exit_close_submit_owner_lifecycle_id;
+    region_exit_close_submit_owner_request
+        .region_exit_close_submit_owner_lifecycle_state =
+            exit_close_submit_owner_result
+                .region_exit_close_submit_owner_lifecycle_state;
+    region_exit_close_submit_owner_request
+        .region_exit_close_submit_owner_lifecycle_status =
+            exit_close_submit_owner_result
+                .region_exit_close_submit_owner_lifecycle_status;
+    region_exit_close_submit_owner_request
+        .region_exit_close_submit_owner_behavior_enabled =
+            exit_close_submit_owner_result
+                .region_exit_close_submit_owner_behavior_enabled;
+    region_exit_close_submit_owner_request
+        .region_exit_close_submit_owner_authorizes_submit_elision =
+            exit_close_submit_owner_result
+                .region_exit_close_submit_owner_authorizes_submit_elision;
+    region_exit_close_submit_owner_request
+        .region_exit_close_submit_owner_availability_source =
+            exit_close_submit_owner_result
+                .region_exit_close_submit_owner_availability_source;
     region_exit_close_submit_owner_request.owner_required =
         phase_submit_execution_flush_dependency_observed;
     region_exit_close_submit_owner_request.public_final_host_readback_boundary =
@@ -12234,6 +12330,28 @@ void append_stack_region_submit_epoch_ordering_json(
                                                                     : "0")
         << " owner_id="
         << stack_region_single_recording_owner_result.owner_id
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << stack_region_single_recording_owner_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << stack_region_single_recording_owner_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (stack_region_single_recording_owner_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (stack_region_single_recording_owner_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << stack_region_single_recording_owner_result
+               .region_exit_close_submit_owner_availability_source
         << " single_recording_owner_status="
         << stack_region_single_recording_owner_result
                .single_recording_owner_status
@@ -12521,6 +12639,28 @@ void append_stack_region_submit_epoch_ordering_json(
                     .single_recording_owner_behavior_enabled
                 ? "1"
                 : "0")
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << stack_region_command_buffer_acquire_hook_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << stack_region_command_buffer_acquire_hook_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << stack_region_command_buffer_acquire_hook_result
+               .region_exit_close_submit_owner_availability_source
         << " stack_planned_recording_active="
         << (stack_region_command_buffer_acquire_hook_result
                     .stack_planned_recording_active
@@ -12657,6 +12797,28 @@ void append_stack_region_submit_epoch_ordering_json(
                     .single_recording_owner_behavior_enabled
                 ? "1"
                 : "0")
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << region_owned_command_buffer_lease_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << region_owned_command_buffer_lease_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << region_owned_command_buffer_lease_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (region_owned_command_buffer_lease_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (region_owned_command_buffer_lease_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << region_owned_command_buffer_lease_result
+               .region_exit_close_submit_owner_availability_source
         << " acquire_hook_behavior_enabled="
         << (region_owned_command_buffer_lease_result
                     .acquire_hook_behavior_enabled
@@ -12768,6 +12930,28 @@ void append_stack_region_submit_epoch_ordering_json(
                .planned_region_exit_submit_point_status
         << " command_buffer_batch_lease_id="
         << exit_close_submit_owner_request.command_buffer_batch_lease_id
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << exit_close_submit_owner_request
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << exit_close_submit_owner_request
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << exit_close_submit_owner_request
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (exit_close_submit_owner_request
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (exit_close_submit_owner_request
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << exit_close_submit_owner_request
+               .region_exit_close_submit_owner_availability_source
         << " owner_scope=" << exit_close_submit_owner_request.owner_scope
         << " requester_scope="
         << exit_close_submit_owner_request.requester_scope
@@ -12846,6 +13030,28 @@ void append_stack_region_submit_epoch_ordering_json(
         << (exit_close_submit_owner_result.api_present ? "1" : "0")
         << " owner_available="
         << (exit_close_submit_owner_result.owner_available ? "1" : "0")
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << exit_close_submit_owner_result
+               .region_exit_close_submit_owner_availability_source
         << " result_status=" << exit_close_submit_owner_result.result_status
         << " result_reason=" << exit_close_submit_owner_result.reason
         << " top_blocker=" << exit_close_submit_owner_result.top_blocker
@@ -12919,6 +13125,28 @@ void append_stack_region_submit_epoch_ordering_json(
         << " ownership_available="
         << (region_exit_close_submit_owner_result.ownership_available ? "1"
                                                                       : "0")
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_availability_source
         << " owner_status="
         << region_exit_close_submit_owner_result.owner_status
         << " planned_region_exit_release_point_id="
@@ -13007,6 +13235,28 @@ void append_stack_region_submit_epoch_ordering_json(
         << " boundary_class=" << proof.boundary_class
         << " current_command_buffer_recording_id="
         << current_command_buffer_recording_id
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_availability_source
         << " current_command_buffer_scope=phase_boundary_active_recording"
         << " planned_region_exit_release_point_id="
         << planned_submit_point_id
@@ -13212,6 +13462,28 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_scope_acquired="
         << (planned_region_context_present ? "1" : "0")
         << " region_command_buffer_ownership_acquired=0"
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_availability_source
         << " context_command_buffer_batch_candidate_observed="
         << (context_command_buffer_batch_candidate_observed ? "1" : "0")
         << " preserved_phase_submit_batch_lease_available="
@@ -13317,6 +13589,28 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_scope_released="
         << (planned_region_context_present ? "1" : "0")
         << " region_command_buffer_ownership_released=0"
+        << " region_exit_close_submit_owner_lifecycle_id="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_id
+        << " region_exit_close_submit_owner_lifecycle_state="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_state
+        << " region_exit_close_submit_owner_lifecycle_status="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_lifecycle_status
+        << " region_exit_close_submit_owner_behavior_enabled="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_behavior_enabled
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_authorizes_submit_elision="
+        << (region_exit_close_submit_owner_result
+                    .region_exit_close_submit_owner_authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " region_exit_close_submit_owner_availability_source="
+        << region_exit_close_submit_owner_result
+               .region_exit_close_submit_owner_availability_source
         << " context_command_buffer_batch_candidate_observed="
         << (context_command_buffer_batch_candidate_observed ? "1" : "0")
         << " preserved_phase_submit_batch_lease_available="
@@ -21790,6 +22084,18 @@ request_region_owned_command_buffer_lease(
       request.single_recording_owner_retire_timeline_status;
   result.single_recording_owner_behavior_enabled =
       request.single_recording_owner_behavior_enabled;
+  result.region_exit_close_submit_owner_lifecycle_id =
+      request.region_exit_close_submit_owner_lifecycle_id;
+  result.region_exit_close_submit_owner_lifecycle_state =
+      request.region_exit_close_submit_owner_lifecycle_state;
+  result.region_exit_close_submit_owner_lifecycle_status =
+      request.region_exit_close_submit_owner_lifecycle_status;
+  result.region_exit_close_submit_owner_behavior_enabled =
+      request.region_exit_close_submit_owner_behavior_enabled;
+  result.region_exit_close_submit_owner_authorizes_submit_elision =
+      request.region_exit_close_submit_owner_authorizes_submit_elision;
+  result.region_exit_close_submit_owner_availability_source =
+      request.region_exit_close_submit_owner_availability_source;
   result.current_owner_status = request.current_owner_scope;
   result.requested_owner_scope_status =
       request.requested_owner_scope + "_owner_scope_requested";
@@ -21941,6 +22247,18 @@ StackRegionExitCloseSubmitOwnerResult
 request_stack_region_exit_close_submit_owner(
     const StackRegionExitCloseSubmitOwnerRequest& request) {
   StackRegionExitCloseSubmitOwnerResult result;
+  result.region_exit_close_submit_owner_lifecycle_id =
+      request.region_exit_close_submit_owner_lifecycle_id;
+  result.region_exit_close_submit_owner_lifecycle_state =
+      request.region_exit_close_submit_owner_lifecycle_state;
+  result.region_exit_close_submit_owner_lifecycle_status =
+      request.region_exit_close_submit_owner_lifecycle_status;
+  result.region_exit_close_submit_owner_behavior_enabled =
+      request.region_exit_close_submit_owner_behavior_enabled;
+  result.region_exit_close_submit_owner_authorizes_submit_elision =
+      request.region_exit_close_submit_owner_authorizes_submit_elision;
+  result.region_exit_close_submit_owner_availability_source =
+      request.region_exit_close_submit_owner_availability_source;
   if (!request.request_required) {
     result.owner_available = false;
     result.request_api_status =
@@ -22071,6 +22389,18 @@ StackRegionExitCloseSubmitOwnerSurfaceResult
 evaluate_stack_region_exit_close_submit_owner_surface(
     const StackRegionExitCloseSubmitOwnerSurfaceRequest& request) {
   StackRegionExitCloseSubmitOwnerSurfaceResult result;
+  result.region_exit_close_submit_owner_lifecycle_id =
+      request.region_exit_close_submit_owner_lifecycle_id;
+  result.region_exit_close_submit_owner_lifecycle_state =
+      request.region_exit_close_submit_owner_lifecycle_state;
+  result.region_exit_close_submit_owner_lifecycle_status =
+      request.region_exit_close_submit_owner_lifecycle_status;
+  result.region_exit_close_submit_owner_behavior_enabled =
+      request.region_exit_close_submit_owner_behavior_enabled;
+  result.region_exit_close_submit_owner_authorizes_submit_elision =
+      request.region_exit_close_submit_owner_authorizes_submit_elision;
+  result.region_exit_close_submit_owner_availability_source =
+      request.region_exit_close_submit_owner_availability_source;
   if (!request.owner_required) {
     result.owner_exists = false;
     result.owner_record_emitted = true;

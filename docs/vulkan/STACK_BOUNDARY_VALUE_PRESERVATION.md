@@ -197,6 +197,8 @@ transfer allocator/retire ownership, and provide the timeline release contract.
 The Context-owned close/submit lifecycle state now feeds the canary gate, but
 it is not value-preservation proof and cannot authorize submit removal while
 its explicit behavior-enabled bit remains `0`.
+The same lifecycle fields may appear on ownership rows; they are provenance
+for the region owner state, not a substitute for this contract.
 `StackRegionCommandBufferTopologyPlan.v0` now records that this must be solved
 as a stack-entry to stack-exit region-owned topology, not as another local
 phase-submit hook predicate.

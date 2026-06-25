@@ -821,6 +821,13 @@ as `ContextStackRegionCloseSubmitOwnerState.v0`, with a separate
 behavior-enabled bit that remains `0`. Submit removal stays disabled until a
 future lifecycle state is backed by a real region exit close/submit owner and
 explicitly enables the behavior.
+The lifecycle id, state, status, behavior bit, authorization bit, and
+`ContextStackRegionCloseSubmitOwnerState.v0` source are also emitted on the
+single-recording owner, acquire hook, region-owned command-buffer lease,
+exit-close-submit request/result, region exit owner, command-buffer
+close/submit ownership, and region command-buffer ownership rows. These fields
+are graph provenance only; they do not replace value-preservation proof or
+authorize submit elision.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,

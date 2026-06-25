@@ -21006,6 +21006,44 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == selected_non_capture_boundary
                 ]
 
+            def assert_close_submit_lifecycle(record):
+                self.assertIn(
+                    "region_exit_close_submit_owner_lifecycle_id", record
+                )
+                self.assertIn(
+                    record[
+                        "region_exit_close_submit_owner_lifecycle_state"
+                    ],
+                    {"0", "1", "2", "3"},
+                )
+                self.assertIn(
+                    record[
+                        "region_exit_close_submit_owner_lifecycle_status"
+                    ],
+                    {
+                        "region_exit_close_submit_owner_not_started",
+                        "region_exit_close_submit_owner_candidate_active_preserved_phase_submit_batch_only",
+                        "region_exit_close_submit_owner_finalized_submit_preserved_phase_submit_batch_only",
+                        "region_exit_close_submit_owner_finalized_cancel_preserved_phase_submit_batch_only",
+                    },
+                )
+                self.assertEqual(
+                    record["region_exit_close_submit_owner_behavior_enabled"],
+                    "0",
+                )
+                self.assertEqual(
+                    record[
+                        "region_exit_close_submit_owner_authorizes_submit_elision"
+                    ],
+                    "0",
+                )
+                self.assertEqual(
+                    record[
+                        "region_exit_close_submit_owner_availability_source"
+                    ],
+                    "ContextStackRegionCloseSubmitOwnerState.v0",
+                )
+
             first_exit_release_point_record = selected_plan_record(
                 "stack_region_exit_release_point_records"
             )
@@ -21285,6 +21323,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_close_submit_ownership_record["schema"],
                 "StackRegionCommandBufferCloseSubmitOwnership.v0",
             )
+            assert_close_submit_lifecycle(first_close_submit_ownership_record)
             self.assertEqual(
                 first_close_submit_ownership_record["ownership_complete"],
                 "0",
@@ -21409,6 +21448,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_exit_close_submit_owner_request_record["schema"],
                 "StackRegionExitCloseSubmitOwnerRequest.v0",
+            )
+            assert_close_submit_lifecycle(
+                first_exit_close_submit_owner_request_record
             )
             self.assertIn(
                 first_exit_close_submit_owner_request_record[
@@ -21565,6 +21607,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_stack_region_single_recording_owner_record["schema"],
                 "StackRegionSingleRecordingOwner.v0",
+            )
+            assert_close_submit_lifecycle(
+                first_stack_region_single_recording_owner_record
             )
             self.assertEqual(
                 first_stack_region_single_recording_owner_record[
@@ -21808,6 +21853,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "StackRegionCommandBufferAcquireHook.v0",
             )
+            assert_close_submit_lifecycle(
+                first_stack_region_command_buffer_acquire_hook_record
+            )
             self.assertEqual(
                 first_stack_region_command_buffer_acquire_hook_record[
                     "hook_record_emitted"
@@ -22028,6 +22076,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_region_owned_command_buffer_lease_record["schema"],
                 "RegionOwnedCommandBufferLease.v0",
+            )
+            assert_close_submit_lifecycle(
+                first_region_owned_command_buffer_lease_record
             )
             self.assertIn(
                 first_region_owned_command_buffer_lease_record[
@@ -22289,6 +22340,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_exit_close_submit_owner_result_record["schema"],
                 "StackRegionExitCloseSubmitOwnerResult.v0",
             )
+            assert_close_submit_lifecycle(
+                first_exit_close_submit_owner_result_record
+            )
             self.assertEqual(
                 first_exit_close_submit_owner_result_record[
                     "owner_available"
@@ -22354,6 +22408,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_region_exit_close_submit_owner_record["schema"],
                 "RegionExitCloseSubmitOwner.v0",
+            )
+            assert_close_submit_lifecycle(
+                first_region_exit_close_submit_owner_record
             )
             self.assertEqual(
                 first_region_exit_close_submit_owner_record[
@@ -22560,6 +22617,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_command_acquire_record["schema"],
                 "RegionCommandBufferOwnership.v0",
             )
+            assert_close_submit_lifecycle(first_command_acquire_record)
             self.assertIn(
                 first_command_acquire_record["stack_region_scope_acquired"],
                 {"0", "1"},
@@ -22665,6 +22723,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_command_release_record["schema"],
                 "RegionCommandBufferOwnership.v0",
             )
+            assert_close_submit_lifecycle(first_command_release_record)
             self.assertIn(
                 first_command_release_record["stack_region_scope_released"],
                 {"0", "1"},

@@ -117,6 +117,21 @@ const char* stack_region_command_buffer_batch_lease_state_name(
   }
 }
 
+const char* stack_region_close_submit_owner_state_name(const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "region_exit_close_submit_owner_candidate_active_preserved_phase_submit_batch_only";
+    case 2u:
+      return "region_exit_close_submit_owner_finalized_submit_preserved_phase_submit_batch_only";
+    case 3u:
+      return "region_exit_close_submit_owner_finalized_cancel_preserved_phase_submit_batch_only";
+    case 4u:
+      return "region_exit_close_submit_owner_active_region_owned_close_submit_available";
+    default:
+      return "region_exit_close_submit_owner_not_started";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -868,6 +883,14 @@ Context::snapshot_stack_region_single_recording_owner(
   result.current_command_buffer_recording_id = command_buffer_recording_id_;
   result.owner_id =
       stack_region_single_recording_owner_id_.load(std::memory_order_acquire);
+  const uint32_t close_submit_owner_state =
+      stack_region_close_submit_owner_state_.load(std::memory_order_acquire);
+  result.region_exit_close_submit_owner_lifecycle_id =
+      stack_region_close_submit_owner_id_.load(std::memory_order_acquire);
+  result.region_exit_close_submit_owner_lifecycle_state =
+      close_submit_owner_state;
+  result.region_exit_close_submit_owner_lifecycle_status =
+      stack_region_close_submit_owner_state_name(close_submit_owner_state);
   result.single_recording_owner_status =
       stack_region_single_recording_owner_state_name(
           stack_region_single_recording_owner_state_.load(
@@ -1049,6 +1072,18 @@ Context::request_stack_region_command_buffer_acquire(
       request.single_recording_owner_retire_timeline_status;
   result.single_recording_owner_behavior_enabled =
       request.single_recording_owner_behavior_enabled;
+  result.region_exit_close_submit_owner_lifecycle_id =
+      request.region_exit_close_submit_owner_lifecycle_id;
+  result.region_exit_close_submit_owner_lifecycle_state =
+      request.region_exit_close_submit_owner_lifecycle_state;
+  result.region_exit_close_submit_owner_lifecycle_status =
+      request.region_exit_close_submit_owner_lifecycle_status;
+  result.region_exit_close_submit_owner_behavior_enabled =
+      request.region_exit_close_submit_owner_behavior_enabled;
+  result.region_exit_close_submit_owner_authorizes_submit_elision =
+      request.region_exit_close_submit_owner_authorizes_submit_elision;
+  result.region_exit_close_submit_owner_availability_source =
+      request.region_exit_close_submit_owner_availability_source;
   if (!request.hook_required) {
     result.behavior_enabled = false;
     result.lease_available = false;

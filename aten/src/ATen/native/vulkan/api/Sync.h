@@ -625,11 +625,19 @@ struct StackRegionSingleRecordingOwnerResult final {
   bool stack_planned_recording_active = false;
   bool stack_planned_recording_owned_by_current_thread = false;
   uint64_t owner_id = 0u;
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
   uint64_t current_command_buffer_recording_id = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
   std::string single_recording_owner_status =
       "single_region_recording_owner_active_lifecycle_only";
   std::string single_recording_owner_lifecycle_status =
       "single_region_recording_owner_active_lifecycle_only";
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   std::string single_recording_owner_close_submit_status =
       "close_submit_still_context_phase_submit_owned";
   std::string single_recording_owner_command_pool_status =
@@ -754,6 +762,14 @@ struct StackRegionCommandBufferAcquireHookRequest final {
   std::string single_recording_owner_retire_timeline_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_owner_behavior_enabled = false;
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   bool hook_required = true;
   bool require_same_stream_queue = true;
   bool public_final_host_readback_boundary = false;
@@ -828,6 +844,14 @@ struct StackRegionCommandBufferAcquireHookResult final {
   std::string single_recording_owner_retire_timeline_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_owner_behavior_enabled = false;
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   std::string runtime_api_source =
       "StackRegionCommandBufferAcquireHookRuntimeApi.v0";
 };
@@ -896,6 +920,14 @@ struct RegionOwnedCommandBufferLeaseRequest final {
   std::string single_recording_owner_retire_timeline_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_owner_behavior_enabled = false;
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   bool acquire_hook_behavior_enabled = false;
   bool acquire_hook_lease_available = false;
   bool lease_required = true;
@@ -977,6 +1009,14 @@ struct RegionOwnedCommandBufferLeaseResult final {
       "missing_stack_region_single_recording_owner";
   bool single_recording_owner_behavior_enabled = false;
   bool acquire_hook_behavior_enabled = false;
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
 };
 
 TORCH_API RegionOwnedCommandBufferLeaseResult
@@ -998,6 +1038,14 @@ struct StackRegionExitCloseSubmitOwnerRequest final {
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_buffer_batch_lease_top_blocker =
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   std::string owner_scope = "stack_region";
   std::string requester_scope = "stack_owner";
   std::string requested_operation =
@@ -1032,6 +1080,14 @@ struct StackRegionExitCloseSubmitOwnerResult final {
       "missing_retire_timeline_release_ownership";
   std::string descriptor_lifetime_ownership_status =
       "missing_descriptor_release_ownership";
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   std::string runtime_api_source =
       "StackRegionExitCloseSubmitOwnerRuntimeApi.v0";
 };
@@ -1061,6 +1117,14 @@ struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_buffer_batch_lease_top_blocker =
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   bool owner_required = true;
   bool public_final_host_readback_boundary = false;
   bool stack_scope_planned_region_present = false;
@@ -1091,6 +1155,14 @@ struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
       "descriptor_lifetime_handoff_unavailable_until_region_owned_command_buffer";
   std::string command_pool_lifetime_cleanup_status =
       "command_pool_lifetime_cleanup_unavailable_until_region_owned_command_buffer";
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  std::string region_exit_close_submit_owner_lifecycle_status =
+      "region_exit_close_submit_owner_not_started";
+  std::string region_exit_close_submit_owner_availability_source =
+      "ContextStackRegionCloseSubmitOwnerState.v0";
   std::string runtime_api_source =
       "RegionExitCloseSubmitOwnerRuntimeApi.v0";
 };

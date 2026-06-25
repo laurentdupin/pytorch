@@ -166,6 +166,17 @@ implementation, the behavior-enabled bit is `0`, phase-boundary submits remain
 preserved, and the canary cannot authorize behavior until a future state
 represents a real region exit close/submit owner and explicitly enables
 behavior.
+The same lifecycle fields are now propagated through the ownership row chain:
+`StackRegionSingleRecordingOwner.v0`,
+`StackRegionCommandBufferAcquireHook.v0`,
+`RegionOwnedCommandBufferLease.v0`,
+`StackRegionExitCloseSubmitOwnerRequest.v0`,
+`StackRegionExitCloseSubmitOwnerResult.v0`,
+`RegionExitCloseSubmitOwner.v0`,
+`StackRegionCommandBufferCloseSubmitOwnership.v0`, and
+`RegionCommandBufferOwnership.v0`. This keeps the lifecycle source queryable
+from the ownership records themselves, but it remains behavior-neutral and
+does not change close/submit ownership availability.
 
 ## Design Card
 
