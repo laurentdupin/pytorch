@@ -103,6 +103,20 @@ const char* stack_region_single_recording_owner_state_name(
   }
 }
 
+const char* stack_region_command_buffer_batch_lease_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "context_phase_submit_command_buffer_batch_candidate_active";
+    case 2u:
+      return "context_phase_submit_command_buffer_batch_candidate_finalized_submit";
+    case 3u:
+      return "context_phase_submit_command_buffer_batch_candidate_finalized_cancel";
+    default:
+      return "context_phase_submit_command_buffer_batch_candidate_not_started";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -704,6 +718,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_single_recording_owner_id_{0u},
       next_stack_region_single_recording_owner_id_{1u},
       stack_region_single_recording_owner_state_{0u},
+      stack_region_command_buffer_batch_lease_id_{0u},
+      next_stack_region_command_buffer_batch_lease_id_{1u},
+      stack_region_command_buffer_batch_lease_state_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -988,6 +1005,15 @@ Context::request_stack_region_command_buffer_acquire(
   result.stack_planned_recording_owned_by_current_thread =
       stack_planned_recording_owned_by_current_thread();
   result.current_command_buffer_recording_id = command_buffer_recording_id_;
+  const uint64_t command_buffer_batch_lease_id =
+      stack_region_command_buffer_batch_lease_id_.load(
+          std::memory_order_acquire);
+  result.command_buffer_batch_lease_numeric_id =
+      command_buffer_batch_lease_id;
+  result.command_buffer_batch_lease_lifecycle_status =
+      stack_region_command_buffer_batch_lease_state_name(
+          stack_region_command_buffer_batch_lease_state_.load(
+              std::memory_order_acquire));
   result.current_owner_scope = "vulkan_context_phase_submit_owner";
   result.requested_owner_scope_status =
       request.requested_owner_scope + "_owner_scope_requested";
@@ -1110,11 +1136,25 @@ Context::request_stack_region_command_buffer_acquire(
   const bool runtime_exit_submit_point_candidate_observed =
       request.planned_region_exit_submit_point_status ==
       "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
+  const bool command_buffer_batch_lease_candidate_observed =
+      command_buffer_batch_lease_id != 0u;
   const bool context_command_buffer_candidate_observed =
       result.stack_planned_recording_owned_by_current_thread &&
       result.current_command_buffer_recording_id != 0u;
+  std::string command_buffer_batch_lease_label;
+  if (command_buffer_batch_lease_candidate_observed) {
+    command_buffer_batch_lease_label =
+        std::to_string(command_buffer_batch_lease_id);
+  } else if (context_command_buffer_candidate_observed) {
+    command_buffer_batch_lease_label =
+        std::to_string(result.current_command_buffer_recording_id);
+  } else {
+    command_buffer_batch_lease_label =
+        request.planned_region_exit_submit_point_id;
+  }
   if (context_command_buffer_candidate_observed ||
-      runtime_exit_submit_point_candidate_observed) {
+      runtime_exit_submit_point_candidate_observed ||
+      command_buffer_batch_lease_candidate_observed) {
     result.hook_status =
         "stack_region_command_buffer_acquire_hook_present_context_candidate_observed";
     result.result_status =
@@ -1122,11 +1162,8 @@ Context::request_stack_region_command_buffer_acquire(
     result.top_blocker =
         "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
     result.command_buffer_or_batch_lease_id =
-        context_command_buffer_candidate_observed
-        ? "context_phase_submit_command_buffer_batch:" +
-            std::to_string(result.current_command_buffer_recording_id)
-        : "context_phase_submit_command_buffer_batch:" +
-            request.planned_region_exit_submit_point_id;
+        "context_phase_submit_command_buffer_batch:" +
+        command_buffer_batch_lease_label;
     result.command_buffer_or_batch_lease_status =
         "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable";
     result.command_pool_lease_id =
@@ -2499,6 +2536,12 @@ void Context::begin_stack_planned_recording() {
       std::memory_order_release);
   stack_region_single_recording_owner_state_.store(
       1u, std::memory_order_release);
+  stack_region_command_buffer_batch_lease_id_.store(
+      next_stack_region_command_buffer_batch_lease_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_command_buffer_batch_lease_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2518,6 +2561,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       2u, std::memory_order_release);
   stack_region_single_recording_owner_state_.store(
       2u, std::memory_order_release);
+  stack_region_command_buffer_batch_lease_state_.store(
+      2u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -2534,6 +2579,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   stack_region_single_recording_plan_state_.store(
       3u, std::memory_order_release);
   stack_region_single_recording_owner_state_.store(
+      3u, std::memory_order_release);
+  stack_region_command_buffer_batch_lease_state_.store(
       3u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};

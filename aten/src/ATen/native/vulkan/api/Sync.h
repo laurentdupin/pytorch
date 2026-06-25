@@ -768,6 +768,7 @@ struct StackRegionCommandBufferAcquireHookResult final {
   bool stack_planned_recording_owned_by_current_thread = false;
   bool authorizes_submit_elision = false;
   uint64_t current_command_buffer_recording_id = 0u;
+  uint64_t command_buffer_batch_lease_numeric_id = 0u;
   std::string hook_status =
       "stack_region_command_buffer_acquire_hook_present_behavior_disabled";
   std::string result_status =
@@ -779,6 +780,8 @@ struct StackRegionCommandBufferAcquireHookResult final {
       "stack_region_owner_scope_requested";
   std::string planned_region_exit_submit_point_status =
       "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string command_buffer_batch_lease_lifecycle_status =
+      "context_phase_submit_command_buffer_batch_candidate_not_started";
   std::string command_buffer_or_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_or_batch_lease_status =

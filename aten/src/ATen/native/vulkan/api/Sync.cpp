@@ -12446,6 +12446,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " current_command_buffer_recording_id="
         << stack_region_command_buffer_acquire_hook_result
                .current_command_buffer_recording_id
+        << " command_buffer_batch_lease_numeric_id="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_buffer_batch_lease_numeric_id
+        << " command_buffer_batch_lease_lifecycle_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_buffer_batch_lease_lifecycle_status
         << " planned_region_exit_submit_point_status="
         << stack_region_command_buffer_acquire_hook_result
                .planned_region_exit_submit_point_status

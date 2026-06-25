@@ -678,7 +678,8 @@ planned-recording ownership, current command-buffer recording id, the current
 `vulkan_context_phase_submit_owner` scope, and context/phase-submit-owned
 descriptor and command-pool scopes. When the stack planned recording is active,
 it records the preserved context command-buffer batch as a non-transferable
-candidate. It still reports `behavior_enabled=0`, `lease_available=0`,
+candidate with a stack-entry lifecycle id finalized at submit or cancel. It
+still reports `behavior_enabled=0`, `lease_available=0`,
 `submit_elision_enabled=0`, and `new_queue_submit_created=0` in this slice.
 
 `StackRegionSingleRecordingPlan.v0` is emitted between that acquire hook and

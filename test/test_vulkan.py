@@ -21871,6 +21871,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 first_stack_region_command_buffer_acquire_hook_record[
+                    "command_buffer_batch_lease_lifecycle_status"
+                ],
+                {
+                    "context_phase_submit_command_buffer_batch_candidate_not_started",
+                    "context_phase_submit_command_buffer_batch_candidate_active",
+                    "context_phase_submit_command_buffer_batch_candidate_finalized_submit",
+                    "context_phase_submit_command_buffer_batch_candidate_finalized_cancel",
+                },
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_acquire_hook_record[
                     "current_owner_scope"
                 ],
                 {"vulkan_context_phase_submit_owner"},

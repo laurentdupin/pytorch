@@ -378,7 +378,10 @@ requirement, and public/final/host/readback blocker status. The hook snapshots
 current stack planned-recording and command-buffer owner state near `Context`.
 When stack planned recording is active it can name the preserved context
 command-buffer batch candidate, but that candidate is marked not transferable;
-behavior remains disabled and no stack-region lease is granted.
+behavior remains disabled and no stack-region lease is granted. The candidate
+now has a stack-entry lifecycle id that is finalized at stack planned-recording
+submit or cancel, while command-buffer close/submit and command-pool lifetime
+remain owned by the context phase-submit path.
 `StackRegionSingleRecordingPlan.v0` now sits below that hook as the planned
 single-region recording scaffold. It is emitted for the selected boundary and
 records that execution still uses `context_phase_submit_recording`, phase

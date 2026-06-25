@@ -54,7 +54,9 @@ command-buffer recording id, and context-owned descriptor/command-pool scope,
 but it returns unavailable. When stack planned recording is active, it now names
 the preserved context phase-submit command-buffer batch as a candidate and marks
 it `not_transferable`; no stack-region lease is granted and no submit behavior
-changes.
+changes. The candidate has a stack-entry lifecycle id that is finalized at
+stack planned-recording submit or cancel, but the command buffer and command
+pool remain owned by the existing context phase-submit path.
 `StackRegionSingleRecordingPlan.v0` is the next behavior-neutral scaffold under
 that hook. It records that the current execution mode remains
 `context_phase_submit_recording`, phase-boundary submits are preserved, command
