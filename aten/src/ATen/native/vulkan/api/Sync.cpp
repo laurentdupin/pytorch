@@ -1846,6 +1846,9 @@ void record_stack_region_submit_elision_canary_locked(
   }
 }
 
+const char* stack_region_single_recording_close_submit_owner_lifecycle_status(
+    uint32_t owner_state);
+
 std::string stack_region_single_recording_canary_key(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
@@ -1863,6 +1866,9 @@ std::string stack_region_single_recording_canary_key(
     const bool stack_planned_recording_owned_by_current_thread,
     const uint64_t single_recording_owner_id,
     const uint32_t single_recording_owner_state,
+    const uint64_t region_close_submit_owner_id,
+    const uint32_t region_close_submit_owner_state,
+    const bool region_close_submit_owner_behavior_enabled,
     const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
@@ -1991,6 +1997,17 @@ std::string stack_region_single_recording_canary_key(
       << " single_recording_owner_state=" << single_recording_owner_state
       << " single_recording_owner_active="
       << (single_recording_owner_active ? 1 : 0)
+      << " region_exit_close_submit_owner_lifecycle_id="
+      << region_close_submit_owner_id
+      << " region_exit_close_submit_owner_lifecycle_state="
+      << region_close_submit_owner_state
+      << " region_exit_close_submit_owner_behavior_enabled="
+      << (region_close_submit_owner_behavior_enabled ? 1 : 0)
+      << " region_exit_close_submit_owner_authorizes_submit_elision=0"
+      << " region_exit_close_submit_owner_lifecycle_status="
+      << stack_region_single_recording_close_submit_owner_lifecycle_status(
+             region_close_submit_owner_state)
+      << " region_exit_close_submit_owner_availability_source=ContextStackRegionCloseSubmitOwnerState.v0"
       << " command_buffer_recording_id=" << command_buffer_recording_id
       << " single_recording_owner_recording_id_match="
       << (live_command_buffer_id_observed ? 1 : 0)
@@ -2085,6 +2102,9 @@ void record_stack_region_single_recording_canary_locked(
     const bool stack_planned_recording_owned_by_current_thread,
     const uint64_t single_recording_owner_id,
     const uint32_t single_recording_owner_state,
+    const uint64_t region_close_submit_owner_id,
+    const uint32_t region_close_submit_owner_state,
+    const bool region_close_submit_owner_behavior_enabled,
     const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
@@ -2117,6 +2137,9 @@ void record_stack_region_single_recording_canary_locked(
           stack_planned_recording_owned_by_current_thread,
           single_recording_owner_id,
           single_recording_owner_state,
+          region_close_submit_owner_id,
+          region_close_submit_owner_state,
+          region_close_submit_owner_behavior_enabled,
           candidate_records,
           eligible_records,
           eligible_boundary_count,
@@ -2407,8 +2430,43 @@ bool stack_region_single_recording_canary_target_selected(
       value == "producer_block_0_consumer_block_1";
 }
 
-bool stack_region_single_recording_close_submit_owner_available() {
-  return false;
+bool stack_region_single_recording_close_submit_owner_available(
+    const uint64_t owner_id,
+    const uint32_t owner_state,
+    const bool behavior_enabled) {
+  return behavior_enabled && owner_id != 0u && owner_state == 4u;
+}
+
+const char* stack_region_single_recording_close_submit_owner_lifecycle_status(
+    const uint32_t owner_state) {
+  switch (owner_state) {
+    case 1u:
+      return "region_exit_close_submit_owner_candidate_active_preserved_phase_submit_batch_only";
+    case 2u:
+      return "region_exit_close_submit_owner_finalized_submit_preserved_phase_submit_batch_only";
+    case 3u:
+      return "region_exit_close_submit_owner_finalized_cancel_preserved_phase_submit_batch_only";
+    case 4u:
+      return "region_exit_close_submit_owner_active_region_owned_close_submit_available";
+    default:
+      return "region_exit_close_submit_owner_not_started";
+  }
+}
+
+const char* stack_region_single_recording_close_submit_owner_blocker(
+    const uint64_t owner_id,
+    const uint32_t owner_state,
+    const bool behavior_enabled) {
+  if (owner_id == 0u || owner_state == 0u) {
+    return "region_exit_close_submit_owner_unavailable_missing_live_owner_lifecycle";
+  }
+  if (owner_state != 4u) {
+    return "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+  }
+  if (!behavior_enabled) {
+    return "region_exit_close_submit_owner_behavior_disabled";
+  }
+  return "none";
 }
 
 std::mutex& stack_region_dependency_graph_dump_mutex() {
@@ -27124,7 +27182,10 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     const bool stack_planned_recording_active,
     const bool stack_planned_recording_owned_by_current_thread,
     const uint64_t single_recording_owner_id,
-    const uint32_t single_recording_owner_state) {
+    const uint32_t single_recording_owner_state,
+    const uint64_t region_close_submit_owner_id,
+    const uint32_t region_close_submit_owner_state,
+    const bool region_close_submit_owner_behavior_enabled) {
   const char* const target = stack_region_single_recording_canary_target();
   if (
       !stack_region_single_recording_canary_target_selected(target) ||
@@ -27168,6 +27229,9 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
         stack_planned_recording_owned_by_current_thread,
         single_recording_owner_id,
         single_recording_owner_state,
+        region_close_submit_owner_id,
+        region_close_submit_owner_state,
+        region_close_submit_owner_behavior_enabled,
         eligibility_summary.candidate_records,
         eligibility_summary.eligible_records,
         eligibility_summary.eligible_boundary_count,
@@ -27239,9 +27303,14 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     record_fail("pending_dispatch_barrier_coverage_incomplete");
     return false;
   }
-  if (!stack_region_single_recording_close_submit_owner_available()) {
-    record_fail(
-        "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only");
+  if (!stack_region_single_recording_close_submit_owner_available(
+          region_close_submit_owner_id,
+          region_close_submit_owner_state,
+          region_close_submit_owner_behavior_enabled)) {
+    record_fail(stack_region_single_recording_close_submit_owner_blocker(
+        region_close_submit_owner_id,
+        region_close_submit_owner_state,
+        region_close_submit_owner_behavior_enabled));
     return false;
   }
   record_stack_region_single_recording_canary_locked(
@@ -27261,6 +27330,9 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
       stack_planned_recording_owned_by_current_thread,
       single_recording_owner_id,
       single_recording_owner_state,
+      region_close_submit_owner_id,
+      region_close_submit_owner_state,
+      region_close_submit_owner_behavior_enabled,
       eligibility_summary.candidate_records,
       eligibility_summary.eligible_records,
       eligibility_summary.eligible_boundary_count,

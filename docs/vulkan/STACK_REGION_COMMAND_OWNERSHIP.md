@@ -155,6 +155,17 @@ exit: the planned stack-region scope can be observed, but
 `region_command_buffer_ownership_acquired=0`,
 `region_command_buffer_ownership_released=0`, and
 `actual_elided_submit_count=0`.
+`StackRegionSingleRecordingCanary.v0` now gets its close/submit owner
+availability from Context-owned lifecycle state. Stack planned recording
+creates a live close/submit owner lifecycle id and marks it active only as a
+preserved-phase-submit-batch candidate. The canary rows expose that id, state,
+lifecycle status, explicit behavior-enabled bit, and
+`ContextStackRegionCloseSubmitOwnerState.v0` as the availability source. This
+is still fail-closed: the active state is not a region-owned close/submit
+implementation, the behavior-enabled bit is `0`, phase-boundary submits remain
+preserved, and the canary cannot authorize behavior until a future state
+represents a real region exit close/submit owner and explicitly enables
+behavior.
 
 ## Design Card
 

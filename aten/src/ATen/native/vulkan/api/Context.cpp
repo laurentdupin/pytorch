@@ -721,6 +721,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_command_buffer_batch_lease_id_{0u},
       next_stack_region_command_buffer_batch_lease_id_{1u},
       stack_region_command_buffer_batch_lease_state_{0u},
+      stack_region_close_submit_owner_id_{0u},
+      next_stack_region_close_submit_owner_id_{1u},
+      stack_region_close_submit_owner_state_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -2391,7 +2394,12 @@ VulkanSubmission Context::submit_cmd_to_gpu(
             stack_region_single_recording_owner_id_.load(
                 std::memory_order_acquire),
             stack_region_single_recording_owner_state_.load(
-                std::memory_order_acquire));
+                std::memory_order_acquire),
+            stack_region_close_submit_owner_id_.load(
+                std::memory_order_acquire),
+            stack_region_close_submit_owner_state_.load(
+                std::memory_order_acquire),
+            /*region_close_submit_owner_behavior_enabled=*/false);
     const bool should_coalesce_phase_boundary_explicit_sync =
         (kCoalescePhaseBoundaryExplicitSync &&
          dry_run_all_safe_group_eligible) ||
@@ -2568,6 +2576,12 @@ void Context::begin_stack_planned_recording() {
       std::memory_order_release);
   stack_region_command_buffer_batch_lease_state_.store(
       1u, std::memory_order_release);
+  stack_region_close_submit_owner_id_.store(
+      next_stack_region_close_submit_owner_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_close_submit_owner_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2589,6 +2603,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       2u, std::memory_order_release);
   stack_region_command_buffer_batch_lease_state_.store(
       2u, std::memory_order_release);
+  stack_region_close_submit_owner_state_.store(
+      2u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -2607,6 +2623,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   stack_region_single_recording_owner_state_.store(
       3u, std::memory_order_release);
   stack_region_command_buffer_batch_lease_state_.store(
+      3u, std::memory_order_release);
+  stack_region_close_submit_owner_state_.store(
       3u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};

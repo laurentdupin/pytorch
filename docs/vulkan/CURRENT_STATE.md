@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `f6a195317b1` plus the
-single-recording canary preserved-batch alignment slice.
+Last refreshed: 2026-06-25 at local HEAD `9313ecb35b2` plus the
+live close/submit owner lifecycle gate slice.
 
 ## Repo State Summary
 
@@ -514,6 +514,18 @@ change the `pending_dispatch_barrier_coverage_incomplete` guard.
 The behavior guard also has an explicit close/submit-owner capability check, so
 even after a future barrier-coverage proof becomes complete the canary remains
 fail-closed until a real region exit close/submit owner exists.
+That capability check is now driven by Context-owned lifecycle state rather
+than by a standalone hardcoded unavailable helper. Stack planned recording
+creates a live close/submit owner lifecycle id, keeps it in the
+preserved-phase-submit-batch-only state while the region is active, and records
+that state in `StackRegionSingleRecordingCanary.v0` rows through
+`ContextStackRegionCloseSubmitOwnerState.v0`. The canary also requires a
+separate behavior-enabled bit, currently `0`, so a lifecycle state cannot
+authorize submit elision by itself: `actual_elided_submit_count=0`,
+phase-boundary submits are preserved, and the fail-closed reason remains
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+until a real region-owned close/submit owner replaces the preserved batch
+accounting state.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

@@ -194,6 +194,9 @@ descriptor scope, command-pool scope, and retire-timeline ownership still belong
 to the context phase-submit path. A future owner would have to close and submit a
 region-owned command buffer or batch at stack exit, release descriptor lifetime,
 transfer allocator/retire ownership, and provide the timeline release contract.
+The Context-owned close/submit lifecycle state now feeds the canary gate, but
+it is not value-preservation proof and cannot authorize submit removal while
+its explicit behavior-enabled bit remains `0`.
 `StackRegionCommandBufferTopologyPlan.v0` now records that this must be solved
 as a stack-entry to stack-exit region-owned topology, not as another local
 phase-submit hook predicate.

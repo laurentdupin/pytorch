@@ -812,6 +812,15 @@ fail-closed reason. Current rows fail closed with
 once the preserved phase-submit batch lease is observed but still lacks region
 close/submit ownership; the surface is diagnostic-only and does not create,
 defer, close, or submit command buffers.
+`StackRegionSingleRecordingCanary.v0` now consumes a live Context-owned
+close/submit owner lifecycle id/state for that same decision. Active stack
+planned recording creates a lifecycle record, but the current state only
+represents the preserved phase-submit batch as accounting evidence, not
+transferable region close/submit ownership. The availability source is recorded
+as `ContextStackRegionCloseSubmitOwnerState.v0`, with a separate
+behavior-enabled bit that remains `0`. Submit removal stays disabled until a
+future lifecycle state is backed by a real region exit close/submit owner and
+explicitly enables the behavior.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,
