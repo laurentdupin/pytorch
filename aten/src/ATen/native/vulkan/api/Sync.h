@@ -555,17 +555,17 @@ struct StackRegionExitCloseSubmitOwnerResult final {
   bool api_present = true;
   bool owner_available = false;
   std::string request_api_status =
-      "exit_close_submit_owner_request_api_present_result_unavailable";
+      "exit_close_submit_owner_request_api_present_owner_surface_fail_closed";
   std::string result_status =
-      "exit_close_submit_owner_result_api_present_unavailable";
+      "exit_close_submit_owner_result_owner_surface_present_fail_closed";
   std::string reason =
-      "region_exit_close_submit_owner_implementation_missing";
+      "command_buffer_still_context_phase_submit_owned";
   std::string top_blocker =
-      "region_exit_close_submit_owner_implementation_missing";
+      "command_buffer_still_context_phase_submit_owned";
   std::string implementation_status =
-      "region_exit_close_submit_owner_implementation_missing";
+      "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string region_owned_command_buffer_status =
-      "region_owned_command_buffer_missing";
+      "region_owned_command_buffer_or_batch_unavailable";
   std::string planned_region_exit_submit_point_status =
       "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string same_stream_queue_status = "same_stream_queue_required_unproven";
@@ -580,6 +580,53 @@ struct StackRegionExitCloseSubmitOwnerResult final {
 TORCH_API StackRegionExitCloseSubmitOwnerResult
 request_stack_region_exit_close_submit_owner(
     const StackRegionExitCloseSubmitOwnerRequest& request);
+
+struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string planned_region_exit_submit_point_id = "missing";
+  std::string current_command_buffer_recording_id = "missing";
+  std::string current_command_buffer_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope = "stack_region";
+  std::string command_buffer_batch_lease_id =
+      "missing_region_owned_command_buffer_or_batch";
+  bool owner_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
+  bool owner_record_emitted = true;
+  bool owner_exists = true;
+  bool ownership_available = false;
+  bool authorizes_submit_elision = false;
+  std::string owner_status =
+      "region_exit_close_submit_owner_surface_present_fail_closed";
+  std::string final_fail_closed_reason =
+      "command_buffer_still_context_phase_submit_owned";
+  std::string current_command_buffer_owner_status =
+      "current_phase_submit_owns_command_buffer_close_submit";
+  std::string requested_region_exit_ownership_status =
+      "requested_region_exit_close_submit_ownership_recorded";
+  std::string region_owned_command_buffer_status =
+      "region_owned_command_buffer_or_batch_unavailable";
+  std::string queue_timeline_owner_status =
+      "queue_timeline_owner_unavailable_until_region_owned_command_buffer";
+  std::string retire_timeline_handoff_status =
+      "retire_timeline_handoff_unavailable_until_region_owned_command_buffer";
+  std::string descriptor_lifetime_handoff_status =
+      "descriptor_lifetime_handoff_unavailable_until_region_owned_command_buffer";
+  std::string command_pool_lifetime_cleanup_status =
+      "command_pool_lifetime_cleanup_unavailable_until_region_owned_command_buffer";
+  std::string runtime_api_source =
+      "RegionExitCloseSubmitOwnerRuntimeApi.v0";
+};
+
+TORCH_API StackRegionExitCloseSubmitOwnerSurfaceResult
+evaluate_stack_region_exit_close_submit_owner_surface(
+    const StackRegionExitCloseSubmitOwnerSurfaceRequest& request);
 
 struct StackRegionCommandPoolRetentionRequest final {
   std::string stack_region_id = "unknown";

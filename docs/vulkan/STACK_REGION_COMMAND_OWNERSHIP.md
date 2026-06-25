@@ -41,12 +41,14 @@ that release scaffold. It records the selected stack-region instance, boundary,
 current command-buffer recording id/scope, planned region-exit release point,
 and who owns close/submit today. The current phase submit still owns
 command-buffer close/submit, the command buffer is not region-owned, and the
-planned region-exit submit point remains synthetic/unimplemented. The component
-therefore fails closed through
-`StackRegionExitCloseSubmitOwnerRequest.v0` /
-`StackRegionExitCloseSubmitOwnerResult.v0`: the request API is present for
-diagnostics, but the result is unavailable with
-`region_exit_close_submit_owner_implementation_missing`. This preserves all
+planned region-exit submit point remains synthetic/unimplemented. The
+supporting `StackRegionExitCloseSubmitOwnerRequest.v0` /
+`StackRegionExitCloseSubmitOwnerResult.v0` request surface now feeds a real
+behavior-neutral `RegionExitCloseSubmitOwner.v0` owner row. The owner exists as
+a graph/runtime surface, but it is fail-closed with
+`command_buffer_still_context_phase_submit_owned` because no region-owned
+command-buffer or batch, queue/timeline owner, retire handoff, descriptor
+lifetime handoff, or command-pool cleanup owner exists. This preserves all
 phase-boundary submits and queue-submit behavior.
 
 The current proof surfaces show that a phase-boundary submit is not just a

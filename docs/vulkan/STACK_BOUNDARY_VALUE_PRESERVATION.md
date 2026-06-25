@@ -186,10 +186,12 @@ direction, not a submit-elision implementation.
 The latest one-image `vits_140` bridge graph with the opt-in barrier-only
 canary classifies all selected `residual2@0 -> norm1@1` rows as
 `barrier_ready_but_submit_proof_incomplete`. The exact missing semantic proof is
-`region_exit_close_submit_owner_implementation_missing`, after the planned
-exit-release point and close/submit component are identified and the
-`StackRegionExitCloseSubmitOwnerRequest.v0` API exists but returns unavailable.
-The missing owner must close and submit a region-owned command buffer or batch,
+`command_buffer_still_context_phase_submit_owned`. The planned exit-release
+point and close/submit component are identified, and the
+`StackRegionExitCloseSubmitOwnerRequest.v0` / result surface now feeds an
+emitted `RegionExitCloseSubmitOwner.v0` owner row, but the owner cannot take
+responsibility while no region-owned command buffer or batch exists. The owner
+would have to close and submit that region-owned command buffer or batch,
 release descriptor lifetime, transfer allocator/retire ownership, and provide
 the timeline release contract.
 That release ownership is the first concrete runtime capability needed before a

@@ -8660,6 +8660,7 @@ void append_stack_region_submit_epoch_ordering_json(
       stack_region_exit_close_submit_owner_request_rows;
   std::vector<std::string>
       stack_region_exit_close_submit_owner_result_rows;
+  std::vector<std::string> region_exit_close_submit_owner_rows;
   std::vector<std::string> stack_region_command_ownership_rows;
   std::vector<std::string> stack_region_deferred_submit_runtime_hook_plan_rows;
   std::vector<std::string> stack_region_command_buffer_ownership_plan_rows;
@@ -10169,6 +10170,9 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string exit_close_submit_owner_result_key =
         "stack_region_exit_close_submit_owner_result:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string region_exit_close_submit_owner_key =
+        "region_exit_close_submit_owner:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
     StackRegionExitCloseSubmitOwnerRequest exit_close_submit_owner_request;
     exit_close_submit_owner_request.stack_region_id =
         exit_release_ownership_contract_request.stack_region_id;
@@ -10189,12 +10193,39 @@ void append_stack_region_submit_epoch_ordering_json(
         exit_close_submit_owner_result =
             request_stack_region_exit_close_submit_owner(
                 exit_close_submit_owner_request);
+    StackRegionExitCloseSubmitOwnerSurfaceRequest
+        region_exit_close_submit_owner_request;
+    region_exit_close_submit_owner_request.stack_region_id =
+        exit_close_submit_owner_request.stack_region_id;
+    region_exit_close_submit_owner_request.stack_region_instance_id =
+        stack_region_instance_id;
+    region_exit_close_submit_owner_request.boundary_id = proof.boundary_id;
+    region_exit_close_submit_owner_request.boundary_class =
+        proof.boundary_class;
+    region_exit_close_submit_owner_request.planned_region_exit_submit_point_id =
+        planned_submit_point_id;
+    region_exit_close_submit_owner_request.current_command_buffer_recording_id =
+        current_command_buffer_recording_id;
+    region_exit_close_submit_owner_request.current_command_buffer_owner_scope =
+        "vulkan_context_phase_submit_owner";
+    region_exit_close_submit_owner_request.requested_owner_scope =
+        "stack_region";
+    region_exit_close_submit_owner_request.command_buffer_batch_lease_id =
+        exit_close_submit_owner_request.command_buffer_batch_lease_id;
+    region_exit_close_submit_owner_request.owner_required =
+        phase_submit_execution_flush_dependency_observed;
+    region_exit_close_submit_owner_request.public_final_host_readback_boundary =
+        release_output_boundary_blocker;
+    const StackRegionExitCloseSubmitOwnerSurfaceResult
+        region_exit_close_submit_owner_result =
+            evaluate_stack_region_exit_close_submit_owner_surface(
+                region_exit_close_submit_owner_request);
     const std::string command_buffer_close_submit_ownership_status =
         !phase_submit_execution_flush_dependency_observed
         ? "command_buffer_close_submit_ownership_not_required"
         : (release_output_boundary_blocker
                ? "command_buffer_close_submit_ownership_rejected_public_final_host_readback_requested_output"
-               : "command_buffer_close_submit_ownership_request_api_present_result_unavailable");
+               : "command_buffer_close_submit_ownership_owner_surface_present_fail_closed");
     const std::string current_command_buffer_close_submit_owner_status =
         !phase_submit_execution_flush_dependency_observed
         ? "current_phase_submit_close_submit_owner_not_required"
@@ -10204,7 +10235,7 @@ void append_stack_region_submit_epoch_ordering_json(
         ? "region_exit_close_submit_owner_not_required"
         : (release_output_boundary_blocker
                ? "region_exit_close_submit_owner_blocked_by_output_boundary"
-               : exit_close_submit_owner_result.result_status);
+               : region_exit_close_submit_owner_result.owner_status);
     const std::string command_buffer_region_ownership_status =
         !phase_submit_execution_flush_dependency_observed
         ? "command_buffer_region_ownership_not_required"
@@ -10222,7 +10253,8 @@ void append_stack_region_submit_epoch_ordering_json(
         ? "none"
         : (release_output_boundary_blocker
                ? "host_fence_public_final_readback_blocker"
-               : exit_close_submit_owner_result.top_blocker);
+               : region_exit_close_submit_owner_result
+                     .final_fail_closed_reason);
     const std::string exit_release_ownership_status =
         !phase_submit_execution_flush_dependency_observed
         ? "exit_release_ownership_not_required"
@@ -11019,6 +11051,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result_key
         << " exit_close_submit_owner_result_status="
         << exit_close_submit_owner_result.result_status
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " command_buffer_close_submit_responsibility="
         << exit_release_point_result.command_buffer_release_status
         << " descriptor_lifetime_release_responsibility="
@@ -11096,6 +11135,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result.result_status
         << " exit_close_submit_owner_result_top_blocker="
         << exit_close_submit_owner_result.top_blocker
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " stack_region_owner_identity_status="
         << exit_release_ownership_contract_result
                .stack_region_owner_identity_status
@@ -11163,6 +11209,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result.request_api_status
         << " result_status=" << exit_close_submit_owner_result.result_status
         << " top_blocker=" << exit_close_submit_owner_result.top_blocker
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " runtime_api_source="
         << exit_close_submit_owner_result.runtime_api_source
         << " authorizes_submit_elision=0"
@@ -11206,11 +11259,86 @@ void append_stack_region_submit_epoch_ordering_json(
         << " runtime_api_source="
         << exit_close_submit_owner_result.runtime_api_source
         << " future_owner_state=region_exit_close_submit_owner_provided"
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " authorizes_submit_elision=0"
         << " count=" << proof.records
         << " bytes=" << proof.bytes;
     stack_region_exit_close_submit_owner_result_rows.emplace_back(
         exit_close_submit_owner_result_row.str());
+    std::ostringstream region_exit_close_submit_owner_row;
+    region_exit_close_submit_owner_row
+        << "schema=RegionExitCloseSubmitOwner.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " owner_key=" << region_exit_close_submit_owner_key
+        << " request_key=" << exit_close_submit_owner_request_key
+        << " result_key=" << exit_close_submit_owner_result_key
+        << " stack_region_id="
+        << region_exit_close_submit_owner_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " owner_record_emitted="
+        << (region_exit_close_submit_owner_result.owner_record_emitted ? "1"
+                                                                       : "0")
+        << " owner_exists="
+        << (region_exit_close_submit_owner_result.owner_exists ? "1" : "0")
+        << " ownership_available="
+        << (region_exit_close_submit_owner_result.ownership_available ? "1"
+                                                                      : "0")
+        << " owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " planned_region_exit_release_point_id="
+        << planned_submit_point_id
+        << " current_command_buffer_recording_id="
+        << current_command_buffer_recording_id
+        << " current_command_buffer_owner_scope="
+        << region_exit_close_submit_owner_request
+               .current_command_buffer_owner_scope
+        << " current_phase_submit_close_submit_owner_preserved=1"
+        << " current_phase_submit_owner_status="
+        << region_exit_close_submit_owner_result
+               .current_command_buffer_owner_status
+        << " requested_region_exit_close_submit_ownership="
+        << region_exit_close_submit_owner_result
+               .requested_region_exit_ownership_status
+        << " region_owned_command_buffer_batch_status="
+        << region_exit_close_submit_owner_result
+               .region_owned_command_buffer_status
+        << " queue_timeline_owner_status="
+        << region_exit_close_submit_owner_result
+               .queue_timeline_owner_status
+        << " retire_timeline_handoff_status="
+        << region_exit_close_submit_owner_result
+               .retire_timeline_handoff_status
+        << " descriptor_lifetime_handoff_status="
+        << region_exit_close_submit_owner_result
+               .descriptor_lifetime_handoff_status
+        << " command_pool_lifetime_cleanup_status="
+        << region_exit_close_submit_owner_result
+               .command_pool_lifetime_cleanup_status
+        << " final_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
+        << " close_submit_behavior_changed=0"
+        << " phase_boundary_submits_preserved=1"
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " new_queue_submit_created=0"
+        << " authorizes_submit_elision="
+        << (region_exit_close_submit_owner_result.authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " runtime_api_source="
+        << region_exit_close_submit_owner_result.runtime_api_source
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    region_exit_close_submit_owner_rows.emplace_back(
+        region_exit_close_submit_owner_row.str());
     std::ostringstream command_buffer_close_submit_ownership_row;
     command_buffer_close_submit_ownership_row
         << "schema=StackRegionCommandBufferCloseSubmitOwnership.v0"
@@ -11251,6 +11379,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result_key
         << " exit_close_submit_owner_result_top_blocker="
         << exit_close_submit_owner_result.top_blocker
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " region_exit_close_submit_owner_implementation_status="
         << exit_close_submit_owner_result.implementation_status
         << " same_stream_queue_proof_status="
@@ -11339,6 +11474,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result.result_status
         << " exit_close_submit_owner_result_top_blocker="
         << exit_close_submit_owner_result.top_blocker
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " queue_submit_timeline_ownership_status="
         << exit_release_queue_submit_status
         << " command_pool_cleanup_reset_ownership_status="
@@ -11423,6 +11565,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << " exit_close_submit_owner_result=StackRegionExitCloseSubmitOwnerResult.v0"
         << " exit_close_submit_owner_result_status="
         << exit_close_submit_owner_result.result_status
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " phase_boundary_submits_preserved=1"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"
@@ -11496,6 +11645,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result.result_status
         << " exit_close_submit_owner_result_top_blocker="
         << exit_close_submit_owner_result.top_blocker
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
         << " command_pool_reset_deferral_proof=StackRegionCommandPoolResetDeferralProof.v0"
         << " command_pool_reset_deferral_proof_key="
         << command_pool_reset_deferral_proof_key
@@ -14737,6 +14893,24 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_exit_close_submit_owner_planned_point_status_counts;
   std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_fail_closed_reason_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_current_owner_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_requested_ownership_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_region_buffer_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_queue_timeline_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_retire_handoff_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_descriptor_handoff_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_close_submit_owner_command_pool_cleanup_status_counts;
+  std::map<std::string, uint64_t>
       stack_region_command_ownership_phase_counts;
   std::map<std::string, uint64_t>
       stack_region_command_ownership_acquire_status_counts;
@@ -15422,6 +15596,44 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "planned_region_exit_submit_point_status",
         "missing_planned_region_exit_submit_point_status")] += count;
+  }
+  for (const auto& row : region_exit_close_submit_owner_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    region_exit_close_submit_owner_status_counts[field_or(
+        fields, "owner_status", "missing_owner_status")] += count;
+    region_exit_close_submit_owner_fail_closed_reason_counts[field_or(
+        fields,
+        "final_fail_closed_reason",
+        "missing_final_fail_closed_reason")] += count;
+    region_exit_close_submit_owner_current_owner_status_counts[field_or(
+        fields,
+        "current_phase_submit_owner_status",
+        "missing_current_phase_submit_owner_status")] += count;
+    region_exit_close_submit_owner_requested_ownership_status_counts[field_or(
+        fields,
+        "requested_region_exit_close_submit_ownership",
+        "missing_requested_region_exit_close_submit_ownership")] += count;
+    region_exit_close_submit_owner_region_buffer_status_counts[field_or(
+        fields,
+        "region_owned_command_buffer_batch_status",
+        "missing_region_owned_command_buffer_batch_status")] += count;
+    region_exit_close_submit_owner_queue_timeline_status_counts[field_or(
+        fields,
+        "queue_timeline_owner_status",
+        "missing_queue_timeline_owner_status")] += count;
+    region_exit_close_submit_owner_retire_handoff_status_counts[field_or(
+        fields,
+        "retire_timeline_handoff_status",
+        "missing_retire_timeline_handoff_status")] += count;
+    region_exit_close_submit_owner_descriptor_handoff_status_counts[field_or(
+        fields,
+        "descriptor_lifetime_handoff_status",
+        "missing_descriptor_lifetime_handoff_status")] += count;
+    region_exit_close_submit_owner_command_pool_cleanup_status_counts[field_or(
+        fields,
+        "command_pool_lifetime_cleanup_status",
+        "missing_command_pool_lifetime_cleanup_status")] += count;
   }
   for (const auto& row : stack_region_command_ownership_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -17531,6 +17743,53 @@ void append_stack_region_submit_epoch_ordering_json(
   }
   out << "]";
   append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_status_counts\":";
+  append_u64_map_object(out, region_exit_close_submit_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_fail_closed_reason_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_fail_closed_reason_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_current_owner_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_current_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_requested_ownership_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_requested_ownership_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_region_buffer_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_region_buffer_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_queue_timeline_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_queue_timeline_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_retire_handoff_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_retire_handoff_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_descriptor_handoff_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_descriptor_handoff_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_command_pool_cleanup_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_close_submit_owner_command_pool_cleanup_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_close_submit_owner_records\":[";
+  for (size_t i = 0u; i < region_exit_close_submit_owner_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        region_exit_close_submit_owner_rows[i],
+        "region_exit_close_submit_owner");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
   out << "\"region_command_buffer_ownership_phase_counts\":";
   append_u64_map_object(out, stack_region_command_ownership_phase_counts);
   append_json_comma(out, submit_level_first);
@@ -19314,7 +19573,7 @@ request_stack_region_exit_close_submit_owner(
       request.command_buffer_batch_lease_id ==
           "missing_region_owned_command_buffer_or_batch") {
     result.region_owned_command_buffer_status =
-        "region_owned_command_buffer_missing";
+        "region_owned_command_buffer_or_batch_unavailable";
   }
   if (
       request.planned_region_exit_submit_point_status ==
@@ -19325,6 +19584,62 @@ request_stack_region_exit_close_submit_owner(
   result.same_stream_queue_status = request.require_same_stream_queue
       ? "same_stream_queue_required_unproven"
       : "same_stream_queue_not_required";
+  return result;
+}
+
+StackRegionExitCloseSubmitOwnerSurfaceResult
+evaluate_stack_region_exit_close_submit_owner_surface(
+    const StackRegionExitCloseSubmitOwnerSurfaceRequest& request) {
+  StackRegionExitCloseSubmitOwnerSurfaceResult result;
+  if (!request.owner_required) {
+    result.owner_exists = false;
+    result.owner_record_emitted = true;
+    result.owner_status = "region_exit_close_submit_owner_not_required";
+    result.final_fail_closed_reason = "none";
+    result.current_command_buffer_owner_status =
+        "current_phase_submit_close_submit_owner_not_required";
+    result.requested_region_exit_ownership_status =
+        "region_exit_close_submit_ownership_not_required";
+    result.region_owned_command_buffer_status =
+        "region_owned_command_buffer_not_required";
+    result.queue_timeline_owner_status =
+        "queue_timeline_owner_not_required";
+    result.retire_timeline_handoff_status =
+        "retire_timeline_handoff_not_required";
+    result.descriptor_lifetime_handoff_status =
+        "descriptor_lifetime_handoff_not_required";
+    result.command_pool_lifetime_cleanup_status =
+        "command_pool_lifetime_cleanup_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.ownership_available = false;
+    result.owner_status =
+        "region_exit_close_submit_owner_rejected_public_final_host_readback_boundary";
+    result.final_fail_closed_reason =
+        "host_fence_public_final_readback_blocker";
+    result.current_command_buffer_owner_status =
+        "current_phase_submit_close_submit_owner_blocked_by_output_boundary";
+    result.requested_region_exit_ownership_status =
+        "requested_region_exit_close_submit_ownership_blocked_by_output_boundary";
+    result.region_owned_command_buffer_status =
+        "region_owned_command_buffer_blocked_by_host_fence_public_readback";
+    result.queue_timeline_owner_status =
+        "queue_timeline_owner_blocked_by_host_fence_public_readback";
+    result.retire_timeline_handoff_status =
+        "retire_timeline_handoff_blocked_by_host_fence_public_readback";
+    result.descriptor_lifetime_handoff_status =
+        "descriptor_lifetime_handoff_blocked_by_host_fence_public_readback";
+    result.command_pool_lifetime_cleanup_status =
+        "command_pool_lifetime_cleanup_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  if (request.command_buffer_batch_lease_id.empty() ||
+      request.command_buffer_batch_lease_id ==
+          "missing_region_owned_command_buffer_or_batch") {
+    result.region_owned_command_buffer_status =
+        "region_owned_command_buffer_or_batch_unavailable";
+  }
   return result;
 }
 

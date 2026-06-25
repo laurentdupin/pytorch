@@ -386,14 +386,20 @@ component out as its own behavior-neutral row. It records the current
 command-buffer recording id/scope, planned region-exit release point, current
 phase-submit close/submit owner, region-exit owner status, and region-owned
 command-buffer status. Current selected rows still preserve every phase submit
-and fail closed because the region-exit close/submit owner request API returns
-unavailable; the refined blocker is
-`region_exit_close_submit_owner_implementation_missing`.
+and now join a real `RegionExitCloseSubmitOwner.v0` owner surface. That owner
+record is emitted and proves the current phase-submit close/submit owner is
+preserved, but it cannot take region-exit ownership because the command buffer
+is still context/phase-submit owned and no region-owned command-buffer or batch
+is available. The refined blocker is
+`command_buffer_still_context_phase_submit_owned`.
 `StackRegionExitCloseSubmitOwnerRequest.v0` and
 `StackRegionExitCloseSubmitOwnerResult.v0` are the behavior-neutral request
 surface behind that blocker. They model a future stack-exit owner asking to
-close and submit a region-owned command buffer or batch, but currently return
-unavailable and do not create, submit, defer, or retain any command buffer.
+close and submit a region-owned command buffer or batch. They now feed
+`RegionExitCloseSubmitOwner.v0`, which reports queue/timeline, retire,
+descriptor-lifetime, and command-pool handoff availability as unavailable while
+still creating no queue submit, no deferred submit, no submit elision, and no
+command-buffer execution-topology change.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

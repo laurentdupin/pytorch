@@ -688,8 +688,15 @@ report `current_phase_submit_owns_command_buffer_close_submit`,
 `command_buffer_not_region_owned`, and
 `planned_region_exit_submit_point_synthetic_unimplemented`, with
 `StackRegionExitCloseSubmitOwnerRequest.v0` /
-`StackRegionExitCloseSubmitOwnerResult.v0` now turning that into
-`region_exit_close_submit_owner_implementation_missing`. The API is
+`StackRegionExitCloseSubmitOwnerResult.v0` feeding a first-class
+`RegionExitCloseSubmitOwner.v0` owner surface. The owner row is emitted for the
+selected stack-region instance and reports the planned release point, current
+context/phase-submit close-submit owner, requested region-exit ownership,
+region-owned command-buffer or batch availability, queue/timeline owner
+availability, retire-timeline handoff availability, descriptor-lifetime
+handoff availability, command-pool cleanup availability, and final
+fail-closed reason. Current rows fail closed with
+`command_buffer_still_context_phase_submit_owned`; the surface is
 diagnostic-only and does not create, defer, close, or submit command buffers.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
