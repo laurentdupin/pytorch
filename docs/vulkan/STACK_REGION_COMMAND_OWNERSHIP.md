@@ -17,17 +17,18 @@ acquire from stack-exit release:
   command-buffer candidate status, unavailable stack-region command-buffer and
   command-pool lease status, diagnostic descriptor generation base, and
   scratch/temporary resource scope. It also records whether the planned
-  stack-region scope was observed, whether an actual region command-buffer
-  owner was acquired, whether the context command-buffer batch candidate was
-  observed, the candidate lifecycle status, preserved phase-boundary submit
-  count, and actual elided submit count.
+  stack-region scope was observed, that the acquire record itself was emitted,
+  whether an actual region command-buffer owner was acquired, whether the
+  context command-buffer batch candidate was observed, the candidate lifecycle
+  status, preserved phase-boundary submit count, and actual elided submit
+  count.
 - `stack_exit_release` records public/private/captured/requested/final output
   release status, pending-retire transfer status, and command-pool reset
   deferral status. It also records whether the planned stack-region scope was
-  released, whether an actual region command-buffer owner was released,
-  candidate lifecycle status, preserved phase-boundary submit count, actual
-  elided submit count, and whether command-pool reset was deferred to region
-  release.
+  released, that the release record itself was emitted, whether an actual
+  region command-buffer owner was released, candidate lifecycle status,
+  preserved phase-boundary submit count, actual elided submit count, and whether
+  command-pool reset was deferred to region release.
 
 The scaffold preserves current behavior. Phase-boundary submits remain
 preserved, actual submit elision remains zero, deferred submit remains disabled,
@@ -152,9 +153,23 @@ owner. It remains fail-closed until a real region-owned close/submit lease
 exists.
 The ownership rows now preserve that distinction at both stack entry and stack
 exit: the planned stack-region scope can be observed, but
+`stack_entry_acquire_record_emitted=1`,
+`stack_exit_release_record_emitted=1`,
 `region_command_buffer_ownership_acquired=0`,
 `region_command_buffer_ownership_released=0`, and
 `actual_elided_submit_count=0`.
+The emitted-record fields mean the ownership surface was populated; they do not
+mean command-buffer, command-pool, descriptor, or retire ownership transferred
+away from the current context phase-submit path.
+The acquire/release observation is backed by a separate
+`ContextRegionCommandBufferOwnershipState.v0` lifecycle id/state. Its states
+are deliberately named as context-owned fail-closed states:
+`region_command_buffer_ownership_lifecycle_acquire_observed_context_owned_fail_closed`,
+`region_command_buffer_ownership_lifecycle_release_observed_context_owned_fail_closed`,
+and
+`region_command_buffer_ownership_lifecycle_cancel_observed_context_owned_fail_closed`.
+That lifecycle is proof that the stack-entry and stack-exit records were
+observed, not proof that command-buffer ownership transferred.
 `StackRegionSingleRecordingCanary.v0` now gets its close/submit owner
 availability from Context-owned lifecycle state. Stack planned recording
 creates a live close/submit owner lifecycle id and marks it active only as a

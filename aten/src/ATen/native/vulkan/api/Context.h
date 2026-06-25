@@ -154,6 +154,9 @@ class TORCH_API Context final {
   std::atomic<uint64_t> stack_region_close_submit_owner_id_;
   std::atomic<uint64_t> next_stack_region_close_submit_owner_id_;
   std::atomic<uint32_t> stack_region_close_submit_owner_state_;
+  std::atomic<uint64_t> stack_region_command_ownership_id_;
+  std::atomic<uint64_t> next_stack_region_command_ownership_id_;
+  std::atomic<uint32_t> stack_region_command_ownership_state_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `522eef81ad1` plus the
-close/submit owner lifecycle ownership-row propagation slice.
+Last refreshed: 2026-06-25 at local HEAD `4ac783d7e35` plus the
+region command ownership acquire/release observation slice.
 
 ## Repo State Summary
 
@@ -502,6 +502,11 @@ observed, the preserved phase-submit batch lifecycle is recorded, but actual
 region command-buffer acquire/release remains `0`, preserved phase-submit counts
 are recorded, command-pool reset is not deferred to region release, and actual
 submit elision remains `0`.
+The rows now also expose `ContextRegionCommandBufferOwnershipState.v0`, a
+Context-owned acquire/release lifecycle id and status created at stack planned
+recording entry and finalized at stack exit submit or cancel. This anchors the
+stack-entry acquire and stack-exit release records to runtime stack scope while
+still reporting that the command buffer remains context/phase-submit owned.
 This remains fail-closed and behavior-neutral: no submit is removed, deferred,
 batched, replayed, or newly created.
 `StackRegionSingleRecordingCanary.v0` now mirrors that ownership state in its
@@ -537,6 +542,20 @@ The same lifecycle source is now threaded through the ownership row chain:
 `RegionCommandBufferOwnership.v0`. This is row-schema propagation only. Those
 rows still report behavior disabled, no submit authorization, preserved
 phase-boundary submits, and unavailable region close/submit ownership.
+`RegionCommandBufferOwnership.v0` now makes the stack-entry and stack-exit
+record distinction explicit: acquire rows carry
+`stack_entry_acquire_record_emitted=1` and release rows carry
+`stack_exit_release_record_emitted=1`, with statuses that say whether the
+planned region scope was observed. The actual ownership bits remain
+`region_command_buffer_ownership_acquired=0` and
+`region_command_buffer_ownership_released=0`, and the owner-status fields
+continue to report that the command buffer is still context-owned. This is
+behavior-neutral and does not authorize submit elision.
+Context now also owns a separate
+`ContextRegionCommandBufferOwnershipState.v0` lifecycle id/state for that
+acquire/release observation. Its active, submitted, and canceled states are
+explicitly named as context-owned fail-closed states; they do not imply a
+region-owned command buffer, command pool, descriptor scope, or retire timeline.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

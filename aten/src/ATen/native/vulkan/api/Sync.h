@@ -628,6 +628,8 @@ struct StackRegionSingleRecordingOwnerResult final {
   uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
   uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
   uint64_t current_command_buffer_recording_id = 0u;
+  uint64_t region_command_buffer_ownership_lifecycle_id = 0u;
+  uint32_t region_command_buffer_ownership_lifecycle_state = 0u;
   bool region_exit_close_submit_owner_behavior_enabled = false;
   bool region_exit_close_submit_owner_authorizes_submit_elision = false;
   std::string single_recording_owner_status =
@@ -638,6 +640,14 @@ struct StackRegionSingleRecordingOwnerResult final {
       "region_exit_close_submit_owner_not_started";
   std::string region_exit_close_submit_owner_availability_source =
       "ContextStackRegionCloseSubmitOwnerState.v0";
+  std::string region_command_buffer_ownership_lifecycle_status =
+      "region_command_buffer_ownership_lifecycle_not_started";
+  std::string region_command_buffer_ownership_acquire_lifecycle_status =
+      "stack_entry_acquire_lifecycle_not_started";
+  std::string region_command_buffer_ownership_release_lifecycle_status =
+      "stack_exit_release_lifecycle_not_started";
+  std::string region_command_buffer_ownership_lifecycle_source =
+      "ContextRegionCommandBufferOwnershipState.v0";
   std::string single_recording_owner_close_submit_status =
       "close_submit_still_context_phase_submit_owned";
   std::string single_recording_owner_command_pool_status =

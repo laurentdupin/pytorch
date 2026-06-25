@@ -132,6 +132,45 @@ const char* stack_region_close_submit_owner_state_name(const uint32_t state) {
   }
 }
 
+const char* stack_region_command_ownership_state_name(const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "region_command_buffer_ownership_lifecycle_acquire_observed_context_owned_fail_closed";
+    case 2u:
+      return "region_command_buffer_ownership_lifecycle_release_observed_context_owned_fail_closed";
+    case 3u:
+      return "region_command_buffer_ownership_lifecycle_cancel_observed_context_owned_fail_closed";
+    default:
+      return "region_command_buffer_ownership_lifecycle_not_started";
+  }
+}
+
+const char* stack_region_command_ownership_acquire_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+    case 2u:
+    case 3u:
+      return "stack_entry_acquire_lifecycle_observed_context_phase_submit_owned";
+    default:
+      return "stack_entry_acquire_lifecycle_not_started";
+  }
+}
+
+const char* stack_region_command_ownership_release_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "stack_exit_release_lifecycle_pending_context_phase_submit_owned";
+    case 2u:
+      return "stack_exit_release_lifecycle_observed_context_phase_submit_owned";
+    case 3u:
+      return "stack_exit_release_lifecycle_cancel_observed_context_phase_submit_owned";
+    default:
+      return "stack_exit_release_lifecycle_not_started";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -739,6 +778,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_close_submit_owner_id_{0u},
       next_stack_region_close_submit_owner_id_{1u},
       stack_region_close_submit_owner_state_{0u},
+      stack_region_command_ownership_id_{0u},
+      next_stack_region_command_ownership_id_{1u},
+      stack_region_command_ownership_state_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -891,6 +933,20 @@ Context::snapshot_stack_region_single_recording_owner(
       close_submit_owner_state;
   result.region_exit_close_submit_owner_lifecycle_status =
       stack_region_close_submit_owner_state_name(close_submit_owner_state);
+  const uint32_t command_ownership_state =
+      stack_region_command_ownership_state_.load(std::memory_order_acquire);
+  result.region_command_buffer_ownership_lifecycle_id =
+      stack_region_command_ownership_id_.load(std::memory_order_acquire);
+  result.region_command_buffer_ownership_lifecycle_state =
+      command_ownership_state;
+  result.region_command_buffer_ownership_lifecycle_status =
+      stack_region_command_ownership_state_name(command_ownership_state);
+  result.region_command_buffer_ownership_acquire_lifecycle_status =
+      stack_region_command_ownership_acquire_state_name(
+          command_ownership_state);
+  result.region_command_buffer_ownership_release_lifecycle_status =
+      stack_region_command_ownership_release_state_name(
+          command_ownership_state);
   result.single_recording_owner_status =
       stack_region_single_recording_owner_state_name(
           stack_region_single_recording_owner_state_.load(
@@ -2617,6 +2673,12 @@ void Context::begin_stack_planned_recording() {
       std::memory_order_release);
   stack_region_close_submit_owner_state_.store(
       1u, std::memory_order_release);
+  stack_region_command_ownership_id_.store(
+      next_stack_region_command_ownership_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_command_ownership_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2640,6 +2702,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       2u, std::memory_order_release);
   stack_region_close_submit_owner_state_.store(
       2u, std::memory_order_release);
+  stack_region_command_ownership_state_.store(
+      2u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -2660,6 +2724,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   stack_region_command_buffer_batch_lease_state_.store(
       3u, std::memory_order_release);
   stack_region_close_submit_owner_state_.store(
+      3u, std::memory_order_release);
+  stack_region_command_ownership_state_.store(
       3u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};

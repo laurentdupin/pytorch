@@ -12352,6 +12352,24 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_close_submit_owner_availability_source="
         << stack_region_single_recording_owner_result
                .region_exit_close_submit_owner_availability_source
+        << " region_command_buffer_ownership_lifecycle_id="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_id
+        << " region_command_buffer_ownership_lifecycle_state="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_state
+        << " region_command_buffer_ownership_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_status
+        << " region_command_buffer_ownership_acquire_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_acquire_lifecycle_status
+        << " region_command_buffer_ownership_release_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_release_lifecycle_status
+        << " region_command_buffer_ownership_lifecycle_source="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_source
         << " single_recording_owner_status="
         << stack_region_single_recording_owner_result
                .single_recording_owner_status
@@ -13459,9 +13477,18 @@ void append_stack_region_submit_epoch_ordering_json(
         << " owner_scope=stack_region"
         << " requester_scope=stack_owner"
         << " region_id=" << exit_release_point_request.stack_region_id
+        << " stack_entry_acquire_record_emitted=1"
+        << " stack_entry_acquire_record_status="
+        << (planned_region_context_present
+                ? "stack_entry_acquire_record_observed_region_scope"
+                : "stack_entry_acquire_record_observed_missing_region_scope")
         << " stack_region_scope_acquired="
         << (planned_region_context_present ? "1" : "0")
         << " region_command_buffer_ownership_acquired=0"
+        << " region_command_buffer_ownership_acquire_owner_status="
+        << (planned_region_context_present
+                ? "region_scope_observed_command_buffer_still_context_owned"
+                : "region_scope_missing_command_buffer_still_context_owned")
         << " region_exit_close_submit_owner_lifecycle_id="
         << region_exit_close_submit_owner_result
                .region_exit_close_submit_owner_lifecycle_id
@@ -13484,6 +13511,24 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_close_submit_owner_availability_source="
         << region_exit_close_submit_owner_result
                .region_exit_close_submit_owner_availability_source
+        << " region_command_buffer_ownership_lifecycle_id="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_id
+        << " region_command_buffer_ownership_lifecycle_state="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_state
+        << " region_command_buffer_ownership_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_status
+        << " region_command_buffer_ownership_acquire_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_acquire_lifecycle_status
+        << " region_command_buffer_ownership_release_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_release_lifecycle_status
+        << " region_command_buffer_ownership_lifecycle_source="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_source
         << " context_command_buffer_batch_candidate_observed="
         << (context_command_buffer_batch_candidate_observed ? "1" : "0")
         << " preserved_phase_submit_batch_lease_available="
@@ -13586,9 +13631,18 @@ void append_stack_region_submit_epoch_ordering_json(
         << " boundary_class=" << proof.boundary_class
         << " owner_scope=stack_region"
         << " requester_scope=stack_owner"
+        << " stack_exit_release_record_emitted=1"
+        << " stack_exit_release_record_status="
+        << (planned_region_context_present
+                ? "stack_exit_release_record_observed_region_scope"
+                : "stack_exit_release_record_observed_missing_region_scope")
         << " stack_region_scope_released="
         << (planned_region_context_present ? "1" : "0")
         << " region_command_buffer_ownership_released=0"
+        << " region_command_buffer_ownership_release_owner_status="
+        << (planned_region_context_present
+                ? "region_scope_observed_command_buffer_still_context_owned"
+                : "region_scope_missing_command_buffer_still_context_owned")
         << " region_exit_close_submit_owner_lifecycle_id="
         << region_exit_close_submit_owner_result
                .region_exit_close_submit_owner_lifecycle_id
@@ -13611,6 +13665,24 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_close_submit_owner_availability_source="
         << region_exit_close_submit_owner_result
                .region_exit_close_submit_owner_availability_source
+        << " region_command_buffer_ownership_lifecycle_id="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_id
+        << " region_command_buffer_ownership_lifecycle_state="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_state
+        << " region_command_buffer_ownership_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_status
+        << " region_command_buffer_ownership_acquire_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_acquire_lifecycle_status
+        << " region_command_buffer_ownership_release_lifecycle_status="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_release_lifecycle_status
+        << " region_command_buffer_ownership_lifecycle_source="
+        << stack_region_single_recording_owner_result
+               .region_command_buffer_ownership_lifecycle_source
         << " context_command_buffer_batch_candidate_observed="
         << (context_command_buffer_batch_candidate_observed ? "1" : "0")
         << " preserved_phase_submit_batch_lease_available="

@@ -775,10 +775,19 @@ accounting/lifecycle lease, not as a region close/submit owner.
 `RegionCommandBufferOwnership.v0` mirrors that lifecycle at stack entry and
 stack exit. It can report the planned stack-region scope and the preserved
 phase-submit batch lifecycle, but it keeps
+`stack_entry_acquire_record_emitted=1`,
+`stack_exit_release_record_emitted=1`,
 `region_command_buffer_ownership_acquired=0`,
 `region_command_buffer_ownership_released=0`,
 `command_pool_reset_deferred_to_region_release=0`, and
 `actual_elided_submit_count=0`.
+The acquire/release emitted-record fields only prove the ownership rows were
+populated from the graph/runtime context; command-buffer, command-pool,
+descriptor, and retire ownership remain with the preserved context submit path.
+Those rows also carry `ContextRegionCommandBufferOwnershipState.v0`, a separate
+context lifecycle for acquire/release observation. The lifecycle states are
+context-owned and fail-closed; they do not make the close/submit owner
+available and do not authorize submit elision.
 This does not remove, defer, batch, replay, or create a submit.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would

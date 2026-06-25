@@ -21044,6 +21044,48 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "ContextStackRegionCloseSubmitOwnerState.v0",
                 )
 
+            def assert_region_command_ownership_lifecycle(record):
+                self.assertIn(
+                    "region_command_buffer_ownership_lifecycle_id", record
+                )
+                self.assertIn(
+                    record["region_command_buffer_ownership_lifecycle_state"],
+                    {"0", "1", "2", "3"},
+                )
+                self.assertIn(
+                    record["region_command_buffer_ownership_lifecycle_status"],
+                    {
+                        "region_command_buffer_ownership_lifecycle_not_started",
+                        "region_command_buffer_ownership_lifecycle_acquire_observed_context_owned_fail_closed",
+                        "region_command_buffer_ownership_lifecycle_release_observed_context_owned_fail_closed",
+                        "region_command_buffer_ownership_lifecycle_cancel_observed_context_owned_fail_closed",
+                    },
+                )
+                self.assertIn(
+                    record[
+                        "region_command_buffer_ownership_acquire_lifecycle_status"
+                    ],
+                    {
+                        "stack_entry_acquire_lifecycle_not_started",
+                        "stack_entry_acquire_lifecycle_observed_context_phase_submit_owned",
+                    },
+                )
+                self.assertIn(
+                    record[
+                        "region_command_buffer_ownership_release_lifecycle_status"
+                    ],
+                    {
+                        "stack_exit_release_lifecycle_not_started",
+                        "stack_exit_release_lifecycle_pending_context_phase_submit_owned",
+                        "stack_exit_release_lifecycle_observed_context_phase_submit_owned",
+                        "stack_exit_release_lifecycle_cancel_observed_context_phase_submit_owned",
+                    },
+                )
+                self.assertEqual(
+                    record["region_command_buffer_ownership_lifecycle_source"],
+                    "ContextRegionCommandBufferOwnershipState.v0",
+                )
+
             first_exit_release_point_record = selected_plan_record(
                 "stack_region_exit_release_point_records"
             )
@@ -21609,6 +21651,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "StackRegionSingleRecordingOwner.v0",
             )
             assert_close_submit_lifecycle(
+                first_stack_region_single_recording_owner_record
+            )
+            assert_region_command_ownership_lifecycle(
                 first_stack_region_single_recording_owner_record
             )
             self.assertEqual(
@@ -22618,15 +22663,42 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "RegionCommandBufferOwnership.v0",
             )
             assert_close_submit_lifecycle(first_command_acquire_record)
+            assert_region_command_ownership_lifecycle(
+                first_command_acquire_record
+            )
             self.assertIn(
                 first_command_acquire_record["stack_region_scope_acquired"],
                 {"0", "1"},
             )
             self.assertEqual(
                 first_command_acquire_record[
+                    "stack_entry_acquire_record_emitted"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_command_acquire_record[
+                    "stack_entry_acquire_record_status"
+                ],
+                {
+                    "stack_entry_acquire_record_observed_region_scope",
+                    "stack_entry_acquire_record_observed_missing_region_scope",
+                },
+            )
+            self.assertEqual(
+                first_command_acquire_record[
                     "region_command_buffer_ownership_acquired"
                 ],
                 "0",
+            )
+            self.assertIn(
+                first_command_acquire_record[
+                    "region_command_buffer_ownership_acquire_owner_status"
+                ],
+                {
+                    "region_scope_observed_command_buffer_still_context_owned",
+                    "region_scope_missing_command_buffer_still_context_owned",
+                },
             )
             self.assertIn(
                 first_command_acquire_record[
@@ -22724,15 +22796,42 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "RegionCommandBufferOwnership.v0",
             )
             assert_close_submit_lifecycle(first_command_release_record)
+            assert_region_command_ownership_lifecycle(
+                first_command_release_record
+            )
             self.assertIn(
                 first_command_release_record["stack_region_scope_released"],
                 {"0", "1"},
             )
             self.assertEqual(
                 first_command_release_record[
+                    "stack_exit_release_record_emitted"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_command_release_record[
+                    "stack_exit_release_record_status"
+                ],
+                {
+                    "stack_exit_release_record_observed_region_scope",
+                    "stack_exit_release_record_observed_missing_region_scope",
+                },
+            )
+            self.assertEqual(
+                first_command_release_record[
                     "region_command_buffer_ownership_released"
                 ],
                 "0",
+            )
+            self.assertIn(
+                first_command_release_record[
+                    "region_command_buffer_ownership_release_owner_status"
+                ],
+                {
+                    "region_scope_observed_command_buffer_still_context_owned",
+                    "region_scope_missing_command_buffer_still_context_owned",
+                },
             )
             self.assertIn(
                 first_command_release_record[
