@@ -107,6 +107,13 @@ plan, producer role, consumer role, and capture ids. That moves the bridge
 blocker to `planned_region_topology_present_close_submit_still_context_owned`
 while keeping ordinary non-bridge stack dumps fail-closed if region identity is
 missing.
+The close/submit owner surface now carries that planned-region context through
+`StackRegionExitCloseSubmitOwnerRequest.v0`,
+`StackRegionExitCloseSubmitOwnerResult.v0`, and
+`RegionExitCloseSubmitOwner.v0`. Bridge rows therefore no longer collapse into
+the older generic missing-topology bucket: they fail closed because the planned
+region exists, but close/submit is still owned by the context phase-submit
+path. This does not close, defer, submit, or switch command buffers.
 
 ## Design Card
 

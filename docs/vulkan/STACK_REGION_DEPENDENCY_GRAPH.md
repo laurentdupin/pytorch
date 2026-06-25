@@ -745,6 +745,12 @@ rows can still report
 `missing_region_owned_command_buffer_topology_owner_above_stack_scope`. This
 states that a planned region identity is necessary but not sufficient: close
 and submit still belong to the context phase-submit topology.
+The close/submit owner request, result, and owner rows carry the same planned
+bridge context so the release-owner proof can report the precise blocker
+`planned_region_topology_present_close_submit_still_context_owned`. This is a
+fail-closed classification only; it does not create a region-owned command
+buffer, defer a submit, close a command buffer at stack exit, or change
+descriptor/retire ownership.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,

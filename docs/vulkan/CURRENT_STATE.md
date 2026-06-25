@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `2736cce7cc9` plus the
-opt-in stack-region single-recording canary slice.
+Last refreshed: 2026-06-25 at local HEAD `8a537fd76e2d` plus the
+planned bridge close/submit ownership classification slice.
 
 ## Repo State Summary
 
@@ -463,6 +463,17 @@ entry to stack exit. The vision stack capture-to-decoder bridge now installs a
 region fields. Rows still fail closed, but the bridge blocker advances to
 `planned_region_topology_present_close_submit_still_context_owned`; they do not
 remove submits, defer submits, create a queue submit, or switch command buffers.
+`StackRegionExitCloseSubmitOwnerRequest.v0`,
+`StackRegionExitCloseSubmitOwnerResult.v0`, and
+`RegionExitCloseSubmitOwner.v0` now carry the same planned bridge context
+fields (`VisionBackboneStackContext`, `vision_stack_output_device_bridge`, and
+`vision_stack_capture_decoder_preprocess_plan`) into the close/submit owner
+surface. Those rows fail closed with
+`planned_region_topology_present_close_submit_still_context_owned` when the
+planned region scope is present but command-buffer close/submit still belongs
+to the context phase-submit path. This is still behavior-neutral: phase-boundary
+submits are preserved and no region-owned command buffer or batch is closed or
+submitted.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

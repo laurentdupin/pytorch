@@ -10815,6 +10815,12 @@ void append_stack_region_submit_epoch_ordering_json(
         exit_release_ownership_contract_request.stack_region_id;
     exit_close_submit_owner_request.stack_region_instance_id =
         stack_region_instance_id;
+    exit_close_submit_owner_request.stack_context_id =
+        planned_region_context.stack_context_id;
+    exit_close_submit_owner_request.bridge_session_id =
+        planned_region_context.bridge_session_id;
+    exit_close_submit_owner_request.stack_plan_id =
+        planned_region_context.stack_plan_id;
     exit_close_submit_owner_request.planned_region_exit_submit_point_id =
         planned_submit_point_id;
     exit_close_submit_owner_request.planned_region_exit_submit_point_status =
@@ -10832,6 +10838,8 @@ void append_stack_region_submit_epoch_ordering_json(
     exit_close_submit_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
     exit_close_submit_owner_request.require_same_stream_queue = true;
+    exit_close_submit_owner_request.stack_scope_planned_region_present =
+        planned_region_context_present;
     const StackRegionExitCloseSubmitOwnerResult
         exit_close_submit_owner_result =
             request_stack_region_exit_close_submit_owner(
@@ -10842,6 +10850,12 @@ void append_stack_region_submit_epoch_ordering_json(
         exit_close_submit_owner_request.stack_region_id;
     region_exit_close_submit_owner_request.stack_region_instance_id =
         stack_region_instance_id;
+    region_exit_close_submit_owner_request.stack_context_id =
+        planned_region_context.stack_context_id;
+    region_exit_close_submit_owner_request.bridge_session_id =
+        planned_region_context.bridge_session_id;
+    region_exit_close_submit_owner_request.stack_plan_id =
+        planned_region_context.stack_plan_id;
     region_exit_close_submit_owner_request.boundary_id = proof.boundary_id;
     region_exit_close_submit_owner_request.boundary_class =
         proof.boundary_class;
@@ -10864,6 +10878,8 @@ void append_stack_region_submit_epoch_ordering_json(
         phase_submit_execution_flush_dependency_observed;
     region_exit_close_submit_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
+    region_exit_close_submit_owner_request.stack_scope_planned_region_present =
+        planned_region_context_present;
     const StackRegionExitCloseSubmitOwnerSurfaceResult
         region_exit_close_submit_owner_result =
             evaluate_stack_region_exit_close_submit_owner_surface(
@@ -12477,6 +12493,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_id="
         << exit_close_submit_owner_request.stack_region_id
         << " stack_region_instance_id=" << stack_region_instance_id
+        << " stack_context_id="
+        << exit_close_submit_owner_request.stack_context_id
+        << " bridge_session_id="
+        << exit_close_submit_owner_request.bridge_session_id
+        << " stack_plan_id="
+        << exit_close_submit_owner_request.stack_plan_id
         << " boundary_id=" << proof.boundary_id
         << " boundary_class=" << proof.boundary_class
         << " planned_region_exit_submit_point_id="
@@ -12500,6 +12522,10 @@ void append_stack_region_submit_epoch_ordering_json(
         << " public_final_host_readback_boundary="
         << (exit_close_submit_owner_request
                     .public_final_host_readback_boundary
+                ? "1"
+                : "0")
+        << " stack_scope_planned_region_present="
+        << (exit_close_submit_owner_request.stack_scope_planned_region_present
                 ? "1"
                 : "0")
         << " request_api_status="
@@ -12545,6 +12571,16 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_id="
         << exit_close_submit_owner_request.stack_region_id
         << " stack_region_instance_id=" << stack_region_instance_id
+        << " stack_context_id="
+        << exit_close_submit_owner_request.stack_context_id
+        << " bridge_session_id="
+        << exit_close_submit_owner_request.bridge_session_id
+        << " stack_plan_id="
+        << exit_close_submit_owner_request.stack_plan_id
+        << " stack_scope_planned_region_present="
+        << (exit_close_submit_owner_request.stack_scope_planned_region_present
+                ? "1"
+                : "0")
         << " boundary_id=" << proof.boundary_id
         << " boundary_class=" << proof.boundary_class
         << " api_present="
@@ -12558,6 +12594,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_close_submit_owner_result.implementation_status
         << " region_owned_command_buffer_status="
         << exit_close_submit_owner_result.region_owned_command_buffer_status
+        << " planned_region_scope_status="
+        << exit_close_submit_owner_result.planned_region_scope_status
         << " planned_region_exit_submit_point_status="
         << exit_close_submit_owner_result
                .planned_region_exit_submit_point_status
@@ -12601,6 +12639,17 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_id="
         << region_exit_close_submit_owner_request.stack_region_id
         << " stack_region_instance_id=" << stack_region_instance_id
+        << " stack_context_id="
+        << region_exit_close_submit_owner_request.stack_context_id
+        << " bridge_session_id="
+        << region_exit_close_submit_owner_request.bridge_session_id
+        << " stack_plan_id="
+        << region_exit_close_submit_owner_request.stack_plan_id
+        << " stack_scope_planned_region_present="
+        << (region_exit_close_submit_owner_request
+                    .stack_scope_planned_region_present
+                ? "1"
+                : "0")
         << " boundary_id=" << proof.boundary_id
         << " boundary_class=" << proof.boundary_class
         << " owner_record_emitted="
@@ -12630,6 +12679,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_owned_command_buffer_batch_status="
         << region_exit_close_submit_owner_result
                .region_owned_command_buffer_status
+        << " planned_region_scope_status="
+        << region_exit_close_submit_owner_result.planned_region_scope_status
         << " region_owned_command_buffer_lease=RegionOwnedCommandBufferLease.v0"
         << " region_owned_command_buffer_lease_key="
         << region_owned_command_buffer_lease_key
@@ -12683,6 +12734,16 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_region_id="
         << exit_release_ownership_contract_request.stack_region_id
         << " stack_region_instance_id=" << stack_region_instance_id
+        << " stack_context_id="
+        << exit_close_submit_owner_request.stack_context_id
+        << " bridge_session_id="
+        << exit_close_submit_owner_request.bridge_session_id
+        << " stack_plan_id="
+        << exit_close_submit_owner_request.stack_plan_id
+        << " stack_scope_planned_region_present="
+        << (exit_close_submit_owner_request.stack_scope_planned_region_present
+                ? "1"
+                : "0")
         << " boundary_id=" << proof.boundary_id
         << " boundary_class=" << proof.boundary_class
         << " current_command_buffer_recording_id="
@@ -12722,6 +12783,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_exit_close_submit_owner_result.owner_status
         << " region_exit_close_submit_owner_fail_closed_reason="
         << region_exit_close_submit_owner_result.final_fail_closed_reason
+        << " planned_region_scope_status="
+        << region_exit_close_submit_owner_result.planned_region_scope_status
         << " region_exit_close_submit_owner_implementation_status="
         << exit_close_submit_owner_result.implementation_status
         << " region_owned_command_buffer_lease=RegionOwnedCommandBufferLease.v0"
@@ -21540,6 +21603,10 @@ request_stack_region_exit_close_submit_owner(
   }
   result.planned_region_exit_submit_point_status =
       request.planned_region_exit_submit_point_status;
+  if (request.stack_scope_planned_region_present) {
+    result.planned_region_scope_status =
+        "stack_scope_planned_region_topology_present";
+  }
   if (request.public_final_host_readback_boundary) {
     result.owner_available = false;
     result.request_api_status =
@@ -21562,13 +21629,26 @@ request_stack_region_exit_close_submit_owner(
         "descriptor_release_ownership_blocked_by_host_fence_public_readback";
     return result;
   }
+  if (request.stack_scope_planned_region_present) {
+    result.reason = "planned_region_close_submit_still_context_owned";
+    result.top_blocker =
+        "planned_region_topology_present_close_submit_still_context_owned";
+    result.implementation_status =
+        "region_exit_close_submit_owner_planned_region_present_context_owned";
+    result.region_owned_command_buffer_status =
+        "planned_region_present_but_command_buffer_not_region_owned";
+  }
   if (request.command_buffer_batch_lease_id.empty() ||
       request.command_buffer_batch_lease_id ==
           "missing_region_owned_command_buffer_or_batch") {
-    result.reason = request.command_buffer_batch_lease_status;
-    result.top_blocker = request.command_buffer_batch_lease_top_blocker;
+    if (!request.stack_scope_planned_region_present) {
+      result.reason = request.command_buffer_batch_lease_status;
+      result.top_blocker = request.command_buffer_batch_lease_top_blocker;
+    }
     result.region_owned_command_buffer_status =
-        "region_owned_command_buffer_or_batch_unavailable";
+        request.stack_scope_planned_region_present
+        ? "planned_region_present_but_command_buffer_not_region_owned"
+        : "region_owned_command_buffer_or_batch_unavailable";
   }
   if (
       request.planned_region_exit_submit_point_status ==
@@ -21632,10 +21712,21 @@ evaluate_stack_region_exit_close_submit_owner_surface(
   if (request.command_buffer_batch_lease_id.empty() ||
       request.command_buffer_batch_lease_id ==
           "missing_region_owned_command_buffer_or_batch") {
-    result.final_fail_closed_reason =
-        request.command_buffer_batch_lease_top_blocker;
-    result.region_owned_command_buffer_status =
-        request.command_buffer_batch_lease_status;
+    if (request.stack_scope_planned_region_present) {
+      result.planned_region_scope_status =
+          "stack_scope_planned_region_topology_present";
+      result.final_fail_closed_reason =
+          "planned_region_topology_present_close_submit_still_context_owned";
+      result.owner_status =
+          "region_exit_close_submit_owner_planned_region_present_fail_closed";
+      result.region_owned_command_buffer_status =
+          "planned_region_present_but_command_buffer_not_region_owned";
+    } else {
+      result.final_fail_closed_reason =
+          request.command_buffer_batch_lease_top_blocker;
+      result.region_owned_command_buffer_status =
+          request.command_buffer_batch_lease_status;
+    }
   }
   return result;
 }
