@@ -20596,6 +20596,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_proof,
             )
             self.assertIn(
+                "stack_region_command_buffer_topology_plan_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_topology_plan_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_buffer_topology_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
                 "stack_region_command_buffer_acquire_hook_status_counts",
                 submit_level_proof,
             )
@@ -21625,6 +21637,99 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 first_stack_region_single_recording_owner_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            first_stack_region_command_buffer_topology_plan_record = (
+                selected_plan_record(
+                    "stack_region_command_buffer_topology_plan_records"
+                )
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "schema"
+                ],
+                "StackRegionCommandBufferTopologyPlan.v0",
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "topology_record_emitted"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "topology_status"
+                ],
+                {
+                    "stack_region_command_buffer_topology_plan_present_fail_closed",
+                    "stack_region_command_buffer_topology_plan_rejected_host_fence_public_readback_blocker",
+                    "stack_region_command_buffer_topology_plan_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "current_topology_status"
+                ],
+                {
+                    "context_phase_submit_command_buffer_topology_preserved",
+                    "context_phase_submit_command_buffer_topology_blocked_by_output_boundary",
+                    "context_phase_submit_command_buffer_topology_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "region_owned_topology_status"
+                ],
+                {
+                    "region_owned_command_buffer_topology_unavailable_missing_region_topology_owner",
+                    "region_owned_command_buffer_topology_rejected_host_fence_public_readback_blocker",
+                    "region_owned_command_buffer_topology_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "top_blocker"
+                ],
+                {
+                    "missing_region_owned_command_buffer_topology_owner_above_stack_scope",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "phase_boundary_submits_preserved"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "submit_elision_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "deferred_submit_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "new_queue_submit_created"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
+                    "command_buffer_execution_topology_changed"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_topology_plan_record[
                     "authorizes_submit_elision"
                 ],
                 "0",
@@ -23946,7 +24051,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
-    def test_vulkan_stack_region_single_recording_canary_defers_one_submit(self):
+    def test_vulkan_stack_region_single_recording_canary_requires_full_barrier_coverage(
+        self,
+    ):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
             151,
             blocks=2,
@@ -24015,10 +24122,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(graph_path, encoding="utf-8") as handle:
                 graph = json.load(handle)
             self.assertFalse(graph["summary"]["submit_elision_enabled"])
-            self.assertTrue(graph["summary"]["single_recording_canary_enabled"])
+            self.assertFalse(graph["summary"]["single_recording_canary_enabled"])
             self.assertEqual(
                 graph["summary"]["single_recording_canary_submits_removed"],
-                1,
+                0,
             )
             self.assertEqual(
                 graph["summary"][
@@ -24034,34 +24141,44 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in canary_rows
                 if row["fields"].get("submits_removed") == "1"
             ]
-            self.assertEqual(len(removed_rows), 1)
-            row = removed_rows[0]
+            self.assertEqual(len(removed_rows), 0)
+            rejected_rows = [
+                row["fields"]
+                for row in canary_rows
+                if row["fields"].get("guard_fail_reason")
+                == "pending_dispatch_barrier_coverage_incomplete"
+            ]
+            self.assertTrue(rejected_rows)
+            row = rejected_rows[0]
             self.assertEqual(
                 row["selected_boundary_id"],
                 "non_capture_boundary:producer_block=0:consumer_block=1",
             )
             self.assertEqual(
                 row["status"],
-                "stack_region_owned_phase_submit_deferred_to_stack_exit_canary",
+                "single_recording_owner_close_submit_canary_guard_failed",
             )
-            self.assertEqual(row["guard_fail_reason"], "none")
+            self.assertEqual(
+                row["guard_fail_reason"],
+                "pending_dispatch_barrier_coverage_incomplete",
+            )
             self.assertEqual(
                 row["single_recording_owner_status"],
-                "single_region_recording_owner_active_close_submit_canary",
+                "single_region_recording_owner_close_submit_canary_fail_closed",
             )
             self.assertEqual(
                 row["single_recording_owner_close_submit_status"],
-                "close_submit_owned_by_stack_region_single_recording_owner_canary",
+                "close_submit_still_context_phase_submit_owned",
             )
             self.assertEqual(
                 row["region_owned_command_buffer_lease_status"],
-                "region_owned_command_buffer_lease_available_single_recording_owner_canary",
+                "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
             )
             self.assertEqual(
                 row["region_exit_close_submit_owner_status"],
-                "region_exit_close_submit_owner_available_single_recording_owner_canary",
+                "region_exit_close_submit_owner_surface_present_fail_closed",
             )
-            self.assertEqual(row["single_recording_canary_enabled"], "1")
+            self.assertEqual(row["single_recording_canary_enabled"], "0")
             self.assertEqual(row["final_use_false"], "0")
             self.assertEqual(
                 row["final_use_guard_status"],
@@ -24071,12 +24188,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(row["deferred_submit_enabled"], "0")
             self.assertEqual(row["new_queue_submit_created"], "0")
             self.assertEqual(row["authorizes_submit_elision"], "0")
-            self.assertEqual(row["selected_submits_removed"], "1")
+            self.assertEqual(row["selected_submits_removed"], "0")
             self.assertEqual(row["submits_removed_outside_selected_boundary"], "0")
             self.assertEqual(row["single_recording_owner_active"], "1")
             self.assertEqual(row["stack_planned_recording_active"], "1")
             self.assertEqual(
                 row["stack_planned_recording_owned_by_current_thread"], "1"
+            )
+            self.assertGreater(
+                int(row["pending_dispatch_count"]),
+                int(row["barrier_validated_count"]),
             )
             self.assertEqual(
                 row["actual_norm1_input_barrier_proof_present"], "1"

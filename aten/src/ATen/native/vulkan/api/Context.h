@@ -501,6 +501,9 @@ class TORCH_API Context final {
   StackRegionSingleRecordingOwnerResult
   snapshot_stack_region_single_recording_owner(
       const StackRegionSingleRecordingOwnerRequest& request) const;
+  StackRegionCommandBufferTopologyPlanResult
+  snapshot_stack_region_command_buffer_topology_plan(
+      const StackRegionCommandBufferTopologyPlanRequest& request) const;
   StackRegionCommandBufferAcquireHookResult
   request_stack_region_command_buffer_acquire(
       const StackRegionCommandBufferAcquireHookRequest& request) const;

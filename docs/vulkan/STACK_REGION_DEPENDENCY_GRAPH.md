@@ -723,14 +723,24 @@ submit-elision canary, does not broaden the selected boundary, and records
 stack-region single-recording owner. The live guard still fails closed unless
 the selected boundary is active, a stack planned-recording owner is active, the
 command-buffer recording id is observed, the pending dispatch range is
-complete, the actual Norm1 input barrier proof is present, and host/final/readback
-blockers are absent.
+complete, the actual Norm1 input barrier proof is present, validated barrier
+coverage spans the pending dispatch range, and host/final/readback blockers are
+absent.
 The first real `vits_140` bridge run with the canary did remove one selected
 phase-boundary submit, but stack-output bridge sanity failed. The benchmark
 harness therefore marks those timings invalid through
 `performance_invalid_reasons=["vulkan_stack_output_device_bridge_sanity_failed"]`.
 The canary remains a diagnostic proof surface only; it must not be promoted as
 a performance path.
+`StackRegionCommandBufferTopologyPlan.v0` is the bounded post-failure scaffold
+above that local submit hook. It records the selected stack-region instance,
+planned stack-exit submit point, linked single-recording plan/owner, current
+context phase-submit topology, and requested region-owned stack-entry-to-exit
+command-buffer or batch topology. Current rows preserve phase-boundary submits
+and fail closed with
+`missing_region_owned_command_buffer_topology_owner_above_stack_scope`. This
+states that a borrowed context command buffer kept open across one boundary is
+not a valid region-owned topology proof.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,

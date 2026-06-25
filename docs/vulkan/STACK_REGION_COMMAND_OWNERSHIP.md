@@ -81,9 +81,13 @@ enabled, a proof warmup pass may record the selected non-capture
 stack-region command recording open across exactly that phase boundary and
 close/submit at stack exit. The canary is not default behavior, does not use
 the older retire-time submit-elision canary, and does not remove any boundary
-outside the selected one. The focused test asserts output parity and that the
-single deferred submit is backed by the single-recording owner, live command
-buffer id, pending dispatch range, actual Norm1 input barrier proof, and
+outside the selected one. The real `vits_140` failure showed that one actual
+Norm1 input barrier is not enough to replace the full phase submit, so the
+canary now requires validated barrier coverage to span the pending dispatch
+range before any selected submit can be deferred. The focused test asserts
+output parity and fail-closed behavior when barrier coverage is incomplete,
+while still checking the single-recording owner, live command-buffer id,
+pending dispatch range, actual Norm1 input barrier proof, and
 host/final/readback blocker checks.
 
 The first real `vits_140` bridge run with this canary is not a valid
@@ -93,6 +97,12 @@ failed, so the benchmark marks the row invalid with
 diagnostic proof surface only. The next behavior path should create a planned
 region-owned command-buffer topology instead of trying to defer individual
 phase submits in the current topology.
+
+`StackRegionCommandBufferTopologyPlan.v0` is the behavior-neutral row for that
+next path. It preserves current phase-boundary submits while naming the
+requested stack-entry to stack-exit region-owned command-buffer topology and
+the current blocker:
+`missing_region_owned_command_buffer_topology_owner_above_stack_scope`.
 
 ## Design Card
 

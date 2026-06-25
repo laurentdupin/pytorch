@@ -633,6 +633,65 @@ struct StackRegionSingleRecordingOwnerResult final {
       "StackRegionSingleRecordingOwnerRuntimeApi.v0";
 };
 
+struct StackRegionCommandBufferTopologyPlanRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string planned_region_exit_submit_point_id = "missing";
+  std::string single_recording_plan_key = "missing";
+  std::string single_recording_owner_key = "missing";
+  std::string requested_topology =
+      "region_owned_command_buffer_or_batch_from_stack_entry_to_exit";
+  std::string current_owner_scope = "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope = "stack_region";
+  bool plan_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandBufferTopologyPlanResult final {
+  bool topology_record_emitted = true;
+  bool behavior_enabled = false;
+  bool authorizes_submit_elision = false;
+  bool phase_boundary_submits_preserved = true;
+  bool command_buffer_execution_topology_changed = false;
+  bool stack_planned_recording_active = false;
+  bool stack_planned_recording_owned_by_current_thread = false;
+  uint64_t current_command_buffer_recording_id = 0u;
+  uint64_t single_recording_plan_id = 0u;
+  uint64_t single_recording_owner_id = 0u;
+  std::string topology_status =
+      "stack_region_command_buffer_topology_plan_present_fail_closed";
+  std::string current_topology_status =
+      "context_phase_submit_command_buffer_topology_preserved";
+  std::string requested_topology_status =
+      "region_owned_stack_entry_to_exit_command_buffer_topology_requested";
+  std::string stack_entry_scope_status =
+      "stack_entry_planned_recording_scope_observed";
+  std::string stack_exit_scope_status =
+      "stack_exit_planned_recording_scope_observed";
+  std::string phase_boundary_topology_status =
+      "phase_boundary_submits_preserved_logical_ordering_only";
+  std::string borrowed_context_topology_status =
+      "borrowed_context_command_buffer_topology_rejected_phase_submit_closes_recording";
+  std::string region_owned_topology_status =
+      "region_owned_command_buffer_topology_unavailable_missing_region_topology_owner";
+  std::string top_blocker =
+      "missing_region_owned_command_buffer_topology_owner_above_stack_scope";
+  std::string single_recording_plan_key = "missing";
+  std::string single_recording_owner_key = "missing";
+  std::string current_owner_scope = "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope = "stack_region";
+  std::string single_recording_plan_lifecycle_status =
+      "stack_region_single_recording_plan_not_started";
+  std::string single_recording_owner_lifecycle_status =
+      "single_region_recording_owner_missing";
+  std::string failed_canary_interpretation =
+      "local_phase_submit_deferral_not_region_owned_topology_proof";
+  std::string runtime_api_source =
+      "StackRegionCommandBufferTopologyPlanRuntimeApi.v0";
+};
+
 struct StackRegionCommandBufferAcquireHookRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";

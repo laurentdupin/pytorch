@@ -186,7 +186,7 @@ direction, not a submit-elision implementation.
 The latest one-image `vits_140` bridge graph with the opt-in barrier-only
 canary classifies all selected `residual2@0 -> norm1@1` rows as
 `barrier_ready_but_submit_proof_incomplete`. The exact missing semantic proof is
-`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`.
+`missing_region_owned_command_buffer_topology_owner_above_stack_scope`.
 The planned exit-release point, close/submit component, and lifecycle-only
 `StackRegionSingleRecordingOwner.v0` are identified. That owner records stack
 planned-recording lifetime but cannot take responsibility because close/submit,
@@ -194,9 +194,9 @@ descriptor scope, command-pool scope, and retire-timeline ownership still belong
 to the context phase-submit path. A future owner would have to close and submit a
 region-owned command buffer or batch at stack exit, release descriptor lifetime,
 transfer allocator/retire ownership, and provide the timeline release contract.
-That close/submit release ownership is the first concrete runtime capability
-needed before a region-owned command buffer or batch could replace the current
-phase submit's execution/flush/timeline role.
+`StackRegionCommandBufferTopologyPlan.v0` now records that this must be solved
+as a stack-entry to stack-exit region-owned topology, not as another local
+phase-submit hook predicate.
 
 The current graph must therefore keep `submits_removed=0` and
 `submit_elision_ready=0`.

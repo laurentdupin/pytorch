@@ -435,10 +435,13 @@ and close it at stack exit. Default behavior is unchanged, the older
 `PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` path remains disabled, and
 the canary records `authorizes_submit_elision=0` because it is a
 region-owned single-recording experiment rather than a retire-time submit
-elision proof. Focused tests cover output parity, one selected submit deferred
-to stack exit, no submit removed outside the selected boundary, live
-command-buffer ownership, barrier proof, pending dispatch range proof, and
-host/final/readback blockers staying absent.
+elision proof. After real `vits_140` evidence showed one Norm1-input barrier
+does not preserve the full phase submit, the canary now also fails closed unless
+validated barrier coverage spans the pending dispatch range. Focused tests cover
+output parity, zero selected submit deferrals under incomplete barrier coverage,
+no submit removed outside the selected boundary, live command-buffer ownership,
+barrier proof, pending dispatch range proof, and host/final/readback blockers
+staying absent.
 The first real `vits_140` bridge measurement with this canary removed exactly
 one selected submit but failed stack-output bridge sanity, so the result is not
 a valid performance improvement. The benchmark harness now marks bridge runs
@@ -448,6 +451,14 @@ with failed `vulkan_stack_output_device_bridge_sanity` as
 `performance_invalid_reasons`. Do not promote this canary or use its timings as
 evidence; the next behavior path must be a planned region-owned command-buffer
 topology rather than another local phase-submit deferral.
+`StackRegionCommandBufferTopologyPlan.v0` now records that topology direction
+explicitly. It is behavior-neutral and shows the current execution topology is
+still `context_phase_submit_command_buffer_topology_preserved`, while the
+requested future topology is a region-owned command buffer or batch from stack
+entry to stack exit. Current rows fail closed with
+`missing_region_owned_command_buffer_topology_owner_above_stack_scope`; they do
+not remove submits, defer submits, create a queue submit, or switch command
+buffers.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

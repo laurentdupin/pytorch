@@ -8970,6 +8970,7 @@ void append_stack_region_submit_epoch_ordering_json(
       stack_region_exit_close_submit_owner_result_rows;
   std::vector<std::string> stack_region_single_recording_plan_rows;
   std::vector<std::string> stack_region_single_recording_owner_rows;
+  std::vector<std::string> stack_region_command_buffer_topology_plan_rows;
   std::vector<std::string> stack_region_command_buffer_acquire_hook_rows;
   std::vector<std::string> region_owned_command_buffer_lease_rows;
   std::vector<std::string> region_exit_close_submit_owner_rows;
@@ -10535,6 +10536,38 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_single_recording_owner_result =
             context()->snapshot_stack_region_single_recording_owner(
                 stack_region_single_recording_owner_request);
+    const std::string stack_region_command_buffer_topology_plan_key =
+        "stack_region_command_buffer_topology_plan:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    StackRegionCommandBufferTopologyPlanRequest
+        stack_region_command_buffer_topology_plan_request;
+    stack_region_command_buffer_topology_plan_request.stack_region_id =
+        stack_region_single_recording_plan_request.stack_region_id;
+    stack_region_command_buffer_topology_plan_request
+        .stack_region_instance_id = stack_region_instance_id;
+    stack_region_command_buffer_topology_plan_request.boundary_id =
+        proof.boundary_id;
+    stack_region_command_buffer_topology_plan_request.boundary_class =
+        proof.boundary_class;
+    stack_region_command_buffer_topology_plan_request
+        .planned_region_exit_submit_point_id = planned_submit_point_id;
+    stack_region_command_buffer_topology_plan_request
+        .single_recording_plan_key = stack_region_single_recording_plan_key;
+    stack_region_command_buffer_topology_plan_request
+        .single_recording_owner_key = stack_region_single_recording_owner_key;
+    stack_region_command_buffer_topology_plan_request.current_owner_scope =
+        "vulkan_context_phase_submit_owner";
+    stack_region_command_buffer_topology_plan_request.requested_owner_scope =
+        "stack_region";
+    stack_region_command_buffer_topology_plan_request.plan_required =
+        phase_submit_execution_flush_dependency_observed;
+    stack_region_command_buffer_topology_plan_request
+        .public_final_host_readback_boundary =
+            !predicate_no_public_final_host_readback_blocker;
+    const StackRegionCommandBufferTopologyPlanResult
+        stack_region_command_buffer_topology_plan_result =
+            context()->snapshot_stack_region_command_buffer_topology_plan(
+                stack_region_command_buffer_topology_plan_request);
     const std::string stack_region_command_buffer_acquire_hook_key =
         "stack_region_command_buffer_acquire_hook:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -11989,6 +12022,121 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_single_recording_owner_rows.emplace_back(
         stack_region_single_recording_owner_row.str());
+    std::ostringstream stack_region_command_buffer_topology_plan_row;
+    stack_region_command_buffer_topology_plan_row
+        << "schema=StackRegionCommandBufferTopologyPlan.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " topology_plan_key="
+        << stack_region_command_buffer_topology_plan_key
+        << " stack_region_id="
+        << stack_region_command_buffer_topology_plan_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " planned_region_exit_submit_point_id="
+        << planned_submit_point_id
+        << " single_recording_plan=StackRegionSingleRecordingPlan.v0"
+        << " single_recording_plan_key="
+        << stack_region_single_recording_plan_key
+        << " single_recording_owner=StackRegionSingleRecordingOwner.v0"
+        << " single_recording_owner_key="
+        << stack_region_single_recording_owner_key
+        << " requested_topology="
+        << stack_region_command_buffer_topology_plan_request
+               .requested_topology
+        << " current_owner_scope="
+        << stack_region_command_buffer_topology_plan_result
+               .current_owner_scope
+        << " requested_owner_scope="
+        << stack_region_command_buffer_topology_plan_result
+               .requested_owner_scope
+        << " topology_record_emitted="
+        << (stack_region_command_buffer_topology_plan_result
+                    .topology_record_emitted
+                ? "1"
+                : "0")
+        << " topology_status="
+        << stack_region_command_buffer_topology_plan_result.topology_status
+        << " current_topology_status="
+        << stack_region_command_buffer_topology_plan_result
+               .current_topology_status
+        << " requested_topology_status="
+        << stack_region_command_buffer_topology_plan_result
+               .requested_topology_status
+        << " stack_entry_scope_status="
+        << stack_region_command_buffer_topology_plan_result
+               .stack_entry_scope_status
+        << " stack_exit_scope_status="
+        << stack_region_command_buffer_topology_plan_result
+               .stack_exit_scope_status
+        << " phase_boundary_topology_status="
+        << stack_region_command_buffer_topology_plan_result
+               .phase_boundary_topology_status
+        << " borrowed_context_topology_status="
+        << stack_region_command_buffer_topology_plan_result
+               .borrowed_context_topology_status
+        << " region_owned_topology_status="
+        << stack_region_command_buffer_topology_plan_result
+               .region_owned_topology_status
+        << " top_blocker="
+        << stack_region_command_buffer_topology_plan_result.top_blocker
+        << " failed_canary_interpretation="
+        << stack_region_command_buffer_topology_plan_result
+               .failed_canary_interpretation
+        << " stack_planned_recording_active="
+        << (stack_region_command_buffer_topology_plan_result
+                    .stack_planned_recording_active
+                ? "1"
+                : "0")
+        << " stack_planned_recording_owned_by_current_thread="
+        << (stack_region_command_buffer_topology_plan_result
+                    .stack_planned_recording_owned_by_current_thread
+                ? "1"
+                : "0")
+        << " current_command_buffer_recording_id="
+        << stack_region_command_buffer_topology_plan_result
+               .current_command_buffer_recording_id
+        << " single_recording_plan_id="
+        << stack_region_command_buffer_topology_plan_result
+               .single_recording_plan_id
+        << " single_recording_owner_id="
+        << stack_region_command_buffer_topology_plan_result
+               .single_recording_owner_id
+        << " single_recording_plan_lifecycle_status="
+        << stack_region_command_buffer_topology_plan_result
+               .single_recording_plan_lifecycle_status
+        << " single_recording_owner_lifecycle_status="
+        << stack_region_command_buffer_topology_plan_result
+               .single_recording_owner_lifecycle_status
+        << " phase_boundary_submits_preserved="
+        << (stack_region_command_buffer_topology_plan_result
+                    .phase_boundary_submits_preserved
+                ? "1"
+                : "0")
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " new_queue_submit_created=0"
+        << " command_buffer_execution_topology_changed="
+        << (stack_region_command_buffer_topology_plan_result
+                    .command_buffer_execution_topology_changed
+                ? "1"
+                : "0")
+        << " behavior_enabled="
+        << (stack_region_command_buffer_topology_plan_result.behavior_enabled
+                ? "1"
+                : "0")
+        << " authorizes_submit_elision="
+        << (stack_region_command_buffer_topology_plan_result
+                    .authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " runtime_api_source="
+        << stack_region_command_buffer_topology_plan_result.runtime_api_source
+        << " future_topology_state=region_owned_command_buffer_topology_owner_provided"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_topology_plan_rows.emplace_back(
+        stack_region_command_buffer_topology_plan_row.str());
     std::ostringstream stack_region_command_buffer_acquire_hook_row;
     stack_region_command_buffer_acquire_hook_row
         << "schema=StackRegionCommandBufferAcquireHook.v0"
@@ -16119,6 +16267,14 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_single_recording_owner_retire_timeline_counts;
   std::map<std::string, uint64_t>
+      stack_region_command_buffer_topology_plan_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_topology_current_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_topology_region_owned_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_topology_top_blocker_counts;
+  std::map<std::string, uint64_t>
       stack_region_command_buffer_acquire_hook_status_counts;
   std::map<std::string, uint64_t>
       stack_region_command_buffer_acquire_hook_result_status_counts;
@@ -16897,6 +17053,21 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "single_recording_owner_retire_timeline_status",
         "missing_single_recording_owner_retire_timeline_status")] += count;
+  }
+  for (const auto& row : stack_region_command_buffer_topology_plan_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_topology_plan_status_counts[field_or(
+        fields, "topology_status", "missing_topology_status")] += count;
+    stack_region_command_buffer_topology_current_status_counts[field_or(
+        fields, "current_topology_status", "missing_current_topology_status")] +=
+        count;
+    stack_region_command_buffer_topology_region_owned_status_counts[field_or(
+        fields,
+        "region_owned_topology_status",
+        "missing_region_owned_topology_status")] += count;
+    stack_region_command_buffer_topology_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
   }
   for (const auto& row : stack_region_command_buffer_acquire_hook_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -19169,6 +19340,35 @@ void append_stack_region_submit_epoch_ordering_json(
         out,
         stack_region_single_recording_owner_rows[i],
         "stack_region_single_recording_owner");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_topology_plan_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_topology_plan_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_topology_current_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_topology_current_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_topology_region_owned_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_topology_region_owned_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_topology_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_topology_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_topology_plan_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_buffer_topology_plan_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_topology_plan_rows[i],
+        "stack_region_command_buffer_topology_plan");
   }
   out << "]";
   append_json_comma(out, submit_level_first);
@@ -26452,6 +26652,10 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
       proof_guard_summary.no_public_final_host_readback_blocker_rows <
           proof_guard_summary.selected_submit_rows) {
     record_fail("selected_boundary_proof_predicate_missing");
+    return false;
+  }
+  if (eligibility_summary.barrier_validated_count < pending_dispatch_count) {
+    record_fail("pending_dispatch_barrier_coverage_incomplete");
     return false;
   }
   record_stack_region_single_recording_canary_locked(

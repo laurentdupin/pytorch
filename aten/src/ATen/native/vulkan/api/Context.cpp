@@ -896,6 +896,77 @@ Context::snapshot_stack_region_single_recording_owner(
   return result;
 }
 
+StackRegionCommandBufferTopologyPlanResult
+Context::snapshot_stack_region_command_buffer_topology_plan(
+    const StackRegionCommandBufferTopologyPlanRequest& request) const {
+  StackRegionCommandBufferTopologyPlanResult result;
+  result.stack_planned_recording_active = is_stack_planned_recording_active();
+  result.stack_planned_recording_owned_by_current_thread =
+      stack_planned_recording_owned_by_current_thread();
+  result.current_command_buffer_recording_id = command_buffer_recording_id_;
+  result.single_recording_plan_id =
+      stack_region_single_recording_plan_id_.load(std::memory_order_acquire);
+  result.single_recording_owner_id =
+      stack_region_single_recording_owner_id_.load(std::memory_order_acquire);
+  result.single_recording_plan_key = request.single_recording_plan_key;
+  result.single_recording_owner_key = request.single_recording_owner_key;
+  result.current_owner_scope = request.current_owner_scope;
+  result.requested_owner_scope = request.requested_owner_scope;
+  result.single_recording_plan_lifecycle_status =
+      stack_region_single_recording_plan_state_name(
+          stack_region_single_recording_plan_state_.load(
+              std::memory_order_acquire));
+  result.single_recording_owner_lifecycle_status =
+      stack_region_single_recording_owner_state_name(
+          stack_region_single_recording_owner_state_.load(
+              std::memory_order_acquire));
+  if (!request.plan_required) {
+    result.topology_status =
+        "stack_region_command_buffer_topology_plan_not_required";
+    result.current_topology_status =
+        "context_phase_submit_command_buffer_topology_not_required";
+    result.requested_topology_status =
+        "region_owned_stack_entry_to_exit_command_buffer_topology_not_required";
+    result.stack_entry_scope_status =
+        "stack_entry_planned_recording_scope_not_required";
+    result.stack_exit_scope_status =
+        "stack_exit_planned_recording_scope_not_required";
+    result.phase_boundary_topology_status =
+        "phase_boundary_topology_not_required";
+    result.borrowed_context_topology_status =
+        "borrowed_context_command_buffer_topology_not_required";
+    result.region_owned_topology_status =
+        "region_owned_command_buffer_topology_not_required";
+    result.top_blocker = "none";
+    result.failed_canary_interpretation =
+        "local_phase_submit_deferral_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.topology_status =
+        "stack_region_command_buffer_topology_plan_rejected_host_fence_public_readback_blocker";
+    result.current_topology_status =
+        "context_phase_submit_command_buffer_topology_blocked_by_output_boundary";
+    result.requested_topology_status =
+        "region_owned_stack_entry_to_exit_command_buffer_topology_blocked_by_output_boundary";
+    result.stack_entry_scope_status =
+        "stack_entry_planned_recording_scope_blocked_by_output_boundary";
+    result.stack_exit_scope_status =
+        "stack_exit_planned_recording_scope_blocked_by_output_boundary";
+    result.phase_boundary_topology_status =
+        "phase_boundary_topology_blocked_by_output_boundary";
+    result.borrowed_context_topology_status =
+        "borrowed_context_command_buffer_topology_blocked_by_output_boundary";
+    result.region_owned_topology_status =
+        "region_owned_command_buffer_topology_rejected_host_fence_public_readback_blocker";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.failed_canary_interpretation =
+        "local_phase_submit_deferral_rejected_by_output_boundary";
+    return result;
+  }
+  return result;
+}
+
 StackRegionCommandBufferAcquireHookResult
 Context::request_stack_region_command_buffer_acquire(
     const StackRegionCommandBufferAcquireHookRequest& request) const {
