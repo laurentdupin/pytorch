@@ -831,6 +831,8 @@ struct RegionOwnedCommandBufferLeaseRequest final {
   std::string boundary_id = "missing";
   std::string boundary_class = "unknown";
   std::string planned_region_exit_submit_point_id = "missing";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string current_owner_scope = "vulkan_context_phase_submit_owner";
   std::string requested_owner_scope = "stack_region";
   std::string requested_lifetime_scope = "stack_region";
@@ -906,6 +908,8 @@ struct RegionOwnedCommandBufferLeaseResult final {
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string top_blocker =
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_or_batch_lease_status =

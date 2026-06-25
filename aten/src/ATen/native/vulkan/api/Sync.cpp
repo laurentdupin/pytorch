@@ -10815,6 +10815,8 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.boundary_class;
     region_owned_command_buffer_lease_request
         .planned_region_exit_submit_point_id = planned_submit_point_id;
+    region_owned_command_buffer_lease_request
+        .planned_region_exit_submit_point_status = planned_submit_point_status;
     region_owned_command_buffer_lease_request.current_owner_scope =
         "vulkan_context_phase_submit_owner";
     region_owned_command_buffer_lease_request.requested_owner_scope =
@@ -12576,6 +12578,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << planned_submit_point_id
         << " planned_region_exit_submit_point_id="
         << planned_submit_point_id
+        << " planned_region_exit_submit_point_status="
+        << region_owned_command_buffer_lease_result
+               .planned_region_exit_submit_point_status
         << " requested_owner_scope="
         << region_owned_command_buffer_lease_request.requested_owner_scope
         << " current_owner_scope="
@@ -21725,13 +21730,23 @@ request_region_owned_command_buffer_lease(
   }
   result.request_status =
       "region_owned_command_buffer_lease_request_acquire_hook_present_result_unavailable";
-  result.result_status =
-      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
-  result.top_blocker = request.single_recording_owner_top_blocker;
+  result.planned_region_exit_submit_point_status =
+      request.planned_region_exit_submit_point_status;
+  const bool runtime_exit_submit_point_observed =
+      request.planned_region_exit_submit_point_status ==
+      "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
+  result.result_status = runtime_exit_submit_point_observed
+      ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
+      : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  result.top_blocker = runtime_exit_submit_point_observed
+      ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
+      : request.single_recording_owner_top_blocker;
   if (result.top_blocker.empty() ||
       result.top_blocker == "missing_stack_region_single_recording_owner") {
     result.top_blocker =
-        "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+        runtime_exit_submit_point_observed
+        ? "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease"
+        : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   }
   result.command_buffer_batch_lease_id =
       request.acquire_hook_command_buffer_or_batch_lease_id;

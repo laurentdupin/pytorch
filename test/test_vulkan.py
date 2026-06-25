@@ -22032,9 +22032,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
+                    "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
+                },
+            )
+            self.assertIn(
+                first_region_owned_command_buffer_lease_record[
+                    "planned_region_exit_submit_point_status"
+                ],
+                {
+                    "planned_region_exit_submit_point_synthetic_unimplemented",
+                    "planned_region_exit_submit_point_runtime_observed_context_submit_preserved",
+                    "planned_region_exit_submit_point_blocked_by_output_boundary",
+                    "planned_region_exit_submit_point_not_required",
                 },
             )
             self.assertIn(
