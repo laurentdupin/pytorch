@@ -376,6 +376,13 @@ descriptor lifetime scope request, retire timeline scope request, same
 stream/queue requirement, and public/final/host/readback blocker status. The
 hook snapshots current stack planned-recording and command-buffer owner state
 near `Context`, but behavior remains disabled and no lease is granted.
+`StackRegionSingleRecordingPlan.v0` now sits below that hook as the planned
+single-region recording scaffold. It is emitted for the selected boundary and
+records that execution still uses `context_phase_submit_recording`, phase
+boundary submits are preserved, command-buffer execution topology is unchanged,
+and borrowed context command-buffer ownership is rejected because
+`Context::submit_cmd_to_gpu` still closes/submits the active recording at phase
+boundaries.
 `stack_exit_release` rows make public/private/captured/requested/final output
 release, pending retire transfer, and command-pool reset deferral explicit. The
 scaffold proves current behavior is preserved: no submit elision, no deferred
@@ -399,7 +406,7 @@ record is emitted and proves the current phase-submit close/submit owner is
 preserved, but it cannot take region-exit ownership because the command buffer
 is still context/phase-submit owned and no region-owned command-buffer or batch
 lease is available. The refined blocker is now
-`region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled`.
+`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`.
 `StackRegionExitCloseSubmitOwnerRequest.v0` and
 `StackRegionExitCloseSubmitOwnerResult.v0` are the behavior-neutral request
 surface behind that blocker. They model a future stack-exit owner asking to

@@ -679,6 +679,17 @@ descriptor and command-pool scopes. It always reports
 `behavior_enabled=0`, `lease_available=0`, `submit_elision_enabled=0`, and
 `new_queue_submit_created=0` in this slice.
 
+`StackRegionSingleRecordingPlan.v0` is emitted between that acquire hook and
+the lease rows. It records the planned single-region recording status,
+current execution recording mode, plan lifecycle id/status, and the reason a
+borrowed context command buffer cannot be used as a phase-spanning region
+lease. Current rows report
+`stack_region_single_recording_plan_present_behavior_disabled`,
+`context_phase_submit_recording`, and
+`borrowed_context_command_buffer_region_lease_rejected_phase_submit_closes_recording`;
+they preserve phase-boundary submits, create no queue submit, keep command
+buffer execution topology unchanged, and authorize no submit elision.
+
 `RegionOwnedCommandBufferLease.v0` is the behavior-neutral acquire-side lease
 surface. It is keyed by stack-region instance and selected boundary, joins the
 acquire hook key/status, and records the planned region-exit release/submit
@@ -688,7 +699,7 @@ or batch lease availability, command-pool lease availability, descriptor
 lifetime scope, retire timeline scope, same-stream/queue requirement status,
 public/final/host/readback blocker status, and behavior-disabled flags. Current
 rows report
-`region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled`;
+`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`;
 no command buffer is allocated, switched, replayed, deferred, closed, or
 submitted.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
@@ -718,7 +729,7 @@ region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
 fail-closed reason. Current rows fail closed with
-`region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled`;
+`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`;
 the
 surface is diagnostic-only and does not create, defer, close, or submit command
 buffers.

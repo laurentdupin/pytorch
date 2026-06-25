@@ -21104,6 +21104,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -21255,6 +21256,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -21328,6 +21330,95 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "0",
             )
+            first_stack_region_single_recording_plan_record = (
+                selected_plan_record(
+                    "stack_region_single_recording_plan_records"
+                )
+            )
+            self.assertEqual(
+                first_stack_region_single_recording_plan_record["schema"],
+                "StackRegionSingleRecordingPlan.v0",
+            )
+            self.assertEqual(
+                first_stack_region_single_recording_plan_record[
+                    "plan_record_emitted"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_stack_region_single_recording_plan_record[
+                    "plan_status"
+                ],
+                {
+                    "stack_region_single_recording_plan_present_behavior_disabled",
+                    "stack_region_single_recording_plan_rejected_host_fence_public_readback_blocker",
+                    "stack_region_single_recording_plan_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_single_recording_plan_record[
+                    "borrowed_context_command_buffer_region_lease_status"
+                ],
+                {
+                    "borrowed_context_command_buffer_region_lease_rejected_phase_submit_closes_recording",
+                    "borrowed_context_command_buffer_region_lease_blocked_by_host_fence_public_readback",
+                    "borrowed_context_command_buffer_region_lease_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_single_recording_plan_record[
+                    "top_blocker"
+                ],
+                {
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertIn(
+                first_stack_region_single_recording_plan_record[
+                    "current_execution_recording_mode"
+                ],
+                {
+                    "context_phase_submit_recording",
+                    "context_phase_submit_recording_blocked_by_output_boundary",
+                    "context_phase_submit_recording_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_single_recording_plan_record[
+                    "single_region_recording_owner_status"
+                ],
+                {
+                    "single_region_recording_owner_required_before_submit_elision",
+                    "single_region_recording_owner_blocked_by_host_fence_public_readback",
+                    "single_region_recording_owner_not_required",
+                },
+            )
+            self.assertEqual(
+                first_stack_region_single_recording_plan_record[
+                    "behavior_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_stack_region_single_recording_plan_record[
+                    "phase_boundary_submits_preserved"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                first_stack_region_single_recording_plan_record[
+                    "command_buffer_execution_topology_changed"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_stack_region_single_recording_plan_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
             first_stack_region_command_buffer_acquire_hook_record = (
                 selected_plan_record(
                     "stack_region_command_buffer_acquire_hook_records"
@@ -21371,6 +21462,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21393,12 +21485,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {"vulkan_context_phase_submit_owner"},
             )
+            self.assertEqual(
+                first_stack_region_command_buffer_acquire_hook_record[
+                    "single_recording_plan"
+                ],
+                "StackRegionSingleRecordingPlan.v0",
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_acquire_hook_record[
+                    "single_recording_plan_status"
+                ],
+                {
+                    "stack_region_single_recording_plan_present_behavior_disabled",
+                    "stack_region_single_recording_plan_rejected_host_fence_public_readback_blocker",
+                    "stack_region_single_recording_plan_not_required",
+                },
+            )
+            self.assertIn(
+                first_stack_region_command_buffer_acquire_hook_record[
+                    "single_recording_plan_top_blocker"
+                ],
+                {
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertEqual(
+                first_stack_region_command_buffer_acquire_hook_record[
+                    "single_recording_plan_behavior_enabled"
+                ],
+                "0",
+            )
             self.assertIn(
                 first_stack_region_command_buffer_acquire_hook_record[
                     "region_command_buffer_or_batch_lease_status"
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback",
                     "region_owned_command_buffer_lease_not_required",
                 },
@@ -21478,6 +21603,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_owned_command_buffer_lease_rejected_host_fence_public_readback_blocker",
                     "region_owned_command_buffer_lease_not_required",
@@ -21489,6 +21615,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -21513,6 +21640,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_region_owned_command_buffer_lease_record["acquire_hook"],
                 "StackRegionCommandBufferAcquireHook.v0",
             )
+            self.assertEqual(
+                first_region_owned_command_buffer_lease_record[
+                    "single_recording_plan"
+                ],
+                "StackRegionSingleRecordingPlan.v0",
+            )
+            self.assertIn(
+                first_region_owned_command_buffer_lease_record[
+                    "single_recording_plan_status"
+                ],
+                {
+                    "stack_region_single_recording_plan_present_behavior_disabled",
+                    "stack_region_single_recording_plan_rejected_host_fence_public_readback_blocker",
+                    "stack_region_single_recording_plan_not_required",
+                },
+            )
+            self.assertIn(
+                first_region_owned_command_buffer_lease_record[
+                    "single_recording_plan_top_blocker"
+                ],
+                {
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
             self.assertIn(
                 first_region_owned_command_buffer_lease_record[
                     "acquire_hook_status"
@@ -21529,6 +21682,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21545,6 +21699,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback",
                     "region_owned_command_buffer_lease_not_required",
@@ -21649,6 +21804,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -21717,6 +21873,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_owned_command_buffer_or_batch_unavailable",
                     "region_owned_command_buffer_blocked_by_host_fence_public_readback",
@@ -21788,6 +21945,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -21857,6 +22015,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_command_acquire_record["command_buffer_lease_status"],
                 {
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback",
                     "command_buffer_lease_unavailable_context_phase_submit_owner",
@@ -22095,6 +22254,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22132,6 +22292,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22196,6 +22357,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22238,6 +22400,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22343,6 +22506,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22429,6 +22593,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22471,6 +22636,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22628,6 +22794,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22724,6 +22891,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "host_fence_public_final_readback_blocker",
                     "none",

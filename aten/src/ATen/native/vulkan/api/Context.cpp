@@ -75,6 +75,20 @@ bool cpu_timeline_summary_logging_enabled() {
   return !cpu_timeline_summary_log_path().empty();
 }
 
+const char* stack_region_single_recording_plan_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "stack_region_single_recording_plan_active";
+    case 2u:
+      return "stack_region_single_recording_plan_finalized_submit";
+    case 3u:
+      return "stack_region_single_recording_plan_finalized_cancel";
+    default:
+      return "stack_region_single_recording_plan_not_started";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -670,6 +684,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_planned_recording_active_{false},
       stack_planned_recording_owner_{},
       stack_planned_recording_stats_{},
+      stack_region_single_recording_plan_id_{0u},
+      next_stack_region_single_recording_plan_id_{1u},
+      stack_region_single_recording_plan_state_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -739,6 +756,47 @@ bool Context::stack_planned_recording_owned_by_current_thread() const {
       stack_planned_recording_owner_ == std::this_thread::get_id();
 }
 
+StackRegionSingleRecordingPlanResult
+Context::snapshot_stack_region_single_recording_plan(
+    const StackRegionSingleRecordingPlanRequest& request) const {
+  StackRegionSingleRecordingPlanResult result;
+  result.stack_planned_recording_active = is_stack_planned_recording_active();
+  result.stack_planned_recording_owned_by_current_thread =
+      stack_planned_recording_owned_by_current_thread();
+  result.current_command_buffer_recording_id = command_buffer_recording_id_;
+  result.plan_id =
+      stack_region_single_recording_plan_id_.load(std::memory_order_acquire);
+  result.plan_lifecycle_status = stack_region_single_recording_plan_state_name(
+      stack_region_single_recording_plan_state_.load(
+          std::memory_order_acquire));
+  if (!request.plan_required) {
+    result.plan_present = false;
+    result.plan_status = "stack_region_single_recording_plan_not_required";
+    result.borrowed_context_command_buffer_region_lease_status =
+        "borrowed_context_command_buffer_region_lease_not_required";
+    result.top_blocker = "none";
+    result.current_execution_recording_mode =
+        "context_phase_submit_recording_not_required";
+    result.single_region_recording_owner_status =
+        "single_region_recording_owner_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.plan_present = true;
+    result.plan_status =
+        "stack_region_single_recording_plan_rejected_host_fence_public_readback_blocker";
+    result.borrowed_context_command_buffer_region_lease_status =
+        "borrowed_context_command_buffer_region_lease_blocked_by_host_fence_public_readback";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.current_execution_recording_mode =
+        "context_phase_submit_recording_blocked_by_output_boundary";
+    result.single_region_recording_owner_status =
+        "single_region_recording_owner_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  return result;
+}
+
 StackRegionCommandBufferAcquireHookResult
 Context::request_stack_region_command_buffer_acquire(
     const StackRegionCommandBufferAcquireHookRequest& request) const {
@@ -750,6 +808,18 @@ Context::request_stack_region_command_buffer_acquire(
   result.current_owner_scope = "vulkan_context_phase_submit_owner";
   result.requested_owner_scope_status =
       request.requested_owner_scope + "_owner_scope_requested";
+  result.single_recording_plan_key = request.single_recording_plan_key;
+  result.single_recording_plan_status = request.single_recording_plan_status;
+  result.single_recording_plan_top_blocker =
+      request.single_recording_plan_top_blocker;
+  result.single_recording_plan_borrowed_context_lease_status =
+      request.single_recording_plan_borrowed_context_lease_status;
+  result.single_recording_plan_current_execution_mode =
+      request.single_recording_plan_current_execution_mode;
+  result.single_recording_plan_owner_status =
+      request.single_recording_plan_owner_status;
+  result.single_recording_plan_behavior_enabled =
+      request.single_recording_plan_behavior_enabled;
   if (!request.hook_required) {
     result.behavior_enabled = false;
     result.lease_available = false;
@@ -759,6 +829,16 @@ Context::request_stack_region_command_buffer_acquire(
     result.top_blocker = "none";
     result.command_buffer_or_batch_lease_status =
         "region_owned_command_buffer_lease_not_required";
+    result.single_recording_plan_key = request.single_recording_plan_key;
+    result.single_recording_plan_status =
+        "stack_region_single_recording_plan_not_required";
+    result.single_recording_plan_top_blocker = "none";
+    result.single_recording_plan_borrowed_context_lease_status =
+        "borrowed_context_command_buffer_region_lease_not_required";
+    result.single_recording_plan_current_execution_mode =
+        "context_phase_submit_recording_not_required";
+    result.single_recording_plan_owner_status =
+        "single_region_recording_owner_not_required";
     result.command_pool_lease_status = "command_pool_lease_not_required";
     result.descriptor_lifetime_scope_status =
         "descriptor_lifetime_scope_not_required";
@@ -781,6 +861,16 @@ Context::request_stack_region_command_buffer_acquire(
     result.top_blocker = "host_fence_public_final_readback_blocker";
     result.command_buffer_or_batch_lease_status =
         "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback";
+    result.single_recording_plan_status =
+        "stack_region_single_recording_plan_rejected_host_fence_public_readback_blocker";
+    result.single_recording_plan_top_blocker =
+        "host_fence_public_final_readback_blocker";
+    result.single_recording_plan_borrowed_context_lease_status =
+        "borrowed_context_command_buffer_region_lease_blocked_by_host_fence_public_readback";
+    result.single_recording_plan_current_execution_mode =
+        "context_phase_submit_recording_blocked_by_output_boundary";
+    result.single_recording_plan_owner_status =
+        "single_region_recording_owner_blocked_by_host_fence_public_readback";
     result.command_pool_lease_status =
         "command_pool_lease_blocked_by_host_fence_public_readback";
     result.descriptor_lifetime_scope_status =
@@ -793,6 +883,9 @@ Context::request_stack_region_command_buffer_acquire(
         "host_fence_public_final_readback_blocker";
     return result;
   }
+  result.top_blocker = request.single_recording_plan_top_blocker;
+  result.command_buffer_or_batch_lease_status =
+      request.single_recording_plan_top_blocker;
   result.same_stream_queue_status = request.require_same_stream_queue
       ? "same_stream_queue_required_unproven"
       : "same_stream_queue_not_required";
@@ -2094,6 +2187,12 @@ void Context::begin_stack_planned_recording() {
   submit_cmd_to_gpu(VK_NULL_HANDLE, false, VulkanSubmitOrigin::PreStackFlush);
   stack_planned_recording_owner_ = std::this_thread::get_id();
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+  stack_region_single_recording_plan_id_.store(
+      next_stack_region_single_recording_plan_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_single_recording_plan_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2110,6 +2209,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
   retire_stack_internal_temp_retire_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
+  stack_region_single_recording_plan_state_.store(
+      2u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -2123,6 +2224,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   restore_stack_internal_temp_retire_batch_to_pending_locked();
   stack_planned_recording_active_.store(false, std::memory_order_release);
+  stack_region_single_recording_plan_state_.store(
+      3u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   submit_cmd_to_gpu(VK_NULL_HANDLE, false, VulkanSubmitOrigin::PostStackFlush);

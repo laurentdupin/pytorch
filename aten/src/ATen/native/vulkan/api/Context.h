@@ -142,6 +142,9 @@ class TORCH_API Context final {
   std::atomic<bool> stack_planned_recording_active_;
   std::thread::id stack_planned_recording_owner_;
   StackPlannedRecordingStats stack_planned_recording_stats_;
+  std::atomic<uint64_t> stack_region_single_recording_plan_id_;
+  std::atomic<uint64_t> next_stack_region_single_recording_plan_id_;
+  std::atomic<uint32_t> stack_region_single_recording_plan_state_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;
@@ -489,6 +492,9 @@ class TORCH_API Context final {
       VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown);
   void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
   bool is_stack_planned_recording_active() const;
+  StackRegionSingleRecordingPlanResult
+  snapshot_stack_region_single_recording_plan(
+      const StackRegionSingleRecordingPlanRequest& request) const;
   StackRegionCommandBufferAcquireHookResult
   request_stack_region_command_buffer_acquire(
       const StackRegionCommandBufferAcquireHookRequest& request) const;

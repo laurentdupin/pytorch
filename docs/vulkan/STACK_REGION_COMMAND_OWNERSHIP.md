@@ -48,12 +48,18 @@ stack-entry acquire row now emits a behavior-neutral
 `RegionOwnedCommandBufferLease.v0` lease row. The acquire hook is present near
 `Context` and snapshots current stack planned-recording ownership, current
 command-buffer recording id, and context-owned descriptor/command-pool scope,
-but it returns inactive/unavailable. The lease is requested but unavailable
-with
-`region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled`:
+but it returns inactive/unavailable.
+`StackRegionSingleRecordingPlan.v0` is the next behavior-neutral scaffold under
+that hook. It records that the current execution mode remains
+`context_phase_submit_recording`, phase-boundary submits are preserved, command
+buffer execution topology is unchanged, and a borrowed context command buffer is
+not a valid region lease because phase submits still close and submit the active
+recording. The lease is requested but unavailable with
+`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`:
 the command buffer and command pool are still owned by the Vulkan context's
-phase-submit path, descriptor and retire lifetime scopes are unavailable, and
-same-stream/queue proof is still only a requirement. The supporting
+phase-submit path until a real single-region recording owner exists, descriptor
+and retire lifetime scopes are unavailable, and same-stream/queue proof is
+still only a requirement. The supporting
 `StackRegionExitCloseSubmitOwnerRequest.v0` /
 `StackRegionExitCloseSubmitOwnerResult.v0` request surface feeds
 `RegionExitCloseSubmitOwner.v0`, which now fails closed on that lease blocker.

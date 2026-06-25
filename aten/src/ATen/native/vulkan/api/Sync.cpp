@@ -8661,6 +8661,7 @@ void append_stack_region_submit_epoch_ordering_json(
       stack_region_exit_close_submit_owner_request_rows;
   std::vector<std::string>
       stack_region_exit_close_submit_owner_result_rows;
+  std::vector<std::string> stack_region_single_recording_plan_rows;
   std::vector<std::string> stack_region_command_buffer_acquire_hook_rows;
   std::vector<std::string> region_owned_command_buffer_lease_rows;
   std::vector<std::string> region_exit_close_submit_owner_rows;
@@ -10167,6 +10168,33 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string current_command_buffer_recording_id =
         submit_key_fields_value(
             proof.submit_key_fields, "consumer_command_buffer_id");
+    const std::string stack_region_single_recording_plan_key =
+        "stack_region_single_recording_plan:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    StackRegionSingleRecordingPlanRequest
+        stack_region_single_recording_plan_request;
+    stack_region_single_recording_plan_request.stack_region_id =
+        exit_release_ownership_contract_request.stack_region_id;
+    stack_region_single_recording_plan_request.stack_region_instance_id =
+        stack_region_instance_id;
+    stack_region_single_recording_plan_request.boundary_id =
+        proof.boundary_id;
+    stack_region_single_recording_plan_request.boundary_class =
+        proof.boundary_class;
+    stack_region_single_recording_plan_request
+        .planned_region_exit_submit_point_id = planned_submit_point_id;
+    stack_region_single_recording_plan_request.owner_scope = "stack_region";
+    stack_region_single_recording_plan_request.requested_lifetime_scope =
+        "stack_region";
+    stack_region_single_recording_plan_request.plan_required =
+        phase_submit_execution_flush_dependency_observed;
+    stack_region_single_recording_plan_request
+        .public_final_host_readback_boundary =
+            !predicate_no_public_final_host_readback_blocker;
+    const StackRegionSingleRecordingPlanResult
+        stack_region_single_recording_plan_result =
+            context()->snapshot_stack_region_single_recording_plan(
+                stack_region_single_recording_plan_request);
     const std::string stack_region_command_buffer_acquire_hook_key =
         "stack_region_command_buffer_acquire_hook:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -10186,6 +10214,29 @@ void append_stack_region_submit_epoch_ordering_json(
         "stack_region";
     stack_region_command_buffer_acquire_hook_request.requested_lifetime_scope =
         "stack_region";
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_key = stack_region_single_recording_plan_key;
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_status =
+            stack_region_single_recording_plan_result.plan_status;
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_top_blocker =
+            stack_region_single_recording_plan_result.top_blocker;
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_borrowed_context_lease_status =
+            stack_region_single_recording_plan_result
+                .borrowed_context_command_buffer_region_lease_status;
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_current_execution_mode =
+            stack_region_single_recording_plan_result
+                .current_execution_recording_mode;
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_owner_status =
+            stack_region_single_recording_plan_result
+                .single_region_recording_owner_status;
+    stack_region_command_buffer_acquire_hook_request
+        .single_recording_plan_behavior_enabled =
+            stack_region_single_recording_plan_result.behavior_enabled;
     stack_region_command_buffer_acquire_hook_request.hook_required =
         phase_submit_execution_flush_dependency_observed;
     stack_region_command_buffer_acquire_hook_request.require_same_stream_queue =
@@ -10265,6 +10316,30 @@ void append_stack_region_submit_epoch_ordering_json(
         .acquire_hook_command_pool_scope_status =
             stack_region_command_buffer_acquire_hook_result
                 .command_pool_scope_status;
+    region_owned_command_buffer_lease_request.single_recording_plan_key =
+        stack_region_single_recording_plan_key;
+    region_owned_command_buffer_lease_request.single_recording_plan_status =
+        stack_region_command_buffer_acquire_hook_result
+            .single_recording_plan_status;
+    region_owned_command_buffer_lease_request.single_recording_plan_top_blocker =
+        stack_region_command_buffer_acquire_hook_result
+            .single_recording_plan_top_blocker;
+    region_owned_command_buffer_lease_request
+        .single_recording_plan_borrowed_context_lease_status =
+            stack_region_command_buffer_acquire_hook_result
+                .single_recording_plan_borrowed_context_lease_status;
+    region_owned_command_buffer_lease_request
+        .single_recording_plan_current_execution_mode =
+            stack_region_command_buffer_acquire_hook_result
+                .single_recording_plan_current_execution_mode;
+    region_owned_command_buffer_lease_request
+        .single_recording_plan_owner_status =
+            stack_region_command_buffer_acquire_hook_result
+                .single_recording_plan_owner_status;
+    region_owned_command_buffer_lease_request
+        .single_recording_plan_behavior_enabled =
+            stack_region_command_buffer_acquire_hook_result
+                .single_recording_plan_behavior_enabled;
     region_owned_command_buffer_lease_request.acquire_hook_behavior_enabled =
         stack_region_command_buffer_acquire_hook_result.behavior_enabled;
     region_owned_command_buffer_lease_request.acquire_hook_lease_available =
@@ -11313,6 +11388,89 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_exit_release_ownership_contract_rows.emplace_back(
         exit_release_ownership_contract_row.str());
+    std::ostringstream stack_region_single_recording_plan_row;
+    stack_region_single_recording_plan_row
+        << "schema=StackRegionSingleRecordingPlan.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " plan_key=" << stack_region_single_recording_plan_key
+        << " stack_region_id="
+        << stack_region_single_recording_plan_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " planned_region_exit_submit_point_id="
+        << planned_submit_point_id
+        << " owner_scope="
+        << stack_region_single_recording_plan_request.owner_scope
+        << " requested_lifetime_scope="
+        << stack_region_single_recording_plan_request
+               .requested_lifetime_scope
+        << " plan_required="
+        << (stack_region_single_recording_plan_request.plan_required ? "1"
+                                                                     : "0")
+        << " plan_record_emitted="
+        << (stack_region_single_recording_plan_result.plan_record_emitted
+                ? "1"
+                : "0")
+        << " plan_present="
+        << (stack_region_single_recording_plan_result.plan_present ? "1"
+                                                                   : "0")
+        << " plan_id=" << stack_region_single_recording_plan_result.plan_id
+        << " plan_lifecycle_status="
+        << stack_region_single_recording_plan_result.plan_lifecycle_status
+        << " plan_status="
+        << stack_region_single_recording_plan_result.plan_status
+        << " behavior_enabled="
+        << (stack_region_single_recording_plan_result.behavior_enabled ? "1"
+                                                                       : "0")
+        << " current_execution_recording_mode="
+        << stack_region_single_recording_plan_result
+               .current_execution_recording_mode
+        << " borrowed_context_command_buffer_region_lease_status="
+        << stack_region_single_recording_plan_result
+               .borrowed_context_command_buffer_region_lease_status
+        << " single_region_recording_owner_status="
+        << stack_region_single_recording_plan_result
+               .single_region_recording_owner_status
+        << " top_blocker="
+        << stack_region_single_recording_plan_result.top_blocker
+        << " stack_planned_recording_active="
+        << (stack_region_single_recording_plan_result
+                    .stack_planned_recording_active
+                ? "1"
+                : "0")
+        << " stack_planned_recording_owned_by_current_thread="
+        << (stack_region_single_recording_plan_result
+                    .stack_planned_recording_owned_by_current_thread
+                ? "1"
+                : "0")
+        << " current_command_buffer_recording_id="
+        << stack_region_single_recording_plan_result
+               .current_command_buffer_recording_id
+        << " phase_boundary_submits_preserved="
+        << (stack_region_single_recording_plan_result
+                    .phase_boundary_submits_preserved
+                ? "1"
+                : "0")
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " new_queue_submit_created=0"
+        << " command_buffer_execution_topology_changed="
+        << (stack_region_single_recording_plan_result
+                    .command_buffer_execution_topology_changed
+                ? "1"
+                : "0")
+        << " authorizes_submit_elision="
+        << (stack_region_single_recording_plan_result.authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " runtime_api_source="
+        << stack_region_single_recording_plan_result.runtime_api_source
+        << " future_owner_state=single_region_recording_owner_provided"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_single_recording_plan_rows.emplace_back(
+        stack_region_single_recording_plan_row.str());
     std::ostringstream stack_region_command_buffer_acquire_hook_row;
     stack_region_command_buffer_acquire_hook_row
         << "schema=StackRegionCommandBufferAcquireHook.v0"
@@ -11354,6 +11512,29 @@ void append_stack_region_submit_epoch_ordering_json(
         << stack_region_command_buffer_acquire_hook_result.result_status
         << " top_blocker="
         << stack_region_command_buffer_acquire_hook_result.top_blocker
+        << " single_recording_plan=StackRegionSingleRecordingPlan.v0"
+        << " single_recording_plan_key="
+        << stack_region_single_recording_plan_key
+        << " single_recording_plan_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .single_recording_plan_status
+        << " single_recording_plan_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result
+               .single_recording_plan_top_blocker
+        << " single_recording_plan_borrowed_context_lease_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .single_recording_plan_borrowed_context_lease_status
+        << " single_recording_plan_current_execution_mode="
+        << stack_region_command_buffer_acquire_hook_result
+               .single_recording_plan_current_execution_mode
+        << " single_recording_plan_owner_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .single_recording_plan_owner_status
+        << " single_recording_plan_behavior_enabled="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .single_recording_plan_behavior_enabled
+                ? "1"
+                : "0")
         << " stack_planned_recording_active="
         << (stack_region_command_buffer_acquire_hook_result
                     .stack_planned_recording_active
@@ -11431,6 +11612,29 @@ void append_stack_region_submit_epoch_ordering_json(
                .acquire_hook_result_status
         << " acquire_hook_top_blocker="
         << region_owned_command_buffer_lease_result.acquire_hook_top_blocker
+        << " single_recording_plan=StackRegionSingleRecordingPlan.v0"
+        << " single_recording_plan_key="
+        << region_owned_command_buffer_lease_result.single_recording_plan_key
+        << " single_recording_plan_status="
+        << region_owned_command_buffer_lease_result
+               .single_recording_plan_status
+        << " single_recording_plan_top_blocker="
+        << region_owned_command_buffer_lease_result
+               .single_recording_plan_top_blocker
+        << " single_recording_plan_borrowed_context_lease_status="
+        << region_owned_command_buffer_lease_result
+               .single_recording_plan_borrowed_context_lease_status
+        << " single_recording_plan_current_execution_mode="
+        << region_owned_command_buffer_lease_result
+               .single_recording_plan_current_execution_mode
+        << " single_recording_plan_owner_status="
+        << region_owned_command_buffer_lease_result
+               .single_recording_plan_owner_status
+        << " single_recording_plan_behavior_enabled="
+        << (region_owned_command_buffer_lease_result
+                    .single_recording_plan_behavior_enabled
+                ? "1"
+                : "0")
         << " acquire_hook_behavior_enabled="
         << (region_owned_command_buffer_lease_result
                     .acquire_hook_behavior_enabled
@@ -15324,6 +15528,14 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_exit_close_submit_owner_planned_point_status_counts;
   std::map<std::string, uint64_t>
+      stack_region_single_recording_plan_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_single_recording_plan_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_single_recording_plan_borrowed_context_lease_counts;
+  std::map<std::string, uint64_t>
+      stack_region_single_recording_plan_execution_mode_counts;
+  std::map<std::string, uint64_t>
       stack_region_command_buffer_acquire_hook_status_counts;
   std::map<std::string, uint64_t>
       stack_region_command_buffer_acquire_hook_result_status_counts;
@@ -16059,6 +16271,23 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "planned_region_exit_submit_point_status",
         "missing_planned_region_exit_submit_point_status")] += count;
+  }
+  for (const auto& row : stack_region_single_recording_plan_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_single_recording_plan_status_counts[field_or(
+        fields, "plan_status", "missing_plan_status")] += count;
+    stack_region_single_recording_plan_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_single_recording_plan_borrowed_context_lease_counts[field_or(
+        fields,
+        "borrowed_context_command_buffer_region_lease_status",
+        "missing_borrowed_context_command_buffer_region_lease_status")] +=
+        count;
+    stack_region_single_recording_plan_execution_mode_counts[field_or(
+        fields,
+        "current_execution_recording_mode",
+        "missing_current_execution_recording_mode")] += count;
   }
   for (const auto& row : stack_region_command_buffer_acquire_hook_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -18270,6 +18499,34 @@ void append_stack_region_submit_epoch_ordering_json(
   }
   out << "]";
   append_json_comma(out, submit_level_first);
+  out << "\"stack_region_single_recording_plan_status_counts\":";
+  append_u64_map_object(out, stack_region_single_recording_plan_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_single_recording_plan_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_single_recording_plan_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_single_recording_plan_borrowed_context_lease_counts\":";
+  append_u64_map_object(
+      out, stack_region_single_recording_plan_borrowed_context_lease_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_single_recording_plan_execution_mode_counts\":";
+  append_u64_map_object(
+      out, stack_region_single_recording_plan_execution_mode_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_single_recording_plan_records\":[";
+  for (size_t i = 0u; i < stack_region_single_recording_plan_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_single_recording_plan_rows[i],
+        "stack_region_single_recording_plan");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
   out << "\"stack_region_command_buffer_acquire_hook_status_counts\":";
   append_u64_map_object(
       out, stack_region_command_buffer_acquire_hook_status_counts);
@@ -20153,6 +20410,19 @@ request_region_owned_command_buffer_lease(
       request.acquire_hook_command_pool_scope_status;
   result.acquire_hook_behavior_enabled =
       request.acquire_hook_behavior_enabled;
+  result.single_recording_plan_key = request.single_recording_plan_key;
+  result.single_recording_plan_status =
+      request.single_recording_plan_status;
+  result.single_recording_plan_top_blocker =
+      request.single_recording_plan_top_blocker;
+  result.single_recording_plan_borrowed_context_lease_status =
+      request.single_recording_plan_borrowed_context_lease_status;
+  result.single_recording_plan_current_execution_mode =
+      request.single_recording_plan_current_execution_mode;
+  result.single_recording_plan_owner_status =
+      request.single_recording_plan_owner_status;
+  result.single_recording_plan_behavior_enabled =
+      request.single_recording_plan_behavior_enabled;
   result.current_owner_status = request.current_owner_scope;
   result.requested_owner_scope_status =
       request.requested_owner_scope + "_owner_scope_requested";
@@ -20206,13 +20476,16 @@ request_region_owned_command_buffer_lease(
   result.request_status =
       "region_owned_command_buffer_lease_request_acquire_hook_present_result_unavailable";
   result.result_status =
-      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
-  result.top_blocker =
-      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
+      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+  result.top_blocker = request.single_recording_plan_top_blocker;
+  if (result.top_blocker.empty() ||
+      result.top_blocker == "missing_stack_region_single_recording_plan") {
+    result.top_blocker =
+        "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+  }
   result.command_buffer_batch_lease_id =
       request.acquire_hook_command_buffer_or_batch_lease_id;
-  result.command_buffer_or_batch_lease_status =
-      request.acquire_hook_command_buffer_or_batch_lease_status;
+  result.command_buffer_or_batch_lease_status = result.top_blocker;
   result.command_pool_lease_id = request.acquire_hook_command_pool_lease_id;
   result.command_pool_lease_status =
       request.acquire_hook_command_pool_lease_status;
