@@ -73,6 +73,19 @@ creates the timeline point used by retire ownership, and anchors descriptor and
 allocator lifetime. A future safe optimization needs a stack/region owner that
 owns those responsibilities together.
 
+`StackRegionSingleRecordingCanary.v0` is the first opt-in check of that model.
+With both the barrier canary and
+`PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY=non_capture_residual2_norm1_block1`
+enabled, a proof warmup pass may record the selected non-capture
+`residual2@0 -> norm1@1` boundary. A second pass may then keep the current
+stack-region command recording open across exactly that phase boundary and
+close/submit at stack exit. The canary is not default behavior, does not use
+the older retire-time submit-elision canary, and does not remove any boundary
+outside the selected one. The focused test asserts output parity and that the
+single deferred submit is backed by the single-recording owner, live command
+buffer id, pending dispatch range, actual Norm1 input barrier proof, and
+host/final/readback blocker checks.
+
 ## Design Card
 
 ### Stack-Entry Acquire

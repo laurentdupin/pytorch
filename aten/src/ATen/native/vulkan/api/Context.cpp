@@ -2190,10 +2190,28 @@ VulkanSubmission Context::submit_cmd_to_gpu(
             submit_epoch_before,
             submit_epoch_after,
             pending_dispatch_count);
+    const bool should_defer_stack_region_single_recording_owner =
+        record_phase_boundary_dry_run &&
+        maybe_defer_stack_region_single_recording_owner_canary(
+            phase,
+            callsite,
+            command_buffer_recording_id,
+            submit_epoch_before,
+            submit_epoch_after,
+            pending_dispatch_count,
+            fence_handle == VK_NULL_HANDLE,
+            !final_use,
+            stack_planned_recording_active_.load(std::memory_order_acquire),
+            stack_planned_recording_owner_ == std::this_thread::get_id(),
+            stack_region_single_recording_owner_id_.load(
+                std::memory_order_acquire),
+            stack_region_single_recording_owner_state_.load(
+                std::memory_order_acquire));
     const bool should_coalesce_phase_boundary_explicit_sync =
         (kCoalescePhaseBoundaryExplicitSync &&
          dry_run_all_safe_group_eligible) ||
-        should_elide_stack_region_boundary_submit;
+        should_elide_stack_region_boundary_submit ||
+        should_defer_stack_region_single_recording_owner;
     note_region_lifetime_submit_attribution_group(
         origin,
         phase,

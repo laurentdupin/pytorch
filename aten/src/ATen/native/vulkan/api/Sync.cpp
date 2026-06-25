@@ -47,6 +47,8 @@ const char* stack_region_barrier_only_canary_target();
 bool stack_region_barrier_only_canary_target_selected(const char* target);
 const char* stack_region_submit_elision_canary_target();
 bool stack_region_submit_elision_canary_target_selected(const char* target);
+const char* stack_region_single_recording_canary_target();
+bool stack_region_single_recording_canary_target_selected(const char* target);
 std::string non_capture_residual2_to_norm1_boundary_id(
     int64_t producer_block,
     int64_t consumer_block);
@@ -489,6 +491,18 @@ struct StackRegionSubmitElisionCanaryValue final {
   uint64_t submit_removed_count = 0u;
 };
 
+struct StackRegionSingleRecordingCanaryValue final {
+  uint64_t count = 0u;
+  uint64_t candidate_records = 0u;
+  uint64_t eligible_records = 0u;
+  uint64_t eligible_boundary_count = 0u;
+  uint64_t barrier_validated_count = 0u;
+  uint64_t proof_ready_records = 0u;
+  uint64_t selected_submit_rows = 0u;
+  uint64_t submit_removed_count = 0u;
+  uint64_t outside_selected_submit_removed_count = 0u;
+};
+
 struct StackRawResourceProducerRegistrationValue final {
   uint64_t count = 0u;
   uint64_t byte_range = 0u;
@@ -582,6 +596,12 @@ stack_region_boundary_optimization_plan_rows() {
 std::map<std::string, StackRegionSubmitElisionCanaryValue>&
 stack_region_submit_elision_canary_rows() {
   static std::map<std::string, StackRegionSubmitElisionCanaryValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionSingleRecordingCanaryValue>&
+stack_region_single_recording_canary_rows() {
+  static std::map<std::string, StackRegionSingleRecordingCanaryValue> rows;
   return rows;
 }
 
@@ -1775,6 +1795,277 @@ void record_stack_region_submit_elision_canary_locked(
   }
 }
 
+std::string stack_region_single_recording_canary_key(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const char* const status,
+    const char* const guard_fail_reason,
+    const char* const phase_contract_status,
+    const char* const phase_contract_reason,
+    const bool fence_handle_null,
+    const bool final_use_false,
+    const bool stack_planned_recording_active,
+    const bool stack_planned_recording_owned_by_current_thread,
+    const uint64_t single_recording_owner_id,
+    const uint32_t single_recording_owner_state,
+    const uint64_t candidate_records,
+    const uint64_t eligible_records,
+    const uint64_t eligible_boundary_count,
+    const uint64_t barrier_validated_count,
+    const uint64_t proof_ready_records,
+    const uint64_t selected_submit_rows,
+    const uint64_t pending_range_complete_rows,
+    const uint64_t same_active_command_buffer_rows,
+    const uint64_t descriptor_update_generation_rows_for_selected,
+    const uint64_t actual_norm1_input_barrier_rows,
+    const uint64_t old_carry_retire_only_rows,
+    const uint64_t unknown_ordering_retire_entries_zero_rows,
+    const uint64_t no_public_final_host_readback_blocker_rows,
+    const bool submit_removed) {
+  const int64_t live_block = current_vision_stack_block_index();
+  const bool live_selected_boundary =
+      stack_region_single_recording_canary_target_selected(
+          stack_region_single_recording_canary_target()) &&
+      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      live_block == 1;
+  const bool single_recording_owner_active =
+      single_recording_owner_id != 0u && single_recording_owner_state == 1u;
+  const bool live_command_buffer_id_observed =
+      command_buffer_recording_id != 0u;
+  const uint64_t pending_dispatch_last_position =
+      g_stack_dispatch_dependency_position;
+  const bool live_pending_dispatch_range_available =
+      pending_dispatch_count > 0u &&
+      pending_dispatch_last_position >= pending_dispatch_count;
+  const uint64_t pending_dispatch_first_position =
+      live_pending_dispatch_range_available
+      ? pending_dispatch_last_position - pending_dispatch_count + 1u
+      : 0u;
+  const std::string live_pending_dispatch_list_identity =
+      live_pending_dispatch_range_available
+      ? "scope:" + std::to_string(g_stack_dispatch_dependency_scope_id) +
+          ":command_buffer:" + std::to_string(command_buffer_recording_id) +
+          ":positions:" + std::to_string(pending_dispatch_first_position) +
+          "-" + std::to_string(pending_dispatch_last_position)
+      : "missing_live_pending_dispatch_range";
+  const std::string selected_boundary_id =
+      non_capture_residual2_to_norm1_boundary_id(0, 1);
+  const char* const owner_status =
+      submit_removed
+      ? "single_region_recording_owner_active_close_submit_canary"
+      : "single_region_recording_owner_close_submit_canary_fail_closed";
+  const char* const close_submit_status =
+      submit_removed
+      ? "close_submit_owned_by_stack_region_single_recording_owner_canary"
+      : "close_submit_still_context_phase_submit_owned";
+  const char* const lease_status =
+      submit_removed
+      ? "region_owned_command_buffer_lease_available_single_recording_owner_canary"
+      : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  const char* const exit_owner_status =
+      submit_removed
+      ? "region_exit_close_submit_owner_available_single_recording_owner_canary"
+      : "region_exit_close_submit_owner_surface_present_fail_closed";
+  std::ostringstream key;
+  key << "stack_region_single_recording_canary=1"
+      << " contract=RegionCommandBufferOwnership"
+      << " schema=StackRegionSingleRecordingCanary.v0"
+      << " opt_in_env=PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
+      << " selected_boundary_id=" << selected_boundary_id
+      << " boundary_class=non_capture_residual2_to_norm1"
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " live_phase=" << vision_stack_phase_name(current_vision_stack_phase())
+      << " live_block=" << live_block
+      << " live_boundary_id="
+      << (live_selected_boundary ? selected_boundary_id : "none")
+      << " live_boundary_class="
+      << (live_selected_boundary ? "non_capture_residual2_to_norm1" : "none")
+      << " status=" << (status ? status : "missing")
+      << " guard_fail_reason="
+      << (guard_fail_reason ? guard_fail_reason : "missing")
+      << " phase_submit_epoch_visibility_contract_guard_status="
+      << (phase_contract_status ? phase_contract_status : "missing")
+      << " phase_submit_epoch_visibility_contract_guard_reason="
+      << (phase_contract_reason ? phase_contract_reason : "missing")
+      << " single_recording_owner_status=" << owner_status
+      << " single_recording_owner_close_submit_status=" << close_submit_status
+      << " region_owned_command_buffer_lease_status=" << lease_status
+      << " region_exit_close_submit_owner_status=" << exit_owner_status
+      << " stack_region_owned_phase_submit_status="
+      << (submit_removed
+              ? "stack_region_owned_phase_submit_deferred_to_stack_exit_canary"
+              : "single_recording_owner_close_submit_canary_guard_failed")
+      << " fence_handle_null=" << (fence_handle_null ? 1 : 0)
+      << " final_use_false=" << (final_use_false ? 1 : 0)
+      << " final_use_guard_status="
+      << (final_use_false
+              ? "final_use_false"
+              : "final_use_true_allowed_selected_stack_owner_boundary")
+      << " stack_planned_recording_active="
+      << (stack_planned_recording_active ? 1 : 0)
+      << " stack_planned_recording_owned_by_current_thread="
+      << (stack_planned_recording_owned_by_current_thread ? 1 : 0)
+      << " single_recording_owner_id=" << single_recording_owner_id
+      << " single_recording_owner_state=" << single_recording_owner_state
+      << " single_recording_owner_active="
+      << (single_recording_owner_active ? 1 : 0)
+      << " command_buffer_recording_id=" << command_buffer_recording_id
+      << " single_recording_owner_recording_id_match="
+      << (live_command_buffer_id_observed ? 1 : 0)
+      << " producer_submit_epoch=" << submit_epoch_before
+      << " consumer_submit_epoch=" << submit_epoch_after
+      << " pending_dispatch_count=" << pending_dispatch_count
+      << " live_pending_dispatch_position_first="
+      << pending_dispatch_first_position
+      << " live_pending_dispatch_position_last="
+      << pending_dispatch_last_position
+      << " live_pending_dispatch_range_status="
+      << (live_pending_dispatch_range_available
+              ? "live_pending_dispatch_range_observed"
+              : "missing_live_pending_dispatch_range_positions")
+      << " live_pending_dispatch_list_identity="
+      << live_pending_dispatch_list_identity
+      << " candidate_records=" << candidate_records
+      << " eligible_records=" << eligible_records
+      << " eligible_boundary_count=" << eligible_boundary_count
+      << " barrier_validated_count=" << barrier_validated_count
+      << " proof_ready_records=" << proof_ready_records
+      << " selected_submit_rows=" << selected_submit_rows
+      << " pending_range_complete_rows=" << pending_range_complete_rows
+      << " same_active_command_buffer_rows="
+      << same_active_command_buffer_rows
+      << " descriptor_update_generation_rows_for_selected="
+      << descriptor_update_generation_rows_for_selected
+      << " actual_norm1_input_barrier_rows="
+      << actual_norm1_input_barrier_rows
+      << " old_carry_retire_only_rows=" << old_carry_retire_only_rows
+      << " unknown_ordering_retire_entries_zero_rows="
+      << unknown_ordering_retire_entries_zero_rows
+      << " no_public_final_host_readback_blocker_rows="
+      << no_public_final_host_readback_blocker_rows
+      << " actual_norm1_input_barrier_proof_present="
+      << (selected_submit_rows > 0u &&
+              actual_norm1_input_barrier_rows >= selected_submit_rows
+          ? 1
+          : 0)
+      << " old_carry_retire_only_non_escaping_proof_complete="
+      << (selected_submit_rows > 0u &&
+              old_carry_retire_only_rows >= selected_submit_rows
+          ? 1
+          : 0)
+      << " unknown_order_required_retire_entries_zero="
+      << (selected_submit_rows > 0u &&
+              unknown_ordering_retire_entries_zero_rows >=
+                  selected_submit_rows
+          ? 1
+          : 0)
+      << " pending_dispatch_range_complete="
+      << (selected_submit_rows > 0u &&
+              pending_range_complete_rows >= selected_submit_rows
+          ? 1
+          : 0)
+      << " no_public_final_host_readback_blocker="
+      << (selected_submit_rows > 0u &&
+              no_public_final_host_readback_blocker_rows >=
+                  selected_submit_rows
+          ? 1
+          : 0)
+      << " single_recording_canary_enabled=" << (submit_removed ? 1 : 0)
+      << " submit_elision_enabled=0"
+      << " deferred_submit_enabled=0"
+      << " new_queue_submit_created=0"
+      << " authorizes_submit_elision=0"
+      << " selected_phase_submit_deferred_to_stack_exit="
+      << (submit_removed ? 1 : 0)
+      << " phase_boundary_submits_preserved=" << (submit_removed ? 0 : 1)
+      << " command_buffer_execution_topology_changed=0"
+      << " submits_removed=" << (submit_removed ? 1 : 0)
+      << " selected_submits_removed=" << (submit_removed ? 1 : 0)
+      << " submits_removed_outside_selected_boundary=0"
+      << " barriers_inserted=" << barrier_validated_count;
+  return key.str();
+}
+
+void record_stack_region_single_recording_canary_locked(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const char* const status,
+    const char* const guard_fail_reason,
+    const char* const phase_contract_status,
+    const char* const phase_contract_reason,
+    const bool fence_handle_null,
+    const bool final_use_false,
+    const bool stack_planned_recording_active,
+    const bool stack_planned_recording_owned_by_current_thread,
+    const uint64_t single_recording_owner_id,
+    const uint32_t single_recording_owner_state,
+    const uint64_t candidate_records,
+    const uint64_t eligible_records,
+    const uint64_t eligible_boundary_count,
+    const uint64_t barrier_validated_count,
+    const uint64_t proof_ready_records,
+    const uint64_t selected_submit_rows,
+    const uint64_t pending_range_complete_rows,
+    const uint64_t same_active_command_buffer_rows,
+    const uint64_t descriptor_update_generation_rows_for_selected,
+    const uint64_t actual_norm1_input_barrier_rows,
+    const uint64_t old_carry_retire_only_rows,
+    const uint64_t unknown_ordering_retire_entries_zero_rows,
+    const uint64_t no_public_final_host_readback_blocker_rows,
+    const bool submit_removed) {
+  auto& value = stack_region_single_recording_canary_rows()
+      [stack_region_single_recording_canary_key(
+          phase,
+          callsite,
+          command_buffer_recording_id,
+          submit_epoch_before,
+          submit_epoch_after,
+          pending_dispatch_count,
+          status,
+          guard_fail_reason,
+          phase_contract_status,
+          phase_contract_reason,
+          fence_handle_null,
+          final_use_false,
+          stack_planned_recording_active,
+          stack_planned_recording_owned_by_current_thread,
+          single_recording_owner_id,
+          single_recording_owner_state,
+          candidate_records,
+          eligible_records,
+          eligible_boundary_count,
+          barrier_validated_count,
+          proof_ready_records,
+          selected_submit_rows,
+          pending_range_complete_rows,
+          same_active_command_buffer_rows,
+          descriptor_update_generation_rows_for_selected,
+          actual_norm1_input_barrier_rows,
+          old_carry_retire_only_rows,
+          unknown_ordering_retire_entries_zero_rows,
+          no_public_final_host_readback_blocker_rows,
+          submit_removed)];
+  value.count += 1u;
+  value.candidate_records += candidate_records;
+  value.eligible_records += eligible_records;
+  value.eligible_boundary_count += eligible_boundary_count;
+  value.barrier_validated_count += barrier_validated_count;
+  value.proof_ready_records += proof_ready_records;
+  value.selected_submit_rows += selected_submit_rows;
+  if (submit_removed) {
+    value.submit_removed_count += 1u;
+  }
+}
+
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
     const uint64_t scope_id,
     const VulkanVisionStackPhase phase,
@@ -2014,6 +2305,22 @@ const char* stack_region_submit_elision_canary_target() {
 }
 
 bool stack_region_submit_elision_canary_target_selected(
+    const char* const target) {
+  if (target == nullptr) {
+    return false;
+  }
+  const std::string value(target);
+  return value == "non_capture_residual2_norm1_block1" ||
+      value == "producer_block_0_consumer_block_1";
+}
+
+const char* stack_region_single_recording_canary_target() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY");
+  return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_single_recording_canary_target_selected(
     const char* const target) {
   if (target == nullptr) {
     return false;
@@ -20043,8 +20350,15 @@ void split_stack_graph_rows(
     std::vector<std::string>& pre_dispatch_proof_rows,
     std::vector<std::string>& boundary_optimization_plan_rows,
     std::vector<std::string>& submit_elision_canary_rows,
+    std::vector<std::string>& single_recording_canary_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
+    if (
+        row.find("stack_region_single_recording_canary=1") !=
+        std::string::npos) {
+      single_recording_canary_rows.emplace_back(row);
+      continue;
+    }
     if (row.find("stack_region_submit_elision_canary=1") != std::string::npos) {
       submit_elision_canary_rows.emplace_back(row);
       continue;
@@ -20139,6 +20453,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> pre_dispatch_proof_rows;
   std::vector<std::string> boundary_optimization_plan_rows;
   std::vector<std::string> submit_elision_canary_rows;
+  std::vector<std::string> single_recording_canary_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
@@ -20154,6 +20469,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       pre_dispatch_proof_rows,
       boundary_optimization_plan_rows,
       submit_elision_canary_rows,
+      single_recording_canary_rows,
       raw_resource_producer_rows);
 
   std::vector<std::string> resource_nodes;
@@ -20314,6 +20630,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_single_recording_canary_rows",
+      single_recording_canary_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "raw_resource_producer_rows",
       raw_resource_producer_rows.size(),
       summary_first);
@@ -20327,6 +20648,33 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   }
   append_json_bool(
       out, "submit_elision_enabled", submit_elision_enabled, summary_first);
+  bool single_recording_canary_enabled = false;
+  uint64_t single_recording_canary_submits_removed = 0u;
+  uint64_t single_recording_canary_outside_removed = 0u;
+  for (const auto& row : single_recording_canary_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    single_recording_canary_submits_removed +=
+        parsed_u64(fields, "submits_removed");
+    single_recording_canary_outside_removed +=
+        parsed_u64(fields, "submits_removed_outside_selected_boundary");
+  }
+  single_recording_canary_enabled =
+      single_recording_canary_submits_removed > 0u;
+  append_json_bool(
+      out,
+      "single_recording_canary_enabled",
+      single_recording_canary_enabled,
+      summary_first);
+  append_json_u64(
+      out,
+      "single_recording_canary_submits_removed",
+      single_recording_canary_submits_removed,
+      summary_first);
+  append_json_u64(
+      out,
+      "single_recording_canary_submits_removed_outside_selected_boundary",
+      single_recording_canary_outside_removed,
+      summary_first);
   append_json_string(
       out,
       "current_submit_sync_reason",
@@ -20413,6 +20761,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_submit_elision_canary_rows",
       submit_elision_canary_rows,
       "stack_region_submit_elision_canary",
+      first);
+  append_graph_array(
+      out,
+      "stack_region_single_recording_canary_rows",
+      single_recording_canary_rows,
+      "stack_region_single_recording_canary",
       first);
   append_graph_array(
       out,
@@ -25266,8 +25620,13 @@ void note_stack_region_boundary_submit_plan(
   const bool non_capture_submit_target =
       stack_region_submit_elision_canary_target_selected(
           stack_region_submit_elision_canary_target()) ||
+      stack_region_single_recording_canary_target_selected(
+          stack_region_single_recording_canary_target()) ||
       stack_region_barrier_only_canary_target_selected(
           stack_region_barrier_only_canary_target());
+  const bool single_recording_non_capture_target =
+      stack_region_single_recording_canary_target_selected(
+          stack_region_single_recording_canary_target());
   const std::string non_capture_selected_boundary_id =
       non_capture_residual2_to_norm1_boundary_id(0, 1);
   const bool live_selected_non_capture_boundary =
@@ -25771,7 +26130,8 @@ void note_stack_region_boundary_submit_plan(
       << " same_region_consumer_registration_present="
       << (selection.has_same_region_registration ? 1 : 0)
       << " public_scope_rejected="
-      << (!selection.has_same_region_registration &&
+      << (!single_recording_non_capture_target &&
+              !selection.has_same_region_registration &&
               !g_vision_stack_capture_indices.empty()
           ? 1
           : 0)
@@ -25969,6 +26329,163 @@ bool maybe_elide_stack_region_boundary_submit_canary(
       proof_guard_summary.no_public_final_host_readback_blocker_rows,
       /*submit_removed=*/false);
   return false;
+}
+
+bool maybe_defer_stack_region_single_recording_owner_canary(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const bool fence_handle_null,
+    const bool final_use_false,
+    const bool stack_planned_recording_active,
+    const bool stack_planned_recording_owned_by_current_thread,
+    const uint64_t single_recording_owner_id,
+    const uint32_t single_recording_owner_state) {
+  const char* const target = stack_region_single_recording_canary_target();
+  if (
+      !stack_region_single_recording_canary_target_selected(target) ||
+      phase != VulkanSubmitPhase::StackOwner ||
+      !(callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
+        callsite == VulkanRetireCallSite::StackOwnerNorm2)) {
+    return false;
+  }
+  const std::string selected_boundary_id =
+      non_capture_residual2_to_norm1_boundary_id(0, 1);
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  uint64_t already_removed = 0u;
+  for (const auto& item : stack_region_single_recording_canary_rows()) {
+    already_removed += item.second.submit_removed_count;
+  }
+  const StackRegionOptimizationEligibilitySummary eligibility_summary =
+      stack_region_boundary_optimization_eligibility_summary_locked(
+          selected_boundary_id);
+  const StackRegionSubmitElisionProofGuardSummary proof_guard_summary =
+      stack_region_submit_elision_phase_contract_guard_summary_locked(
+          selected_boundary_id, eligibility_summary);
+  const bool live_boundary_matches_selected =
+      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
+      current_vision_stack_block_index() == 1;
+  const auto record_fail = [&](const char* const reason) {
+    record_stack_region_single_recording_canary_locked(
+        phase,
+        callsite,
+        command_buffer_recording_id,
+        submit_epoch_before,
+        submit_epoch_after,
+        pending_dispatch_count,
+        "single_recording_owner_close_submit_canary_guard_failed",
+        reason,
+        proof_guard_summary.status,
+        proof_guard_summary.reason,
+        fence_handle_null,
+        final_use_false,
+        stack_planned_recording_active,
+        stack_planned_recording_owned_by_current_thread,
+        single_recording_owner_id,
+        single_recording_owner_state,
+        eligibility_summary.candidate_records,
+        eligibility_summary.eligible_records,
+        eligibility_summary.eligible_boundary_count,
+        eligibility_summary.barrier_validated_count,
+        proof_guard_summary.proof_ready_rows,
+        proof_guard_summary.selected_submit_rows,
+        proof_guard_summary.pending_range_complete_rows,
+        proof_guard_summary.same_active_command_buffer_rows,
+        proof_guard_summary.descriptor_update_generation_rows_for_selected,
+        proof_guard_summary.actual_norm1_input_barrier_rows,
+        proof_guard_summary.old_carry_retire_only_rows,
+        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+        proof_guard_summary.no_public_final_host_readback_blocker_rows,
+        /*submit_removed=*/false);
+  };
+  if (already_removed != 0u) {
+    record_fail("single_recording_canary_already_skipped_one_submit");
+    return false;
+  }
+  if (!live_boundary_matches_selected) {
+    record_fail("live_boundary_not_selected");
+    return false;
+  }
+  if (!fence_handle_null) {
+    record_fail("fence_handle_not_null");
+    return false;
+  }
+  if (!stack_planned_recording_active) {
+    record_fail("stack_planned_recording_not_active");
+    return false;
+  }
+  if (!stack_planned_recording_owned_by_current_thread) {
+    record_fail("stack_planned_recording_not_owned_by_current_thread");
+    return false;
+  }
+  if (single_recording_owner_id == 0u || single_recording_owner_state != 1u) {
+    record_fail("single_recording_owner_not_active");
+    return false;
+  }
+  if (command_buffer_recording_id == 0u) {
+    record_fail("missing_live_command_buffer_recording_id");
+    return false;
+  }
+  if (std::string(proof_guard_summary.status) !=
+      "phase_contract_guard_proof_ready") {
+    record_fail("submit_level_equivalence_proof_not_ready");
+    return false;
+  }
+  if (
+      proof_guard_summary.selected_submit_rows == 0u ||
+      proof_guard_summary.pending_range_complete_rows <
+          proof_guard_summary.selected_submit_rows ||
+      proof_guard_summary.same_active_command_buffer_rows <
+          proof_guard_summary.selected_submit_rows ||
+      proof_guard_summary.descriptor_update_generation_rows_for_selected <
+          proof_guard_summary.selected_submit_rows ||
+      proof_guard_summary.actual_norm1_input_barrier_rows <
+          proof_guard_summary.selected_submit_rows ||
+      proof_guard_summary.old_carry_retire_only_rows <
+          proof_guard_summary.selected_submit_rows ||
+      proof_guard_summary.unknown_ordering_retire_entries_zero_rows <
+          proof_guard_summary.selected_submit_rows ||
+      proof_guard_summary.no_public_final_host_readback_blocker_rows <
+          proof_guard_summary.selected_submit_rows) {
+    record_fail("selected_boundary_proof_predicate_missing");
+    return false;
+  }
+  record_stack_region_single_recording_canary_locked(
+      phase,
+      callsite,
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      pending_dispatch_count,
+      "stack_region_owned_phase_submit_deferred_to_stack_exit_canary",
+      "none",
+      proof_guard_summary.status,
+      proof_guard_summary.reason,
+      fence_handle_null,
+      final_use_false,
+      stack_planned_recording_active,
+      stack_planned_recording_owned_by_current_thread,
+      single_recording_owner_id,
+      single_recording_owner_state,
+      eligibility_summary.candidate_records,
+      eligibility_summary.eligible_records,
+      eligibility_summary.eligible_boundary_count,
+      eligibility_summary.barrier_validated_count,
+      proof_guard_summary.proof_ready_rows,
+      proof_guard_summary.selected_submit_rows,
+      proof_guard_summary.pending_range_complete_rows,
+      proof_guard_summary.same_active_command_buffer_rows,
+      proof_guard_summary.descriptor_update_generation_rows_for_selected,
+      proof_guard_summary.actual_norm1_input_barrier_rows,
+      proof_guard_summary.old_carry_retire_only_rows,
+      proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
+      proof_guard_summary.no_public_final_host_readback_blocker_rows,
+      /*submit_removed=*/true);
+  return true;
 }
 
 void note_stack_phase_boundary_lifetime_dry_run_group(
@@ -26515,7 +27032,9 @@ bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
   }
   const bool submit_elision_requested =
       stack_region_submit_elision_canary_target_selected(
-          stack_region_submit_elision_canary_target());
+          stack_region_submit_elision_canary_target()) ||
+      stack_region_single_recording_canary_target_selected(
+          stack_region_single_recording_canary_target());
   if (!inside_vision_stack_phase()) {
     return false;
   }
@@ -27001,6 +27520,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_pre_dispatch_proof_table_rows().size() +
       stack_region_boundary_optimization_plan_rows().size() +
       stack_region_submit_elision_canary_rows().size() +
+      stack_region_single_recording_canary_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
@@ -27108,6 +27628,20 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " submits_removed=" << item.second.submit_removed_count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_single_recording_canary_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count
+        << " candidate_records=" << item.second.candidate_records
+        << " eligible_records=" << item.second.eligible_records
+        << " eligible_boundary_count=" << item.second.eligible_boundary_count
+        << " barrier_validated_count=" << item.second.barrier_validated_count
+        << " proof_ready_records=" << item.second.proof_ready_records
+        << " selected_submit_rows=" << item.second.selected_submit_rows
+        << " submits_removed=" << item.second.submit_removed_count
+        << " submits_removed_outside_selected_boundary="
+        << item.second.outside_selected_submit_removed_count;
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_raw_resource_producer_registration_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -27141,6 +27675,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_pre_dispatch_proof_table_rows().clear();
   stack_region_boundary_optimization_plan_rows().clear();
   stack_region_submit_elision_canary_rows().clear();
+  stack_region_single_recording_canary_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }

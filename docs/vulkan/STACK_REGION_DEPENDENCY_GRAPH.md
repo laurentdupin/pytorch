@@ -708,6 +708,23 @@ lifecycle, including owner id, lifecycle status, current command-buffer
 recording id, and the fact that close/submit, command-pool, descriptor-scope,
 and retire-timeline ownership all remain with the context phase-submit path.
 It is behavior-neutral and does not authorize submit elision.
+
+`StackRegionSingleRecordingCanary.v0` is the first opt-in behavior canary built
+from this surface. It is enabled only by
+`PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY=non_capture_residual2_norm1_block1`
+and still requires
+`PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY=non_capture_residual2_norm1_block1`.
+The canary is intentionally two-stage: a proof warmup records the selected
+non-capture `residual2@0 -> norm1@1` boundary plan and real consumer-side
+barrier evidence, then a second pass may defer exactly one matching
+stack-owner phase-boundary submit to stack exit. It does not enable the older
+submit-elision canary, does not broaden the selected boundary, and records
+`authorizes_submit_elision=0` because the behavior is owned by the
+stack-region single-recording owner. The live guard still fails closed unless
+the selected boundary is active, a stack planned-recording owner is active, the
+command-buffer recording id is observed, the pending dispatch range is
+complete, the actual Norm1 input barrier proof is present, and host/final/readback
+blockers are absent.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,

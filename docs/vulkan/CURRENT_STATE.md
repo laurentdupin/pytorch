@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-21 at local HEAD `e08296b8c4c` plus the
-behavior-neutral backend planning proof-field slice.
+Last refreshed: 2026-06-25 at local HEAD `2736cce7cc9` plus the
+opt-in stack-region single-recording canary slice.
 
 ## Repo State Summary
 
@@ -424,6 +424,21 @@ The owner record is joined into the acquire hook and
 `RegionOwnedCommandBufferLease.v0`, which now fails closed on missing
 single-recording owner close/submit ownership rather than on a missing owner
 surface.
+`StackRegionSingleRecordingCanary.v0` is now the first opt-in behavior canary
+above that owner surface. It is controlled by
+`PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY=non_capture_residual2_norm1_block1`
+and requires the existing barrier canary for the same boundary. The canary uses
+a proof warmup pass to populate the selected non-capture
+`residual2@0 -> norm1@1` boundary plan, then the second pass may keep the
+stack-region command recording open across exactly that phase-boundary submit
+and close it at stack exit. Default behavior is unchanged, the older
+`PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` path remains disabled, and
+the canary records `authorizes_submit_elision=0` because it is a
+region-owned single-recording experiment rather than a retire-time submit
+elision proof. Focused tests cover output parity, one selected submit deferred
+to stack exit, no submit removed outside the selected boundary, live
+command-buffer ownership, barrier proof, pending dispatch range proof, and
+host/final/readback blockers staying absent.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

@@ -1604,6 +1604,20 @@ TORCH_API bool maybe_elide_stack_region_boundary_submit_canary(
     uint64_t submit_epoch_before,
     uint64_t submit_epoch_after,
     uint64_t pending_dispatch_count);
+
+TORCH_API bool maybe_defer_stack_region_single_recording_owner_canary(
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before,
+    uint64_t submit_epoch_after,
+    uint64_t pending_dispatch_count,
+    bool fence_handle_null,
+    bool final_use_false,
+    bool stack_planned_recording_active,
+    bool stack_planned_recording_owned_by_current_thread,
+    uint64_t single_recording_owner_id,
+    uint32_t single_recording_owner_state);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();
