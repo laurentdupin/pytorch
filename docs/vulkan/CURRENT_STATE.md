@@ -511,6 +511,9 @@ phase-submit batch lease as available for accounting, then fail closed on
 This only aligns the canary readiness report with the ownership rows; it does
 not authorize submit elision, make the batch a region close/submit owner, or
 change the `pending_dispatch_barrier_coverage_incomplete` guard.
+The behavior guard also has an explicit close/submit-owner capability check, so
+even after a future barrier-coverage proof becomes complete the canary remains
+fail-closed until a real region exit close/submit owner exists.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

@@ -2407,6 +2407,10 @@ bool stack_region_single_recording_canary_target_selected(
       value == "producer_block_0_consumer_block_1";
 }
 
+bool stack_region_single_recording_close_submit_owner_available() {
+  return false;
+}
+
 std::mutex& stack_region_dependency_graph_dump_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -27233,6 +27237,11 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
   }
   if (eligibility_summary.barrier_validated_count < pending_dispatch_count) {
     record_fail("pending_dispatch_barrier_coverage_incomplete");
+    return false;
+  }
+  if (!stack_region_single_recording_close_submit_owner_available()) {
+    record_fail(
+        "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only");
     return false;
   }
   record_stack_region_single_recording_canary_locked(
