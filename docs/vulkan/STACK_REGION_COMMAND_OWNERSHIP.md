@@ -55,11 +55,13 @@ that hook. It records that the current execution mode remains
 buffer execution topology is unchanged, and a borrowed context command buffer is
 not a valid region lease because phase submits still close and submit the active
 recording. The lease is requested but unavailable with
-`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`:
-the command buffer and command pool are still owned by the Vulkan context's
-phase-submit path until a real single-region recording owner exists, descriptor
-and retire lifetime scopes are unavailable, and same-stream/queue proof is
-still only a requirement. The supporting
+`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`:
+`StackRegionSingleRecordingOwner.v0` now records the lifecycle around stack
+planned recording, but it does not own close/submit, command-pool, descriptor,
+or retire-timeline lifetime. Those responsibilities remain with the Vulkan
+context's phase-submit path, descriptor and retire lifetime scopes are
+unavailable, and same-stream/queue proof is still only a requirement. The
+supporting
 `StackRegionExitCloseSubmitOwnerRequest.v0` /
 `StackRegionExitCloseSubmitOwnerResult.v0` request surface feeds
 `RegionExitCloseSubmitOwner.v0`, which now fails closed on that lease blocker.

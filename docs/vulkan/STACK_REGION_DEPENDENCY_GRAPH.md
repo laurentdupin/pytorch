@@ -699,9 +699,15 @@ or batch lease availability, command-pool lease availability, descriptor
 lifetime scope, retire timeline scope, same-stream/queue requirement status,
 public/final/host/readback blocker status, and behavior-disabled flags. Current
 rows report
-`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`;
+`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`;
 no command buffer is allocated, switched, replayed, deferred, closed, or
 submitted.
+`StackRegionSingleRecordingOwner.v0` is emitted between the single-recording
+plan and acquire/lease rows. It records a real stack planned-recording
+lifecycle, including owner id, lifecycle status, current command-buffer
+recording id, and the fact that close/submit, command-pool, descriptor-scope,
+and retire-timeline ownership all remain with the context phase-submit path.
+It is behavior-neutral and does not authorize submit elision.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,
@@ -729,7 +735,7 @@ region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
 fail-closed reason. Current rows fail closed with
-`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`;
+`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`;
 the
 surface is diagnostic-only and does not create, defer, close, or submit command
 buffers.

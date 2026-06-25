@@ -89,6 +89,20 @@ const char* stack_region_single_recording_plan_state_name(
   }
 }
 
+const char* stack_region_single_recording_owner_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "single_region_recording_owner_active_lifecycle_only";
+    case 2u:
+      return "single_region_recording_owner_finalized_submit_lifecycle_only";
+    case 3u:
+      return "single_region_recording_owner_finalized_cancel_lifecycle_only";
+    default:
+      return "single_region_recording_owner_not_started";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -687,6 +701,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_single_recording_plan_id_{0u},
       next_stack_region_single_recording_plan_id_{1u},
       stack_region_single_recording_plan_state_{0u},
+      stack_region_single_recording_owner_id_{0u},
+      next_stack_region_single_recording_owner_id_{1u},
+      stack_region_single_recording_owner_state_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -769,6 +786,11 @@ Context::snapshot_stack_region_single_recording_plan(
   result.plan_lifecycle_status = stack_region_single_recording_plan_state_name(
       stack_region_single_recording_plan_state_.load(
           std::memory_order_acquire));
+  result.single_recording_owner_key = request.single_recording_owner_key;
+  result.single_region_recording_owner_status =
+      stack_region_single_recording_owner_state_name(
+          stack_region_single_recording_owner_state_.load(
+              std::memory_order_acquire));
   if (!request.plan_required) {
     result.plan_present = false;
     result.plan_status = "stack_region_single_recording_plan_not_required";
@@ -779,6 +801,15 @@ Context::snapshot_stack_region_single_recording_plan(
         "context_phase_submit_recording_not_required";
     result.single_region_recording_owner_status =
         "single_region_recording_owner_not_required";
+    result.single_recording_owner_top_blocker = "none";
+    result.single_recording_owner_close_submit_status =
+        "close_submit_not_required";
+    result.single_recording_owner_command_pool_status =
+        "command_pool_ownership_not_required";
+    result.single_recording_owner_descriptor_scope_status =
+        "descriptor_scope_not_required";
+    result.single_recording_owner_retire_timeline_status =
+        "retire_timeline_ownership_not_required";
     return result;
   }
   if (request.public_final_host_readback_boundary) {
@@ -792,6 +823,74 @@ Context::snapshot_stack_region_single_recording_plan(
         "context_phase_submit_recording_blocked_by_output_boundary";
     result.single_region_recording_owner_status =
         "single_region_recording_owner_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_top_blocker =
+        "host_fence_public_final_readback_blocker";
+    result.single_recording_owner_close_submit_status =
+        "close_submit_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_command_pool_status =
+        "command_pool_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_descriptor_scope_status =
+        "descriptor_scope_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_retire_timeline_status =
+        "retire_timeline_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  return result;
+}
+
+StackRegionSingleRecordingOwnerResult
+Context::snapshot_stack_region_single_recording_owner(
+    const StackRegionSingleRecordingOwnerRequest& request) const {
+  StackRegionSingleRecordingOwnerResult result;
+  result.stack_planned_recording_active = is_stack_planned_recording_active();
+  result.stack_planned_recording_owned_by_current_thread =
+      stack_planned_recording_owned_by_current_thread();
+  result.current_command_buffer_recording_id = command_buffer_recording_id_;
+  result.owner_id =
+      stack_region_single_recording_owner_id_.load(std::memory_order_acquire);
+  result.single_recording_owner_status =
+      stack_region_single_recording_owner_state_name(
+          stack_region_single_recording_owner_state_.load(
+              std::memory_order_acquire));
+  result.single_recording_owner_lifecycle_status =
+      result.single_recording_owner_status;
+  result.current_execution_recording_mode =
+      request.current_execution_recording_mode;
+  if (!request.owner_required) {
+    result.owner_exists = false;
+    result.single_recording_owner_status =
+        "single_region_recording_owner_not_required";
+    result.single_recording_owner_lifecycle_status =
+        "single_region_recording_owner_not_required";
+    result.single_recording_owner_close_submit_status =
+        "close_submit_not_required";
+    result.single_recording_owner_command_pool_status =
+        "command_pool_ownership_not_required";
+    result.single_recording_owner_descriptor_scope_status =
+        "descriptor_scope_not_required";
+    result.single_recording_owner_retire_timeline_status =
+        "retire_timeline_ownership_not_required";
+    result.current_execution_recording_mode =
+        "context_phase_submit_recording_not_required";
+    result.top_blocker = "none";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.single_recording_owner_status =
+        "single_region_recording_owner_rejected_host_fence_public_readback_blocker";
+    result.single_recording_owner_lifecycle_status =
+        result.single_recording_owner_status;
+    result.single_recording_owner_close_submit_status =
+        "close_submit_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_command_pool_status =
+        "command_pool_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_descriptor_scope_status =
+        "descriptor_scope_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_retire_timeline_status =
+        "retire_timeline_blocked_by_host_fence_public_readback";
+    result.current_execution_recording_mode =
+        "context_phase_submit_recording_blocked_by_output_boundary";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
     return result;
   }
   return result;
@@ -820,6 +919,21 @@ Context::request_stack_region_command_buffer_acquire(
       request.single_recording_plan_owner_status;
   result.single_recording_plan_behavior_enabled =
       request.single_recording_plan_behavior_enabled;
+  result.single_recording_owner_key = request.single_recording_owner_key;
+  result.single_recording_owner_status =
+      request.single_recording_owner_status;
+  result.single_recording_owner_top_blocker =
+      request.single_recording_owner_top_blocker;
+  result.single_recording_owner_close_submit_status =
+      request.single_recording_owner_close_submit_status;
+  result.single_recording_owner_command_pool_status =
+      request.single_recording_owner_command_pool_status;
+  result.single_recording_owner_descriptor_scope_status =
+      request.single_recording_owner_descriptor_scope_status;
+  result.single_recording_owner_retire_timeline_status =
+      request.single_recording_owner_retire_timeline_status;
+  result.single_recording_owner_behavior_enabled =
+      request.single_recording_owner_behavior_enabled;
   if (!request.hook_required) {
     result.behavior_enabled = false;
     result.lease_available = false;
@@ -839,6 +953,18 @@ Context::request_stack_region_command_buffer_acquire(
         "context_phase_submit_recording_not_required";
     result.single_recording_plan_owner_status =
         "single_region_recording_owner_not_required";
+    result.single_recording_owner_key = request.single_recording_owner_key;
+    result.single_recording_owner_status =
+        "single_region_recording_owner_not_required";
+    result.single_recording_owner_top_blocker = "none";
+    result.single_recording_owner_close_submit_status =
+        "close_submit_not_required";
+    result.single_recording_owner_command_pool_status =
+        "command_pool_ownership_not_required";
+    result.single_recording_owner_descriptor_scope_status =
+        "descriptor_scope_not_required";
+    result.single_recording_owner_retire_timeline_status =
+        "retire_timeline_ownership_not_required";
     result.command_pool_lease_status = "command_pool_lease_not_required";
     result.descriptor_lifetime_scope_status =
         "descriptor_lifetime_scope_not_required";
@@ -871,6 +997,18 @@ Context::request_stack_region_command_buffer_acquire(
         "context_phase_submit_recording_blocked_by_output_boundary";
     result.single_recording_plan_owner_status =
         "single_region_recording_owner_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_status =
+        "single_region_recording_owner_rejected_host_fence_public_readback_blocker";
+    result.single_recording_owner_top_blocker =
+        "host_fence_public_final_readback_blocker";
+    result.single_recording_owner_close_submit_status =
+        "close_submit_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_command_pool_status =
+        "command_pool_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_descriptor_scope_status =
+        "descriptor_scope_blocked_by_host_fence_public_readback";
+    result.single_recording_owner_retire_timeline_status =
+        "retire_timeline_blocked_by_host_fence_public_readback";
     result.command_pool_lease_status =
         "command_pool_lease_blocked_by_host_fence_public_readback";
     result.descriptor_lifetime_scope_status =
@@ -883,9 +1021,9 @@ Context::request_stack_region_command_buffer_acquire(
         "host_fence_public_final_readback_blocker";
     return result;
   }
-  result.top_blocker = request.single_recording_plan_top_blocker;
+  result.top_blocker = request.single_recording_owner_top_blocker;
   result.command_buffer_or_batch_lease_status =
-      request.single_recording_plan_top_blocker;
+      request.single_recording_owner_top_blocker;
   result.same_stream_queue_status = request.require_same_stream_queue
       ? "same_stream_queue_required_unproven"
       : "same_stream_queue_not_required";
@@ -2193,6 +2331,12 @@ void Context::begin_stack_planned_recording() {
       std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
       1u, std::memory_order_release);
+  stack_region_single_recording_owner_id_.store(
+      next_stack_region_single_recording_owner_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_single_recording_owner_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2211,6 +2355,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
       2u, std::memory_order_release);
+  stack_region_single_recording_owner_state_.store(
+      2u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -2225,6 +2371,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   restore_stack_internal_temp_retire_batch_to_pending_locked();
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
+      3u, std::memory_order_release);
+  stack_region_single_recording_owner_state_.store(
       3u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};

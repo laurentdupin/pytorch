@@ -186,23 +186,17 @@ direction, not a submit-elision implementation.
 The latest one-image `vits_140` bridge graph with the opt-in barrier-only
 canary classifies all selected `residual2@0 -> norm1@1` rows as
 `barrier_ready_but_submit_proof_incomplete`. The exact missing semantic proof is
-`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`.
-The planned exit-release point and close/submit component are identified, and
-the `StackRegionExitCloseSubmitOwnerRequest.v0` / result surface now feeds an
-emitted `RegionExitCloseSubmitOwner.v0` owner row. That owner cannot take
-responsibility because the acquire side has no
-active `RegionOwnedCommandBufferLease.v0` implementation. The inactive
-`StackRegionCommandBufferAcquireHook.v0` now exists near `Context`, and
-`StackRegionSingleRecordingPlan.v0` records the next missing owner: current
-execution still uses `context_phase_submit_recording`, phase-boundary submits
-are preserved, and borrowed context command-buffer ownership is rejected because
-phase submits close/submit the active recording. A future owner would have to
-provide a real single-region recording owner, close and submit that
+`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`.
+The planned exit-release point, close/submit component, and lifecycle-only
+`StackRegionSingleRecordingOwner.v0` are identified. That owner records stack
+planned-recording lifetime but cannot take responsibility because close/submit,
+descriptor scope, command-pool scope, and retire-timeline ownership still belong
+to the context phase-submit path. A future owner would have to close and submit a
 region-owned command buffer or batch at stack exit, release descriptor lifetime,
 transfer allocator/retire ownership, and provide the timeline release contract.
-That release ownership is the first concrete runtime capability needed before a
-region-owned command buffer or batch could replace the current phase submit's
-execution/flush/timeline role.
+That close/submit release ownership is the first concrete runtime capability
+needed before a region-owned command buffer or batch could replace the current
+phase submit's execution/flush/timeline role.
 
 The current graph must therefore keep `submits_removed=0` and
 `submit_elision_ready=0`.

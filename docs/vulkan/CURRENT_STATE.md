@@ -406,7 +406,7 @@ record is emitted and proves the current phase-submit close/submit owner is
 preserved, but it cannot take region-exit ownership because the command buffer
 is still context/phase-submit owned and no region-owned command-buffer or batch
 lease is available. The refined blocker is now
-`region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner`.
+`region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership`.
 `StackRegionExitCloseSubmitOwnerRequest.v0` and
 `StackRegionExitCloseSubmitOwnerResult.v0` are the behavior-neutral request
 surface behind that blocker. They model a future stack-exit owner asking to
@@ -415,6 +415,15 @@ close and submit a region-owned command buffer or batch. They now feed
 descriptor-lifetime, and command-pool handoff availability as unavailable while
 still creating no queue submit, no deferred submit, no submit elision, and no
 command-buffer execution-topology change.
+`StackRegionSingleRecordingOwner.v0` is now emitted as the lifecycle surface
+under `StackRegionSingleRecordingPlan.v0`. It begins after the pre-stack flush
+and is finalized with stack planned-recording submit/cancel, but it is
+behavior-neutral: close/submit ownership, command-pool ownership, descriptor
+scope, and retire timeline ownership all remain context/phase-submit owned.
+The owner record is joined into the acquire hook and
+`RegionOwnedCommandBufferLease.v0`, which now fails closed on missing
+single-recording owner close/submit ownership rather than on a missing owner
+surface.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

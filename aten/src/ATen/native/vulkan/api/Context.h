@@ -145,6 +145,9 @@ class TORCH_API Context final {
   std::atomic<uint64_t> stack_region_single_recording_plan_id_;
   std::atomic<uint64_t> next_stack_region_single_recording_plan_id_;
   std::atomic<uint32_t> stack_region_single_recording_plan_state_;
+  std::atomic<uint64_t> stack_region_single_recording_owner_id_;
+  std::atomic<uint64_t> next_stack_region_single_recording_owner_id_;
+  std::atomic<uint32_t> stack_region_single_recording_owner_state_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;
@@ -495,6 +498,9 @@ class TORCH_API Context final {
   StackRegionSingleRecordingPlanResult
   snapshot_stack_region_single_recording_plan(
       const StackRegionSingleRecordingPlanRequest& request) const;
+  StackRegionSingleRecordingOwnerResult
+  snapshot_stack_region_single_recording_owner(
+      const StackRegionSingleRecordingOwnerRequest& request) const;
   StackRegionCommandBufferAcquireHookResult
   request_stack_region_command_buffer_acquire(
       const StackRegionCommandBufferAcquireHookRequest& request) const;

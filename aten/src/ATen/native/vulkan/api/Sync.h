@@ -540,6 +540,7 @@ struct StackRegionSingleRecordingPlanRequest final {
   std::string boundary_id = "missing";
   std::string boundary_class = "unknown";
   std::string planned_region_exit_submit_point_id = "missing";
+  std::string single_recording_owner_key = "missing";
   std::string owner_scope = "stack_region";
   std::string requested_lifetime_scope = "stack_region";
   bool plan_required = true;
@@ -562,15 +563,74 @@ struct StackRegionSingleRecordingPlanResult final {
   std::string borrowed_context_command_buffer_region_lease_status =
       "borrowed_context_command_buffer_region_lease_rejected_phase_submit_closes_recording";
   std::string top_blocker =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string current_execution_recording_mode =
       "context_phase_submit_recording";
   std::string single_region_recording_owner_status =
-      "single_region_recording_owner_required_before_submit_elision";
+      "single_region_recording_owner_active_lifecycle_only";
+  std::string single_recording_owner = "StackRegionSingleRecordingOwner.v0";
+  std::string single_recording_owner_key = "missing";
+  std::string single_recording_owner_top_blocker =
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  std::string single_recording_owner_close_submit_status =
+      "close_submit_still_context_phase_submit_owned";
+  std::string single_recording_owner_command_pool_status =
+      "command_pool_still_context_phase_submit_owned";
+  std::string single_recording_owner_descriptor_scope_status =
+      "descriptor_pool_still_context_phase_submit_owned";
+  std::string single_recording_owner_retire_timeline_status =
+      "retire_timeline_still_phase_submit_owned";
+  bool single_recording_owner_behavior_enabled = false;
   std::string plan_lifecycle_status =
       "stack_region_single_recording_plan_not_started";
   std::string runtime_api_source =
       "StackRegionSingleRecordingPlanRuntimeApi.v0";
+};
+
+struct StackRegionSingleRecordingOwnerRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string planned_region_exit_submit_point_id = "missing";
+  std::string owner_scope = "stack_region";
+  std::string requester_scope = "stack_owner";
+  std::string current_execution_recording_mode =
+      "context_phase_submit_recording";
+  bool owner_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionSingleRecordingOwnerResult final {
+  bool owner_record_emitted = true;
+  bool owner_exists = true;
+  bool behavior_enabled = false;
+  bool close_submit_ownership_available = false;
+  bool authorizes_submit_elision = false;
+  bool phase_boundary_submits_preserved = true;
+  bool command_buffer_execution_topology_changed = false;
+  bool stack_planned_recording_active = false;
+  bool stack_planned_recording_owned_by_current_thread = false;
+  uint64_t owner_id = 0u;
+  uint64_t current_command_buffer_recording_id = 0u;
+  std::string single_recording_owner_status =
+      "single_region_recording_owner_active_lifecycle_only";
+  std::string single_recording_owner_lifecycle_status =
+      "single_region_recording_owner_active_lifecycle_only";
+  std::string single_recording_owner_close_submit_status =
+      "close_submit_still_context_phase_submit_owned";
+  std::string single_recording_owner_command_pool_status =
+      "command_pool_still_context_phase_submit_owned";
+  std::string single_recording_owner_descriptor_scope_status =
+      "descriptor_pool_still_context_phase_submit_owned";
+  std::string single_recording_owner_retire_timeline_status =
+      "retire_timeline_still_phase_submit_owned";
+  std::string current_execution_recording_mode =
+      "context_phase_submit_recording";
+  std::string top_blocker =
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  std::string runtime_api_source =
+      "StackRegionSingleRecordingOwnerRuntimeApi.v0";
 };
 
 struct StackRegionCommandBufferAcquireHookRequest final {
@@ -593,6 +653,20 @@ struct StackRegionCommandBufferAcquireHookRequest final {
   std::string single_recording_plan_owner_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_plan_behavior_enabled = false;
+  std::string single_recording_owner_key = "missing";
+  std::string single_recording_owner_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_top_blocker =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_close_submit_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_command_pool_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_descriptor_scope_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_retire_timeline_status =
+      "missing_stack_region_single_recording_owner";
+  bool single_recording_owner_behavior_enabled = false;
   bool hook_required = true;
   bool require_same_stream_queue = true;
   bool public_final_host_readback_boundary = false;
@@ -612,14 +686,14 @@ struct StackRegionCommandBufferAcquireHookResult final {
   std::string result_status =
       "region_command_buffer_lease_adapter_present_context_owner_only";
   std::string top_blocker =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string current_owner_scope = "vulkan_context_phase_submit_owner";
   std::string requested_owner_scope_status =
       "stack_region_owner_scope_requested";
   std::string command_buffer_or_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_or_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_pool_lease_id = "missing_region_command_pool_lease";
   std::string command_pool_lease_status =
       "command_pool_lease_unavailable_phase_submit_owned";
@@ -647,6 +721,21 @@ struct StackRegionCommandBufferAcquireHookResult final {
   std::string single_recording_plan_owner_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_plan_behavior_enabled = false;
+  std::string single_recording_owner = "StackRegionSingleRecordingOwner.v0";
+  std::string single_recording_owner_key = "missing";
+  std::string single_recording_owner_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_top_blocker =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_close_submit_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_command_pool_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_descriptor_scope_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_retire_timeline_status =
+      "missing_stack_region_single_recording_owner";
+  bool single_recording_owner_behavior_enabled = false;
   std::string runtime_api_source =
       "StackRegionCommandBufferAcquireHookRuntimeApi.v0";
 };
@@ -670,7 +759,7 @@ struct RegionOwnedCommandBufferLeaseRequest final {
   std::string acquire_hook_command_buffer_or_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string acquire_hook_command_buffer_or_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string acquire_hook_command_pool_lease_id =
       "missing_region_command_pool_lease";
   std::string acquire_hook_command_pool_lease_status =
@@ -699,6 +788,20 @@ struct RegionOwnedCommandBufferLeaseRequest final {
   std::string single_recording_plan_owner_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_plan_behavior_enabled = false;
+  std::string single_recording_owner_key = "missing";
+  std::string single_recording_owner_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_top_blocker =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_close_submit_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_command_pool_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_descriptor_scope_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_retire_timeline_status =
+      "missing_stack_region_single_recording_owner";
+  bool single_recording_owner_behavior_enabled = false;
   bool acquire_hook_behavior_enabled = false;
   bool acquire_hook_lease_available = false;
   bool lease_required = true;
@@ -715,13 +818,13 @@ struct RegionOwnedCommandBufferLeaseResult final {
   std::string request_status =
       "region_owned_command_buffer_lease_request_api_present_result_unavailable";
   std::string result_status =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string top_blocker =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_or_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_pool_lease_id = "missing_region_command_pool_lease";
   std::string command_pool_lease_status =
       "command_pool_lease_unavailable_phase_submit_owned";
@@ -762,6 +865,21 @@ struct RegionOwnedCommandBufferLeaseResult final {
   std::string single_recording_plan_owner_status =
       "missing_stack_region_single_recording_owner";
   bool single_recording_plan_behavior_enabled = false;
+  std::string single_recording_owner = "StackRegionSingleRecordingOwner.v0";
+  std::string single_recording_owner_key = "missing";
+  std::string single_recording_owner_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_top_blocker =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_close_submit_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_command_pool_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_descriptor_scope_status =
+      "missing_stack_region_single_recording_owner";
+  std::string single_recording_owner_retire_timeline_status =
+      "missing_stack_region_single_recording_owner";
+  bool single_recording_owner_behavior_enabled = false;
   bool acquire_hook_behavior_enabled = false;
 };
 
@@ -778,9 +896,9 @@ struct StackRegionExitCloseSubmitOwnerRequest final {
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_buffer_batch_lease_top_blocker =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string owner_scope = "stack_region";
   std::string requester_scope = "stack_owner";
   std::string requested_operation =
@@ -798,9 +916,9 @@ struct StackRegionExitCloseSubmitOwnerResult final {
   std::string result_status =
       "exit_close_submit_owner_result_owner_surface_present_fail_closed";
   std::string reason =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string top_blocker =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string implementation_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string region_owned_command_buffer_status =
@@ -833,9 +951,9 @@ struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string command_buffer_batch_lease_top_blocker =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   bool owner_required = true;
   bool public_final_host_readback_boundary = false;
 };
@@ -848,7 +966,7 @@ struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
   std::string owner_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string final_fail_closed_reason =
-      "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner";
+      "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string current_command_buffer_owner_status =
       "current_phase_submit_owns_command_buffer_close_submit";
   std::string requested_region_exit_ownership_status =
