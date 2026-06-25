@@ -534,6 +534,57 @@ TORCH_API StackRegionExitReleaseOwnershipContractResult
 evaluate_stack_region_exit_release_ownership_contract(
     const StackRegionExitReleaseOwnershipContractRequest& request);
 
+struct RegionOwnedCommandBufferLeaseRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string planned_region_exit_submit_point_id = "missing";
+  std::string current_owner_scope = "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope = "stack_region";
+  std::string requested_lifetime_scope = "stack_region";
+  bool lease_required = true;
+  bool require_same_stream_queue = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct RegionOwnedCommandBufferLeaseResult final {
+  bool api_present = true;
+  bool lease_record_emitted = true;
+  bool lease_requested = true;
+  bool lease_available = false;
+  bool authorizes_submit_elision = false;
+  std::string request_status =
+      "region_owned_command_buffer_lease_request_api_present_result_unavailable";
+  std::string result_status =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  std::string top_blocker =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  std::string command_buffer_batch_lease_id =
+      "missing_region_owned_command_buffer_or_batch";
+  std::string command_buffer_or_batch_lease_status =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  std::string command_pool_lease_id = "missing_region_command_pool_lease";
+  std::string command_pool_lease_status =
+      "command_pool_lease_unavailable_phase_submit_owned";
+  std::string descriptor_lifetime_scope_status =
+      "descriptor_lifetime_scope_requested_unavailable";
+  std::string retire_timeline_scope_status =
+      "retire_timeline_scope_requested_unavailable";
+  std::string same_stream_queue_status = "same_stream_queue_required_unproven";
+  std::string public_final_host_readback_blocker_status =
+      "no_public_final_host_readback_blocker";
+  std::string current_owner_status = "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope_status =
+      "stack_region_owner_scope_requested";
+  std::string runtime_api_source =
+      "RegionOwnedCommandBufferLeaseRuntimeApi.v0";
+};
+
+TORCH_API RegionOwnedCommandBufferLeaseResult
+request_region_owned_command_buffer_lease(
+    const RegionOwnedCommandBufferLeaseRequest& request);
+
 struct StackRegionExitCloseSubmitOwnerRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";
@@ -542,6 +593,10 @@ struct StackRegionExitCloseSubmitOwnerRequest final {
       "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
+  std::string command_buffer_batch_lease_status =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  std::string command_buffer_batch_lease_top_blocker =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
   std::string owner_scope = "stack_region";
   std::string requester_scope = "stack_owner";
   std::string requested_operation =
@@ -559,9 +614,9 @@ struct StackRegionExitCloseSubmitOwnerResult final {
   std::string result_status =
       "exit_close_submit_owner_result_owner_surface_present_fail_closed";
   std::string reason =
-      "command_buffer_still_context_phase_submit_owned";
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
   std::string top_blocker =
-      "command_buffer_still_context_phase_submit_owned";
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
   std::string implementation_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string region_owned_command_buffer_status =
@@ -593,6 +648,10 @@ struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
   std::string requested_owner_scope = "stack_region";
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
+  std::string command_buffer_batch_lease_status =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  std::string command_buffer_batch_lease_top_blocker =
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
   bool owner_required = true;
   bool public_final_host_readback_boundary = false;
 };
@@ -605,7 +664,7 @@ struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
   std::string owner_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string final_fail_closed_reason =
-      "command_buffer_still_context_phase_submit_owned";
+      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
   std::string current_command_buffer_owner_status =
       "current_phase_submit_owns_command_buffer_close_submit";
   std::string requested_region_exit_ownership_status =

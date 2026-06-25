@@ -664,11 +664,22 @@ authorizes no submit elision and does not install a release hook.
 `RegionCommandBufferOwnership.v0` is the first scaffold for that ownership
 direction. It emits paired `stack_entry_acquire` and `stack_exit_release`
 records for the selected stack-region instance. Acquire rows expose the region
-id, unavailable command-buffer and command-pool lease identities, descriptor
-generation base, scratch/temporary resource scope, and owner/requester scope.
+id, `RegionOwnedCommandBufferLease.v0` key/status, unavailable
+command-buffer and command-pool lease identities, descriptor generation base,
+scratch/temporary resource scope, and owner/requester scope.
 Release rows expose output release status, pending-retire transfer status, and
 command-pool reset deferral status. The rows are diagnostic-only: phase submits
 are preserved, deferred submit is disabled, and `authorizes_submit_elision=0`.
+`RegionOwnedCommandBufferLease.v0` is the behavior-neutral acquire-side lease
+surface. It is keyed by stack-region instance and selected boundary and records
+the planned region-exit release/submit point, requested stack-region owner
+scope, current Vulkan context/phase-submit owner scope, whether a lease was
+requested and emitted, region command-buffer or batch lease availability,
+command-pool lease availability, descriptor lifetime scope, retire timeline
+scope, same-stream/queue requirement status, public/final/host/readback
+blocker status, and behavior-disabled flags. Current rows report
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`; no
+command buffer is allocated, switched, replayed, deferred, closed, or submitted.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,
@@ -696,8 +707,9 @@ region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
 fail-closed reason. Current rows fail closed with
-`command_buffer_still_context_phase_submit_owned`; the surface is
-diagnostic-only and does not create, defer, close, or submit command buffers.
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`; the
+surface is diagnostic-only and does not create, defer, close, or submit command
+buffers.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,

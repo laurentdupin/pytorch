@@ -366,13 +366,18 @@ command-pool leases, descriptor generations, temporary resource scope, retire
 transfer, and output ownership. It is not a behavior path yet: phase-boundary
 submits remain preserved and submit elision remains disabled.
 The first scaffold now emits behavior-neutral `RegionCommandBufferOwnership.v0`
-records. `stack_entry_acquire` rows make the unavailable command-buffer lease,
-command-pool lease, descriptor generation base, and scratch resource scope
-explicit. `stack_exit_release` rows make public/private/captured/requested/final
-output release, pending retire transfer, and command-pool reset deferral
-explicit. The scaffold proves current behavior is preserved: no submit elision,
-no deferred submit, no command-buffer replay, no new queue submit, and no
-command-pool reset behavior change.
+records. `stack_entry_acquire` rows now join
+`RegionOwnedCommandBufferLease.v0`, which records the selected stack-region
+instance, boundary, planned region-exit release point, requested stack-region
+owner scope, current Vulkan context/phase-submit owner scope, unavailable
+region command-buffer or batch lease, unavailable command-pool lease,
+descriptor lifetime scope request, retire timeline scope request, same
+stream/queue requirement, and public/final/host/readback blocker status.
+`stack_exit_release` rows make public/private/captured/requested/final output
+release, pending retire transfer, and command-pool reset deferral explicit. The
+scaffold proves current behavior is preserved: no submit elision, no deferred
+submit, no command-buffer replay, no new queue submit, and no command-pool
+reset behavior change.
 `StackRegionExitReleaseOwnership.v0` now refines the release rows into concrete
 release responsibilities. It records output release classes, pending-retire
 transfer, descriptor lifetime release, retire timeline release,
@@ -390,8 +395,8 @@ and now join a real `RegionExitCloseSubmitOwner.v0` owner surface. That owner
 record is emitted and proves the current phase-submit close/submit owner is
 preserved, but it cannot take region-exit ownership because the command buffer
 is still context/phase-submit owned and no region-owned command-buffer or batch
-is available. The refined blocker is
-`command_buffer_still_context_phase_submit_owned`.
+lease is available. The refined blocker is
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`.
 `StackRegionExitCloseSubmitOwnerRequest.v0` and
 `StackRegionExitCloseSubmitOwnerResult.v0` are the behavior-neutral request
 surface behind that blocker. They model a future stack-exit owner asking to

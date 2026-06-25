@@ -12,9 +12,9 @@ records for the selected stack-region boundary. The records split stack-entry
 acquire from stack-exit release:
 
 - `stack_entry_acquire` records the region id, stack-region instance id,
-  owner/requester scope, unavailable command-buffer and command-pool lease
-  status, diagnostic descriptor generation base, and scratch/temporary
-  resource scope.
+  owner/requester scope, `RegionOwnedCommandBufferLease.v0` status,
+  unavailable command-buffer and command-pool lease status, diagnostic
+  descriptor generation base, and scratch/temporary resource scope.
 - `stack_exit_release` records public/private/captured/requested/final output
   release status, pending-retire transfer status, and command-pool reset
   deferral status.
@@ -42,14 +42,17 @@ current command-buffer recording id/scope, planned region-exit release point,
 and who owns close/submit today. The current phase submit still owns
 command-buffer close/submit, the command buffer is not region-owned, and the
 planned region-exit submit point remains synthetic/unimplemented. The
-supporting `StackRegionExitCloseSubmitOwnerRequest.v0` /
-`StackRegionExitCloseSubmitOwnerResult.v0` request surface now feeds a real
-behavior-neutral `RegionExitCloseSubmitOwner.v0` owner row. The owner exists as
-a graph/runtime surface, but it is fail-closed with
-`command_buffer_still_context_phase_submit_owned` because no region-owned
-command-buffer or batch, queue/timeline owner, retire handoff, descriptor
-lifetime handoff, or command-pool cleanup owner exists. This preserves all
-phase-boundary submits and queue-submit behavior.
+stack-entry acquire row now emits a behavior-neutral
+`RegionOwnedCommandBufferLease.v0` lease row. The lease is requested but
+unavailable with
+`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`:
+the command buffer and command pool are still owned by the Vulkan context's
+phase-submit path, descriptor and retire lifetime scopes are unavailable, and
+same-stream/queue proof is still only a requirement. The supporting
+`StackRegionExitCloseSubmitOwnerRequest.v0` /
+`StackRegionExitCloseSubmitOwnerResult.v0` request surface feeds
+`RegionExitCloseSubmitOwner.v0`, which now fails closed on that lease blocker.
+This preserves all phase-boundary submits and queue-submit behavior.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,
