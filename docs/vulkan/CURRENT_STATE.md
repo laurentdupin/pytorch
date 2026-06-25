@@ -489,19 +489,19 @@ submitted.
 `StackRegionExitSubmitRuntimePoint.v0` now records the real stack planned
 recording exit submit point at `Context::end_stack_planned_recording_and_submit`
 while preserving the existing `StackPlannedRecordingSubmit` path. Bridge rows
-therefore distinguish the observed preserved exit submit point from the missing
-region-owned lease: `StackRegionPlannedSubmitPoint.v0` can report
+therefore distinguish the observed preserved exit submit point from region
+close/submit ownership: `StackRegionPlannedSubmitPoint.v0` can report
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`,
 and the close/submit owner surface advances to
-`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
-because the observed command-buffer batch candidate is still context-owned and
-not transferable to a stack region.
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+because the preserved phase-submit batch lease is available only as an
+accounting/lifecycle lease, not as a region close/submit owner.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
-observed, the context command-buffer batch candidate lifecycle is recorded, but
-actual region command-buffer acquire/release remains `0`, preserved phase-submit
-counts are recorded, command-pool reset is not deferred to region release, and
-actual submit elision remains `0`.
+observed, the preserved phase-submit batch lifecycle is recorded, but actual
+region command-buffer acquire/release remains `0`, preserved phase-submit counts
+are recorded, command-pool reset is not deferred to region release, and actual
+submit elision remains `0`.
 This remains fail-closed and behavior-neutral: no submit is removed, deferred,
 batched, replayed, or newly created.
 `StackRegionCommandPoolRetentionRequest.v0` and

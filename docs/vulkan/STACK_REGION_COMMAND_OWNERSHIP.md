@@ -58,13 +58,14 @@ buffer or batch lease. The stack-entry acquire row now emits a behavior-neutral
 `StackRegionCommandBufferAcquireHook.v0` row and a
 `RegionOwnedCommandBufferLease.v0` lease row. The acquire hook is present near
 `Context` and snapshots current stack planned-recording ownership, current
-command-buffer recording id, and context-owned descriptor/command-pool scope,
-but it returns unavailable. When stack planned recording is active, it now names
-the preserved context phase-submit command-buffer batch as a candidate and marks
-it `not_transferable`; no stack-region lease is granted and no submit behavior
-changes. The candidate has a stack-entry lifecycle id that is finalized at
-stack planned-recording submit or cancel, but the command buffer and command
-pool remain owned by the existing context phase-submit path.
+command-buffer recording id, and context-owned descriptor/command-pool scope.
+When stack planned recording is active and the preserved stack-exit submit point
+is observed, it exposes a region-owned preserved phase-submit batch lease for
+accounting. That lease does not transfer command-buffer close/submit ownership,
+does not transfer command-pool reset ownership, and does not change submit
+behavior. The batch has a stack-entry lifecycle id that is finalized at stack
+planned-recording submit or cancel. If the runtime exit point is not observed,
+the hook still fails closed on the non-transferable context candidate.
 `StackRegionSingleRecordingPlan.v0` is the next behavior-neutral scaffold under
 that hook. It records that the current execution mode remains
 `context_phase_submit_recording`, phase-boundary submits are preserved, command
@@ -137,10 +138,10 @@ observation for the existing stack planned recording exit submit. It changes
 diagnostic classification only: planned bridge rows can report
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`
 and then fail closed on
-`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
-while the observed command-buffer batch candidate is still context-owned and
-not transferable. It remains fail-closed until a real region-owned
-close/submit lease exists.
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+because the preserved phase-submit batch lease is not a region close/submit
+owner. It remains fail-closed until a real region-owned close/submit lease
+exists.
 The ownership rows now preserve that distinction at both stack entry and stack
 exit: the planned stack-region scope can be observed, but
 `region_command_buffer_ownership_acquired=0`,

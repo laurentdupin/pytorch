@@ -1152,9 +1152,35 @@ Context::request_stack_region_command_buffer_acquire(
     command_buffer_batch_lease_label =
         request.planned_region_exit_submit_point_id;
   }
-  if (context_command_buffer_candidate_observed ||
-      runtime_exit_submit_point_candidate_observed ||
+  if (runtime_exit_submit_point_candidate_observed &&
       command_buffer_batch_lease_candidate_observed) {
+    result.lease_available = true;
+    result.hook_status =
+        "stack_region_command_buffer_acquire_hook_present_preserved_phase_submit_batch";
+    result.result_status =
+        "region_command_buffer_lease_adapter_preserved_phase_submit_batch_available";
+    result.top_blocker =
+        "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+    result.command_buffer_or_batch_lease_id =
+        "region_preserved_phase_submit_batch:" +
+        command_buffer_batch_lease_label;
+    result.command_buffer_or_batch_lease_status =
+        "region_owned_command_buffer_batch_lease_available_preserved_phase_submits";
+    result.command_pool_lease_id =
+        "preserved_phase_submit_command_pool_batch";
+    result.command_pool_lease_status =
+        "command_pool_lease_preserved_phase_submit_owned_not_region_resettable";
+    result.descriptor_lifetime_scope_status =
+        "descriptor_lifetime_scope_preserved_phase_submit_owned_not_region_releasable";
+    result.retire_timeline_scope_status =
+        "retire_timeline_scope_preserved_phase_submit_owned_not_region_releasable";
+    result.descriptor_pool_scope_status =
+        "descriptor_pool_preserved_phase_submit_owned_not_region_releasable";
+    result.command_pool_scope_status =
+        "command_pool_scope_preserved_phase_submit_owned_not_region_resettable";
+  } else if (context_command_buffer_candidate_observed ||
+             runtime_exit_submit_point_candidate_observed ||
+             command_buffer_batch_lease_candidate_observed) {
     result.hook_status =
         "stack_region_command_buffer_acquire_hook_present_context_candidate_observed";
     result.result_status =

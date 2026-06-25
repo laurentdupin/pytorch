@@ -760,12 +760,12 @@ present for the planned bridge context, `StackRegionPlannedSubmitPoint.v0` and
 the close/submit owner rows advance from a synthetic planned target to
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`.
 The next blocker remains fail-closed:
-`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
-because the observed command-buffer batch candidate is still context-owned and
-not transferable to a stack region.
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+because the preserved phase-submit batch lease is available only as an
+accounting/lifecycle lease, not as a region close/submit owner.
 `RegionCommandBufferOwnership.v0` mirrors that lifecycle at stack entry and
-stack exit. It can report the planned stack-region scope and the context
-command-buffer batch candidate lifecycle, but it keeps
+stack exit. It can report the planned stack-region scope and the preserved
+phase-submit batch lifecycle, but it keeps
 `region_command_buffer_ownership_acquired=0`,
 `region_command_buffer_ownership_released=0`,
 `command_pool_reset_deferred_to_region_release=0`, and
@@ -799,10 +799,10 @@ region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
 fail-closed reason. Current rows fail closed with
-`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`
-once the context phase-submit command-buffer candidate is observed but remains
-non-transferable; the surface is diagnostic-only and does not create, defer,
-close, or submit command buffers.
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+once the preserved phase-submit batch lease is observed but still lacks region
+close/submit ownership; the surface is diagnostic-only and does not create,
+defer, close, or submit command buffers.
 `StackRegionCommandPoolResetDeferralProof.v0` is emitted from that retention
 result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,

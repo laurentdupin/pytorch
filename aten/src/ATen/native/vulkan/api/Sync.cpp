@@ -13100,7 +13100,14 @@ void append_stack_region_submit_epoch_ordering_json(
     const bool context_command_buffer_batch_candidate_observed =
         region_owned_command_buffer_lease_result
             .command_buffer_or_batch_lease_status ==
-        "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable";
+            "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable" ||
+        region_owned_command_buffer_lease_result
+            .command_buffer_or_batch_lease_status ==
+            "region_owned_command_buffer_batch_lease_available_preserved_phase_submits";
+    const bool preserved_phase_submit_batch_lease_available =
+        region_owned_command_buffer_lease_result
+            .command_buffer_or_batch_lease_status ==
+        "region_owned_command_buffer_batch_lease_available_preserved_phase_submits";
     std::ostringstream region_command_acquire_row;
     region_command_acquire_row
         << "schema=RegionCommandBufferOwnership.v0"
@@ -13119,6 +13126,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_command_buffer_ownership_acquired=0"
         << " context_command_buffer_batch_candidate_observed="
         << (context_command_buffer_batch_candidate_observed ? "1" : "0")
+        << " preserved_phase_submit_batch_lease_available="
+        << (preserved_phase_submit_batch_lease_available ? "1" : "0")
         << " region_owned_command_buffer_lease=RegionOwnedCommandBufferLease.v0"
         << " region_owned_command_buffer_lease_key="
         << region_owned_command_buffer_lease_key
@@ -13222,6 +13231,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_command_buffer_ownership_released=0"
         << " context_command_buffer_batch_candidate_observed="
         << (context_command_buffer_batch_candidate_observed ? "1" : "0")
+        << " preserved_phase_submit_batch_lease_available="
+        << (preserved_phase_submit_batch_lease_available ? "1" : "0")
         << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
         << " acquire_hook_key="
         << stack_region_command_buffer_acquire_hook_key
@@ -21771,10 +21782,16 @@ request_region_owned_command_buffer_lease(
   const bool runtime_exit_submit_point_observed =
       request.planned_region_exit_submit_point_status ==
       "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
+  const bool preserved_phase_submit_batch_lease_available =
+      request.acquire_hook_command_buffer_or_batch_lease_status ==
+      "region_owned_command_buffer_batch_lease_available_preserved_phase_submits";
   const bool context_phase_submit_candidate_observed =
       request.acquire_hook_command_buffer_or_batch_lease_status ==
       "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable";
   const char* const unavailable_status = [&]() -> const char* {
+    if (preserved_phase_submit_batch_lease_available) {
+      return "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+    }
     if (context_phase_submit_candidate_observed) {
       return "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
     }
@@ -21783,8 +21800,14 @@ request_region_owned_command_buffer_lease(
     }
     return "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   }();
-  result.result_status = unavailable_status;
+  if (preserved_phase_submit_batch_lease_available) {
+    result.lease_available = true;
+  }
+  result.result_status = preserved_phase_submit_batch_lease_available
+      ? request.acquire_hook_command_buffer_or_batch_lease_status
+      : unavailable_status;
   result.top_blocker = context_phase_submit_candidate_observed ||
+          preserved_phase_submit_batch_lease_available ||
           runtime_exit_submit_point_observed
       ? unavailable_status
       : request.single_recording_owner_top_blocker;
@@ -21795,7 +21818,8 @@ request_region_owned_command_buffer_lease(
   result.command_buffer_batch_lease_id =
       request.acquire_hook_command_buffer_or_batch_lease_id;
   result.command_buffer_or_batch_lease_status =
-      context_phase_submit_candidate_observed
+      context_phase_submit_candidate_observed ||
+          preserved_phase_submit_batch_lease_available
       ? request.acquire_hook_command_buffer_or_batch_lease_status
       : result.top_blocker;
   result.command_pool_lease_id = request.acquire_hook_command_pool_lease_id;
@@ -21814,9 +21838,12 @@ request_region_owned_command_buffer_lease(
   }
   result.public_final_host_readback_blocker_status =
       request.acquire_hook_public_final_host_readback_blocker_status;
-  result.current_owner_status = context_phase_submit_candidate_observed
-      ? "region_command_buffer_lease_adapter_present_context_candidate_not_region_owned"
-      : "region_command_buffer_lease_adapter_present_context_owner_only";
+  result.current_owner_status =
+      preserved_phase_submit_batch_lease_available
+      ? "region_command_buffer_lease_adapter_present_preserved_phase_submit_batch"
+      : (context_phase_submit_candidate_observed
+             ? "region_command_buffer_lease_adapter_present_context_candidate_not_region_owned"
+             : "region_command_buffer_lease_adapter_present_context_owner_only");
   result.runtime_api_source =
       "RegionOwnedCommandBufferLeaseRuntimeApi.v0+StackRegionCommandBufferAcquireHook.v0";
   return result;
@@ -21852,6 +21879,11 @@ request_stack_region_exit_close_submit_owner(
   const bool runtime_exit_submit_point_observed =
       request.planned_region_exit_submit_point_status ==
       "planned_region_exit_submit_point_runtime_observed_context_submit_preserved";
+  const bool preserved_phase_submit_batch_lease_available =
+      request.command_buffer_batch_lease_status ==
+          "region_owned_command_buffer_batch_lease_available_preserved_phase_submits" ||
+      request.command_buffer_batch_lease_top_blocker ==
+          "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
   const bool context_phase_submit_candidate_observed =
       request.command_buffer_batch_lease_status ==
           "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable" ||
@@ -21883,6 +21915,15 @@ request_stack_region_exit_close_submit_owner(
         "descriptor_release_ownership_blocked_by_host_fence_public_readback";
     return result;
   }
+  if (preserved_phase_submit_batch_lease_available) {
+    result.reason = request.command_buffer_batch_lease_status;
+    result.top_blocker =
+        "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+    result.implementation_status =
+        "region_exit_close_submit_owner_preserved_phase_submit_batch_lacks_region_close_submit";
+    result.region_owned_command_buffer_status =
+        "preserved_phase_submit_batch_lease_available_close_submit_context_owned";
+  }
   if (context_phase_submit_candidate_observed) {
     result.reason = request.command_buffer_batch_lease_status;
     result.top_blocker =
@@ -21894,6 +21935,7 @@ request_stack_region_exit_close_submit_owner(
   }
   if (request.stack_scope_planned_region_present &&
       !runtime_exit_submit_point_observed &&
+      !preserved_phase_submit_batch_lease_available &&
       !context_phase_submit_candidate_observed) {
     result.reason = "planned_region_close_submit_still_context_owned";
     result.top_blocker =
@@ -21903,7 +21945,8 @@ request_stack_region_exit_close_submit_owner(
     result.region_owned_command_buffer_status =
         "planned_region_present_but_command_buffer_not_region_owned";
   }
-  if (!context_phase_submit_candidate_observed &&
+  if (!preserved_phase_submit_batch_lease_available &&
+      !context_phase_submit_candidate_observed &&
       (request.command_buffer_batch_lease_id.empty() ||
        request.command_buffer_batch_lease_id ==
            "missing_region_owned_command_buffer_or_batch")) {
@@ -21988,6 +22031,28 @@ evaluate_stack_region_exit_close_submit_owner_surface(
           "region_owned_command_buffer_lease_candidate_context_phase_submit_owner_not_transferable" ||
       request.command_buffer_batch_lease_top_blocker ==
           "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+  const bool preserved_phase_submit_batch_lease_available =
+      request.command_buffer_batch_lease_status ==
+          "region_owned_command_buffer_batch_lease_available_preserved_phase_submits" ||
+      request.command_buffer_batch_lease_top_blocker ==
+          "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+  if (preserved_phase_submit_batch_lease_available) {
+    if (request.stack_scope_planned_region_present) {
+      result.planned_region_scope_status =
+          "stack_scope_planned_region_topology_present";
+    }
+    result.owner_status =
+        "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed";
+    result.final_fail_closed_reason =
+        "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+    result.current_command_buffer_owner_status =
+        "current_phase_submit_owns_preserved_phase_submit_batch_close_submit";
+    result.requested_region_exit_ownership_status =
+        "requested_region_exit_close_submit_ownership_blocked_preserved_phase_submit_batch_only";
+    result.region_owned_command_buffer_status =
+        "preserved_phase_submit_batch_lease_available_close_submit_context_owned";
+    return result;
+  }
   if (context_phase_submit_candidate_observed) {
     if (request.stack_scope_planned_region_present) {
       result.planned_region_scope_status =
