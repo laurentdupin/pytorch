@@ -739,6 +739,66 @@ bool Context::stack_planned_recording_owned_by_current_thread() const {
       stack_planned_recording_owner_ == std::this_thread::get_id();
 }
 
+StackRegionCommandBufferAcquireHookResult
+Context::request_stack_region_command_buffer_acquire(
+    const StackRegionCommandBufferAcquireHookRequest& request) const {
+  StackRegionCommandBufferAcquireHookResult result;
+  result.stack_planned_recording_active = is_stack_planned_recording_active();
+  result.stack_planned_recording_owned_by_current_thread =
+      stack_planned_recording_owned_by_current_thread();
+  result.current_command_buffer_recording_id = command_buffer_recording_id_;
+  result.current_owner_scope = "vulkan_context_phase_submit_owner";
+  result.requested_owner_scope_status =
+      request.requested_owner_scope + "_owner_scope_requested";
+  if (!request.hook_required) {
+    result.behavior_enabled = false;
+    result.lease_available = false;
+    result.hook_status =
+        "stack_region_command_buffer_acquire_hook_not_required";
+    result.result_status = "region_command_buffer_lease_adapter_not_required";
+    result.top_blocker = "none";
+    result.command_buffer_or_batch_lease_status =
+        "region_owned_command_buffer_lease_not_required";
+    result.command_pool_lease_status = "command_pool_lease_not_required";
+    result.descriptor_lifetime_scope_status =
+        "descriptor_lifetime_scope_not_required";
+    result.retire_timeline_scope_status =
+        "retire_timeline_scope_not_required";
+    result.same_stream_queue_status = "same_stream_queue_proof_not_required";
+    result.public_final_host_readback_blocker_status =
+        "public_final_host_readback_blocker_not_required";
+    result.descriptor_pool_scope_status = "descriptor_pool_scope_not_required";
+    result.command_pool_scope_status = "command_pool_scope_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.behavior_enabled = false;
+    result.lease_available = false;
+    result.hook_status =
+        "stack_region_command_buffer_acquire_hook_rejected_host_fence_public_readback_blocker";
+    result.result_status =
+        "region_command_buffer_lease_adapter_rejected_host_fence_public_readback_blocker";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.command_buffer_or_batch_lease_status =
+        "region_owned_command_buffer_lease_blocked_by_host_fence_public_readback";
+    result.command_pool_lease_status =
+        "command_pool_lease_blocked_by_host_fence_public_readback";
+    result.descriptor_lifetime_scope_status =
+        "descriptor_lifetime_scope_blocked_by_host_fence_public_readback";
+    result.retire_timeline_scope_status =
+        "retire_timeline_scope_blocked_by_host_fence_public_readback";
+    result.same_stream_queue_status =
+        "same_stream_queue_blocked_by_host_fence_public_readback";
+    result.public_final_host_readback_blocker_status =
+        "host_fence_public_final_readback_blocker";
+    return result;
+  }
+  result.same_stream_queue_status = request.require_same_stream_queue
+      ? "same_stream_queue_required_unproven"
+      : "same_stream_queue_not_required";
+  return result;
+}
+
 DescriptorPool& Context::active_descriptor_pool() {
   return external_recording_cmd() ? persistent_descriptor_pool_ : descriptor_pool_;
 }

@@ -534,6 +534,59 @@ TORCH_API StackRegionExitReleaseOwnershipContractResult
 evaluate_stack_region_exit_release_ownership_contract(
     const StackRegionExitReleaseOwnershipContractRequest& request);
 
+struct StackRegionCommandBufferAcquireHookRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string planned_region_exit_submit_point_id = "missing";
+  std::string requested_owner_scope = "stack_region";
+  std::string requested_lifetime_scope = "stack_region";
+  bool hook_required = true;
+  bool require_same_stream_queue = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandBufferAcquireHookResult final {
+  bool hook_record_emitted = true;
+  bool hook_exists = true;
+  bool behavior_enabled = false;
+  bool lease_available = false;
+  bool stack_planned_recording_active = false;
+  bool stack_planned_recording_owned_by_current_thread = false;
+  bool authorizes_submit_elision = false;
+  uint64_t current_command_buffer_recording_id = 0u;
+  std::string hook_status =
+      "stack_region_command_buffer_acquire_hook_present_behavior_disabled";
+  std::string result_status =
+      "region_command_buffer_lease_adapter_present_context_owner_only";
+  std::string top_blocker =
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
+  std::string current_owner_scope = "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope_status =
+      "stack_region_owner_scope_requested";
+  std::string command_buffer_or_batch_lease_id =
+      "missing_region_owned_command_buffer_or_batch";
+  std::string command_buffer_or_batch_lease_status =
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
+  std::string command_pool_lease_id = "missing_region_command_pool_lease";
+  std::string command_pool_lease_status =
+      "command_pool_lease_unavailable_phase_submit_owned";
+  std::string descriptor_lifetime_scope_status =
+      "descriptor_lifetime_scope_requested_unavailable";
+  std::string retire_timeline_scope_status =
+      "retire_timeline_scope_requested_unavailable";
+  std::string same_stream_queue_status = "same_stream_queue_required_unproven";
+  std::string public_final_host_readback_blocker_status =
+      "no_public_final_host_readback_blocker";
+  std::string descriptor_pool_scope_status =
+      "descriptor_pool_context_phase_submit_owned";
+  std::string command_pool_scope_status =
+      "command_pool_context_phase_submit_owned";
+  std::string runtime_api_source =
+      "StackRegionCommandBufferAcquireHookRuntimeApi.v0";
+};
+
 struct RegionOwnedCommandBufferLeaseRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";
@@ -543,6 +596,35 @@ struct RegionOwnedCommandBufferLeaseRequest final {
   std::string current_owner_scope = "vulkan_context_phase_submit_owner";
   std::string requested_owner_scope = "stack_region";
   std::string requested_lifetime_scope = "stack_region";
+  std::string acquire_hook_key = "missing";
+  std::string acquire_hook_status =
+      "stack_region_command_buffer_acquire_hook_missing";
+  std::string acquire_hook_result_status =
+      "region_command_buffer_lease_adapter_missing";
+  std::string acquire_hook_top_blocker =
+      "missing_stack_region_command_buffer_acquire_hook";
+  std::string acquire_hook_command_buffer_or_batch_lease_id =
+      "missing_region_owned_command_buffer_or_batch";
+  std::string acquire_hook_command_buffer_or_batch_lease_status =
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
+  std::string acquire_hook_command_pool_lease_id =
+      "missing_region_command_pool_lease";
+  std::string acquire_hook_command_pool_lease_status =
+      "command_pool_lease_unavailable_phase_submit_owned";
+  std::string acquire_hook_descriptor_lifetime_scope_status =
+      "descriptor_lifetime_scope_requested_unavailable";
+  std::string acquire_hook_retire_timeline_scope_status =
+      "retire_timeline_scope_requested_unavailable";
+  std::string acquire_hook_same_stream_queue_status =
+      "same_stream_queue_required_unproven";
+  std::string acquire_hook_public_final_host_readback_blocker_status =
+      "no_public_final_host_readback_blocker";
+  std::string acquire_hook_descriptor_pool_scope_status =
+      "descriptor_pool_context_phase_submit_owned";
+  std::string acquire_hook_command_pool_scope_status =
+      "command_pool_context_phase_submit_owned";
+  bool acquire_hook_behavior_enabled = false;
+  bool acquire_hook_lease_available = false;
   bool lease_required = true;
   bool require_same_stream_queue = true;
   bool public_final_host_readback_boundary = false;
@@ -557,13 +639,13 @@ struct RegionOwnedCommandBufferLeaseResult final {
   std::string request_status =
       "region_owned_command_buffer_lease_request_api_present_result_unavailable";
   std::string result_status =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string top_blocker =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_or_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string command_pool_lease_id = "missing_region_command_pool_lease";
   std::string command_pool_lease_status =
       "command_pool_lease_unavailable_phase_submit_owned";
@@ -579,6 +661,19 @@ struct RegionOwnedCommandBufferLeaseResult final {
       "stack_region_owner_scope_requested";
   std::string runtime_api_source =
       "RegionOwnedCommandBufferLeaseRuntimeApi.v0";
+  std::string acquire_hook = "StackRegionCommandBufferAcquireHook.v0";
+  std::string acquire_hook_key = "missing";
+  std::string acquire_hook_status =
+      "stack_region_command_buffer_acquire_hook_missing";
+  std::string acquire_hook_result_status =
+      "region_command_buffer_lease_adapter_missing";
+  std::string acquire_hook_top_blocker =
+      "missing_stack_region_command_buffer_acquire_hook";
+  std::string acquire_hook_descriptor_pool_scope_status =
+      "descriptor_pool_context_phase_submit_owned";
+  std::string acquire_hook_command_pool_scope_status =
+      "command_pool_context_phase_submit_owned";
+  bool acquire_hook_behavior_enabled = false;
 };
 
 TORCH_API RegionOwnedCommandBufferLeaseResult
@@ -594,9 +689,9 @@ struct StackRegionExitCloseSubmitOwnerRequest final {
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string command_buffer_batch_lease_top_blocker =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string owner_scope = "stack_region";
   std::string requester_scope = "stack_owner";
   std::string requested_operation =
@@ -614,9 +709,9 @@ struct StackRegionExitCloseSubmitOwnerResult final {
   std::string result_status =
       "exit_close_submit_owner_result_owner_surface_present_fail_closed";
   std::string reason =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string top_blocker =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string implementation_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string region_owned_command_buffer_status =
@@ -649,9 +744,9 @@ struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
   std::string command_buffer_batch_lease_id =
       "missing_region_owned_command_buffer_or_batch";
   std::string command_buffer_batch_lease_status =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string command_buffer_batch_lease_top_blocker =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   bool owner_required = true;
   bool public_final_host_readback_boundary = false;
 };
@@ -664,7 +759,7 @@ struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
   std::string owner_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string final_fail_closed_reason =
-      "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner";
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
   std::string current_command_buffer_owner_status =
       "current_phase_submit_owns_command_buffer_close_submit";
   std::string requested_region_exit_ownership_status =

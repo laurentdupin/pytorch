@@ -489,6 +489,9 @@ class TORCH_API Context final {
       VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown);
   void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
   bool is_stack_planned_recording_active() const;
+  StackRegionCommandBufferAcquireHookResult
+  request_stack_region_command_buffer_acquire(
+      const StackRegionCommandBufferAcquireHookRequest& request) const;
   void begin_stack_planned_recording();
   StackPlannedRecordingStats end_stack_planned_recording_and_submit();
   StackPlannedRecordingStats cancel_stack_planned_recording();

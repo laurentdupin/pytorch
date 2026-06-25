@@ -12,9 +12,10 @@ records for the selected stack-region boundary. The records split stack-entry
 acquire from stack-exit release:
 
 - `stack_entry_acquire` records the region id, stack-region instance id,
-  owner/requester scope, `RegionOwnedCommandBufferLease.v0` status,
-  unavailable command-buffer and command-pool lease status, diagnostic
-  descriptor generation base, and scratch/temporary resource scope.
+  owner/requester scope, inactive `StackRegionCommandBufferAcquireHook.v0`
+  status, `RegionOwnedCommandBufferLease.v0` status, unavailable
+  command-buffer and command-pool lease status, diagnostic descriptor
+  generation base, and scratch/temporary resource scope.
 - `stack_exit_release` records public/private/captured/requested/final output
   release status, pending-retire transfer status, and command-pool reset
   deferral status.
@@ -43,9 +44,13 @@ and who owns close/submit today. The current phase submit still owns
 command-buffer close/submit, the command buffer is not region-owned, and the
 planned region-exit submit point remains synthetic/unimplemented. The
 stack-entry acquire row now emits a behavior-neutral
-`RegionOwnedCommandBufferLease.v0` lease row. The lease is requested but
-unavailable with
-`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`:
+`StackRegionCommandBufferAcquireHook.v0` row and a
+`RegionOwnedCommandBufferLease.v0` lease row. The acquire hook is present near
+`Context` and snapshots current stack planned-recording ownership, current
+command-buffer recording id, and context-owned descriptor/command-pool scope,
+but it returns inactive/unavailable. The lease is requested but unavailable
+with
+`region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled`:
 the command buffer and command pool are still owned by the Vulkan context's
 phase-submit path, descriptor and retire lifetime scopes are unavailable, and
 same-stream/queue proof is still only a requirement. The supporting

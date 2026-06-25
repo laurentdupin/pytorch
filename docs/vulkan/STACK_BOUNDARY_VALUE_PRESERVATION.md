@@ -186,14 +186,17 @@ direction, not a submit-elision implementation.
 The latest one-image `vits_140` bridge graph with the opt-in barrier-only
 canary classifies all selected `residual2@0 -> norm1@1` rows as
 `barrier_ready_but_submit_proof_incomplete`. The exact missing semantic proof is
-`region_owned_command_buffer_lease_unavailable_context_phase_submit_owner`.
+`region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled`.
 The planned exit-release point and close/submit component are identified, and
 the `StackRegionExitCloseSubmitOwnerRequest.v0` / result surface now feeds an
 emitted `RegionExitCloseSubmitOwner.v0` owner row. That owner cannot take
 responsibility because the acquire side has no
-`RegionOwnedCommandBufferLease.v0` implementation: the command buffer and
-command pool remain context/phase-submit owned, descriptor and retire lifetime
-scope requests are unavailable, and same-stream/queue proof is still only a
+active `RegionOwnedCommandBufferLease.v0` implementation. The inactive
+`StackRegionCommandBufferAcquireHook.v0` now exists near `Context` and
+snapshots current planned-recording and command-buffer owner state, but the
+hook reports behavior disabled, no region-owned command-buffer or batch lease,
+context/phase-submit-owned command/descriptor pool scope, unavailable
+descriptor and retire lifetime scopes, and same-stream/queue proof as a
 requirement. A future owner would have to close and submit that region-owned
 command buffer or batch, release descriptor lifetime, transfer allocator/retire
 ownership, and provide the timeline release contract.

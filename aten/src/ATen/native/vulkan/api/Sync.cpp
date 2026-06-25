@@ -2,6 +2,7 @@
 
 #ifdef USE_VULKAN_API
 
+#include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/Pipeline.h>
 #include <ATen/native/vulkan/api/Resource.h>
 
@@ -8660,6 +8661,7 @@ void append_stack_region_submit_epoch_ordering_json(
       stack_region_exit_close_submit_owner_request_rows;
   std::vector<std::string>
       stack_region_exit_close_submit_owner_result_rows;
+  std::vector<std::string> stack_region_command_buffer_acquire_hook_rows;
   std::vector<std::string> region_owned_command_buffer_lease_rows;
   std::vector<std::string> region_exit_close_submit_owner_rows;
   std::vector<std::string> stack_region_command_ownership_rows;
@@ -10165,6 +10167,36 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string current_command_buffer_recording_id =
         submit_key_fields_value(
             proof.submit_key_fields, "consumer_command_buffer_id");
+    const std::string stack_region_command_buffer_acquire_hook_key =
+        "stack_region_command_buffer_acquire_hook:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    StackRegionCommandBufferAcquireHookRequest
+        stack_region_command_buffer_acquire_hook_request;
+    stack_region_command_buffer_acquire_hook_request.stack_region_id =
+        exit_release_ownership_contract_request.stack_region_id;
+    stack_region_command_buffer_acquire_hook_request
+        .stack_region_instance_id = stack_region_instance_id;
+    stack_region_command_buffer_acquire_hook_request.boundary_id =
+        proof.boundary_id;
+    stack_region_command_buffer_acquire_hook_request.boundary_class =
+        proof.boundary_class;
+    stack_region_command_buffer_acquire_hook_request
+        .planned_region_exit_submit_point_id = planned_submit_point_id;
+    stack_region_command_buffer_acquire_hook_request.requested_owner_scope =
+        "stack_region";
+    stack_region_command_buffer_acquire_hook_request.requested_lifetime_scope =
+        "stack_region";
+    stack_region_command_buffer_acquire_hook_request.hook_required =
+        phase_submit_execution_flush_dependency_observed;
+    stack_region_command_buffer_acquire_hook_request.require_same_stream_queue =
+        true;
+    stack_region_command_buffer_acquire_hook_request
+        .public_final_host_readback_boundary =
+            !predicate_no_public_final_host_readback_blocker;
+    const StackRegionCommandBufferAcquireHookResult
+        stack_region_command_buffer_acquire_hook_result =
+            context()->request_stack_region_command_buffer_acquire(
+                stack_region_command_buffer_acquire_hook_request);
     const std::string region_owned_command_buffer_lease_key =
         "region_owned_command_buffer_lease:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -10185,6 +10217,58 @@ void append_stack_region_submit_epoch_ordering_json(
         "stack_region";
     region_owned_command_buffer_lease_request.requested_lifetime_scope =
         "stack_region";
+    region_owned_command_buffer_lease_request.acquire_hook_key =
+        stack_region_command_buffer_acquire_hook_key;
+    region_owned_command_buffer_lease_request.acquire_hook_status =
+        stack_region_command_buffer_acquire_hook_result.hook_status;
+    region_owned_command_buffer_lease_request.acquire_hook_result_status =
+        stack_region_command_buffer_acquire_hook_result.result_status;
+    region_owned_command_buffer_lease_request.acquire_hook_top_blocker =
+        stack_region_command_buffer_acquire_hook_result.top_blocker;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_command_buffer_or_batch_lease_id =
+            stack_region_command_buffer_acquire_hook_result
+                .command_buffer_or_batch_lease_id;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_command_buffer_or_batch_lease_status =
+            stack_region_command_buffer_acquire_hook_result
+                .command_buffer_or_batch_lease_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_command_pool_lease_id =
+            stack_region_command_buffer_acquire_hook_result
+                .command_pool_lease_id;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_command_pool_lease_status =
+            stack_region_command_buffer_acquire_hook_result
+                .command_pool_lease_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_descriptor_lifetime_scope_status =
+            stack_region_command_buffer_acquire_hook_result
+                .descriptor_lifetime_scope_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_retire_timeline_scope_status =
+            stack_region_command_buffer_acquire_hook_result
+                .retire_timeline_scope_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_same_stream_queue_status =
+            stack_region_command_buffer_acquire_hook_result
+                .same_stream_queue_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_public_final_host_readback_blocker_status =
+            stack_region_command_buffer_acquire_hook_result
+                .public_final_host_readback_blocker_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_descriptor_pool_scope_status =
+            stack_region_command_buffer_acquire_hook_result
+                .descriptor_pool_scope_status;
+    region_owned_command_buffer_lease_request
+        .acquire_hook_command_pool_scope_status =
+            stack_region_command_buffer_acquire_hook_result
+                .command_pool_scope_status;
+    region_owned_command_buffer_lease_request.acquire_hook_behavior_enabled =
+        stack_region_command_buffer_acquire_hook_result.behavior_enabled;
+    region_owned_command_buffer_lease_request.acquire_hook_lease_available =
+        stack_region_command_buffer_acquire_hook_result.lease_available;
     region_owned_command_buffer_lease_request.lease_required =
         phase_submit_execution_flush_dependency_observed;
     region_owned_command_buffer_lease_request.require_same_stream_queue = true;
@@ -11184,6 +11268,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_owned_command_buffer_lease_result.result_status
         << " region_owned_command_buffer_lease_top_blocker="
         << region_owned_command_buffer_lease_result.top_blocker
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " acquire_hook_result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " acquire_hook_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
         << " region_exit_close_submit_owner_key="
         << region_exit_close_submit_owner_key
@@ -11220,11 +11313,135 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_exit_release_ownership_contract_rows.emplace_back(
         exit_release_ownership_contract_row.str());
+    std::ostringstream stack_region_command_buffer_acquire_hook_row;
+    stack_region_command_buffer_acquire_hook_row
+        << "schema=StackRegionCommandBufferAcquireHook.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " stack_region_id="
+        << stack_region_command_buffer_acquire_hook_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " planned_region_exit_submit_point_id="
+        << planned_submit_point_id
+        << " requested_owner_scope="
+        << stack_region_command_buffer_acquire_hook_request
+               .requested_owner_scope
+        << " requested_lifetime_scope="
+        << stack_region_command_buffer_acquire_hook_request
+               .requested_lifetime_scope
+        << " hook_record_emitted="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .hook_record_emitted
+                ? "1"
+                : "0")
+        << " hook_exists="
+        << (stack_region_command_buffer_acquire_hook_result.hook_exists ? "1"
+                                                                        : "0")
+        << " behavior_enabled="
+        << (stack_region_command_buffer_acquire_hook_result.behavior_enabled
+                ? "1"
+                : "0")
+        << " lease_available="
+        << (stack_region_command_buffer_acquire_hook_result.lease_available
+                ? "1"
+                : "0")
+        << " hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
+        << " stack_planned_recording_active="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .stack_planned_recording_active
+                ? "1"
+                : "0")
+        << " stack_planned_recording_owned_by_current_thread="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .stack_planned_recording_owned_by_current_thread
+                ? "1"
+                : "0")
+        << " current_command_buffer_recording_id="
+        << stack_region_command_buffer_acquire_hook_result
+               .current_command_buffer_recording_id
+        << " current_owner_scope="
+        << stack_region_command_buffer_acquire_hook_result.current_owner_scope
+        << " requested_owner_scope_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .requested_owner_scope_status
+        << " command_buffer_batch_lease_id="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_buffer_or_batch_lease_id
+        << " region_command_buffer_or_batch_lease_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_buffer_or_batch_lease_status
+        << " command_pool_lease_id="
+        << stack_region_command_buffer_acquire_hook_result.command_pool_lease_id
+        << " command_pool_lease_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_pool_lease_status
+        << " descriptor_pool_scope_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .descriptor_pool_scope_status
+        << " command_pool_scope_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .command_pool_scope_status
+        << " descriptor_lifetime_scope_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .descriptor_lifetime_scope_status
+        << " retire_timeline_scope_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .retire_timeline_scope_status
+        << " same_stream_queue_requirement_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .same_stream_queue_status
+        << " public_final_host_readback_blocker_status="
+        << stack_region_command_buffer_acquire_hook_result
+               .public_final_host_readback_blocker_status
+        << " current_phase_boundary_submits_preserved=1"
+        << " submit_elision_enabled=0 deferred_submit_enabled=0"
+        << " new_queue_submit_created=0"
+        << " command_buffer_execution_topology_changed=0"
+        << " authorizes_submit_elision="
+        << (stack_region_command_buffer_acquire_hook_result
+                    .authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " runtime_api_source="
+        << stack_region_command_buffer_acquire_hook_result.runtime_api_source
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_buffer_acquire_hook_rows.emplace_back(
+        stack_region_command_buffer_acquire_hook_row.str());
     std::ostringstream region_owned_command_buffer_lease_row;
     region_owned_command_buffer_lease_row
         << "schema=RegionOwnedCommandBufferLease.v0"
         << " behavior_neutral=1 default_behavior_unchanged=1"
         << " lease_key=" << region_owned_command_buffer_lease_key
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << region_owned_command_buffer_lease_result.acquire_hook_status
+        << " acquire_hook_result_status="
+        << region_owned_command_buffer_lease_result
+               .acquire_hook_result_status
+        << " acquire_hook_top_blocker="
+        << region_owned_command_buffer_lease_result.acquire_hook_top_blocker
+        << " acquire_hook_behavior_enabled="
+        << (region_owned_command_buffer_lease_result
+                    .acquire_hook_behavior_enabled
+                ? "1"
+                : "0")
+        << " acquire_hook_descriptor_pool_scope_status="
+        << region_owned_command_buffer_lease_result
+               .acquire_hook_descriptor_pool_scope_status
+        << " acquire_hook_command_pool_scope_status="
+        << region_owned_command_buffer_lease_result
+               .acquire_hook_command_pool_scope_status
         << " stack_region_id="
         << region_owned_command_buffer_lease_request.stack_region_id
         << " stack_region_instance_id=" << stack_region_instance_id
@@ -11342,6 +11559,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_owned_command_buffer_lease_result.result_status
         << " region_owned_command_buffer_lease_top_blocker="
         << region_owned_command_buffer_lease_result.top_blocker
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " acquire_hook_result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " acquire_hook_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
         << " region_exit_close_submit_owner_key="
         << region_exit_close_submit_owner_key
@@ -11457,6 +11683,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_owned_command_buffer_lease_result.result_status
         << " region_owned_command_buffer_lease_top_blocker="
         << region_owned_command_buffer_lease_result.top_blocker
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " acquire_hook_result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " acquire_hook_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " queue_timeline_owner_status="
         << region_exit_close_submit_owner_result
                .queue_timeline_owner_status
@@ -11542,6 +11777,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_owned_command_buffer_lease_result.result_status
         << " region_owned_command_buffer_lease_top_blocker="
         << region_owned_command_buffer_lease_result.top_blocker
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " acquire_hook_result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " acquire_hook_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " same_stream_queue_proof_status="
         << exit_close_submit_owner_result.same_stream_queue_status
         << " retire_timeline_ownership_status="
@@ -11685,6 +11929,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << region_owned_command_buffer_lease_result.result_status
         << " region_owned_command_buffer_lease_top_blocker="
         << region_owned_command_buffer_lease_result.top_blocker
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " acquire_hook_result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " acquire_hook_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " command_buffer_lease_identity="
         << region_owned_command_buffer_lease_result
                .command_buffer_batch_lease_id
@@ -11762,6 +12015,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << " boundary_class=" << proof.boundary_class
         << " owner_scope=stack_region"
         << " requester_scope=stack_owner"
+        << " acquire_hook=StackRegionCommandBufferAcquireHook.v0"
+        << " acquire_hook_key="
+        << stack_region_command_buffer_acquire_hook_key
+        << " acquire_hook_status="
+        << stack_region_command_buffer_acquire_hook_result.hook_status
+        << " acquire_hook_result_status="
+        << stack_region_command_buffer_acquire_hook_result.result_status
+        << " acquire_hook_top_blocker="
+        << stack_region_command_buffer_acquire_hook_result.top_blocker
         << " command_buffer_lease_status=command_buffer_lease_not_applicable_to_release"
         << " command_pool_lease_status=command_pool_lease_not_applicable_to_release"
         << " public_outputs_release_status="
@@ -15062,6 +15324,20 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_exit_close_submit_owner_planned_point_status_counts;
   std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_command_buffer_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_command_pool_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_descriptor_pool_scope_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_buffer_acquire_hook_command_pool_scope_counts;
+  std::map<std::string, uint64_t>
       region_owned_command_buffer_lease_request_status_counts;
   std::map<std::string, uint64_t>
       region_owned_command_buffer_lease_result_status_counts;
@@ -15783,6 +16059,36 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "planned_region_exit_submit_point_status",
         "missing_planned_region_exit_submit_point_status")] += count;
+  }
+  for (const auto& row : stack_region_command_buffer_acquire_hook_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_buffer_acquire_hook_status_counts[field_or(
+        fields, "hook_status", "missing_hook_status")] += count;
+    stack_region_command_buffer_acquire_hook_result_status_counts[field_or(
+        fields, "result_status", "missing_result_status")] += count;
+    stack_region_command_buffer_acquire_hook_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_buffer_acquire_hook_command_buffer_status_counts
+        [field_or(
+            fields,
+            "region_command_buffer_or_batch_lease_status",
+            "missing_region_command_buffer_or_batch_lease_status")] += count;
+    stack_region_command_buffer_acquire_hook_command_pool_status_counts
+        [field_or(
+            fields,
+            "command_pool_lease_status",
+            "missing_command_pool_lease_status")] += count;
+    stack_region_command_buffer_acquire_hook_descriptor_pool_scope_counts
+        [field_or(
+            fields,
+            "descriptor_pool_scope_status",
+            "missing_descriptor_pool_scope_status")] += count;
+    stack_region_command_buffer_acquire_hook_command_pool_scope_counts
+        [field_or(
+            fields,
+            "command_pool_scope_status",
+            "missing_command_pool_scope_status")] += count;
   }
   for (const auto& row : region_owned_command_buffer_lease_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -17964,6 +18270,50 @@ void append_stack_region_submit_epoch_ordering_json(
   }
   out << "]";
   append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_acquire_hook_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_result_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_acquire_hook_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_acquire_hook_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_command_buffer_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_acquire_hook_command_buffer_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_command_pool_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_acquire_hook_command_pool_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_descriptor_pool_scope_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_command_buffer_acquire_hook_descriptor_pool_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_command_pool_scope_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_buffer_acquire_hook_command_pool_scope_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_buffer_acquire_hook_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_buffer_acquire_hook_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_buffer_acquire_hook_rows[i],
+        "stack_region_command_buffer_acquire_hook");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
   out << "\"region_owned_command_buffer_lease_request_status_counts\":";
   append_u64_map_object(
       out, region_owned_command_buffer_lease_request_status_counts);
@@ -19793,6 +20143,16 @@ RegionOwnedCommandBufferLeaseResult
 request_region_owned_command_buffer_lease(
     const RegionOwnedCommandBufferLeaseRequest& request) {
   RegionOwnedCommandBufferLeaseResult result;
+  result.acquire_hook_key = request.acquire_hook_key;
+  result.acquire_hook_status = request.acquire_hook_status;
+  result.acquire_hook_result_status = request.acquire_hook_result_status;
+  result.acquire_hook_top_blocker = request.acquire_hook_top_blocker;
+  result.acquire_hook_descriptor_pool_scope_status =
+      request.acquire_hook_descriptor_pool_scope_status;
+  result.acquire_hook_command_pool_scope_status =
+      request.acquire_hook_command_pool_scope_status;
+  result.acquire_hook_behavior_enabled =
+      request.acquire_hook_behavior_enabled;
   result.current_owner_status = request.current_owner_scope;
   result.requested_owner_scope_status =
       request.requested_owner_scope + "_owner_scope_requested";
@@ -19843,9 +20203,36 @@ request_region_owned_command_buffer_lease(
         "stack_region_owner_scope_blocked_by_output_boundary";
     return result;
   }
-  result.same_stream_queue_status = request.require_same_stream_queue
-      ? "same_stream_queue_required_unproven"
-      : "same_stream_queue_not_required";
+  result.request_status =
+      "region_owned_command_buffer_lease_request_acquire_hook_present_result_unavailable";
+  result.result_status =
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
+  result.top_blocker =
+      "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled";
+  result.command_buffer_batch_lease_id =
+      request.acquire_hook_command_buffer_or_batch_lease_id;
+  result.command_buffer_or_batch_lease_status =
+      request.acquire_hook_command_buffer_or_batch_lease_status;
+  result.command_pool_lease_id = request.acquire_hook_command_pool_lease_id;
+  result.command_pool_lease_status =
+      request.acquire_hook_command_pool_lease_status;
+  result.descriptor_lifetime_scope_status =
+      request.acquire_hook_descriptor_lifetime_scope_status;
+  result.retire_timeline_scope_status =
+      request.acquire_hook_retire_timeline_scope_status;
+  result.same_stream_queue_status =
+      request.acquire_hook_same_stream_queue_status;
+  if (result.same_stream_queue_status.empty()) {
+    result.same_stream_queue_status = request.require_same_stream_queue
+        ? "same_stream_queue_required_unproven"
+        : "same_stream_queue_not_required";
+  }
+  result.public_final_host_readback_blocker_status =
+      request.acquire_hook_public_final_host_readback_blocker_status;
+  result.current_owner_status =
+      "region_command_buffer_lease_adapter_present_context_owner_only";
+  result.runtime_api_source =
+      "RegionOwnedCommandBufferLeaseRuntimeApi.v0+StackRegionCommandBufferAcquireHook.v0";
   return result;
 }
 
