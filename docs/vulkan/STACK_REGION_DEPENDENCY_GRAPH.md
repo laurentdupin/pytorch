@@ -725,6 +725,12 @@ the selected boundary is active, a stack planned-recording owner is active, the
 command-buffer recording id is observed, the pending dispatch range is
 complete, the actual Norm1 input barrier proof is present, and host/final/readback
 blockers are absent.
+The first real `vits_140` bridge run with the canary did remove one selected
+phase-boundary submit, but stack-output bridge sanity failed. The benchmark
+harness therefore marks those timings invalid through
+`performance_invalid_reasons=["vulkan_stack_output_device_bridge_sanity_failed"]`.
+The canary remains a diagnostic proof surface only; it must not be promoted as
+a performance path.
 `StackRegionExitReleaseOwnership.v0` is emitted beside those release rows to
 classify the release responsibilities that a future stack/region owner would
 need to take over. It reports public, private bridge, captured,

@@ -86,6 +86,14 @@ single deferred submit is backed by the single-recording owner, live command
 buffer id, pending dispatch range, actual Norm1 input barrier proof, and
 host/final/readback blocker checks.
 
+The first real `vits_140` bridge run with this canary is not a valid
+performance result. It removed exactly one selected submit, but bridge sanity
+failed, so the benchmark marks the row invalid with
+`vulkan_stack_output_device_bridge_sanity_failed`. This keeps the canary as a
+diagnostic proof surface only. The next behavior path should create a planned
+region-owned command-buffer topology instead of trying to defer individual
+phase submits in the current topology.
+
 ## Design Card
 
 ### Stack-Entry Acquire

@@ -439,6 +439,15 @@ elision proof. Focused tests cover output parity, one selected submit deferred
 to stack exit, no submit removed outside the selected boundary, live
 command-buffer ownership, barrier proof, pending dispatch range proof, and
 host/final/readback blockers staying absent.
+The first real `vits_140` bridge measurement with this canary removed exactly
+one selected submit but failed stack-output bridge sanity, so the result is not
+a valid performance improvement. The benchmark harness now marks bridge runs
+with failed `vulkan_stack_output_device_bridge_sanity` as
+`performance_valid=false` and records
+`vulkan_stack_output_device_bridge_sanity_failed` in
+`performance_invalid_reasons`. Do not promote this canary or use its timings as
+evidence; the next behavior path must be a planned region-owned command-buffer
+topology rather than another local phase-submit deferral.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to

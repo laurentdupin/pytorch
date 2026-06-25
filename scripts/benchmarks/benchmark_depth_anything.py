@@ -2323,6 +2323,17 @@ def run() -> None:
         if device_kind == "vulkan"
         else None
     )
+    bridge_sanity = failure_context.get("vulkan_stack_output_device_bridge_sanity")
+    bridge_sanity_failed = (
+        isinstance(bridge_sanity, dict)
+        and bool(bridge_sanity.get("enabled"))
+        and not bool(bridge_sanity.get("passed"))
+    )
+    invalid_reasons: list[str] = []
+    if probe_summary:
+        invalid_reasons.append("vulkan_model_probe_enabled")
+    if bridge_sanity_failed:
+        invalid_reasons.append("vulkan_stack_output_device_bridge_sanity_failed")
 
     result = {
         "benchmark_name": "benchmark_depth_anything",
@@ -2352,9 +2363,7 @@ def run() -> None:
         "vulkan_stack_output_device_bridge": failure_context.get(
             "vulkan_stack_output_device_bridge",
         ),
-        "vulkan_stack_output_device_bridge_sanity": failure_context.get(
-            "vulkan_stack_output_device_bridge_sanity",
-        ),
+        "vulkan_stack_output_device_bridge_sanity": bridge_sanity,
         "stack_output_device_consumer_registrations": failure_context.get(
             "stack_output_device_consumer_registrations",
         ),
@@ -2365,7 +2374,8 @@ def run() -> None:
             planned_dependency_dry_run
         ),
         "vulkan_model_probe": probe_summary,
-        "performance_valid": not bool(probe_summary),
+        "performance_valid": not bool(invalid_reasons),
+        "performance_invalid_reasons": invalid_reasons,
         "probe_timing_note": (
             "probe run uses CPU substitution/taint diagnostics; timing fields are not valid"
             if probe_summary
