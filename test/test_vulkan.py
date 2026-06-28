@@ -26046,6 +26046,98 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["single_recording_owner_close_submit_status"],
                 "close_submit_preserved_phase_submit_batch_context_owned",
             )
+            submit_level_proof = graph["stack_region_submit_epoch_ordering"][
+                "stack_boundary_proof_records"
+            ]["submit_level_equivalence_proof"]
+            close_submit_owner_rows = [
+                record["fields"]
+                for record in submit_level_proof[
+                    "region_exit_close_submit_owner_records"
+                ]
+                if record["fields"].get(
+                    "region_exit_close_submit_owner_lifecycle_state"
+                )
+                in {"7", "8", "9"}
+                and record["fields"].get("close_submit_owner_handoff_status")
+                == (
+                    "region_exit_close_submit_owner_handoff_blocked_"
+                    "preserved_phase_submit_batch_context_owned"
+                )
+            ]
+            self.assertTrue(close_submit_owner_rows)
+            close_submit_owner_row = close_submit_owner_rows[0]
+            self.assertEqual(
+                close_submit_owner_row["owner_status"],
+                "region_exit_close_submit_owner_available_"
+                "preserved_phase_submit_batch_behavior_enabled_no_submit_elision",
+            )
+            self.assertEqual(close_submit_owner_row["ownership_available"], "0")
+            self.assertEqual(
+                close_submit_owner_row["close_submit_owner_handoff_available"],
+                "0",
+            )
+            self.assertEqual(
+                close_submit_owner_row["close_submit_owner_handoff_status"],
+                "region_exit_close_submit_owner_handoff_blocked_"
+                "preserved_phase_submit_batch_context_owned",
+            )
+            self.assertEqual(
+                close_submit_owner_row["final_fail_closed_reason"],
+                "region_exit_close_submit_owner_handoff_blocked_"
+                "preserved_phase_submit_batch_context_owned",
+            )
+            self.assertEqual(
+                close_submit_owner_row[
+                    "region_exit_close_submit_owner_behavior_enabled"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                close_submit_owner_row[
+                    "region_exit_close_submit_owner_authorizes_submit_elision"
+                ],
+                "0",
+            )
+            transfer_rows = [
+                record["fields"]
+                for record in submit_level_proof[
+                    "region_exit_ownership_transfer_records"
+                ]
+                if record["fields"].get("close_submit_owner_handoff_status")
+                == (
+                    "region_exit_close_submit_owner_handoff_blocked_"
+                    "preserved_phase_submit_batch_context_owned"
+                )
+            ]
+            self.assertTrue(transfer_rows)
+            transfer_row = transfer_rows[0]
+            self.assertIn(
+                transfer_row["runtime_close_submit_owner_lifecycle_state"],
+                {"7", "8", "9"},
+            )
+            self.assertEqual(transfer_row["close_submit_accounting_joined"], "1")
+            self.assertEqual(
+                transfer_row["close_submit_ownership_complete"], "0"
+            )
+            self.assertEqual(
+                transfer_row["close_submit_owner_handoff_available"], "0"
+            )
+            self.assertEqual(
+                transfer_row["close_submit_owner_handoff_status"],
+                "region_exit_close_submit_owner_handoff_blocked_"
+                "preserved_phase_submit_batch_context_owned",
+            )
+            self.assertEqual(
+                transfer_row["transfer_status"],
+                "region_exit_ownership_transfer_blocked_by_close_submit_owner",
+            )
+            self.assertEqual(
+                transfer_row["top_blocker"],
+                "region_exit_close_submit_owner_handoff_blocked_"
+                "preserved_phase_submit_batch_context_owned",
+            )
+            self.assertEqual(transfer_row["ownership_transfer_complete"], "0")
+            self.assertEqual(transfer_row["authorizes_submit_elision"], "0")
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
