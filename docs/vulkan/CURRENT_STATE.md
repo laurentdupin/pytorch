@@ -972,6 +972,12 @@ copy/readback/submit/retire context, and current plan/route counter arrays.
 The evidence is reporting-only: it is not a plan cache, not an optimizer, and
 does not change route selection, shader selection, fallback/readback behavior,
 or accepted shapes.
+The collector can also ingest optional `stack_graph_json` sidecars and summarize
+`StackRegionDependencyGraph.v0` evidence per row: dispatch/resource/dependency
+counts, single-recording canary guard reasons, submit-removal counts, and
+pending-retire source coverage buckets. This is still reporting-only and does
+not mean the graph system is five-model validated unless fresh graph sidecars
+exist for those rows.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor

@@ -1179,6 +1179,163 @@ def summarize_region_lifetime(
     }
 
 
+STACK_REGION_GRAPH_ROW_KEYS = (
+    "stack_region_boundary_submit_plan_live_rows",
+    "stack_region_barrier_only_canary_live_rows",
+    "stack_region_pre_dispatch_proof_table_rows",
+    "stack_region_boundary_optimization_plan_rows",
+    "stack_region_submit_elision_canary_rows",
+    "stack_region_single_recording_canary_rows",
+    "stack_region_exit_submit_runtime_point_rows",
+    "stack_region_pending_retire_transfer_records",
+    "stack_region_pending_retire_transfer_owner_records",
+    "region_lifetime_rows",
+)
+
+
+def graph_row_fields(row: Any) -> dict[str, str]:
+    if isinstance(row, dict):
+        fields = row.get("fields")
+        if isinstance(fields, dict):
+            return {str(key): str(value) for key, value in fields.items()}
+        raw = row.get("raw")
+        if isinstance(raw, str):
+            return key_value_fields(raw)
+    if isinstance(row, str):
+        return key_value_fields(row)
+    return {}
+
+
+def counter_from_graph_rows(rows: list[Any], field: str) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for row in rows:
+        value = graph_row_fields(row).get(field)
+        if value:
+            counter[value] += 1
+    return dict(sorted(counter.items()))
+
+
+def summarize_stack_region_graph(
+    graph_path: Path | None,
+    missing_artifacts: list[dict[str, str]],
+) -> dict[str, Any]:
+    if graph_path is None:
+        return {
+            "available": False,
+            "configured": False,
+            "path": None,
+            "row_counts": {},
+        }
+    if not graph_path.exists():
+        missing_artifacts.append(
+            {
+                "kind": "missing_artifact",
+                "name": "stack_graph_json",
+                "path": rel_path(graph_path) or "",
+                "impact": "stack-region graph ownership evidence is unavailable for this row",
+            }
+        )
+        return {
+            "available": False,
+            "configured": True,
+            "path": rel_path(graph_path),
+            "row_counts": {},
+        }
+
+    data = load_json(graph_path)
+    summary = data.get("summary") if isinstance(data, dict) else {}
+    if not isinstance(summary, dict):
+        summary = {}
+    row_counts: dict[str, int] = {}
+    for key in STACK_REGION_GRAPH_ROW_KEYS:
+        rows = data.get(key) if isinstance(data, dict) else None
+        if isinstance(rows, list):
+            row_counts[key] = len(rows)
+
+    single_recording_rows = (
+        data.get("stack_region_single_recording_canary_rows")
+        if isinstance(data, dict)
+        else []
+    )
+    if not isinstance(single_recording_rows, list):
+        single_recording_rows = []
+    pending_transfer_rows = (
+        data.get("stack_region_pending_retire_transfer_records")
+        if isinstance(data, dict)
+        else []
+    )
+    if not isinstance(pending_transfer_rows, list):
+        pending_transfer_rows = []
+    pending_owner_rows = (
+        data.get("stack_region_pending_retire_transfer_owner_records")
+        if isinstance(data, dict)
+        else []
+    )
+    if not isinstance(pending_owner_rows, list):
+        pending_owner_rows = []
+
+    return {
+        "available": True,
+        "configured": True,
+        "path": rel_path(graph_path),
+        "schema": data.get("schema") if isinstance(data, dict) else None,
+        "behavior_neutral": bool((data or {}).get("behavior_neutral"))
+        if isinstance(data, dict)
+        else False,
+        "summary": {
+            "dispatch_nodes": int(summary.get("dispatch_nodes") or 0),
+            "resource_nodes": int(summary.get("resource_nodes") or 0),
+            "dependency_edge_rows": int(summary.get("dependency_edge_rows") or 0),
+            "boundary_nodes": int(summary.get("boundary_nodes") or 0),
+            "single_recording_canary_rows": int(
+                summary.get("stack_region_single_recording_canary_rows") or 0
+            ),
+            "single_recording_canary_submits_removed": int(
+                summary.get("single_recording_canary_submits_removed") or 0
+            ),
+            "single_recording_canary_submits_removed_outside_selected_boundary": int(
+                summary.get(
+                    "single_recording_canary_submits_removed_outside_selected_boundary"
+                )
+                or 0
+            ),
+            "submit_elision_enabled": bool(summary.get("submit_elision_enabled")),
+            "single_recording_canary_enabled": bool(
+                summary.get("single_recording_canary_enabled")
+            ),
+        },
+        "row_counts": row_counts,
+        "single_recording_canary": {
+            "status_counts": counter_from_graph_rows(
+                single_recording_rows, "status"
+            ),
+            "guard_fail_reason_counts": counter_from_graph_rows(
+                single_recording_rows, "guard_fail_reason"
+            ),
+            "close_submit_owner_status_counts": counter_from_graph_rows(
+                single_recording_rows, "region_exit_close_submit_owner_status"
+            ),
+            "submits_removed_counts": counter_from_graph_rows(
+                single_recording_rows, "submits_removed"
+            ),
+        },
+        "pending_retire_transfer": {
+            "source_match_status_counts": counter_from_graph_rows(
+                pending_transfer_rows, "source_match_status"
+            ),
+            "source_coverage_status_counts": counter_from_graph_rows(
+                pending_transfer_rows, "region_exit_bound_source_coverage_status"
+            ),
+            "owner_status_counts": counter_from_graph_rows(
+                pending_owner_rows, "owner_status"
+            ),
+            "owner_top_blocker_counts": counter_from_graph_rows(
+                pending_owner_rows, "top_blocker"
+            ),
+        },
+    }
+
+
 def route_contract_summary(matrix_row: dict[str, Any] | None) -> dict[str, Any]:
     route_counts = (matrix_row or {}).get("route_counts") or {}
     by_contract: Counter[str] = Counter()
@@ -1293,6 +1450,16 @@ def build_row(
         missing_artifacts,
         result,
     )
+    stack_graph = summarize_stack_region_graph(
+        repo_path(
+            first_present(
+                row_cfg.get("stack_graph_json"),
+                row_cfg.get("stack_region_graph_json"),
+                row_cfg.get("graph_json"),
+            )
+        ),
+        missing_artifacts,
+    )
     op_contracts = route_contract_summary(matrix_row)
     status = status_from_result(
         matrix_row or result,
@@ -1357,6 +1524,7 @@ def build_row(
         "transition_jsonl": rel_path(repo_path(row_cfg.get("transition_jsonl")))
         if row_cfg.get("transition_jsonl") and repo_path(row_cfg.get("transition_jsonl")).exists()
         else "",
+        "stack_graph_json": stack_graph.get("path") or "",
     }
     if missing_artifacts:
         artifacts["missing_artifacts"] = json.dumps(missing_artifacts, sort_keys=True)
@@ -1371,6 +1539,7 @@ def build_row(
             "device_info": (result or {}).get("device_info") or {},
             "model_suite_evidence": model_suite_evidence,
             "execution_plan_evidence": execution_plan_evidence,
+            "stack_region_graph": stack_graph,
         },
         "timings": timing_summary(result, matrix_row),
         "phase_counters": phases,
@@ -1396,6 +1565,9 @@ def aggregate_rows(
     missing_artifacts = 0
     observed_reasons = Counter()
     model_suite_evidence = Counter()
+    stack_graph_evidence = Counter()
+    stack_graph_single_recording_guard_reasons = Counter()
+    stack_graph_pending_retire_coverage = Counter()
     for row in rows:
         missing_artifacts += len(row["environment"].get("missing_artifacts") or [])
         transition_contracts.update(row["transitions"].get("events_by_contract") or {})
@@ -1416,6 +1588,33 @@ def aggregate_rows(
         )
         for event in row["transitions"].get("events_by_reason_phase") or []:
             observed_reasons[event["reason"]] += int(event["count"])
+        graph = row["environment"].get("stack_region_graph") or {}
+        if graph.get("available"):
+            stack_graph_evidence["available_rows"] += 1
+            graph_summary = graph.get("summary") or {}
+            stack_graph_evidence["dispatch_nodes"] += int(
+                graph_summary.get("dispatch_nodes") or 0
+            )
+            stack_graph_evidence["resource_nodes"] += int(
+                graph_summary.get("resource_nodes") or 0
+            )
+            stack_graph_evidence["dependency_edge_rows"] += int(
+                graph_summary.get("dependency_edge_rows") or 0
+            )
+            stack_graph_evidence["single_recording_canary_rows"] += int(
+                graph_summary.get("single_recording_canary_rows") or 0
+            )
+            stack_graph_evidence["single_recording_canary_submits_removed"] += int(
+                graph_summary.get("single_recording_canary_submits_removed") or 0
+            )
+            single_recording = graph.get("single_recording_canary") or {}
+            stack_graph_single_recording_guard_reasons.update(
+                single_recording.get("guard_fail_reason_counts") or {}
+            )
+            pending_retire = graph.get("pending_retire_transfer") or {}
+            stack_graph_pending_retire_coverage.update(
+                pending_retire.get("source_coverage_status_counts") or {}
+            )
     missing_contract_buckets = sorted(
         {
             CONTRACT_MISSING_BUCKETS[reason]
@@ -1445,6 +1644,13 @@ def aggregate_rows(
             "missing_optional_artifacts": missing_artifacts,
             "unknown_transition_reasons": transition_unknown,
             "model_suite_evidence_rows": dict(sorted(model_suite_evidence.items())),
+            "stack_region_graph_evidence": dict(sorted(stack_graph_evidence.items())),
+            "stack_region_graph_single_recording_guard_reasons": dict(
+                sorted(stack_graph_single_recording_guard_reasons.items())
+            ),
+            "stack_region_graph_pending_retire_coverage": dict(
+                sorted(stack_graph_pending_retire_coverage.items())
+            ),
         },
         "budgets": {
             "rows_with_cpu_fallback_budget_failure": sum(
@@ -1552,8 +1758,9 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
         "## Rows",
         "",
         "| row | status | timing valid | op contracts | transition contracts | "
-        "model-suite evidence | execution plans | lifetime evidence | unknown transition reasons | missing artifacts |",
-        "|---|---|---:|---|---|---|---|---|---:|---:|",
+        "model-suite evidence | execution plans | lifetime evidence | graph evidence | "
+        "unknown transition reasons | missing artifacts |",
+        "|---|---|---:|---|---|---|---|---|---|---:|---:|",
     ]
     for row in artifact["rows"]:
         op_contracts = ", ".join(
@@ -1591,8 +1798,22 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
                 retired=row["region_lifetime"].get("retired_resource_aggregate_rows", 0),
             )
         )
+        graph = row["environment"].get("stack_region_graph") or {}
+        graph_summary = graph.get("summary") or {}
+        graph_evidence_summary = (
+            "dispatch:{dispatch} resource:{resource} single:{single} removed:{removed}".format(
+                dispatch=graph_summary.get("dispatch_nodes", 0),
+                resource=graph_summary.get("resource_nodes", 0),
+                single=graph_summary.get("single_recording_canary_rows", 0),
+                removed=graph_summary.get(
+                    "single_recording_canary_submits_removed", 0
+                ),
+            )
+            if graph.get("available")
+            else "-"
+        )
         lines.append(
-            "| `{}` | `{}` | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+            "| `{}` | `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
                 row["row_id"],
                 row["status"],
                 "yes" if row["timing_valid"] else "no",
@@ -1601,6 +1822,7 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
                 suite_summary,
                 plan_summary,
                 lifetime_summary,
+                graph_evidence_summary,
                 row["unknowns"]["unknown_transition_reasons"],
                 len(row["environment"].get("missing_artifacts") or []),
             )
@@ -1994,6 +2216,50 @@ def validate_model_suite_ingestion() -> None:
             encoding="utf-8",
         )
         write_json(tmp_path / "row.probe_summary.json", {"status": "ok"})
+        write_json(
+            tmp_path / "row.stack_graph.json",
+            {
+                "schema": "StackRegionDependencyGraph.v0",
+                "behavior_neutral": True,
+                "summary": {
+                    "dispatch_nodes": 3,
+                    "resource_nodes": 2,
+                    "dependency_edge_rows": 1,
+                    "boundary_nodes": 1,
+                    "stack_region_single_recording_canary_rows": 1,
+                    "single_recording_canary_submits_removed": 0,
+                    "single_recording_canary_submits_removed_outside_selected_boundary": 0,
+                    "submit_elision_enabled": False,
+                    "single_recording_canary_enabled": False,
+                },
+                "stack_region_single_recording_canary_rows": [
+                    {
+                        "fields": {
+                            "status": "single_recording_owner_close_submit_canary_guard_failed",
+                            "guard_fail_reason": "pending_dispatch_barrier_coverage_incomplete",
+                            "region_exit_close_submit_owner_status": "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
+                            "submits_removed": "0",
+                        }
+                    }
+                ],
+                "stack_region_pending_retire_transfer_records": [
+                    {
+                        "fields": {
+                            "source_match_status": "pending_retire_transfer_source_partially_bound_to_region_exit_submit",
+                            "region_exit_bound_source_coverage_status": "pending_retire_transfer_source_coverage_partial",
+                        }
+                    }
+                ],
+                "stack_region_pending_retire_transfer_owner_records": [
+                    {
+                        "fields": {
+                            "owner_status": "pending_retire_transfer_owner_blocked_by_transfer_plan",
+                            "top_blocker": "pending_retire_transfer_owner_unavailable",
+                        }
+                    }
+                ],
+            },
+        )
         (tmp_path / "row.op_hits.log").write_text(
             "\n".join(
                 [
@@ -2024,7 +2290,14 @@ def validate_model_suite_ingestion() -> None:
             + "\n",
             encoding="utf-8",
         )
-        row = build_row({"row_id": "self_test", "result_json": str(result_path)}, {})
+        row = build_row(
+            {
+                "row_id": "self_test",
+                "result_json": str(result_path),
+                "stack_graph_json": str(tmp_path / "row.stack_graph.json"),
+            },
+            {},
+        )
 
     timed = row["phase_counters"]["timed_forward"]
     if timed.get("tensor_cpu_readback_submits") != 1173:
@@ -2062,6 +2335,17 @@ def validate_model_suite_ingestion() -> None:
         for item in row["environment"].get("missing_artifacts") or []
     ):
         raise AssertionError("embedded lifetime evidence was still reported missing")
+    graph = row["environment"].get("stack_region_graph") or {}
+    if not graph.get("available"):
+        raise AssertionError("stack-region graph evidence was not consumed")
+    if graph["summary"]["single_recording_canary_rows"] != 1:
+        raise AssertionError("single-recording graph rows were not summarized")
+    guard_reasons = graph["single_recording_canary"]["guard_fail_reason_counts"]
+    if guard_reasons.get("pending_dispatch_barrier_coverage_incomplete") != 1:
+        raise AssertionError("single-recording guard reasons were not counted")
+    coverage = graph["pending_retire_transfer"]["source_coverage_status_counts"]
+    if coverage.get("pending_retire_transfer_source_coverage_partial") != 1:
+        raise AssertionError("pending-retire graph coverage was not counted")
     print("validated model-suite collector ingestion")
 
 
