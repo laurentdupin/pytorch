@@ -10730,7 +10730,7 @@ void append_stack_region_submit_epoch_ordering_json(
             .public_final_host_readback_boundary;
     const StackRegionCommandPoolResetDeferralOwnerResult
         command_pool_reset_deferral_owner_result =
-            request_stack_region_command_pool_reset_deferral_owner(
+            context()->snapshot_stack_region_command_pool_reset_deferral_owner(
                 command_pool_reset_deferral_owner_request);
     const std::string exit_release_ownership_key =
         "stack_region_exit_release_ownership:instance:" +
@@ -14581,6 +14581,14 @@ void append_stack_region_submit_epoch_ordering_json(
         << " owner_available="
         << (command_pool_reset_deferral_owner_result.owner_available ? "1"
                                                                     : "0")
+        << " lifecycle_id="
+        << command_pool_reset_deferral_owner_result.lifecycle_id
+        << " lifecycle_state="
+        << command_pool_reset_deferral_owner_result.lifecycle_state
+        << " lifecycle_status="
+        << command_pool_reset_deferral_owner_result.lifecycle_status
+        << " lifecycle_source="
+        << command_pool_reset_deferral_owner_result.lifecycle_source
         << " result_status="
         << command_pool_reset_deferral_owner_result.result_status
         << " owner_status="
@@ -22997,6 +23005,10 @@ request_stack_region_command_pool_reset_deferral_owner(
       request.requested_owner_scope + "_reset_deferral_owner_scope_requested";
   result.planned_release_reset_point_status =
       request.planned_release_reset_point_status;
+  result.lifecycle_id = request.lifecycle_id;
+  result.lifecycle_state = request.lifecycle_state;
+  result.lifecycle_status = request.lifecycle_status;
+  result.lifecycle_source = request.lifecycle_source;
   if (!request.owner_required) {
     result.result_status = "command_pool_reset_deferral_owner_not_required";
     result.owner_status = "command_pool_reset_deferral_owner_not_required";

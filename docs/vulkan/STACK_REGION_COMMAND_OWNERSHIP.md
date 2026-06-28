@@ -265,7 +265,10 @@ timeline creation. Reset deferral remains fail-closed with
 surface for that missing step. It records the proof key/status, current
 command-pool owner scope, requested stack-region owner scope, and planned
 release/reset point while keeping `owner_available=0`,
-`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`.
+`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`. It also
+reports `ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle
+id/state/status/source from stack entry through submit or cancel finalization.
+Those states are context-owned and not deferred; they are not region ownership.
 
 ### Release Ownership
 

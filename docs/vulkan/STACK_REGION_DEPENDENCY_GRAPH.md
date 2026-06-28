@@ -865,9 +865,13 @@ bucket without changing command-pool reset behavior.
 `StackRegionCommandPoolResetDeferralOwner.v0` consumes that proof and emits the
 first-class owner surface for reset deferral. It is still diagnostic-only:
 `owner_available=0`, `reset_deferral_behavior_enabled=0`,
-`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`. Close-submit
-ownership must consume this owner surface rather than treating proof strings as
-behavior authorization.
+`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`. The owner row
+also records `ContextStackRegionCommandPoolResetDeferralOwnerState.v0`
+lifecycle id/state/status/source so a later implementation can distinguish
+not-started, active context-owned, submit-finalized context-owned, and
+cancel-finalized context-owned states. None of those states transfers reset
+ownership to the region. Close-submit ownership must consume this owner surface
+rather than treating proof strings as behavior authorization.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair
 with the planned callsites. Current rows are behavior-neutral with
 `hook_installed=0`, `request_hook_plan_api_present_result_unavailable`, and

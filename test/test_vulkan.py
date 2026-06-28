@@ -23584,6 +23584,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_reset_deferral_owner_record["owner_available"],
                 "0",
             )
+            self.assertIn("lifecycle_id", first_reset_deferral_owner_record)
+            self.assertIn(
+                first_reset_deferral_owner_record["lifecycle_status"],
+                {
+                    "command_pool_reset_deferral_owner_not_started",
+                    "command_pool_reset_deferral_owner_candidate_active_context_owned_not_deferred",
+                    "command_pool_reset_deferral_owner_finalized_submit_context_owned_not_deferred",
+                    "command_pool_reset_deferral_owner_finalized_cancel_context_owned_not_deferred",
+                },
+            )
+            self.assertEqual(
+                first_reset_deferral_owner_record["lifecycle_source"],
+                "ContextStackRegionCommandPoolResetDeferralOwnerState.v0",
+            )
             self.assertEqual(
                 first_reset_deferral_owner_record["defers_command_pool_reset"],
                 "0",

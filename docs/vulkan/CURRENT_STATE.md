@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `5424c744bfa` plus the
-reset-deferral close-submit blocker propagation slice.
+Last refreshed: 2026-06-28 at local HEAD `62b816c21f6` plus the
+reset-deferral owner context-lifecycle observation slice.
 
 ## Repo State Summary
 
@@ -600,7 +600,10 @@ region-owned command-pool reset-deferral owner exists, whether reset deferral is
 enabled, and whether command-pool reset would be deferred. Current rows report
 `owner_available=0`, `defers_command_pool_reset=0`, and
 `authorizes_submit_elision=0`; the selected blocker remains
-`command_pool_reset_deferral_implementation_missing`.
+`command_pool_reset_deferral_implementation_missing`. The row now also carries
+`ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle id/state
+from stack entry through submit or cancel finalization, but all observed states
+remain context-owned and not deferred.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

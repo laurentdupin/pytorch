@@ -1309,6 +1309,12 @@ struct StackRegionCommandPoolResetDeferralOwnerRequest final {
   std::string planned_release_reset_point_id = "missing";
   std::string planned_release_reset_point_status =
       "region_exit_release_point_unimplemented";
+  uint64_t lifecycle_id = 0u;
+  uint32_t lifecycle_state = 0u;
+  std::string lifecycle_status =
+      "command_pool_reset_deferral_owner_not_started";
+  std::string lifecycle_source =
+      "ContextStackRegionCommandPoolResetDeferralOwnerState.v0";
   bool owner_required = true;
   bool public_final_host_readback_boundary = false;
 };
@@ -1320,6 +1326,8 @@ struct StackRegionCommandPoolResetDeferralOwnerResult final {
   bool reset_deferral_behavior_enabled = false;
   bool authorizes_submit_elision = false;
   bool defers_command_pool_reset = false;
+  uint64_t lifecycle_id = 0u;
+  uint32_t lifecycle_state = 0u;
   std::string result_status =
       "command_pool_reset_deferral_owner_result_unavailable";
   std::string owner_status =
@@ -1338,6 +1346,10 @@ struct StackRegionCommandPoolResetDeferralOwnerResult final {
       "requested_stack_region_reset_deferral_owner_scope";
   std::string planned_release_reset_point_status =
       "region_exit_release_point_unimplemented";
+  std::string lifecycle_status =
+      "command_pool_reset_deferral_owner_not_started";
+  std::string lifecycle_source =
+      "ContextStackRegionCommandPoolResetDeferralOwnerState.v0";
   std::string runtime_api_source =
       "StackRegionCommandPoolResetDeferralOwnerRuntimeApi.v0";
 };
