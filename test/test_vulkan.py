@@ -21309,6 +21309,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_command_buffer_close_submit_release_ownership",
                     "region_exit_close_submit_owner_missing",
                     "region_exit_close_submit_owner_implementation_missing",
+                    "command_pool_reset_deferral_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
@@ -23091,6 +23092,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_command_buffer_close_submit_release_ownership",
                     "region_exit_close_submit_owner_missing",
                     "region_exit_close_submit_owner_implementation_missing",
+                    "command_pool_reset_deferral_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
@@ -23257,6 +23259,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "command_pool_owner_context_phase_submit_scope",
+                    "command_pool_owner_context_phase_submit_scope_retained_until_release_point",
                     "command_pool_owner_blocked_by_host_fence_public_readback",
                     "command_pool_owner_not_required",
                 },
@@ -23268,6 +23271,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "missing_command_pool_retention_api",
                     "command_pool_retention_request_api_present_result_unavailable",
+                    "command_pool_retention_request_api_present_release_point_observed",
                     "command_pool_retention_request_api_rejected_host_fence_public_readback_blocker",
                     "command_pool_retention_request_api_not_required",
                 },
@@ -23329,6 +23333,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_retention_request_record["request_api_status"],
                 {
                     "command_pool_retention_request_api_present_result_unavailable",
+                    "command_pool_retention_request_api_present_release_point_observed",
                     "command_pool_retention_request_api_rejected_host_fence_public_readback_blocker",
                     "command_pool_retention_request_api_not_required",
                 },
@@ -23337,6 +23342,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_retention_request_record["result_status"],
                 {
                     "command_pool_retention_result_api_present_unavailable",
+                    "command_pool_retention_result_context_pool_retained_until_observed_release_point",
                     "command_pool_retention_result_rejected_host_fence_public_readback_blocker",
                     "command_pool_retention_result_not_required",
                 },
@@ -23349,6 +23355,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_command_buffer_close_submit_release_ownership",
                     "region_exit_close_submit_owner_missing",
                     "region_exit_close_submit_owner_implementation_missing",
+                    "command_pool_reset_deferral_implementation_missing",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
@@ -23374,14 +23381,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "StackRegionCommandPoolRetentionResult.v0",
             )
             self.assertEqual(first_retention_result_record["api_present"], "1")
-            self.assertEqual(
+            self.assertIn(
                 first_retention_result_record["result_available"],
-                "0",
+                {"0", "1"},
             )
             self.assertIn(
                 first_retention_result_record["result_status"],
                 {
                     "command_pool_retention_result_api_present_unavailable",
+                    "command_pool_retention_result_context_pool_retained_until_observed_release_point",
                     "command_pool_retention_result_rejected_host_fence_public_readback_blocker",
                     "command_pool_retention_result_not_required",
                 },
@@ -23390,6 +23398,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_retention_result_record["implementation_status"],
                 {
                     "command_pool_retention_implementation_missing",
+                    "command_pool_retention_context_pool_retained_region_reset_not_owned",
                     "command_pool_retention_blocked_by_missing_region_exit_release_ownership",
                     "command_pool_retention_implementation_blocked_by_host_fence_public_readback",
                     "command_pool_retention_implementation_not_required",

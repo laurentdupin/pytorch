@@ -254,9 +254,12 @@ The region owner must define:
 - which planned region-exit release point owns the release decision.
 
 The stack planned-recording exit submit can be observed as the release point in
-v0, but until region ownership exists, phase-boundary submits continue to own
-command-buffer recording closure, command-pool reset eligibility, descriptor
-lifetime, and timeline creation.
+v0. The current context command pool is also observed as retained through that
+release point, but this is not a transferable region command-pool lease. Until
+region ownership exists, phase-boundary submits continue to own command-buffer
+recording closure, command-pool reset eligibility, descriptor lifetime, and
+timeline creation. Reset deferral remains fail-closed with
+`command_pool_reset_deferral_implementation_missing`.
 
 ### Release Ownership
 

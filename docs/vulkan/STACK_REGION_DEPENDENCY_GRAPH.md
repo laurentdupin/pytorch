@@ -621,11 +621,11 @@ requested region lifetime scope, planned region-exit release point id and
 status, linked command-buffer lifetime reservation key, command-pool retention
 API status, command-pool reset deferral status, and runtime API source. Current
 rows report `command_pool_lifetime_contract_unavailable`,
-`command_pool_owner_context_phase_submit_scope`,
-`command_pool_retention_request_api_present_result_unavailable`, and
-`missing_command_pool_reset_deferral_proof`. The contract authorizes no submit
-elision and performs no command-pool retention or command-buffer lifetime
-change.
+`command_pool_owner_context_phase_submit_scope_retained_until_release_point`,
+`command_pool_retention_request_api_present_release_point_observed`, and
+`command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing`.
+The contract authorizes no submit elision and performs no command-pool reset
+deferral or command-buffer lifetime change.
 `StackRegionCommandPoolRetentionRequest.v0` and
 `StackRegionCommandPoolRetentionResult.v0` are emitted below the command-pool
 lifetime contract. They are keyed by the selected stack-region instance,
@@ -634,13 +634,14 @@ command-pool lifetime contract. The request records the current context
 phase-submit command-pool owner scope, requested stack/region retention scope,
 same-stream/queue requirement, public/final/host/readback policy, and
 fail-closed runtime API source. The result distinguishes API-present but
-unavailable, missing region-exit release ownership, missing reset-deferral
-proof, planned release-point status, and same-stream/queue proof status. It
-does not retain command pools, defer resets, allocate command buffers, create
-queue submits, or authorize submit elision. Current selected rows report
-`command_pool_retention_result_api_present_unavailable` with
-`command_pool_retention_implementation_missing` as the top blocker once the
-stack-exit release point is observed.
+unavailable, observed context command-pool retention through the preserved
+stack-exit submit, missing reset-deferral proof, planned release-point status,
+and same-stream/queue proof status. It does not transfer command-pool reset
+ownership, defer resets, allocate command buffers, create queue submits, or
+authorize submit elision. Current selected rows report
+`command_pool_retention_result_context_pool_retained_until_observed_release_point`
+with `command_pool_reset_deferral_implementation_missing` as the top blocker
+once the stack-exit release point is observed.
 `StackRegionExitReleasePoint.v0` is emitted beside the planned submit point to
 name the future stack/region exit release target. It records the stack-region
 instance, owner scope, planned recording/stack-exit callsite, planned submit
@@ -853,10 +854,11 @@ result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,
 descriptor lifetime status, command-buffer lifetime status, retire-timeline
 status, and fail-closed top blocker. Current rows report
-`command_pool_reset_deferral_proof_blocked_retention_unavailable`, because the
-retention result is unavailable until region-exit release ownership exists;
-this refines the older `missing_command_pool_reset_deferral_proof` bucket
-without changing command-pool reset behavior.
+`command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing`,
+because the preserved context command pool is observed through the stack-exit
+release point but no region-owned reset-deferral implementation exists yet. This
+refines the older `command_pool_reset_deferral_proof_blocked_retention_unavailable`
+bucket without changing command-pool reset behavior.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair
 with the planned callsites. Current rows are behavior-neutral with
 `hook_installed=0`, `request_hook_plan_api_present_result_unavailable`, and

@@ -22670,6 +22670,22 @@ request_stack_region_command_pool_retention(
         "command_pool_retention_blocked_by_missing_region_exit_release_ownership";
     result.reset_deferral_proof_status =
         "command_pool_reset_deferral_proof_blocked_region_exit_release_unavailable";
+  } else if (
+      request.planned_release_point_status ==
+      "exit_release_point_runtime_observed_context_submit_preserved") {
+    result.available = true;
+    result.api_status =
+        "command_pool_retention_request_api_present_release_point_observed";
+    result.result_status =
+        "command_pool_retention_result_context_pool_retained_until_observed_release_point";
+    result.reason =
+        "context_command_pool_retained_until_stack_exit_release_point";
+    result.top_blocker =
+        "command_pool_reset_deferral_implementation_missing";
+    result.implementation_status =
+        "command_pool_retention_context_pool_retained_region_reset_not_owned";
+    result.reset_deferral_proof_status =
+        "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing";
   }
   result.same_stream_queue_status = request.require_same_stream_queue
       ? "same_stream_queue_required_unproven"
@@ -22795,6 +22811,20 @@ evaluate_stack_region_command_pool_lifetime_contract(
       "exit_release_point_synthetic_planned_only") {
     result.reason = "region_exit_release_ownership_unimplemented";
     result.top_blocker = "missing_region_exit_release_ownership";
+    return result;
+  }
+  if (request.planned_region_exit_release_point_status ==
+      "exit_release_point_runtime_observed_context_submit_preserved") {
+    result.reason =
+        "context_command_pool_retention_observed_reset_deferral_missing";
+    result.top_blocker =
+        "command_pool_reset_deferral_implementation_missing";
+    result.current_command_pool_owner_status =
+        "command_pool_owner_context_phase_submit_scope_retained_until_release_point";
+    result.command_pool_retention_api_status =
+        "command_pool_retention_request_api_present_release_point_observed";
+    result.command_pool_reset_deferral_status =
+        "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing";
     return result;
   }
   return result;

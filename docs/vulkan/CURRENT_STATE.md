@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `ee35973df44` plus the
-stack-exit release-point anchor slice.
+Last refreshed: 2026-06-28 at local HEAD `5a6abb5a007` plus the
+stack command-pool retention anchor slice.
 
 ## Repo State Summary
 
@@ -567,14 +567,15 @@ region-owned command buffer, command pool, descriptor scope, or retire timeline.
 `StackRegionCommandPoolRetentionResult.v0` are the fail-closed request/result
 surface behind the retention blocker. They model a stack-region owner asking to
 retain the current command pool across phase boundaries until the planned
-region-exit release point. The runtime API is present for diagnostics only and
-returns `command_pool_retention_result_api_present_unavailable`; it does not
-retain a command pool, defer a reset, allocate or switch command buffers, create
-a queue submit, or authorize submit elision. Current selected rows now see the
-observed release anchor and refine the top blocker to
-`command_pool_retention_implementation_missing`, with
-`command_pool_reset_deferral_proof_blocked_retention_unavailable` now reported
-as the reset-deferral proof status.
+region-exit release point. The runtime API is present for diagnostics only and,
+when the observed stack planned-recording exit submit is available, records
+`command_pool_retention_result_context_pool_retained_until_observed_release_point`.
+This is context-owned retention, not a region-owned command-pool lease: it does
+not defer a reset, allocate or switch command buffers, create a queue submit, or
+authorize submit elision. Current selected rows now refine the top blocker to
+`command_pool_reset_deferral_implementation_missing`, with
+`command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing`
+reported as the reset-deferral proof status.
 `StackRegionCommandPoolResetDeferralProof.v0` is the corresponding
 behavior-neutral proof surface. It records the stack-region instance, current
 context phase-submit owner scope, the recording epoch consumed at the selected
@@ -582,9 +583,9 @@ phase submit, planned region-exit release/reset point, linked command-pool
 retention result, and descriptor, command-buffer, and retire-timeline lifetime
 blockers. The proof currently returns unavailable and complete=false; it does
 not defer a reset or retain a command pool. Current selected rows fail closed
-because command-pool retention is still unimplemented even though the
-stack-exit release point is observed, so the refined blocker is
-`command_pool_retention_implementation_missing`.
+because the context command pool is retained only by the preserved stack-exit
+submit path and no region-owned reset-deferral implementation exists yet, so the
+refined blocker is `command_pool_reset_deferral_implementation_missing`.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to
@@ -600,8 +601,9 @@ selected `residual2@0 -> norm1@1` rows as
 missing semantic proof is now command-pool retention/reset-deferral support for
 a future region-owned command buffer or batch. That capability is part of the
 broader owned-command-buffer contract needed to preserve the current phase
-submit's execution, timeline, and retire semantics, and is currently blocked
-first by missing region-exit release ownership implementation.
+submit's execution, timeline, and retire semantics. The current context path now
+proves retention through the observed stack-exit submit anchor, but behavior
+still fails closed until region-owned reset deferral exists.
 `StackRegionDeferredSubmitPlan.v0` now records the future architecture plan
 that would be needed to use that proof: a region-owned command-buffer or batch
 kept live until a later planned stack submit with equivalent execution
