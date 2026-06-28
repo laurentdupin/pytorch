@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `d384a2f3503` plus the
-close-submit owner behavior canary.
+Last refreshed: 2026-06-28 at local HEAD `272c71bfed6` plus live
+close-submit owner canary wiring.
 
 ## Repo State Summary
 
@@ -532,12 +532,16 @@ creates a live close/submit owner lifecycle id, keeps it in the
 preserved-phase-submit-batch-only state while the region is active, and records
 that state in `StackRegionSingleRecordingCanary.v0` rows through
 `ContextStackRegionCloseSubmitOwnerState.v0`. The canary also requires a
-separate behavior-enabled bit, currently `0`, so a lifecycle state cannot
-authorize submit elision by itself: `actual_elided_submit_count=0`,
-phase-boundary submits are preserved, and the fail-closed reason remains
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
-until a real region-owned close/submit owner replaces the preserved batch
-accounting state.
+separate behavior-enabled bit, so a lifecycle state cannot authorize submit
+elision by itself: `actual_elided_submit_count=0` and phase-boundary submits
+are preserved. With
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`,
+the live canary can observe the close-submit behavior canary and report
+`region_exit_close_submit_owner_authorizes_submit_elision_disabled`; without
+that opt-in it still reports
+`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
+Both paths remain fail-closed until a real region-owned close/submit owner
+replaces the preserved batch accounting state.
 The same lifecycle source is now threaded through the ownership row chain:
 `StackRegionSingleRecordingOwner.v0`,
 `StackRegionCommandBufferAcquireHook.v0`,

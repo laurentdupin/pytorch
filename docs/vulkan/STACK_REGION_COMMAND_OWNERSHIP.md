@@ -100,6 +100,11 @@ can turn on the close-submit owner canary. This marks the owner surface
 available for accounting and sets close-submit behavior enabled, but keeps
 submit-elision authorization disabled. It does not defer, remove, or create a
 submit.
+The live single-recording canary observes this flag as well, so its
+selected-boundary rows can report
+`region_exit_close_submit_owner_authorizes_submit_elision_disabled` instead of
+the older preserved-batch-only blocker. This is still a fail-closed ownership
+classification, not a region-owned close/submit implementation.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,

@@ -75,6 +75,16 @@ bool cpu_timeline_summary_logging_enabled() {
   return !cpu_timeline_summary_log_path().empty();
 }
 
+bool stack_region_close_submit_owner_behavior_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value == "1" || value == "preserved_phase_submit_batch";
+}
+
 const char* stack_region_single_recording_plan_state_name(
     const uint32_t state) {
   switch (state) {
@@ -2527,7 +2537,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
                 std::memory_order_acquire),
             stack_region_close_submit_owner_state_.load(
                 std::memory_order_acquire),
-            /*region_close_submit_owner_behavior_enabled=*/false);
+            stack_region_close_submit_owner_behavior_enabled());
     const bool should_coalesce_phase_boundary_explicit_sync =
         (kCoalescePhaseBoundaryExplicitSync &&
          dry_run_all_safe_group_eligible) ||

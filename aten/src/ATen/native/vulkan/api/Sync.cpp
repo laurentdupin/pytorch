@@ -1897,6 +1897,9 @@ std::string stack_region_single_recording_canary_key(
       !submit_removed && stack_planned_recording_active &&
       stack_planned_recording_owned_by_current_thread &&
       single_recording_owner_active && live_command_buffer_id_observed;
+  const bool preserved_phase_submit_batch_close_submit_owner_available =
+      preserved_phase_submit_batch_scope_observed &&
+      region_close_submit_owner_behavior_enabled;
   const uint64_t pending_dispatch_last_position =
       g_stack_dispatch_dependency_position;
   const bool live_pending_dispatch_range_available =
@@ -1934,19 +1937,25 @@ std::string stack_region_single_recording_canary_key(
   const char* const exit_owner_status =
       submit_removed
       ? "region_exit_close_submit_owner_available_single_recording_owner_canary"
-      : (preserved_phase_submit_batch_scope_observed
+      : (preserved_phase_submit_batch_close_submit_owner_available
+             ? "region_exit_close_submit_owner_available_preserved_phase_submit_batch_behavior_enabled_no_submit_elision"
+         : preserved_phase_submit_batch_scope_observed
              ? "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed"
              : "region_exit_close_submit_owner_surface_present_fail_closed");
   const char* const exit_owner_fail_closed_reason =
       submit_removed
       ? "none"
-      : (preserved_phase_submit_batch_scope_observed
+      : (preserved_phase_submit_batch_close_submit_owner_available
+             ? "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
+         : preserved_phase_submit_batch_scope_observed
              ? "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only"
              : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership");
   const char* const region_lease_top_blocker =
       submit_removed
       ? "none"
-      : (preserved_phase_submit_batch_scope_observed
+      : (preserved_phase_submit_batch_close_submit_owner_available
+             ? "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
+         : preserved_phase_submit_batch_scope_observed
              ? "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only"
              : "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership");
   std::ostringstream key;

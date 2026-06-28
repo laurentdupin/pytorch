@@ -24717,6 +24717,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_reset_deferral_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
         )
+        previous_close_submit_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
@@ -24727,6 +24730,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"] = (
             "context_retained_release_point"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"] = (
+            "preserved_phase_submit_batch"
         )
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
@@ -24813,19 +24819,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 row["region_owned_command_buffer_lease_top_blocker"],
-                "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
             )
             self.assertIn(
                 row["region_exit_close_submit_owner_status"],
                 {
-                    "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
-                    "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed",
                     "region_exit_close_submit_owner_available_preserved_phase_submit_batch_behavior_enabled_no_submit_elision",
                 },
             )
             self.assertEqual(
                 row["region_exit_close_submit_owner_fail_closed_reason"],
-                "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
             )
             self.assertNotEqual(
                 row["region_exit_close_submit_owner_lifecycle_id"], "0"
@@ -24838,7 +24842,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "region_exit_close_submit_owner_candidate_active_preserved_phase_submit_batch_only",
             )
             self.assertEqual(
-                row["region_exit_close_submit_owner_behavior_enabled"], "0"
+                row["region_exit_close_submit_owner_behavior_enabled"], "1"
             )
             self.assertEqual(
                 row["region_exit_close_submit_owner_authorizes_submit_elision"],
@@ -24915,6 +24919,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
                 ] = previous_reset_deferral_owner
+            if previous_close_submit_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
+                ] = previous_close_submit_owner
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
