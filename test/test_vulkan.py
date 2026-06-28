@@ -565,6 +565,34 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
 
+    def test_vulkan_model_suite_lotus_dtensor_preflight_validates(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "scripts",
+                    "benchmarks",
+                    "benchmark_model_suite.py",
+                ),
+                "--validate-lotus-dtensor-preflight",
+            ],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn(
+            "validated Lotus DTensor preflight",
+            result.stdout,
+        )
+
     def test_vulkan_shape_envelope_v1_specs_validate(self):
         expected_roles = {
             "attention_probability_materialization_contract.json": (

@@ -172,10 +172,13 @@ reaches model construction and then fails while moving the large embedding
 weights to Vulkan with `VK_ERROR_OUT_OF_DEVICE_MEMORY`. Lotus clears the
 benchmark-local `_c10d_functional.wait_tensor` import blocker, but still fails
 before useful Vulkan execution because the source-tree environment lacks the
-compiled DTensor C API `_DTensor_OpSchema_post_init` in `torch._C`. Do not add
-benchmark-local fakes for compiled `torch._C` DTensor APIs; useful Lotus
-telemetry now requires a real distributed/DTensor-capable source-tree build or a
-compatible runtime environment.
+compiled DTensor C API `_DTensor_OpSchema_post_init` in `torch._C`. The harness
+preflights that symbol and emits a stable `missing_compiled_dtensor_c_api` skip
+before importing Lotus/Diffusers, so this should not appear as a recurring raw
+Diffusers `ImportError`. Do not add benchmark-local fakes for compiled
+`torch._C` DTensor APIs; useful Lotus telemetry now requires a real
+distributed/DTensor-capable source-tree build or a compatible runtime
+environment.
 
 PaddleOCR initializes through PaddleX's accepted CPU control path, then the
 harness patches PaddleX's Transformers predictor device hook so loaded
@@ -225,6 +228,12 @@ benchmark/runtime environment blocker, not a Vulkan backend result. Use a real
 distributed/DTensor-capable source-tree build, an installed local PyTorch wheel,
 or a compatible benchmark virtual environment before treating the Lotus row as
 backend coverage.
+
+Validate the guard without running Lotus:
+
+```powershell
+python scripts\benchmarks\benchmark_model_suite.py --validate-lotus-dtensor-preflight
+```
 
 PaddleOCR 3.5 uses the task-specific `agent_space/venvs/paddleocr` environment.
 The PaddleOCR Transformers backend also requires the `transformers` package in

@@ -153,6 +153,26 @@ def benchmark_distributed_import_status(torch: Any) -> str:
     return "missing_distributed_c10d"
 
 
+def compiled_dtensor_c_api_summary(torch: Any) -> dict[str, Any]:
+    torch_c = getattr(torch, "_C", None)
+    has_post_init = bool(
+        torch_c is not None
+        and hasattr(torch_c, "_DTensor_OpSchema_post_init")
+    )
+    return {
+        "available": has_post_init,
+        "required_symbol": "_DTensor_OpSchema_post_init",
+        "torch_file": getattr(torch, "__file__", None),
+        "torch_version": getattr(torch, "__version__", None),
+        "torch_import_mode": getattr(
+            sys.modules.get("benchmark_suite_common"),
+            "TORCH_IMPORT_MODE",
+            None,
+        ),
+        "reason": "" if has_post_init else "missing_compiled_dtensor_c_api",
+    }
+
+
 def install_benchmark_c10d_functional_import_shims(torch: Any) -> dict[str, Any]:
     torch_ops = getattr(torch, "ops", None)
     c10d_functional = getattr(torch_ops, "_c10d_functional", None)
@@ -1730,6 +1750,24 @@ def load_lotus_depth_pipeline_class() -> tuple[Any, str | None]:
     return LotusDPipeline, str(lotus_repo)
 
 
+def classify_lotus_failure(exc: BaseException) -> str:
+    text = str(exc)
+    if (
+        isinstance(exc, AttributeError)
+        and "'NoneType' object has no attribute 'to'" in text
+    ):
+        return "diffusers_source_tree_torch_incompatible"
+    if "LotusDPipeline" in text:
+        return "lotus_pipeline_class_unavailable_in_diffusers"
+    if "_DTensor_OpSchema_post_init" in text:
+        return "missing_compiled_dtensor_c_api"
+    if "torch._C._distributed_c10d" in text:
+        return "diffusers_requires_installed_torch_distributed_metadata"
+    if is_environment_skip(exc):
+        return "model_cache_or_dependency_unavailable"
+    return "lotus_run_failed"
+
+
 def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
     task = "depth_estimation"
     model_name = "lotus"
@@ -1748,6 +1786,26 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         )
     torch = import_torch()
     distributed_import = prepare_benchmark_distributed_import(torch)
+    compiled_dtensor_c_api = compiled_dtensor_c_api_summary(torch)
+    if not compiled_dtensor_c_api["available"]:
+        record = make_failure(
+            task=task,
+            model_name=model_name,
+            model_id=model_id,
+            backend=backend,
+            device_index=args.device_index,
+            dtype=args.dtype,
+            warmup=args.warmup,
+            repeats=args.repeats,
+            reason="missing_compiled_dtensor_c_api",
+            status="skip",
+        )
+        record.failure["distributed_c10d_status"] = (
+            benchmark_distributed_import_status(torch)
+        )
+        record.failure["distributed_import_shim"] = distributed_import
+        record.failure["compiled_dtensor_c_api"] = compiled_dtensor_c_api
+        return record
     try:
         lotus_pipeline_class, lotus_repo = load_lotus_depth_pipeline_class()
         diffusers_patched = False
@@ -1867,24 +1925,7 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         record.environment = environment_summary()
         return record
     except Exception as exc:
-        diffusers_reason = (
-            "diffusers_source_tree_torch_incompatible"
-            if isinstance(exc, AttributeError)
-            and "'NoneType' object has no attribute 'to'" in str(exc)
-            else (
-                "lotus_pipeline_class_unavailable_in_diffusers"
-                if "LotusDPipeline" in str(exc)
-                else (
-                    "diffusers_requires_installed_torch_distributed_metadata"
-                    if "torch._C._distributed_c10d" in str(exc)
-                    else (
-                        "model_cache_or_dependency_unavailable"
-                        if is_environment_skip(exc)
-                        else "lotus_run_failed"
-                    )
-                )
-            )
-        )
+        diffusers_reason = classify_lotus_failure(exc)
         record = make_failure(
             task=task,
             model_name=model_name,
@@ -1901,6 +1942,7 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         )
         record.failure["distributed_c10d_status"] = benchmark_distributed_import_status(torch)
         record.failure["distributed_import_shim"] = distributed_import
+        record.failure["compiled_dtensor_c_api"] = compiled_dtensor_c_api
         return record
 
 
@@ -2713,6 +2755,35 @@ def run_paddleocr(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
         return record
 
 
+def validate_lotus_dtensor_preflight() -> None:
+    class MissingC:
+        pass
+
+    class MissingTorch:
+        _C = MissingC()
+        __file__ = "<missing_dtensor_torch>"
+        __version__ = "0.0"
+
+    missing = compiled_dtensor_c_api_summary(MissingTorch)
+    if missing["available"] or missing["reason"] != "missing_compiled_dtensor_c_api":
+        raise AssertionError(f"missing DTensor C API was not detected: {missing}")
+
+    class PresentC:
+        @staticmethod
+        def _DTensor_OpSchema_post_init(*args: Any) -> None:
+            return None
+
+    class PresentTorch:
+        _C = PresentC()
+        __file__ = "<present_dtensor_torch>"
+        __version__ = "0.0"
+
+    present = compiled_dtensor_c_api_summary(PresentTorch)
+    if not present["available"] or present["reason"]:
+        raise AssertionError(f"present DTensor C API was not detected: {present}")
+    print("validated Lotus DTensor preflight")
+
+
 def model_suite_probe_out_path(
     args: argparse.Namespace,
     task: str,
@@ -2926,12 +2997,20 @@ def parse_args() -> argparse.Namespace:
         default="Write one sentence about GPU benchmark coverage.",
     )
     parser.add_argument("--probe-only", action="store_true")
+    parser.add_argument(
+        "--validate-lotus-dtensor-preflight",
+        action="store_true",
+        help="Validate the Lotus compiled DTensor C API preflight guard.",
+    )
     parser.add_argument("--out", default="agent_space/model_suite_benchmark.json")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.validate_lotus_dtensor_preflight:
+        validate_lotus_dtensor_preflight()
+        return
     configure_hf_cache(args.cache_dir)
     configure_torch_import_mode(args.torch_import_mode)
     if args.dependency_path:

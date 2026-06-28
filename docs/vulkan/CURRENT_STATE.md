@@ -1056,8 +1056,11 @@ model gate and they do not imply model-specific production routes.
 - Lotus: Task181 cleared the benchmark-local `_c10d_functional.wait_tensor`
   import blocker, but Lotus still fails before useful Vulkan execution because
   the source-tree environment lacks the compiled DTensor C API
-  `_DTensor_OpSchema_post_init` in `torch._C`. The Lotus counters remain zero
-  and the row must not contribute backend regression budgets.
+  `_DTensor_OpSchema_post_init` in `torch._C`. The model-suite harness now
+  preflights that symbol and reports a stable `missing_compiled_dtensor_c_api`
+  skip before importing Lotus/Diffusers, so agents should not rediscover this
+  as a raw Diffusers `ImportError`. The Lotus counters remain zero and the row
+  must not contribute backend regression budgets.
 
 Benchmark-local distributed shims must stay import-only and single-process.
 `_c10d_functional.wait_tensor` may be an identity shim for telemetry imports;
@@ -1065,6 +1068,9 @@ collective and DTensor op schema stubs must raise if executed. Do not add
 benchmark-local fakes for compiled `torch._C` DTensor APIs. Restoring Lotus
 telemetry now requires a real source-tree distributed/DTensor-capable build or
 a compatible runtime environment, not a Vulkan backend change.
+Use
+`python scripts\benchmarks\benchmark_model_suite.py --validate-lotus-dtensor-preflight`
+to check the benchmark guard without running Lotus.
 
 ## Existing Audit Artifacts
 
