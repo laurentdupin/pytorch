@@ -977,7 +977,10 @@ The collector can also ingest optional `stack_graph_json` sidecars and summarize
 counts, single-recording canary guard reasons, submit-removal counts, and
 pending-retire source coverage buckets. This is still reporting-only and does
 not mean the graph system is five-model validated unless fresh graph sidecars
-exist for those rows.
+exist for those rows. Rows now also carry a graph coverage status so reports can
+distinguish an available sidecar, a missing configured sidecar, stack lifetime
+evidence without graph evidence, a row blocked before graph collection, and rows
+with no observed stack-region evidence.
 
 The current local tree also has a submit-origin diagnostic split for
 CPU-to-Vulkan float-buffer conv prepack uploads. That split keeps true tensor

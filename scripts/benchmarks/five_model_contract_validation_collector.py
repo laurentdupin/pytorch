@@ -1336,6 +1336,58 @@ def summarize_stack_region_graph(
     }
 
 
+def classify_stack_region_graph_coverage(
+    graph: dict[str, Any],
+    region_lifetime: dict[str, Any],
+    row_status: str,
+) -> dict[str, Any]:
+    if graph.get("available"):
+        return {
+            "coverage_status": "graph_sidecar_available",
+            "coverage_gap": False,
+            "coverage_reason": "stack-region graph sidecar was ingested",
+        }
+    if graph.get("configured"):
+        return {
+            "coverage_status": "graph_sidecar_missing",
+            "coverage_gap": True,
+            "coverage_reason": "stack-region graph sidecar was configured but missing",
+        }
+
+    stack_evidence_rows = (
+        int(region_lifetime.get("stack_subresource_lifetime_dry_run_rows") or 0)
+        + int(region_lifetime.get("stack_retire_drain_blocker_rows") or 0)
+        + int(region_lifetime.get("region_lifetime_submit_attribution_rows") or 0)
+    )
+    if stack_evidence_rows:
+        return {
+            "coverage_status": "stack_lifetime_without_graph_sidecar",
+            "coverage_gap": True,
+            "coverage_reason": (
+                "stack lifetime evidence was observed but no graph sidecar was supplied"
+            ),
+        }
+    if row_status != "ok":
+        return {
+            "coverage_status": "row_blocked_before_graph",
+            "coverage_gap": False,
+            "coverage_reason": "row did not reach a graph-relevant successful run",
+        }
+    if int(region_lifetime.get("retired_resource_aggregate_rows") or 0):
+        return {
+            "coverage_status": "generic_lifetime_without_stack_graph",
+            "coverage_gap": False,
+            "coverage_reason": (
+                "generic lifetime evidence was observed without stack graph evidence"
+            ),
+        }
+    return {
+        "coverage_status": "no_stack_region_evidence_observed",
+        "coverage_gap": False,
+        "coverage_reason": "no stack-region evidence was observed for this row",
+    }
+
+
 def route_contract_summary(matrix_row: dict[str, Any] | None) -> dict[str, Any]:
     route_counts = (matrix_row or {}).get("route_counts") or {}
     by_contract: Counter[str] = Counter()
@@ -1465,6 +1517,9 @@ def build_row(
         matrix_row or result,
         row_cfg.get("status", "skip"),
     )
+    stack_graph.update(
+        classify_stack_region_graph_coverage(stack_graph, region_lifetime, status)
+    )
     timing_valid = bool(first_present(
         (matrix_row or {}).get("timing_valid"),
         (result or {}).get("performance_valid"),
@@ -1568,6 +1623,7 @@ def aggregate_rows(
     stack_graph_evidence = Counter()
     stack_graph_single_recording_guard_reasons = Counter()
     stack_graph_pending_retire_coverage = Counter()
+    stack_graph_coverage_status = Counter()
     for row in rows:
         missing_artifacts += len(row["environment"].get("missing_artifacts") or [])
         transition_contracts.update(row["transitions"].get("events_by_contract") or {})
@@ -1589,6 +1645,7 @@ def aggregate_rows(
         for event in row["transitions"].get("events_by_reason_phase") or []:
             observed_reasons[event["reason"]] += int(event["count"])
         graph = row["environment"].get("stack_region_graph") or {}
+        stack_graph_coverage_status[graph.get("coverage_status") or "unknown"] += 1
         if graph.get("available"):
             stack_graph_evidence["available_rows"] += 1
             graph_summary = graph.get("summary") or {}
@@ -1650,6 +1707,9 @@ def aggregate_rows(
             ),
             "stack_region_graph_pending_retire_coverage": dict(
                 sorted(stack_graph_pending_retire_coverage.items())
+            ),
+            "stack_region_graph_coverage_status": dict(
+                sorted(stack_graph_coverage_status.items())
             ),
         },
         "budgets": {
@@ -1810,7 +1870,7 @@ def write_markdown(path: Path, artifact: dict[str, Any]) -> None:
                 ),
             )
             if graph.get("available")
-            else "-"
+            else graph.get("coverage_status") or "-"
         )
         lines.append(
             "| `{}` | `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
@@ -2338,6 +2398,8 @@ def validate_model_suite_ingestion() -> None:
     graph = row["environment"].get("stack_region_graph") or {}
     if not graph.get("available"):
         raise AssertionError("stack-region graph evidence was not consumed")
+    if graph.get("coverage_status") != "graph_sidecar_available":
+        raise AssertionError("stack-region graph coverage status was not assigned")
     if graph["summary"]["single_recording_canary_rows"] != 1:
         raise AssertionError("single-recording graph rows were not summarized")
     guard_reasons = graph["single_recording_canary"]["guard_fail_reason_counts"]
