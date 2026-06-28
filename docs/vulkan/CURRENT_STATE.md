@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `bf03da4b9fb` plus
-behavior-neutral retire-timeline owner accounting from stack-exit close-submit.
+Last refreshed: 2026-06-28 at local HEAD `055c06645fe` plus
+behavior-neutral pending-retire owner source accounting.
 
 ## Repo State Summary
 
@@ -559,12 +559,16 @@ visible without transferring pending retires or enabling submit elision.
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
 context submit path. It is an owner surface, not a transfer implementation:
-current rows can report transfer-plan accounting and source matching, but keep
-`owner_available=0`, `behavior_enabled=0`, `transfers_pending_retires=0`, and
-`authorizes_submit_elision=0`. When the transfer plan is otherwise complete,
-the row fail-closes on `pending_retire_transfer_owner_behavior_disabled`; when
-the transfer plan is blocked, it propagates the plan blocker instead of hiding
-it behind close-submit ownership.
+generic rows can report transfer-plan accounting and source matching while
+keeping `owner_available=0`. When the stack-exit owner path has a concrete
+source match, the row can expose `owner_available=1` for accounting only. It
+still keeps `behavior_enabled=0`, `transfers_pending_retires=0`, and
+`authorizes_submit_elision=0`. When the transfer plan and source are otherwise
+complete, the row fail-closes on
+`pending_retire_transfer_owner_behavior_disabled`; when the source is
+incomplete, it fails closed on `pending_retire_transfer_source_incomplete`; and
+when the transfer plan is blocked, it propagates the plan blocker instead of
+hiding it behind close-submit ownership.
 That owner handoff status is now threaded into
 `StackRegionExitReleaseOwnership.v0`, `RegionCommandBufferOwnership.v0`, and
 `StackRegionDeferredSubmitRuntimeHookPlan.v0` as a separate owner-release

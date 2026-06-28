@@ -839,10 +839,13 @@ surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner
 decision. The current implementation is still behavior-neutral: it can expose
 an accounting surface and the concrete source that would need to move, but it
-keeps `owner_available=0`, `behavior_enabled=0`,
-`transfers_pending_retires=0`, and `authorizes_submit_elision=0`. A complete
-plan therefore fails closed on `pending_retire_transfer_owner_behavior_disabled`;
-a blocked plan propagates the transfer-plan blocker.
+keeps transfer behavior disabled. Generic rows keep `owner_available=0`; rows
+with a concrete source match can expose `owner_available=1` for accounting
+only. All rows keep `behavior_enabled=0`, `transfers_pending_retires=0`, and
+`authorizes_submit_elision=0`. A complete source therefore fails closed on
+`pending_retire_transfer_owner_behavior_disabled`, an incomplete source fails
+closed on `pending_retire_transfer_source_incomplete`, and a blocked plan
+propagates the transfer-plan blocker.
 Exit-release ownership, region command-buffer ownership, and deferred-submit
 runtime-hook plan rows now consume this owner status as a separate
 pending-retire owner handoff field. This keeps the source snapshot and the

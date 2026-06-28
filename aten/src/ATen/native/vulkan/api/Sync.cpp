@@ -24934,17 +24934,29 @@ request_stack_region_pending_retire_transfer_owner(
         "region_pending_retires_owner_waiting_for_transfer_plan";
     return result;
   }
+  const bool source_available =
+      request.source_match_status ==
+          "pending_retire_transfer_source_matches_context_pending_retire" ||
+      request.source_match_status ==
+          "pending_retire_transfer_source_matches_stack_internal_batch" ||
+      request.source_match_status ==
+          "pending_retire_transfer_source_bound_to_region_exit_submit";
   result.owner_surface_available = true;
+  result.owner_available = source_available;
   result.behavior_enabled = false;
   result.transfers_pending_retires = false;
   result.authorizes_submit_elision = false;
   result.result_status =
       "pending_retire_transfer_owner_result_accounting_available_behavior_disabled";
-  result.owner_status =
-      "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed";
-  result.top_blocker = "pending_retire_transfer_owner_behavior_disabled";
-  result.implementation_status =
-      "pending_retire_transfer_owner_region_handoff_behavior_disabled";
+  result.owner_status = source_available
+      ? "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed"
+      : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed";
+  result.top_blocker = source_available
+      ? "pending_retire_transfer_owner_behavior_disabled"
+      : "pending_retire_transfer_source_incomplete";
+  result.implementation_status = source_available
+      ? "pending_retire_transfer_owner_region_handoff_behavior_disabled"
+      : "pending_retire_transfer_owner_source_incomplete_behavior_disabled";
   result.current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   result.requested_owner_status =

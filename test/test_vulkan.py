@@ -21483,6 +21483,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
+                    "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
                     "pending_retire_transfer_owner_not_required",
@@ -21906,6 +21908,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retire_transfer_owner_region_handoff_behavior_disabled",
+                    "pending_retire_transfer_owner_source_incomplete_behavior_disabled",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_implementation_blocked_by_host_fence_public_readback",
                     "pending_retire_transfer_owner_implementation_not_required",
@@ -25832,7 +25835,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
-                "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+                "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
             )
             self.assertIn(
                 transfer_row["transfer_status"],
