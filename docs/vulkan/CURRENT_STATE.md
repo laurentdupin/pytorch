@@ -597,16 +597,17 @@ That reset-deferral proof status and top blocker now flow into
 `StackRegionExitCloseSubmitOwnerResult.v0`, and
 `RegionExitCloseSubmitOwner.v0` rows. When a preserved phase-submit batch is
 otherwise observed, close-submit owner diagnostics now fail closed on the more
-specific reset-deferral implementation blocker instead of only reporting the
-generic preserved-batch-only blocker. This is classification only: no submit is
+specific reset-deferral owner blocker instead of only reporting the generic
+preserved-batch-only blocker. This is classification only: no submit is
 deferred, elided, closed, or transferred to a region owner.
 `StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
 surface between that proof and close-submit ownership. It records whether a
 region-owned command-pool reset-deferral owner exists, whether reset deferral is
 enabled, and whether command-pool reset would be deferred. Current rows report
 `owner_available=0`, `defers_command_pool_reset=0`, and
-`authorizes_submit_elision=0`; the selected blocker remains
-`command_pool_reset_deferral_implementation_missing`. The row now also carries
+`authorizes_submit_elision=0`; the selected blocker is now
+`command_pool_reset_deferral_owner_context_retained_not_region_owned` when the
+proof layer is complete. The row also carries
 `ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle id/state
 from stack entry through submit or cancel finalization, but all observed states
 remain context-owned and not deferred.

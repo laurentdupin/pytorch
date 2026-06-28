@@ -22633,12 +22633,14 @@ request_stack_region_exit_close_submit_owner(
     result.reason = request.command_buffer_batch_lease_status;
     const bool reset_deferral_missing =
         request.command_pool_reset_deferral_top_blocker ==
-        "command_pool_reset_deferral_implementation_missing";
+            "command_pool_reset_deferral_implementation_missing" ||
+        request.command_pool_reset_deferral_top_blocker ==
+            "command_pool_reset_deferral_owner_context_retained_not_region_owned";
     result.top_blocker = reset_deferral_missing
-        ? "command_pool_reset_deferral_implementation_missing"
+        ? request.command_pool_reset_deferral_top_blocker
         : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
     result.implementation_status = reset_deferral_missing
-        ? "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_missing"
+        ? "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_owner_missing"
         : "region_exit_close_submit_owner_preserved_phase_submit_batch_lacks_region_close_submit";
     result.region_owned_command_buffer_status =
         "preserved_phase_submit_batch_lease_available_close_submit_context_owned";
@@ -22778,11 +22780,13 @@ evaluate_stack_region_exit_close_submit_owner_surface(
     }
     const bool reset_deferral_missing =
         request.command_pool_reset_deferral_top_blocker ==
-        "command_pool_reset_deferral_implementation_missing";
+            "command_pool_reset_deferral_implementation_missing" ||
+        request.command_pool_reset_deferral_top_blocker ==
+            "command_pool_reset_deferral_owner_context_retained_not_region_owned";
     result.owner_status =
         "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed";
     result.final_fail_closed_reason = reset_deferral_missing
-        ? "command_pool_reset_deferral_implementation_missing"
+        ? request.command_pool_reset_deferral_top_blocker
         : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
     result.current_command_buffer_owner_status =
         "current_phase_submit_owns_preserved_phase_submit_batch_close_submit";
@@ -22791,7 +22795,7 @@ evaluate_stack_region_exit_close_submit_owner_surface(
     result.region_owned_command_buffer_status =
         "preserved_phase_submit_batch_lease_available_close_submit_context_owned";
     result.command_pool_lifetime_cleanup_status = reset_deferral_missing
-        ? "command_pool_lifetime_cleanup_blocked_reset_deferral_implementation_missing"
+        ? "command_pool_lifetime_cleanup_blocked_reset_deferral_owner_missing"
         : result.command_pool_lifetime_cleanup_status;
     return result;
   }
@@ -23052,6 +23056,19 @@ request_stack_region_command_pool_reset_deferral_owner(
     result.top_blocker = "none";
     result.implementation_status =
         "command_pool_reset_deferral_owner_implementation_not_required";
+    return result;
+  }
+  if (
+      request.reset_deferral_proof_status ==
+      "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point") {
+    result.result_status =
+        "command_pool_reset_deferral_owner_result_context_retained_not_region_owned";
+    result.owner_status =
+        "command_pool_reset_deferral_owner_context_retained_not_region_owned";
+    result.top_blocker =
+        "command_pool_reset_deferral_owner_context_retained_not_region_owned";
+    result.implementation_status =
+        "command_pool_reset_deferral_owner_region_ownership_missing";
     return result;
   }
   result.top_blocker = request.reset_deferral_proof_top_blocker;
