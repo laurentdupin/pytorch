@@ -259,9 +259,8 @@ v0. The current context command pool is also observed as retained through that
 release point, but this is not a transferable region command-pool lease. Until
 region ownership exists, phase-boundary submits continue to own command-buffer
 recording closure, command-pool reset eligibility, descriptor lifetime, and
-timeline creation. Reset deferral remains fail-closed with
-`command_pool_reset_deferral_owner_context_retained_not_region_owned` at the
-owner layer. The proof layer can now report
+timeline creation. Reset deferral remains fail-closed at the owner layer. The
+proof layer can now report
 `command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point`
 for the existing context-retained path; that proof does not authorize submit
 elision or transfer reset ownership to the region. The lifetime contract reports
@@ -269,8 +268,10 @@ that distinction as `command_pool_lifetime_context_retained_not_region_owned`.
 `StackRegionCommandPoolResetDeferralOwner.v0` is the behavior-neutral owner
 surface for that missing step. It records the proof key/status, current
 command-pool owner scope, requested stack-region owner scope, and planned
-release/reset point while keeping `owner_available=0`,
-`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`. It also
+release/reset point. Proof-complete rows may set `owner_available=1` for
+accounting, but keep `reset_deferral_behavior_enabled=0`,
+`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`; the active
+blocker is `command_pool_reset_deferral_owner_behavior_disabled`. It also
 reports `ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle
 id/state/status/source from stack entry through submit or cancel finalization.
 Those states are context-owned and not deferred; they are not region ownership.

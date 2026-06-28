@@ -21323,6 +21323,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
@@ -21530,6 +21531,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_preserved_phase_submit_batch_lacks_region_close_submit",
                     "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_missing",
                     "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_owner_missing",
+                    "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_behavior_disabled",
                     "region_exit_close_submit_owner_implementation_blocked_by_host_fence_public_readback",
                     "region_exit_close_submit_owner_implementation_not_required",
                 },
@@ -21997,6 +21999,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -22479,6 +22482,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_runtime_submit_point_observed_missing_region_owned_lease",
                     "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_missing",
                     "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_owner_missing",
+                    "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_behavior_disabled",
                     "region_exit_close_submit_owner_implementation_blocked_by_host_fence_public_readback",
                     "region_exit_close_submit_owner_implementation_not_required",
                 },
@@ -22496,6 +22500,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "planned_region_topology_present_close_submit_still_context_owned",
                     "host_fence_public_final_readback_blocker",
                     "none",
@@ -22672,6 +22677,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "command_pool_lifetime_cleanup_unavailable_until_region_owned_command_buffer",
                     "command_pool_lifetime_cleanup_blocked_reset_deferral_implementation_missing",
                     "command_pool_lifetime_cleanup_blocked_reset_deferral_owner_missing",
+                    "command_pool_lifetime_cleanup_blocked_reset_deferral_behavior_disabled",
                     "command_pool_lifetime_cleanup_blocked_by_host_fence_public_readback",
                     "command_pool_lifetime_cleanup_not_required",
                 },
@@ -22697,6 +22703,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "planned_region_topology_present_close_submit_still_context_owned",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -23144,6 +23151,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
@@ -23409,6 +23417,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_implementation_missing",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "command_buffer_still_context_phase_submit_owned",
                     "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
                     "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
@@ -23498,6 +23507,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_release_point_unimplemented",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "missing_command_buffer_close_submit_release_ownership",
                     "region_exit_close_submit_owner_missing",
                     "region_exit_close_submit_owner_implementation_missing",
@@ -23547,6 +23557,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_release_point_unimplemented",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "missing_command_buffer_close_submit_release_ownership",
                     "region_exit_close_submit_owner_missing",
                     "region_exit_close_submit_owner_implementation_missing",
@@ -23598,9 +23609,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_reset_deferral_owner_record["schema"],
                 "StackRegionCommandPoolResetDeferralOwner.v0",
             )
+            expected_reset_deferral_owner_available = (
+                "1"
+                if first_reset_deferral_owner_record["owner_status"]
+                == "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled"
+                else "0"
+            )
             self.assertEqual(
                 first_reset_deferral_owner_record["owner_available"],
-                "0",
+                expected_reset_deferral_owner_available,
             )
             self.assertIn("lifecycle_id", first_reset_deferral_owner_record)
             self.assertIn(
@@ -23621,6 +23638,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "0",
             )
             self.assertEqual(
+                first_reset_deferral_owner_record[
+                    "reset_deferral_behavior_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
                 first_reset_deferral_owner_record["authorizes_submit_elision"],
                 "0",
             )
@@ -23628,6 +23651,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_reset_deferral_owner_record["owner_status"],
                 {
                     "command_pool_reset_deferral_owner_unavailable_reset_deferral_implementation_missing",
+                    "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled",
                     "command_pool_reset_deferral_owner_blocked_by_proof_dependency",
                     "command_pool_reset_deferral_owner_blocked_by_host_fence_public_readback",
                     "command_pool_reset_deferral_owner_not_required",
@@ -23641,6 +23665,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_release_point_unimplemented",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "missing_command_buffer_close_submit_release_ownership",
                     "region_exit_close_submit_owner_missing",
                     "region_exit_close_submit_owner_implementation_missing",
@@ -24765,6 +24790,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                 },
             )
             self.assertNotEqual(

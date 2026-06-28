@@ -866,11 +866,12 @@ behavior. `StackRegionCommandPoolLifetimeContract.v0` reports the same split as
 `command_pool_lifetime_context_retained_not_region_owned`.
 `StackRegionCommandPoolResetDeferralOwner.v0` consumes that proof and emits the
 first-class owner surface for reset deferral. It is still diagnostic-only:
-`owner_available=0`, `reset_deferral_behavior_enabled=0`,
-`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`. When the
-proof layer is complete, the owner row now fails closed with
-`command_pool_reset_deferral_owner_context_retained_not_region_owned` instead
-of a generic implementation-missing reason. The owner row also records
+proof-complete rows can report `owner_available=1` for accounting, but
+`reset_deferral_behavior_enabled=0`, `defers_command_pool_reset=0`, and
+`authorizes_submit_elision=0`. When the proof layer is complete, the owner row
+now fails closed with `command_pool_reset_deferral_owner_behavior_disabled`
+instead of treating the accounting owner as execution ownership. The owner row
+also records
 `ContextStackRegionCommandPoolResetDeferralOwnerState.v0`
 lifecycle id/state/status/source so a later implementation can distinguish
 not-started, active context-owned, submit-finalized context-owned, and

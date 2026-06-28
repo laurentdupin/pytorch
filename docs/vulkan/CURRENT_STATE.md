@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `d5e39b4934b` plus the
-context-retained reset-deferral proof slice.
+Last refreshed: 2026-06-28 at local HEAD `9d4dcc8b3bb` plus the
+reset-deferral owner accounting bridge.
 
 ## Repo State Summary
 
@@ -603,11 +603,12 @@ deferred, elided, closed, or transferred to a region owner.
 `StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
 surface between that proof and close-submit ownership. It records whether a
 region-owned command-pool reset-deferral owner exists, whether reset deferral is
-enabled, and whether command-pool reset would be deferred. Current rows report
-`owner_available=0`, `defers_command_pool_reset=0`, and
-`authorizes_submit_elision=0`; the selected blocker is now
-`command_pool_reset_deferral_owner_context_retained_not_region_owned` when the
-proof layer is complete. The row also carries
+enabled, and whether command-pool reset would be deferred. Current proof-complete
+rows can expose `owner_available=1` for accounting, but still report
+`reset_deferral_behavior_enabled=0`, `defers_command_pool_reset=0`, and
+`authorizes_submit_elision=0`; the selected blocker is
+`command_pool_reset_deferral_owner_behavior_disabled` until a real reset
+deferral behavior gate is implemented. The row also carries
 `ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle id/state
 from stack entry through submit or cancel finalization, but all observed states
 remain context-owned and not deferred.
