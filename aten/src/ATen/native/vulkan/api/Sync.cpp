@@ -2445,6 +2445,21 @@ bool stack_region_reset_deferral_owner_behavior_enabled() {
   return value == "1" || value == "context_retained_release_point";
 }
 
+const char* stack_region_close_submit_owner_target() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER");
+  return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_close_submit_owner_behavior_enabled() {
+  const char* const target = stack_region_close_submit_owner_target();
+  if (target == nullptr) {
+    return false;
+  }
+  const std::string value(target);
+  return value == "1" || value == "preserved_phase_submit_batch";
+}
+
 bool stack_region_single_recording_close_submit_owner_available(
     const uint64_t owner_id,
     const uint32_t owner_state,
@@ -22660,10 +22675,25 @@ request_stack_region_exit_close_submit_owner(
     const bool reset_deferral_behavior_disabled =
         request.command_pool_reset_deferral_top_blocker ==
         "command_pool_reset_deferral_owner_behavior_disabled";
+    const bool close_submit_behavior_enabled =
+        !reset_deferral_owner_blocked &&
+        stack_region_close_submit_owner_behavior_enabled();
     result.top_blocker = reset_deferral_owner_blocked
         ? request.command_pool_reset_deferral_top_blocker
-        : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
-    if (reset_deferral_behavior_disabled) {
+        : (close_submit_behavior_enabled
+               ? "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
+               : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only");
+    if (close_submit_behavior_enabled) {
+      result.owner_available = true;
+      result.request_api_status =
+          "exit_close_submit_owner_request_api_present_behavior_enabled_no_submit_elision";
+      result.result_status =
+          "exit_close_submit_owner_result_available_preserved_phase_submit_batch_behavior_enabled";
+      result.implementation_status =
+          "region_exit_close_submit_owner_preserved_phase_submit_batch_behavior_enabled_no_submit_elision";
+      result.region_exit_close_submit_owner_behavior_enabled = true;
+      result.region_exit_close_submit_owner_authorizes_submit_elision = false;
+    } else if (reset_deferral_behavior_disabled) {
       result.owner_available = true;
       result.request_api_status =
           "exit_close_submit_owner_request_api_present_accounting_available_behavior_disabled";
@@ -22822,21 +22852,37 @@ evaluate_stack_region_exit_close_submit_owner_surface(
     const bool reset_deferral_behavior_disabled =
         request.command_pool_reset_deferral_top_blocker ==
         "command_pool_reset_deferral_owner_behavior_disabled";
-    result.owner_status = reset_deferral_behavior_disabled
-        ? "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed"
-        : "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed";
+    const bool close_submit_behavior_enabled =
+        !reset_deferral_owner_blocked &&
+        stack_region_close_submit_owner_behavior_enabled();
+    result.owner_status = close_submit_behavior_enabled
+        ? "region_exit_close_submit_owner_available_preserved_phase_submit_batch_behavior_enabled_no_submit_elision"
+        : (reset_deferral_behavior_disabled
+               ? "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed"
+               : "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed");
+    result.ownership_available = close_submit_behavior_enabled;
+    result.region_exit_close_submit_owner_behavior_enabled =
+        close_submit_behavior_enabled;
+    result.region_exit_close_submit_owner_authorizes_submit_elision = false;
     result.final_fail_closed_reason = reset_deferral_owner_blocked
         ? request.command_pool_reset_deferral_top_blocker
-        : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
+        : (close_submit_behavior_enabled
+               ? "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
+               : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only");
     result.current_command_buffer_owner_status =
         "current_phase_submit_owns_preserved_phase_submit_batch_close_submit";
     result.requested_region_exit_ownership_status =
-        reset_deferral_behavior_disabled
+        close_submit_behavior_enabled
+        ? "requested_region_exit_close_submit_ownership_available_no_submit_elision"
+        : (reset_deferral_behavior_disabled
         ? "requested_region_exit_close_submit_ownership_blocked_reset_deferral_behavior_disabled"
-        : "requested_region_exit_close_submit_ownership_blocked_preserved_phase_submit_batch_only";
+        : "requested_region_exit_close_submit_ownership_blocked_preserved_phase_submit_batch_only");
     result.region_owned_command_buffer_status =
         "preserved_phase_submit_batch_lease_available_close_submit_context_owned";
-    if (reset_deferral_behavior_disabled) {
+    if (close_submit_behavior_enabled) {
+      result.command_pool_lifetime_cleanup_status =
+          "command_pool_lifetime_cleanup_available_preserved_phase_submit_batch_behavior_enabled";
+    } else if (reset_deferral_behavior_disabled) {
       result.command_pool_lifetime_cleanup_status =
           "command_pool_lifetime_cleanup_blocked_reset_deferral_behavior_disabled";
     } else if (reset_deferral_owner_blocked) {

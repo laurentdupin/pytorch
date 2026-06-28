@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `068744c6e7b` plus the
-reset-deferral owner behavior canary.
+Last refreshed: 2026-06-28 at local HEAD `d384a2f3503` plus the
+close-submit owner behavior canary.
 
 ## Repo State Summary
 
@@ -607,6 +607,13 @@ availability while still reporting
 The downstream `RegionExitCloseSubmitOwner.v0` surface remains unavailable for
 execution and reports
 `region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed`.
+An opt-in close-submit owner canary is available through
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`.
+It only applies after reset deferral has no blocker. It can report
+`region_exit_close_submit_owner_behavior_enabled=1` and an available
+close-submit owner surface, but still reports
+`region_exit_close_submit_owner_authorizes_submit_elision=0` and
+`region_exit_close_submit_owner_authorizes_submit_elision_disabled`.
 `StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
 surface between that proof and close-submit ownership. It records whether a
 region-owned command-pool reset-deferral owner exists, whether reset deferral is

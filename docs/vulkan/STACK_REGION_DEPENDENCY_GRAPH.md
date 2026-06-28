@@ -842,6 +842,13 @@ request/result rows can report accounting availability, but
 `region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed`
 and `ownership_available=0`. This keeps accounting separate from behavior
 authorization.
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`
+is the next canary layer. It requires the reset-deferral owner blocker to be
+clear, then records close-submit owner behavior availability while keeping
+`region_exit_close_submit_owner_authorizes_submit_elision=0`. The fail-closed
+reason becomes
+`region_exit_close_submit_owner_authorizes_submit_elision_disabled`, so the
+next behavior-changing step remains explicit.
 `StackRegionSingleRecordingCanary.v0` now consumes a live Context-owned
 close/submit owner lifecycle id/state for that same decision. Active stack
 planned recording creates a lifecycle record, but the current state only

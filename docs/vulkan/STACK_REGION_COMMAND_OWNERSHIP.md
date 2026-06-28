@@ -94,6 +94,12 @@ leaving `ownership_available=0`,
 `region_exit_close_submit_owner_authorizes_submit_elision=0`. The fail-closed
 blocker remains `command_pool_reset_deferral_owner_behavior_disabled` until an
 actual reset-deferral behavior implementation exists.
+Once reset deferral has no blocker,
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`
+can turn on the close-submit owner canary. This marks the owner surface
+available for accounting and sets close-submit behavior enabled, but keeps
+submit-elision authorization disabled. It does not defer, remove, or create a
+submit.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,
