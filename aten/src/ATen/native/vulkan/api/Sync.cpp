@@ -9072,6 +9072,12 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t old_carry_unsafe_bytes = 0u;
     std::string old_carry_proof_source = "missing";
     std::string old_carry_proof_range = "missing";
+    uint64_t capture_sensitive_submit_pending_records = 0u;
+    uint64_t capture_sensitive_submit_pending_bytes = 0u;
+    uint64_t capture_sensitive_submit_pending_old_carry_joined_records = 0u;
+    uint64_t capture_sensitive_submit_pending_old_carry_joined_bytes = 0u;
+    std::string capture_sensitive_submit_pending_join_source = "missing";
+    std::string capture_sensitive_submit_pending_join_range = "missing";
     uint64_t public_final_host_readback_blocker_count = 0u;
     uint64_t unknown_unmodeled_side_effect_count = 0u;
     uint64_t unknown_resource_side_effect_count = 0u;
@@ -9089,6 +9095,10 @@ void append_stack_region_submit_epoch_ordering_json(
     std::map<std::string, uint64_t> top_submit_side_effect_blocker_counts;
     std::map<std::string, uint64_t> actual_consumer_barrier_status_counts;
     std::map<std::string, uint64_t> old_carry_submit_proof_status_counts;
+    std::map<std::string, uint64_t>
+        capture_sensitive_submit_pending_join_status_counts;
+    std::map<std::string, uint64_t>
+        capture_sensitive_submit_pending_join_reject_reason_counts;
     std::map<std::string, uint64_t>
         actual_descriptor_update_generation_status_counts;
     std::map<std::string, uint64_t> descriptor_bookkeeping_status_counts;
@@ -9810,6 +9820,40 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "capture_sensitive_stack_activation_count") * count;
     const uint64_t raw_capture_sensitive_bytes =
         parsed_u64(fields, "capture_sensitive_stack_activation_bytes") * count;
+    proof.capture_sensitive_submit_pending_records +=
+        raw_capture_sensitive_count;
+    proof.capture_sensitive_submit_pending_bytes += raw_capture_sensitive_bytes;
+    proof.capture_sensitive_submit_pending_old_carry_joined_records +=
+        old_carry_proven_count;
+    proof.capture_sensitive_submit_pending_old_carry_joined_bytes +=
+        old_carry_proven_bytes;
+    append_unique_string(
+        proof.capture_sensitive_submit_pending_join_source,
+        old_carry_join.source);
+    append_unique_string(
+        proof.capture_sensitive_submit_pending_join_range,
+        old_carry_join.range);
+    std::string capture_pending_join_status =
+        "no_capture_sensitive_submit_pending_resource";
+    std::string capture_pending_join_reject_reason = "none";
+    if (raw_capture_sensitive_count > 0u) {
+      if (old_carry_proven_count >= raw_capture_sensitive_count) {
+        capture_pending_join_status =
+            "capture_sensitive_submit_pending_joined_old_carry_retire_only";
+      } else if (old_carry_join.matched_records > 0u) {
+        capture_pending_join_status =
+            "capture_sensitive_submit_pending_old_carry_join_incomplete";
+        capture_pending_join_reject_reason = old_carry_join.reject_reason;
+      } else {
+        capture_pending_join_status =
+            "capture_sensitive_submit_pending_old_carry_join_missing";
+        capture_pending_join_reject_reason = old_carry_join.reject_reason;
+      }
+    }
+    proof.capture_sensitive_submit_pending_join_status_counts
+        [capture_pending_join_status] += count;
+    proof.capture_sensitive_submit_pending_join_reject_reason_counts
+        [capture_pending_join_reject_reason] += count;
     proof.capture_sensitive_resource_count +=
         raw_capture_sensitive_count > old_carry_proven_count
         ? raw_capture_sensitive_count - old_carry_proven_count
@@ -11887,6 +11931,24 @@ void append_stack_region_submit_epoch_ordering_json(
         << proof.old_carry_proof_source
         << " old_carry_submit_proof_range="
         << proof.old_carry_proof_range
+        << " capture_sensitive_submit_pending_records="
+        << proof.capture_sensitive_submit_pending_records
+        << " capture_sensitive_submit_pending_bytes="
+        << proof.capture_sensitive_submit_pending_bytes
+        << " capture_sensitive_submit_pending_old_carry_joined_records="
+        << proof.capture_sensitive_submit_pending_old_carry_joined_records
+        << " capture_sensitive_submit_pending_old_carry_joined_bytes="
+        << proof.capture_sensitive_submit_pending_old_carry_joined_bytes
+        << " capture_sensitive_submit_pending_join_status="
+        << top_count_key_from_map(
+               proof.capture_sensitive_submit_pending_join_status_counts)
+        << " capture_sensitive_submit_pending_join_reject_reason="
+        << top_count_key_from_map(
+               proof.capture_sensitive_submit_pending_join_reject_reason_counts)
+        << " capture_sensitive_submit_pending_join_source="
+        << proof.capture_sensitive_submit_pending_join_source
+        << " capture_sensitive_submit_pending_join_range="
+        << proof.capture_sensitive_submit_pending_join_range
         << " unknown_unmodeled_side_effect_count="
         << proof.unknown_unmodeled_side_effect_count
         << " unknown_resource_side_effect_count="
@@ -15182,6 +15244,20 @@ void append_stack_region_submit_epoch_ordering_json(
         boundary_proof.old_carry_proof_source, proof.old_carry_proof_source);
     append_unique_string(
         boundary_proof.old_carry_proof_range, proof.old_carry_proof_range);
+    boundary_proof.capture_sensitive_submit_pending_records +=
+        proof.capture_sensitive_submit_pending_records;
+    boundary_proof.capture_sensitive_submit_pending_bytes +=
+        proof.capture_sensitive_submit_pending_bytes;
+    boundary_proof.capture_sensitive_submit_pending_old_carry_joined_records +=
+        proof.capture_sensitive_submit_pending_old_carry_joined_records;
+    boundary_proof.capture_sensitive_submit_pending_old_carry_joined_bytes +=
+        proof.capture_sensitive_submit_pending_old_carry_joined_bytes;
+    append_unique_string(
+        boundary_proof.capture_sensitive_submit_pending_join_source,
+        proof.capture_sensitive_submit_pending_join_source);
+    append_unique_string(
+        boundary_proof.capture_sensitive_submit_pending_join_range,
+        proof.capture_sensitive_submit_pending_join_range);
     boundary_proof.unknown_unmodeled_side_effect_count +=
         proof.unknown_unmodeled_side_effect_count;
     boundary_proof.unknown_resource_side_effect_count +=
@@ -15220,6 +15296,16 @@ void append_stack_region_submit_epoch_ordering_json(
     for (const auto& status : proof.old_carry_submit_proof_status_counts) {
       boundary_proof.old_carry_submit_proof_status_counts[status.first] +=
           status.second;
+    }
+    for (const auto& status :
+         proof.capture_sensitive_submit_pending_join_status_counts) {
+      boundary_proof.capture_sensitive_submit_pending_join_status_counts
+          [status.first] += status.second;
+    }
+    for (const auto& reason :
+         proof.capture_sensitive_submit_pending_join_reject_reason_counts) {
+      boundary_proof.capture_sensitive_submit_pending_join_reject_reason_counts
+          [reason.first] += reason.second;
     }
     if (proof.stack_region_instance_ids.size() == 1u) {
       const std::string& instance_id = *proof.stack_region_instance_ids.begin();
@@ -15307,6 +15393,20 @@ void append_stack_region_submit_epoch_ordering_json(
       append_unique_string(
           instance_proof.old_carry_proof_range,
           proof.old_carry_proof_range);
+      instance_proof.capture_sensitive_submit_pending_records +=
+          proof.capture_sensitive_submit_pending_records;
+      instance_proof.capture_sensitive_submit_pending_bytes +=
+          proof.capture_sensitive_submit_pending_bytes;
+      instance_proof.capture_sensitive_submit_pending_old_carry_joined_records +=
+          proof.capture_sensitive_submit_pending_old_carry_joined_records;
+      instance_proof.capture_sensitive_submit_pending_old_carry_joined_bytes +=
+          proof.capture_sensitive_submit_pending_old_carry_joined_bytes;
+      append_unique_string(
+          instance_proof.capture_sensitive_submit_pending_join_source,
+          proof.capture_sensitive_submit_pending_join_source);
+      append_unique_string(
+          instance_proof.capture_sensitive_submit_pending_join_range,
+          proof.capture_sensitive_submit_pending_join_range);
       instance_proof.unknown_unmodeled_side_effect_count +=
           proof.unknown_unmodeled_side_effect_count;
       instance_proof.unknown_resource_side_effect_count +=
@@ -15347,6 +15447,17 @@ void append_stack_region_submit_epoch_ordering_json(
       for (const auto& status : proof.old_carry_submit_proof_status_counts) {
         instance_proof.old_carry_submit_proof_status_counts[status.first] +=
             status.second;
+      }
+      for (const auto& status :
+           proof.capture_sensitive_submit_pending_join_status_counts) {
+        instance_proof.capture_sensitive_submit_pending_join_status_counts
+            [status.first] += status.second;
+      }
+      for (const auto& reason :
+           proof.capture_sensitive_submit_pending_join_reject_reason_counts) {
+        instance_proof
+            .capture_sensitive_submit_pending_join_reject_reason_counts
+                [reason.first] += reason.second;
       }
     }
   }
@@ -17010,11 +17121,22 @@ void append_stack_region_submit_epoch_ordering_json(
   uint64_t submit_level_old_carry_retire_only_proven_bytes = 0u;
   uint64_t submit_level_old_carry_unsafe_records = 0u;
   uint64_t submit_level_old_carry_unsafe_bytes = 0u;
+  uint64_t submit_level_capture_sensitive_submit_pending_records = 0u;
+  uint64_t submit_level_capture_sensitive_submit_pending_bytes = 0u;
+  uint64_t
+      submit_level_capture_sensitive_submit_pending_old_carry_joined_records =
+          0u;
+  uint64_t submit_level_capture_sensitive_submit_pending_old_carry_joined_bytes =
+      0u;
   std::map<std::string, uint64_t> submit_level_reject_reason_counts;
   std::map<std::string, uint64_t> submit_level_candidate_status_counts;
   std::map<std::string, uint64_t> submit_level_top_side_effect_blocker_counts;
   std::map<std::string, uint64_t> submit_level_actual_consumer_barrier_status_counts;
   std::map<std::string, uint64_t> submit_level_old_carry_proof_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_capture_sensitive_submit_pending_join_status_counts;
+  std::map<std::string, uint64_t>
+      submit_level_capture_sensitive_submit_pending_join_reject_reason_counts;
   std::map<std::string, uint64_t>
       submit_level_actual_descriptor_update_status_counts;
   std::map<std::string, uint64_t>
@@ -17523,6 +17645,17 @@ void append_stack_region_submit_epoch_ordering_json(
         parsed_u64(fields, "old_carry_unsafe_records");
     submit_level_old_carry_unsafe_bytes +=
         parsed_u64(fields, "old_carry_unsafe_bytes");
+    submit_level_capture_sensitive_submit_pending_records +=
+        parsed_u64(fields, "capture_sensitive_submit_pending_records");
+    submit_level_capture_sensitive_submit_pending_bytes +=
+        parsed_u64(fields, "capture_sensitive_submit_pending_bytes");
+    submit_level_capture_sensitive_submit_pending_old_carry_joined_records +=
+        parsed_u64(
+            fields,
+            "capture_sensitive_submit_pending_old_carry_joined_records");
+    submit_level_capture_sensitive_submit_pending_old_carry_joined_bytes +=
+        parsed_u64(
+            fields, "capture_sensitive_submit_pending_old_carry_joined_bytes");
     submit_level_reject_reason_counts[field_or(
         fields, "reject_reason", "missing_submit_level_reject_reason")] +=
         count;
@@ -17542,6 +17675,16 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "old_carry_submit_proof_status",
         "missing_old_carry_submit_proof_status")] += count;
+    submit_level_capture_sensitive_submit_pending_join_status_counts[field_or(
+        fields,
+        "capture_sensitive_submit_pending_join_status",
+        "missing_capture_sensitive_submit_pending_join_status")] += count;
+    submit_level_capture_sensitive_submit_pending_join_reject_reason_counts
+        [field_or(
+            fields,
+            "capture_sensitive_submit_pending_join_reject_reason",
+            "missing_capture_sensitive_submit_pending_join_reject_reason")] +=
+        count;
     submit_level_actual_descriptor_update_status_counts[field_or(
         fields,
         "actual_descriptor_set_update_generation_status",
@@ -19724,6 +19867,26 @@ void append_stack_region_submit_epoch_ordering_json(
       "old_carry_unsafe_bytes",
       submit_level_old_carry_unsafe_bytes,
       submit_level_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_submit_pending_records",
+      submit_level_capture_sensitive_submit_pending_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_submit_pending_bytes",
+      submit_level_capture_sensitive_submit_pending_bytes,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_submit_pending_old_carry_joined_records",
+      submit_level_capture_sensitive_submit_pending_old_carry_joined_records,
+      submit_level_first);
+  append_json_u64(
+      out,
+      "capture_sensitive_submit_pending_old_carry_joined_bytes",
+      submit_level_capture_sensitive_submit_pending_old_carry_joined_bytes,
+      submit_level_first);
   append_json_bool(
       out,
       "submit_equivalence_proof_complete",
@@ -19753,6 +19916,15 @@ void append_stack_region_submit_epoch_ordering_json(
   append_json_comma(out, submit_level_first);
   out << "\"old_carry_submit_proof_status_counts\":";
   append_u64_map_object(out, submit_level_old_carry_proof_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"capture_sensitive_submit_pending_join_status_counts\":";
+  append_u64_map_object(
+      out, submit_level_capture_sensitive_submit_pending_join_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"capture_sensitive_submit_pending_join_reject_reason_counts\":";
+  append_u64_map_object(
+      out,
+      submit_level_capture_sensitive_submit_pending_join_reject_reason_counts);
   append_json_comma(out, submit_level_first);
   out << "\"actual_descriptor_set_update_generation_status_counts\":";
   append_u64_map_object(

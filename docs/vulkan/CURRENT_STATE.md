@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `272c71bfed6` plus live
-close-submit owner canary wiring.
+Last refreshed: 2026-06-28 at local HEAD `df2619f5991` plus
+capture-sensitive submit-pending old-carry join accounting.
 
 ## Repo State Summary
 
@@ -184,9 +184,17 @@ live submit row's `raw_buffer_provenance_signature`; missing raw provenance is
 reported explicitly instead of being treated as a successful proof miss. This is
 still a
 behavior-neutral accounting join; submit-equivalence remains fail-closed until
-all submit-level side effects are covered. Descriptor updates now have actual
-update-generation evidence, but pending dispatch completion and command-buffer
-visibility are still separate fail-closed gates. Submit-level rows report
+all submit-level side effects are covered. The same rows now expose explicit
+submit-pending capture-sensitive join fields:
+`capture_sensitive_submit_pending_records`,
+`capture_sensitive_submit_pending_old_carry_joined_records`,
+`capture_sensitive_submit_pending_join_status`, and
+`capture_sensitive_submit_pending_join_reject_reason`. These fields make the
+remaining submit-site blocker visible without changing the
+`pending_dispatch_barrier_coverage_incomplete` guard or authorizing submit
+elision. Descriptor updates now have actual update-generation evidence, but
+pending dispatch completion and command-buffer visibility are still separate
+fail-closed gates. Submit-level rows report
 pending dispatch list identity, recorded-position range, command-buffer
 recording id, submit epochs, and explicit completion/visibility status. A
 recorded position range is only diagnostic; it does not prove the pending

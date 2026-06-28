@@ -20295,6 +20295,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_proof,
             )
             self.assertIn(
+                "capture_sensitive_submit_pending_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_old_carry_joined_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_join_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_join_reject_reason_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
                 "live_submit_equivalence_binding_exact_join_status_counts",
                 submit_level_proof,
             )
@@ -20817,6 +20833,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "old_carry_submit_proof_status",
+                first_submit_level_record,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_join_status",
+                first_submit_level_record,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_join_reject_reason",
                 first_submit_level_record,
             )
             self.assertEqual(
@@ -24523,6 +24547,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "old_carry_typed_proof_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_old_carry_joined_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_join_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "capture_sensitive_submit_pending_join_reject_reason_counts",
                 submit_level_proof,
             )
             self.assertIn(

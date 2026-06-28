@@ -406,6 +406,17 @@ when a stack-owner recording scope ends. The v0 schema is
   `old_carry_retire_only_proven_bytes`, `old_carry_unsafe_records`, and
   `old_carry_submit_proof_source` distinguish missing typed proof, range
   mismatch, a retire-only/nonescaping match, and matched-but-unsafe proof.
+  Submit-level rows also expose the raw pending capture-sensitive edge and the
+  subset joined to old-carry proof through
+  `capture_sensitive_submit_pending_records`,
+  `capture_sensitive_submit_pending_bytes`,
+  `capture_sensitive_submit_pending_old_carry_joined_records`,
+  `capture_sensitive_submit_pending_old_carry_joined_bytes`,
+  `capture_sensitive_submit_pending_join_status`, and
+  `capture_sensitive_submit_pending_join_reject_reason`. These fields answer
+  whether the pending submit-site `capture_sensitive_stack_activation` resource
+  is the same old carry proven elsewhere, but they do not relax the submit
+  guard or authorize elision.
   The submit-site join reads `raw_buffer_provenance_signature` from the live
   boundary submit row and only falls back to the older raw-provenance field name
   for compatibility; missing raw provenance reports
