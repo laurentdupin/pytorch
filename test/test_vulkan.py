@@ -25567,6 +25567,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_close_submit_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
         )
+        previous_pending_retire_transfer_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
@@ -25580,6 +25583,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"] = (
             "stack_exit_close_submit"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
+            "stack_internal_until_stack_exit"
         )
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
@@ -25850,7 +25856,51 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
-                "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
+                "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
+            )
+            pending_retire_rows = [
+                row["fields"]
+                for row in submit_level_proof[
+                    "stack_region_pending_retire_transfer_records"
+                ]
+                if row["fields"].get("source_match_status")
+                == "pending_retire_transfer_source_partially_bound_to_region_exit_submit"
+            ]
+            self.assertTrue(pending_retire_rows)
+            pending_retire_row = pending_retire_rows[0]
+            self.assertEqual(pending_retire_row["region_exit_bound_source_state"], "2")
+            self.assertEqual(
+                pending_retire_row["region_exit_bound_source_status"],
+                "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred",
+            )
+            self.assertEqual(
+                pending_retire_row["region_exit_bound_source_coverage_status"],
+                "pending_retire_transfer_source_coverage_partial",
+            )
+            self.assertGreater(
+                int(pending_retire_row["region_exit_bound_missing_resource_count"]),
+                0,
+            )
+            pending_retire_owner_rows = [
+                row["fields"]
+                for row in submit_level_proof[
+                    "stack_region_pending_retire_transfer_owner_records"
+                ]
+                if row["fields"].get("owner_status")
+                == "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed"
+            ]
+            self.assertTrue(pending_retire_owner_rows)
+            pending_retire_owner_row = pending_retire_owner_rows[0]
+            self.assertEqual(
+                pending_retire_owner_row["top_blocker"],
+                "pending_retire_transfer_source_incomplete",
+            )
+            self.assertEqual(pending_retire_owner_row["behavior_enabled"], "0")
+            self.assertEqual(
+                pending_retire_owner_row["transfers_pending_retires"], "0"
+            )
+            self.assertEqual(
+                pending_retire_owner_row["authorizes_submit_elision"], "0"
             )
             self.assertIn(
                 transfer_row["transfer_status"],
@@ -25912,6 +25962,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
                 ] = previous_close_submit_owner
+            if previous_pending_retire_transfer_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
+                    None,
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
+                ] = previous_pending_retire_transfer_owner
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 

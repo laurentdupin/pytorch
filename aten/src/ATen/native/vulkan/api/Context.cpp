@@ -105,6 +105,15 @@ bool stack_region_close_submit_owner_preserved_phase_enabled() {
   return value == "1" || value == "preserved_phase_submit_batch";
 }
 
+bool stack_region_pending_retire_transfer_owner_stack_internal_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  return std::string(env) == "stack_internal_until_stack_exit";
+}
+
 const char* stack_region_single_recording_plan_state_name(
     const uint32_t state) {
   switch (state) {
@@ -3065,10 +3074,13 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       "Vulkan stack planned recording ended from the wrong thread");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
+  const bool bind_stack_internal_source_at_stack_exit =
+      stack_region_pending_retire_transfer_owner_stack_internal_enabled() &&
+      stack_region_close_submit_owner_stack_exit_enabled();
   snapshot_stack_region_pending_retire_transfer_source_locked(
       2u,
       /*include_context_pending_retires=*/false,
-      /*preserve_larger_source=*/true);
+      /*preserve_larger_source=*/!bind_stack_internal_source_at_stack_exit);
   retire_stack_internal_temp_retire_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(

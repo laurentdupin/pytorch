@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `c266601675e` plus behavior-neutral
-preserved phase-submit close/submit owner lifecycle accounting.
+Last refreshed: 2026-06-28 at local HEAD `101582395438` plus opt-in
+pending-retire source binding for stack-exit diagnostics.
 
 ## Repo State Summary
 
@@ -564,6 +564,14 @@ bindings remain explicit through
 `pending_retire_transfer_source_partially_bound_to_preserved_phase_submit` plus
 the bound and missing count/byte tuples. This keeps the next ownership blocker
 visible without transferring pending retires or enabling submit elision.
+The opt-in
+`PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER=stack_internal_until_stack_exit`
+mode lets the stack-exit stack-internal retire batch source supersede the
+earlier preserved phase-submit source for diagnostics only. It preserves all
+submits and does not move resources. On the current selected synthetic
+`residual2@0 -> norm1@1` boundary, that mode reports only a partial
+stack-exit source, so the owner still fail-closes on
+`pending_retire_transfer_source_incomplete`.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
