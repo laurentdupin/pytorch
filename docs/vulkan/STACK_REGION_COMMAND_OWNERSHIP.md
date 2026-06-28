@@ -54,8 +54,9 @@ and who owns close/submit today. The current phase submit still owns
 command-buffer close/submit, the command buffer is not region-owned, and the
 planned region-exit submit point can now be observed at the real stack planned
 recording exit submit callsite. The observed submit is still the existing
-context-owned `StackPlannedRecordingSubmit`; it is not a region-owned command
-buffer or batch lease. The stack-entry acquire row now emits a behavior-neutral
+context-owned `StackPlannedRecordingSubmit`; `StackRegionExitReleasePoint.v0`
+can use it as the concrete stack-exit release anchor, but it is not a
+region-owned command buffer or batch lease. The stack-entry acquire row now emits a behavior-neutral
 `StackRegionCommandBufferAcquireHook.v0` row and a
 `RegionOwnedCommandBufferLease.v0` lease row. The acquire hook is present near
 `Context` and snapshots current stack planned-recording ownership, current
@@ -252,8 +253,10 @@ The region owner must define:
 - when their command pool may be reset or reused;
 - which planned region-exit release point owns the release decision.
 
-Until this exists, phase-boundary submits continue to own command-buffer
-recording closure and timeline creation.
+The stack planned-recording exit submit can be observed as the release point in
+v0, but until region ownership exists, phase-boundary submits continue to own
+command-buffer recording closure, command-pool reset eligibility, descriptor
+lifetime, and timeline creation.
 
 ### Release Ownership
 

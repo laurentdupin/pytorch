@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-25 at local HEAD `4ac783d7e35` plus the
-region command ownership acquire/release observation slice.
+Last refreshed: 2026-06-28 at local HEAD `ee35973df44` plus the
+stack-exit release-point anchor slice.
 
 ## Repo State Summary
 
@@ -345,14 +345,14 @@ blocker is now `command_pool_retention_implementation_missing`.
 `StackRegionExitReleasePoint.v0` now represents the stack/region exit point
 that would release a future region-owned command buffer or batch, descriptor
 lifetime, allocator/resource retire ownership, and retire timeline. It is
-diagnostic-only and currently reports
-`exit_release_point_synthetic_planned_only` with
-`missing_region_exit_release_ownership` as the blocker. Ordinary phase submits
-should be interpreted here as closing/submitting the active command buffer,
-clearing the recording epoch, and creating a retire timeline; they are not
-ordinary raw `vkResetCommandPool` calls.
+diagnostic-only, but when the stack planned-recording exit submit is observed
+it now reports `exit_release_point_runtime_observed_context_submit_preserved`
+as a real release anchor. Ordinary phase submits should be interpreted here as
+closing/submitting the active command buffer, clearing the recording epoch, and
+creating a retire timeline; they are not ordinary raw `vkResetCommandPool`
+calls.
 `StackRegionExitReleaseOwnershipContract.v0` now names the ownership contract
-behind that synthetic exit point. It records the stack/region owner identity,
+behind that observed exit point. It records the stack/region owner identity,
 command-buffer close/submit ownership, queue submit/timeline ownership,
 descriptor release ownership, retire timeline release ownership,
 allocator/resource release ownership, and command-pool cleanup/reset
@@ -570,8 +570,9 @@ retain the current command pool across phase boundaries until the planned
 region-exit release point. The runtime API is present for diagnostics only and
 returns `command_pool_retention_result_api_present_unavailable`; it does not
 retain a command pool, defer a reset, allocate or switch command buffers, create
-a queue submit, or authorize submit elision. Current selected rows refine the
-top blocker to `missing_region_exit_release_ownership`, with
+a queue submit, or authorize submit elision. Current selected rows now see the
+observed release anchor and refine the top blocker to
+`command_pool_retention_implementation_missing`, with
 `command_pool_reset_deferral_proof_blocked_retention_unavailable` now reported
 as the reset-deferral proof status.
 `StackRegionCommandPoolResetDeferralProof.v0` is the corresponding
@@ -581,8 +582,9 @@ phase submit, planned region-exit release/reset point, linked command-pool
 retention result, and descriptor, command-buffer, and retire-timeline lifetime
 blockers. The proof currently returns unavailable and complete=false; it does
 not defer a reset or retain a command pool. Current selected rows fail closed
-because the planned region-exit release point is not connected to ownership, so
-the refined blocker is `missing_region_exit_release_ownership`.
+because command-pool retention is still unimplemented even though the
+stack-exit release point is observed, so the refined blocker is
+`command_pool_retention_implementation_missing`.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

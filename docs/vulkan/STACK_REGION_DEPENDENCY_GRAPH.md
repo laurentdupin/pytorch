@@ -639,19 +639,21 @@ proof, planned release-point status, and same-stream/queue proof status. It
 does not retain command pools, defer resets, allocate command buffers, create
 queue submits, or authorize submit elision. Current selected rows report
 `command_pool_retention_result_api_present_unavailable` with
-`missing_region_exit_release_ownership` as the top blocker.
+`command_pool_retention_implementation_missing` as the top blocker once the
+stack-exit release point is observed.
 `StackRegionExitReleasePoint.v0` is emitted beside the planned submit point to
 name the future stack/region exit release target. It records the stack-region
 instance, owner scope, planned recording/stack-exit callsite, planned submit
 point id, command-buffer/batch release target, and release responsibilities for
 command-buffer close/submit, descriptor lifetime, retire timeline,
 allocator/resource retirement, and command-pool cleanup. Current rows remain
-synthetic/planned-only and fail closed with
-`exit_release_point_synthetic_planned_only`; the command-buffer release target
-is not connected to a region-owned command-buffer abstraction. Ordinary phase
-submits are modeled as closing/submitting the active command buffer, consuming
-recording state, and creating a retire timeline, not as a literal command-pool
-reset.
+behavior-neutral, but the stack planned-recording exit submit is now an
+observed release anchor:
+`exit_release_point_runtime_observed_context_submit_preserved`. The
+command-buffer release target is still not connected to a region-owned
+command-buffer abstraction. Ordinary phase submits are modeled as
+closing/submitting the active command buffer, consuming recording state, and
+creating a retire timeline, not as a literal command-pool reset.
 `StackRegionExitReleaseOwnershipContract.v0` is emitted for the same selected
 boundary and planned exit point. It is keyed by stack-region instance,
 boundary, and exit-release point, and records whether the future stack/region
@@ -768,6 +770,9 @@ descriptor/retire ownership.
 present for the planned bridge context, `StackRegionPlannedSubmitPoint.v0` and
 the close/submit owner rows advance from a synthetic planned target to
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`.
+`StackRegionExitReleasePoint.v0` now also advances to
+`exit_release_point_runtime_observed_context_submit_preserved`, giving later
+ownership proofs a concrete stack-exit release point.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an

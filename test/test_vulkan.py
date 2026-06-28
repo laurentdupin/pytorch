@@ -21121,22 +21121,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_exit_release_point_record["schema"],
                 "StackRegionExitReleasePoint.v0",
             )
-            self.assertEqual(
-                first_exit_release_point_record["release_capable"], "0"
+            self.assertIn(
+                first_exit_release_point_record["release_capable"], {"0", "1"}
             )
             self.assertIn(
                 first_exit_release_point_record["release_point_status"],
                 {
                     "exit_release_point_synthetic_planned_only",
                     "planned_region_exit_submit_point_runtime_observed_context_submit_preserved",
+                    "exit_release_point_runtime_observed_context_submit_preserved",
                     "exit_release_point_rejected_host_fence_public_readback_blocker",
                     "exit_release_point_not_required",
                 },
             )
+            if (
+                first_exit_release_point_record["release_point_status"]
+                == "exit_release_point_runtime_observed_context_submit_preserved"
+            ):
+                self.assertEqual(
+                    first_exit_release_point_record["release_capable"], "1"
+                )
             self.assertIn(
                 first_exit_release_point_record["top_blocker"],
                 {
                     "missing_region_exit_release_ownership",
+                    "region_exit_release_ownership_required_after_release_point",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21147,6 +21156,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "command_pool_cleanup_reset_not_literal_phase_submit_reset",
+                    "exit_submit_point_runtime_observed_command_pool_context_owned",
                     "command_pool_cleanup_reset_blocked_by_host_fence_public_readback",
                     "command_pool_cleanup_reset_not_required",
                 },
@@ -23155,6 +23165,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_release_point_unimplemented",
                     "exit_release_point_synthetic_planned_only",
                     "planned_region_exit_submit_point_runtime_observed_context_submit_preserved",
+                    "exit_release_point_runtime_observed_context_submit_preserved",
                     "exit_release_point_rejected_host_fence_public_readback_blocker",
                     "exit_release_point_not_required",
                     "region_exit_release_point_blocked_by_host_fence_public_readback",
@@ -23496,6 +23507,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_release_point_unimplemented",
                     "exit_release_point_synthetic_planned_only",
                     "planned_region_exit_submit_point_runtime_observed_context_submit_preserved",
+                    "exit_release_point_runtime_observed_context_submit_preserved",
                     "exit_release_point_rejected_host_fence_public_readback_blocker",
                     "exit_release_point_not_required",
                     "region_exit_release_point_blocked_by_host_fence_public_readback",

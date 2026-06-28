@@ -22039,15 +22039,27 @@ StackRegionExitReleasePointResult evaluate_stack_region_exit_release_point(
     return result;
   }
   if (request.planned_submit_point_runtime_observed) {
-    result.release_capable = false;
-    result.release_point_status = request.planned_submit_point_status;
+    result.release_capable = true;
+    result.api_status =
+        "stack_region_exit_release_point_api_present_runtime_observed";
+    result.release_point_status =
+        "exit_release_point_runtime_observed_context_submit_preserved";
     result.release_point_reason =
-        "stack_planned_recording_exit_submit_runtime_observed_submit_preserved";
-    result.top_blocker = "missing_region_exit_release_ownership";
+        "stack_planned_recording_exit_submit_runtime_observed_release_anchor";
+    result.top_blocker =
+        "region_exit_release_ownership_required_after_release_point";
     result.planned_recording_exit_callsite_status =
         "planned_stack_recording_exit_runtime_submit_observed";
     result.command_buffer_release_status =
         "exit_submit_point_runtime_observed_context_still_owns_close_submit";
+    result.descriptor_lifetime_release_status =
+        "exit_submit_point_runtime_observed_descriptor_lifetime_context_owned";
+    result.retire_timeline_release_status =
+        "exit_submit_point_runtime_observed_retire_timeline_context_owned";
+    result.allocator_resource_retire_status =
+        "exit_submit_point_runtime_observed_allocator_retire_context_owned";
+    result.command_pool_cleanup_reset_status =
+        "exit_submit_point_runtime_observed_command_pool_context_owned";
     return result;
   }
   if (request.planned_submit_point_id.empty() ||
