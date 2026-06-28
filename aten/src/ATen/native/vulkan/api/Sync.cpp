@@ -505,6 +505,49 @@ struct StackRegionSingleRecordingCanaryValue final {
   uint64_t outside_selected_submit_removed_count = 0u;
 };
 
+struct StackRegionSingleRecordingCanarySnapshot final {
+  VulkanSubmitPhase phase = VulkanSubmitPhase::Unknown;
+  VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown;
+  uint64_t command_buffer_recording_id = 0u;
+  uint64_t submit_epoch_before = 0u;
+  uint64_t submit_epoch_after = 0u;
+  uint64_t pending_dispatch_count = 0u;
+  const char* status = "missing";
+  const char* guard_fail_reason = "missing";
+  const char* phase_contract_status = "missing";
+  const char* phase_contract_reason = "missing";
+  bool fence_handle_null = false;
+  bool final_use_false = false;
+  bool stack_planned_recording_active = false;
+  bool stack_planned_recording_owned_by_current_thread = false;
+  uint64_t single_recording_owner_id = 0u;
+  uint32_t single_recording_owner_state = 0u;
+  uint64_t region_close_submit_owner_id = 0u;
+  uint32_t region_close_submit_owner_state = 0u;
+  uint64_t reset_deferral_owner_id = 0u;
+  uint32_t reset_deferral_owner_state = 0u;
+  uint64_t retire_timeline_owner_id = 0u;
+  uint32_t retire_timeline_owner_state = 0u;
+  uint64_t pending_retire_transfer_owner_id = 0u;
+  uint32_t pending_retire_transfer_owner_state = 0u;
+  bool region_close_submit_owner_behavior_enabled = false;
+  bool region_close_submit_owner_authorizes_submit_elision = false;
+  uint64_t candidate_records = 0u;
+  uint64_t eligible_records = 0u;
+  uint64_t eligible_boundary_count = 0u;
+  uint64_t barrier_validated_count = 0u;
+  uint64_t proof_ready_records = 0u;
+  uint64_t selected_submit_rows = 0u;
+  uint64_t pending_range_complete_rows = 0u;
+  uint64_t same_active_command_buffer_rows = 0u;
+  uint64_t descriptor_update_generation_rows_for_selected = 0u;
+  uint64_t actual_norm1_input_barrier_rows = 0u;
+  uint64_t old_carry_retire_only_rows = 0u;
+  uint64_t unknown_ordering_retire_entries_zero_rows = 0u;
+  uint64_t no_public_final_host_readback_blocker_rows = 0u;
+  bool submit_removed = false;
+};
+
 struct StackRegionExitSubmitRuntimePointValue final {
   uint64_t count = 0u;
   uint64_t had_cmd_count = 0u;
@@ -1850,46 +1893,67 @@ const char* stack_region_single_recording_close_submit_owner_lifecycle_status(
     uint32_t owner_state);
 
 std::string stack_region_single_recording_canary_key(
-    const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite,
-    const uint64_t command_buffer_recording_id,
-    const uint64_t submit_epoch_before,
-    const uint64_t submit_epoch_after,
-    const uint64_t pending_dispatch_count,
-    const char* const status,
-    const char* const guard_fail_reason,
-    const char* const phase_contract_status,
-    const char* const phase_contract_reason,
-    const bool fence_handle_null,
-    const bool final_use_false,
-    const bool stack_planned_recording_active,
-    const bool stack_planned_recording_owned_by_current_thread,
-    const uint64_t single_recording_owner_id,
-    const uint32_t single_recording_owner_state,
-    const uint64_t region_close_submit_owner_id,
-    const uint32_t region_close_submit_owner_state,
-    const uint64_t reset_deferral_owner_id,
-    const uint32_t reset_deferral_owner_state,
-    const uint64_t retire_timeline_owner_id,
-    const uint32_t retire_timeline_owner_state,
-    const uint64_t pending_retire_transfer_owner_id,
-    const uint32_t pending_retire_transfer_owner_state,
-    const bool region_close_submit_owner_behavior_enabled,
-    const bool region_close_submit_owner_authorizes_submit_elision,
-    const uint64_t candidate_records,
-    const uint64_t eligible_records,
-    const uint64_t eligible_boundary_count,
-    const uint64_t barrier_validated_count,
-    const uint64_t proof_ready_records,
-    const uint64_t selected_submit_rows,
-    const uint64_t pending_range_complete_rows,
-    const uint64_t same_active_command_buffer_rows,
-    const uint64_t descriptor_update_generation_rows_for_selected,
-    const uint64_t actual_norm1_input_barrier_rows,
-    const uint64_t old_carry_retire_only_rows,
-    const uint64_t unknown_ordering_retire_entries_zero_rows,
-    const uint64_t no_public_final_host_readback_blocker_rows,
-    const bool submit_removed) {
+    const StackRegionSingleRecordingCanarySnapshot& snapshot) {
+  const VulkanSubmitPhase phase = snapshot.phase;
+  const VulkanRetireCallSite callsite = snapshot.callsite;
+  const uint64_t command_buffer_recording_id =
+      snapshot.command_buffer_recording_id;
+  const uint64_t submit_epoch_before = snapshot.submit_epoch_before;
+  const uint64_t submit_epoch_after = snapshot.submit_epoch_after;
+  const uint64_t pending_dispatch_count = snapshot.pending_dispatch_count;
+  const char* const status = snapshot.status;
+  const char* const guard_fail_reason = snapshot.guard_fail_reason;
+  const char* const phase_contract_status = snapshot.phase_contract_status;
+  const char* const phase_contract_reason = snapshot.phase_contract_reason;
+  const bool fence_handle_null = snapshot.fence_handle_null;
+  const bool final_use_false = snapshot.final_use_false;
+  const bool stack_planned_recording_active =
+      snapshot.stack_planned_recording_active;
+  const bool stack_planned_recording_owned_by_current_thread =
+      snapshot.stack_planned_recording_owned_by_current_thread;
+  const uint64_t single_recording_owner_id =
+      snapshot.single_recording_owner_id;
+  const uint32_t single_recording_owner_state =
+      snapshot.single_recording_owner_state;
+  const uint64_t region_close_submit_owner_id =
+      snapshot.region_close_submit_owner_id;
+  const uint32_t region_close_submit_owner_state =
+      snapshot.region_close_submit_owner_state;
+  const uint64_t reset_deferral_owner_id = snapshot.reset_deferral_owner_id;
+  const uint32_t reset_deferral_owner_state =
+      snapshot.reset_deferral_owner_state;
+  const uint64_t retire_timeline_owner_id = snapshot.retire_timeline_owner_id;
+  const uint32_t retire_timeline_owner_state =
+      snapshot.retire_timeline_owner_state;
+  const uint64_t pending_retire_transfer_owner_id =
+      snapshot.pending_retire_transfer_owner_id;
+  const uint32_t pending_retire_transfer_owner_state =
+      snapshot.pending_retire_transfer_owner_state;
+  const bool region_close_submit_owner_behavior_enabled =
+      snapshot.region_close_submit_owner_behavior_enabled;
+  const bool region_close_submit_owner_authorizes_submit_elision =
+      snapshot.region_close_submit_owner_authorizes_submit_elision;
+  const uint64_t candidate_records = snapshot.candidate_records;
+  const uint64_t eligible_records = snapshot.eligible_records;
+  const uint64_t eligible_boundary_count = snapshot.eligible_boundary_count;
+  const uint64_t barrier_validated_count = snapshot.barrier_validated_count;
+  const uint64_t proof_ready_records = snapshot.proof_ready_records;
+  const uint64_t selected_submit_rows = snapshot.selected_submit_rows;
+  const uint64_t pending_range_complete_rows =
+      snapshot.pending_range_complete_rows;
+  const uint64_t same_active_command_buffer_rows =
+      snapshot.same_active_command_buffer_rows;
+  const uint64_t descriptor_update_generation_rows_for_selected =
+      snapshot.descriptor_update_generation_rows_for_selected;
+  const uint64_t actual_norm1_input_barrier_rows =
+      snapshot.actual_norm1_input_barrier_rows;
+  const uint64_t old_carry_retire_only_rows =
+      snapshot.old_carry_retire_only_rows;
+  const uint64_t unknown_ordering_retire_entries_zero_rows =
+      snapshot.unknown_ordering_retire_entries_zero_rows;
+  const uint64_t no_public_final_host_readback_blocker_rows =
+      snapshot.no_public_final_host_readback_blocker_rows;
+  const bool submit_removed = snapshot.submit_removed;
   const int64_t live_block = current_vision_stack_block_index();
   const bool live_selected_boundary =
       stack_region_single_recording_canary_target_selected(
@@ -2156,96 +2220,17 @@ std::string stack_region_single_recording_canary_key(
 }
 
 void record_stack_region_single_recording_canary_locked(
-    const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite,
-    const uint64_t command_buffer_recording_id,
-    const uint64_t submit_epoch_before,
-    const uint64_t submit_epoch_after,
-    const uint64_t pending_dispatch_count,
-    const char* const status,
-    const char* const guard_fail_reason,
-    const char* const phase_contract_status,
-    const char* const phase_contract_reason,
-    const bool fence_handle_null,
-    const bool final_use_false,
-    const bool stack_planned_recording_active,
-    const bool stack_planned_recording_owned_by_current_thread,
-    const uint64_t single_recording_owner_id,
-    const uint32_t single_recording_owner_state,
-    const uint64_t region_close_submit_owner_id,
-    const uint32_t region_close_submit_owner_state,
-    const uint64_t reset_deferral_owner_id,
-    const uint32_t reset_deferral_owner_state,
-    const uint64_t retire_timeline_owner_id,
-    const uint32_t retire_timeline_owner_state,
-    const uint64_t pending_retire_transfer_owner_id,
-    const uint32_t pending_retire_transfer_owner_state,
-    const bool region_close_submit_owner_behavior_enabled,
-    const bool region_close_submit_owner_authorizes_submit_elision,
-    const uint64_t candidate_records,
-    const uint64_t eligible_records,
-    const uint64_t eligible_boundary_count,
-    const uint64_t barrier_validated_count,
-    const uint64_t proof_ready_records,
-    const uint64_t selected_submit_rows,
-    const uint64_t pending_range_complete_rows,
-    const uint64_t same_active_command_buffer_rows,
-    const uint64_t descriptor_update_generation_rows_for_selected,
-    const uint64_t actual_norm1_input_barrier_rows,
-    const uint64_t old_carry_retire_only_rows,
-    const uint64_t unknown_ordering_retire_entries_zero_rows,
-    const uint64_t no_public_final_host_readback_blocker_rows,
-    const bool submit_removed) {
+    const StackRegionSingleRecordingCanarySnapshot& snapshot) {
   auto& value = stack_region_single_recording_canary_rows()
-      [stack_region_single_recording_canary_key(
-          phase,
-          callsite,
-          command_buffer_recording_id,
-          submit_epoch_before,
-          submit_epoch_after,
-          pending_dispatch_count,
-          status,
-          guard_fail_reason,
-          phase_contract_status,
-          phase_contract_reason,
-          fence_handle_null,
-          final_use_false,
-          stack_planned_recording_active,
-          stack_planned_recording_owned_by_current_thread,
-          single_recording_owner_id,
-          single_recording_owner_state,
-          region_close_submit_owner_id,
-          region_close_submit_owner_state,
-          reset_deferral_owner_id,
-          reset_deferral_owner_state,
-          retire_timeline_owner_id,
-          retire_timeline_owner_state,
-          pending_retire_transfer_owner_id,
-          pending_retire_transfer_owner_state,
-          region_close_submit_owner_behavior_enabled,
-          region_close_submit_owner_authorizes_submit_elision,
-          candidate_records,
-          eligible_records,
-          eligible_boundary_count,
-          barrier_validated_count,
-          proof_ready_records,
-          selected_submit_rows,
-          pending_range_complete_rows,
-          same_active_command_buffer_rows,
-          descriptor_update_generation_rows_for_selected,
-          actual_norm1_input_barrier_rows,
-          old_carry_retire_only_rows,
-          unknown_ordering_retire_entries_zero_rows,
-          no_public_final_host_readback_blocker_rows,
-          submit_removed)];
+      [stack_region_single_recording_canary_key(snapshot)];
   value.count += 1u;
-  value.candidate_records += candidate_records;
-  value.eligible_records += eligible_records;
-  value.eligible_boundary_count += eligible_boundary_count;
-  value.barrier_validated_count += barrier_validated_count;
-  value.proof_ready_records += proof_ready_records;
-  value.selected_submit_rows += selected_submit_rows;
-  if (submit_removed) {
+  value.candidate_records += snapshot.candidate_records;
+  value.eligible_records += snapshot.eligible_records;
+  value.eligible_boundary_count += snapshot.eligible_boundary_count;
+  value.barrier_validated_count += snapshot.barrier_validated_count;
+  value.proof_ready_records += snapshot.proof_ready_records;
+  value.selected_submit_rows += snapshot.selected_submit_rows;
+  if (snapshot.submit_removed) {
     value.submit_removed_count += 1u;
   }
 }
@@ -29752,48 +29737,73 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
   const bool live_boundary_matches_selected =
       current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
       current_vision_stack_block_index() == 1;
+  const auto make_snapshot = [&](
+                                 const char* const status,
+                                 const char* const reason,
+                                 const bool submit_removed) {
+    StackRegionSingleRecordingCanarySnapshot snapshot;
+    snapshot.phase = phase;
+    snapshot.callsite = callsite;
+    snapshot.command_buffer_recording_id = command_buffer_recording_id;
+    snapshot.submit_epoch_before = submit_epoch_before;
+    snapshot.submit_epoch_after = submit_epoch_after;
+    snapshot.pending_dispatch_count = pending_dispatch_count;
+    snapshot.status = status;
+    snapshot.guard_fail_reason = reason;
+    snapshot.phase_contract_status = proof_guard_summary.status;
+    snapshot.phase_contract_reason = proof_guard_summary.reason;
+    snapshot.fence_handle_null = fence_handle_null;
+    snapshot.final_use_false = final_use_false;
+    snapshot.stack_planned_recording_active = stack_planned_recording_active;
+    snapshot.stack_planned_recording_owned_by_current_thread =
+        stack_planned_recording_owned_by_current_thread;
+    snapshot.single_recording_owner_id = single_recording_owner_id;
+    snapshot.single_recording_owner_state = single_recording_owner_state;
+    snapshot.region_close_submit_owner_id = region_close_submit_owner_id;
+    snapshot.region_close_submit_owner_state =
+        region_close_submit_owner_state;
+    snapshot.reset_deferral_owner_id = reset_deferral_owner_id;
+    snapshot.reset_deferral_owner_state = reset_deferral_owner_state;
+    snapshot.retire_timeline_owner_id = retire_timeline_owner_id;
+    snapshot.retire_timeline_owner_state = retire_timeline_owner_state;
+    snapshot.pending_retire_transfer_owner_id =
+        pending_retire_transfer_owner_id;
+    snapshot.pending_retire_transfer_owner_state =
+        pending_retire_transfer_owner_state;
+    snapshot.region_close_submit_owner_behavior_enabled =
+        region_close_submit_owner_behavior_enabled;
+    snapshot.region_close_submit_owner_authorizes_submit_elision =
+        region_close_submit_owner_authorizes_submit_elision;
+    snapshot.candidate_records = eligibility_summary.candidate_records;
+    snapshot.eligible_records = eligibility_summary.eligible_records;
+    snapshot.eligible_boundary_count =
+        eligibility_summary.eligible_boundary_count;
+    snapshot.barrier_validated_count =
+        eligibility_summary.barrier_validated_count;
+    snapshot.proof_ready_records = proof_guard_summary.proof_ready_rows;
+    snapshot.selected_submit_rows = proof_guard_summary.selected_submit_rows;
+    snapshot.pending_range_complete_rows =
+        proof_guard_summary.pending_range_complete_rows;
+    snapshot.same_active_command_buffer_rows =
+        proof_guard_summary.same_active_command_buffer_rows;
+    snapshot.descriptor_update_generation_rows_for_selected =
+        proof_guard_summary.descriptor_update_generation_rows_for_selected;
+    snapshot.actual_norm1_input_barrier_rows =
+        proof_guard_summary.actual_norm1_input_barrier_rows;
+    snapshot.old_carry_retire_only_rows =
+        proof_guard_summary.old_carry_retire_only_rows;
+    snapshot.unknown_ordering_retire_entries_zero_rows =
+        proof_guard_summary.unknown_ordering_retire_entries_zero_rows;
+    snapshot.no_public_final_host_readback_blocker_rows =
+        proof_guard_summary.no_public_final_host_readback_blocker_rows;
+    snapshot.submit_removed = submit_removed;
+    return snapshot;
+  };
   const auto record_fail = [&](const char* const reason) {
-    record_stack_region_single_recording_canary_locked(
-        phase,
-        callsite,
-        command_buffer_recording_id,
-        submit_epoch_before,
-        submit_epoch_after,
-        pending_dispatch_count,
+    record_stack_region_single_recording_canary_locked(make_snapshot(
         "single_recording_owner_close_submit_canary_guard_failed",
         reason,
-        proof_guard_summary.status,
-        proof_guard_summary.reason,
-        fence_handle_null,
-        final_use_false,
-        stack_planned_recording_active,
-        stack_planned_recording_owned_by_current_thread,
-        single_recording_owner_id,
-        single_recording_owner_state,
-        region_close_submit_owner_id,
-        region_close_submit_owner_state,
-        reset_deferral_owner_id,
-        reset_deferral_owner_state,
-        retire_timeline_owner_id,
-        retire_timeline_owner_state,
-        pending_retire_transfer_owner_id,
-        pending_retire_transfer_owner_state,
-        region_close_submit_owner_behavior_enabled,
-        region_close_submit_owner_authorizes_submit_elision,
-        eligibility_summary.candidate_records,
-        eligibility_summary.eligible_records,
-        eligibility_summary.eligible_boundary_count,
-        eligibility_summary.barrier_validated_count,
-        proof_guard_summary.proof_ready_rows,
-        proof_guard_summary.selected_submit_rows,
-        proof_guard_summary.pending_range_complete_rows,
-        proof_guard_summary.same_active_command_buffer_rows,
-        proof_guard_summary.descriptor_update_generation_rows_for_selected,
-        proof_guard_summary.actual_norm1_input_barrier_rows,
-        proof_guard_summary.old_carry_retire_only_rows,
-        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-        proof_guard_summary.no_public_final_host_readback_blocker_rows,
-        /*submit_removed=*/false);
+        /*submit_removed=*/false));
   };
   if (already_removed != 0u) {
     record_fail("single_recording_canary_already_skipped_one_submit");
@@ -29870,47 +29880,10 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
         region_close_submit_owner_behavior_enabled));
     return false;
   }
-  record_stack_region_single_recording_canary_locked(
-      phase,
-      callsite,
-      command_buffer_recording_id,
-      submit_epoch_before,
-      submit_epoch_after,
-      pending_dispatch_count,
+  record_stack_region_single_recording_canary_locked(make_snapshot(
       "stack_region_owned_phase_submit_deferred_to_stack_exit_canary",
       "none",
-      proof_guard_summary.status,
-      proof_guard_summary.reason,
-      fence_handle_null,
-      final_use_false,
-      stack_planned_recording_active,
-      stack_planned_recording_owned_by_current_thread,
-      single_recording_owner_id,
-      single_recording_owner_state,
-      region_close_submit_owner_id,
-      region_close_submit_owner_state,
-      reset_deferral_owner_id,
-      reset_deferral_owner_state,
-      retire_timeline_owner_id,
-      retire_timeline_owner_state,
-      pending_retire_transfer_owner_id,
-      pending_retire_transfer_owner_state,
-      region_close_submit_owner_behavior_enabled,
-      region_close_submit_owner_authorizes_submit_elision,
-      eligibility_summary.candidate_records,
-      eligibility_summary.eligible_records,
-      eligibility_summary.eligible_boundary_count,
-      eligibility_summary.barrier_validated_count,
-      proof_guard_summary.proof_ready_rows,
-      proof_guard_summary.selected_submit_rows,
-      proof_guard_summary.pending_range_complete_rows,
-      proof_guard_summary.same_active_command_buffer_rows,
-      proof_guard_summary.descriptor_update_generation_rows_for_selected,
-      proof_guard_summary.actual_norm1_input_barrier_rows,
-      proof_guard_summary.old_carry_retire_only_rows,
-      proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-      proof_guard_summary.no_public_final_host_readback_blocker_rows,
-      /*submit_removed=*/true);
+      /*submit_removed=*/true));
   return true;
 }
 
