@@ -2537,7 +2537,8 @@ VulkanSubmission Context::submit_cmd_to_gpu(
                 std::memory_order_acquire),
             stack_region_close_submit_owner_state_.load(
                 std::memory_order_acquire),
-            stack_region_close_submit_owner_behavior_enabled());
+            stack_region_close_submit_owner_behavior_enabled(),
+            /*region_close_submit_owner_authorizes_submit_elision=*/false);
     const bool should_coalesce_phase_boundary_explicit_sync =
         (kCoalescePhaseBoundaryExplicitSync &&
          dry_run_all_safe_group_eligible) ||

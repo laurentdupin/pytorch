@@ -1869,6 +1869,7 @@ std::string stack_region_single_recording_canary_key(
     const uint64_t region_close_submit_owner_id,
     const uint32_t region_close_submit_owner_state,
     const bool region_close_submit_owner_behavior_enabled,
+    const bool region_close_submit_owner_authorizes_submit_elision,
     const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
@@ -2012,7 +2013,8 @@ std::string stack_region_single_recording_canary_key(
       << region_close_submit_owner_state
       << " region_exit_close_submit_owner_behavior_enabled="
       << (region_close_submit_owner_behavior_enabled ? 1 : 0)
-      << " region_exit_close_submit_owner_authorizes_submit_elision=0"
+      << " region_exit_close_submit_owner_authorizes_submit_elision="
+      << (region_close_submit_owner_authorizes_submit_elision ? 1 : 0)
       << " region_exit_close_submit_owner_lifecycle_status="
       << stack_region_single_recording_close_submit_owner_lifecycle_status(
              region_close_submit_owner_state)
@@ -2114,6 +2116,7 @@ void record_stack_region_single_recording_canary_locked(
     const uint64_t region_close_submit_owner_id,
     const uint32_t region_close_submit_owner_state,
     const bool region_close_submit_owner_behavior_enabled,
+    const bool region_close_submit_owner_authorizes_submit_elision,
     const uint64_t candidate_records,
     const uint64_t eligible_records,
     const uint64_t eligible_boundary_count,
@@ -2146,10 +2149,11 @@ void record_stack_region_single_recording_canary_locked(
           stack_planned_recording_owned_by_current_thread,
           single_recording_owner_id,
           single_recording_owner_state,
-          region_close_submit_owner_id,
-          region_close_submit_owner_state,
-          region_close_submit_owner_behavior_enabled,
-          candidate_records,
+        region_close_submit_owner_id,
+        region_close_submit_owner_state,
+        region_close_submit_owner_behavior_enabled,
+        region_close_submit_owner_authorizes_submit_elision,
+        candidate_records,
           eligible_records,
           eligible_boundary_count,
           barrier_validated_count,
@@ -28083,7 +28087,8 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     const uint32_t single_recording_owner_state,
     const uint64_t region_close_submit_owner_id,
     const uint32_t region_close_submit_owner_state,
-    const bool region_close_submit_owner_behavior_enabled) {
+    const bool region_close_submit_owner_behavior_enabled,
+    const bool region_close_submit_owner_authorizes_submit_elision) {
   const char* const target = stack_region_single_recording_canary_target();
   if (
       !stack_region_single_recording_canary_target_selected(target) ||
@@ -28130,6 +28135,7 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
         region_close_submit_owner_id,
         region_close_submit_owner_state,
         region_close_submit_owner_behavior_enabled,
+        region_close_submit_owner_authorizes_submit_elision,
         eligibility_summary.candidate_records,
         eligibility_summary.eligible_records,
         eligibility_summary.eligible_boundary_count,
@@ -28201,6 +28207,10 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     record_fail("pending_dispatch_barrier_coverage_incomplete");
     return false;
   }
+  if (!region_close_submit_owner_authorizes_submit_elision) {
+    record_fail("region_exit_close_submit_owner_authorizes_submit_elision_disabled");
+    return false;
+  }
   if (!stack_region_single_recording_close_submit_owner_available(
           region_close_submit_owner_id,
           region_close_submit_owner_state,
@@ -28231,6 +28241,7 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
       region_close_submit_owner_id,
       region_close_submit_owner_state,
       region_close_submit_owner_behavior_enabled,
+      region_close_submit_owner_authorizes_submit_elision,
       eligibility_summary.candidate_records,
       eligibility_summary.eligible_records,
       eligibility_summary.eligible_boundary_count,

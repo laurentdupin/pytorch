@@ -104,7 +104,10 @@ The live single-recording canary observes this flag as well, so its
 selected-boundary rows can report
 `region_exit_close_submit_owner_authorizes_submit_elision_disabled` instead of
 the older preserved-batch-only blocker. This is still a fail-closed ownership
-classification, not a region-owned close/submit implementation.
+classification, not a region-owned close/submit implementation. The live guard
+has a separate submit-elision authorization input that is currently `0`, so a
+future lifecycle-state change cannot remove a submit unless ownership and
+authorization are both wired deliberately.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,

@@ -1913,7 +1913,8 @@ TORCH_API bool maybe_defer_stack_region_single_recording_owner_canary(
     uint32_t single_recording_owner_state,
     uint64_t region_close_submit_owner_id,
     uint32_t region_close_submit_owner_state,
-    bool region_close_submit_owner_behavior_enabled);
+    bool region_close_submit_owner_behavior_enabled,
+    bool region_close_submit_owner_authorizes_submit_elision);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();

@@ -540,8 +540,11 @@ the live canary can observe the close-submit behavior canary and report
 `region_exit_close_submit_owner_authorizes_submit_elision_disabled`; without
 that opt-in it still reports
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
-Both paths remain fail-closed until a real region-owned close/submit owner
-replaces the preserved batch accounting state.
+The live guard now has a separate close-submit authorization input, currently
+passed as `0`, so close-submit owner availability cannot become submit removal
+by itself. Both paths remain fail-closed until a real region-owned
+close/submit owner replaces the preserved batch accounting state and explicitly
+authorizes submit elision.
 The same lifecycle source is now threaded through the ownership row chain:
 `StackRegionSingleRecordingOwner.v0`,
 `StackRegionCommandBufferAcquireHook.v0`,

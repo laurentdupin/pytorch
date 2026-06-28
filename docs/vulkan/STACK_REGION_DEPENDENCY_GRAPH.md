@@ -852,7 +852,10 @@ next behavior-changing step remains explicit.
 The live `StackRegionSingleRecordingCanary.v0` guard consumes the same opt-in
 flag. This lets selected-boundary rows distinguish an unavailable preserved
 batch from a behavior-enabled close-submit owner surface whose submit-elision
-authorization is still disabled. It does not remove, defer, or create submits.
+authorization is still disabled. The live guard also has a separate
+close-submit authorization input, passed as `0` in the current implementation,
+so owner availability cannot remove a submit without an explicit future
+authorization source. It does not remove, defer, or create submits.
 `StackRegionSingleRecordingCanary.v0` now consumes a live Context-owned
 close/submit owner lifecycle id/state for that same decision. Active stack
 planned recording creates a lifecycle record, but the current state only
