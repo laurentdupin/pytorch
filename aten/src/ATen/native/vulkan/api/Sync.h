@@ -1091,6 +1091,11 @@ struct StackRegionExitCloseSubmitOwnerResult final {
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
   std::string implementation_status =
       "region_exit_close_submit_owner_surface_present_fail_closed";
+  bool close_submit_owner_handoff_available = false;
+  std::string close_submit_owner_handoff_status =
+      "region_exit_close_submit_owner_handoff_missing";
+  std::string close_submit_owner_handoff_top_blocker =
+      "region_exit_close_submit_owner_implementation_missing";
   std::string region_owned_command_buffer_status =
       "region_owned_command_buffer_or_batch_unavailable";
   std::string planned_region_scope_status =
@@ -1169,6 +1174,11 @@ struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
       "region_exit_close_submit_owner_surface_present_fail_closed";
   std::string final_fail_closed_reason =
       "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership";
+  bool close_submit_owner_handoff_available = false;
+  std::string close_submit_owner_handoff_status =
+      "region_exit_close_submit_owner_handoff_missing";
+  std::string close_submit_owner_handoff_top_blocker =
+      "region_exit_close_submit_owner_implementation_missing";
   std::string current_command_buffer_owner_status =
       "current_phase_submit_owns_command_buffer_close_submit";
   std::string requested_region_exit_ownership_status =
@@ -2252,6 +2262,10 @@ TORCH_API void note_stack_region_exit_submit_runtime_point(
     uint64_t submit_epoch_after,
     uint64_t timeline_value,
     uint64_t pending_dispatch_count,
+    uint64_t region_exit_close_submit_owner_lifecycle_id,
+    uint32_t region_exit_close_submit_owner_lifecycle_state,
+    bool region_exit_close_submit_owner_behavior_enabled,
+    bool region_exit_close_submit_owner_authorizes_submit_elision,
     bool had_cmd);
 TORCH_API bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     uint32_t binding_idx,

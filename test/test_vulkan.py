@@ -21150,6 +21150,40 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "ContextStackRegionCloseSubmitOwnerState.v0",
                 )
 
+            def assert_close_submit_handoff(record):
+                self.assertIn("close_submit_owner_handoff_available", record)
+                self.assertEqual(
+                    record["close_submit_owner_handoff_available"], "0"
+                )
+                self.assertIn(
+                    record["close_submit_owner_handoff_status"],
+                    {
+                        "region_exit_close_submit_owner_handoff_missing",
+                        "region_exit_close_submit_owner_handoff_not_required",
+                        "region_exit_close_submit_owner_handoff_blocked_by_output_boundary",
+                        "region_exit_close_submit_owner_handoff_blocked_reset_deferral_owner",
+                        "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+                        "region_exit_close_submit_owner_handoff_blocked_context_phase_submit_candidate_not_region_owned",
+                        "region_exit_close_submit_owner_handoff_blocked_planned_region_context_owned",
+                        "region_exit_close_submit_owner_handoff_blocked_missing_region_owned_command_buffer_or_batch_lease",
+                    },
+                )
+                self.assertIn(
+                    record["close_submit_owner_handoff_top_blocker"],
+                    {
+                        "region_exit_close_submit_owner_implementation_missing",
+                        "none",
+                        "host_fence_public_final_readback_blocker",
+                        "command_pool_reset_deferral_implementation_missing",
+                        "command_pool_reset_deferral_owner_context_retained_not_region_owned",
+                        "command_pool_reset_deferral_owner_behavior_disabled",
+                        "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+                        "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
+                        "planned_region_topology_present_close_submit_still_context_owned",
+                        "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease",
+                    },
+                )
+
             def assert_region_command_ownership_lifecycle(record):
                 self.assertIn(
                     "region_command_buffer_ownership_lifecycle_id", record
@@ -21972,6 +22006,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_ownership_transfer_authorization_disabled",
                     "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                    "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_reset_deferral_owner",
+                    "region_exit_close_submit_owner_handoff_blocked_context_phase_submit_candidate_not_region_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_planned_region_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_missing_region_owned_command_buffer_or_batch_lease",
                     "command_pool_reset_deferral_owner_behavior_disabled",
                     "pending_retire_transfer_owner_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
@@ -21987,6 +22026,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "ownership_transfer_accounting_joined"
                 ],
                 {"0", "1"},
+            )
+            assert_close_submit_handoff(
+                first_region_exit_ownership_transfer_record
             )
             self.assertEqual(
                 first_region_exit_ownership_transfer_record[
@@ -22232,6 +22274,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "planned_region_topology_present_close_submit_still_context_owned",
                     "command_pool_reset_deferral_owner_behavior_disabled",
                     "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
+                    "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_reset_deferral_owner",
+                    "region_exit_close_submit_owner_handoff_blocked_context_phase_submit_candidate_not_region_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_planned_region_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_missing_region_owned_command_buffer_or_batch_lease",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -22248,6 +22295,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "StackRegionExitCloseSubmitOwnerResult.v0",
             )
+            assert_close_submit_handoff(first_close_submit_ownership_record)
             self.assertIn(
                 first_close_submit_ownership_record[
                     "exit_close_submit_owner_request_api_status"
@@ -22744,6 +22792,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
                     "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
+                    "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_reset_deferral_owner",
+                    "region_exit_close_submit_owner_handoff_blocked_context_phase_submit_candidate_not_region_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_planned_region_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_missing_region_owned_command_buffer_or_batch_lease",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
                     "command_pool_reset_deferral_owner_behavior_disabled",
@@ -23272,6 +23325,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "command_pool_reset_deferral_top_blocker",
                 first_exit_close_submit_owner_result_record,
             )
+            assert_close_submit_handoff(
+                first_exit_close_submit_owner_result_record
+            )
             self.assertIn(
                 first_exit_close_submit_owner_result_record[
                     "planned_region_scope_status"
@@ -23298,6 +23354,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_region_exit_close_submit_owner_record
             )
             assert_context_owned_region_close_submit_fields(
+                first_region_exit_close_submit_owner_record
+            )
+            assert_close_submit_handoff(
                 first_region_exit_close_submit_owner_record
             )
             self.assertEqual(
@@ -23463,6 +23522,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "planned_region_topology_present_close_submit_still_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_reset_deferral_owner",
+                    "region_exit_close_submit_owner_handoff_blocked_context_phase_submit_candidate_not_region_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_planned_region_context_owned",
+                    "region_exit_close_submit_owner_handoff_blocked_missing_region_owned_command_buffer_or_batch_lease",
                     "command_pool_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_context_retained_not_region_owned",
                     "command_pool_reset_deferral_owner_behavior_disabled",
@@ -25497,7 +25561,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "context_retained_release_point"
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"] = (
-            "preserved_phase_submit_batch"
+            "stack_exit_close_submit"
         )
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
@@ -25620,7 +25684,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn(
                 row["region_exit_ownership_transfer_status"],
                 {
-                    "region_exit_ownership_transfer_accounting_joined_fail_closed",
                     "region_exit_ownership_transfer_blocked_by_close_submit_owner",
                     "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner",
                     "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
@@ -25633,7 +25696,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_ownership_transfer_behavior_disabled",
                     "region_exit_ownership_transfer_authorization_disabled",
                     "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
-                    "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                    "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
                     "command_pool_reset_deferral_owner_behavior_disabled",
                     "pending_retire_transfer_owner_behavior_disabled",
                     "retire_timeline_owner_behavior_disabled",
@@ -25700,6 +25763,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(row["pending_dispatch_range_complete"], "1")
             self.assertEqual(row["no_public_final_host_readback_blocker"], "1")
+            stack_exit_owner_rows = [
+                row["fields"]
+                for row in graph.get(
+                    "stack_region_exit_submit_runtime_point_rows", []
+                )
+                if row["fields"].get(
+                    "region_exit_close_submit_owner_lifecycle_state"
+                )
+                == "4"
+            ]
+            self.assertTrue(stack_exit_owner_rows)
+            stack_exit_row = stack_exit_owner_rows[0]
+            self.assertEqual(
+                stack_exit_row[
+                    "region_exit_close_submit_owner_lifecycle_status"
+                ],
+                "region_exit_close_submit_owner_active_region_owned_close_submit_available",
+            )
+            self.assertEqual(
+                stack_exit_row["close_submit_owner_handoff_available"],
+                "1",
+            )
+            self.assertEqual(
+                stack_exit_row["close_submit_owner_handoff_status"],
+                "region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner",
+            )
+            self.assertEqual(
+                stack_exit_row["phase_boundary_submits_preserved"], "1"
+            )
+            self.assertEqual(stack_exit_row["submit_elision_enabled"], "0")
+            self.assertEqual(stack_exit_row["deferred_submit_enabled"], "0")
+            self.assertEqual(
+                stack_exit_row[
+                    "region_exit_close_submit_owner_authorizes_submit_elision"
+                ],
+                "0",
+            )
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)

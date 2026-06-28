@@ -755,7 +755,7 @@ preserved phase-submit batch lease seen by the region ownership rows:
 with
 `region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed`.
 That lease is still accounting-only. The close/submit owner blocker remains
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`,
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`,
 and the pending-dispatch barrier coverage guard still prevents submit
 deferral.
 `StackRegionCommandBufferTopologyPlan.v0` is the bounded post-failure scaffold
@@ -853,7 +853,7 @@ reset-deferral, and retire-timeline owner surfaces: the owner is observed from
 stack entry through stack exit, but the active/submitted/canceled states remain
 context-owned and not transferred.
 The next blocker remains fail-closed:
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`
 because the preserved phase-submit batch lease is available only as an
 accounting/lifecycle lease, not as a region close/submit owner.
 `RegionCommandBufferOwnership.v0` mirrors that lifecycle at stack entry and
@@ -925,8 +925,17 @@ is the next canary layer. It requires the reset-deferral owner blocker to be
 clear, then records close-submit owner behavior availability while keeping
 `region_exit_close_submit_owner_authorizes_submit_elision=0`. The fail-closed
 reason becomes
-`region_exit_close_submit_owner_authorizes_submit_elision_disabled`, so the
-next behavior-changing step remains explicit.
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`,
+so the next behavior-changing step still requires a real region close/submit
+owner rather than preserved-batch accounting.
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=stack_exit_close_submit`
+adds that next behavior-neutral owner surface. It reports only the stack-exit
+close/submit lifecycle as region-owned for accounting, emits
+`region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner`,
+and leaves submit elision authorization disabled on the stack-exit runtime-point
+row. Earlier phase-boundary rows remain preserved-batch/context-owned, so the
+selected-boundary aggregate transfer still needs a future stack-exit-owner join
+before it can advance past close-submit ownership.
 The live `StackRegionSingleRecordingCanary.v0` guard consumes the same opt-in
 flag. This lets selected-boundary rows distinguish an unavailable preserved
 batch from a behavior-enabled close-submit owner surface whose submit-elision

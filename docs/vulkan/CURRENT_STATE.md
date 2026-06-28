@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `29869753a66` plus
-computed region-exit ownership-transfer completion gates.
+Last refreshed: 2026-06-28 at local HEAD `63d36dab567` plus
+behavior-neutral stack-exit close-submit ownership canary wiring.
 
 ## Repo State Summary
 
@@ -500,7 +500,7 @@ therefore distinguish the observed preserved exit submit point from region
 close/submit ownership: `StackRegionPlannedSubmitPoint.v0` can report
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`,
 and the close/submit owner surface advances to
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`
 because the preserved phase-submit batch lease is available only as an
 accounting/lifecycle lease, not as a region close/submit owner.
 Submit-level equivalence rows now consume that preserved runtime exit-submit
@@ -598,7 +598,7 @@ batched, replayed, or newly created.
 `StackRegionSingleRecordingCanary.v0` now mirrors that ownership state in its
 own selected-boundary rows: active planned-recording scopes report the preserved
 phase-submit batch lease as available for accounting, then fail closed on
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
 This only aligns the canary readiness report with the ownership rows; it does
 not authorize submit elision, make the batch a region close/submit owner, or
 turn selected-boundary barrier proof into permission to skip a submit. The
@@ -620,9 +620,9 @@ elision by itself: `actual_elided_submit_count=0` and phase-boundary submits
 are preserved. With
 `PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`,
 the live canary can observe the close-submit behavior canary and report
-`region_exit_close_submit_owner_authorizes_submit_elision_disabled`; without
-that opt-in it still reports
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
+the preserved-batch handoff blocker; without a real region-owned close/submit
+owner it reports
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
 The live guard now has a separate close-submit authorization input, currently
 passed as `0`, so close-submit owner availability cannot become submit removal
 by itself. Both paths remain fail-closed until a real region-owned
@@ -703,7 +703,20 @@ It only applies after reset deferral has no blocker. It can report
 `region_exit_close_submit_owner_behavior_enabled=1` and an available
 close-submit owner surface, but still reports
 `region_exit_close_submit_owner_authorizes_submit_elision=0` and
-`region_exit_close_submit_owner_authorizes_submit_elision_disabled`.
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=stack_exit_close_submit`
+is the next behavior-neutral mode: the actual stack-exit close/submit scope can
+report lifecycle state `4` /
+`region_exit_close_submit_owner_active_region_owned_close_submit_available`
+and a close-submit handoff status of
+`region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner`.
+Earlier phase-boundary rows still report the preserved-batch context-owned
+blocker. The stack-exit mode only proves the close-submit component on the
+stack-exit runtime-point row where the real owner is live. It does not yet join
+that owner back into selected phase-boundary canary rows, so the aggregate
+transfer remains incomplete until a later join wires the stack-exit owner into
+the selected-boundary transfer and reset-deferral, pending-retire, and
+retire-timeline ownership are real.
 `StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
 surface between that proof and close-submit ownership. It records whether a
 region-owned command-pool reset-deferral owner exists, whether reset deferral is

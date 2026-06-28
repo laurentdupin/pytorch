@@ -102,12 +102,25 @@ submit-elision authorization disabled. It does not defer, remove, or create a
 submit.
 The live single-recording canary observes this flag as well, so its
 selected-boundary rows can report
-`region_exit_close_submit_owner_authorizes_submit_elision_disabled` instead of
-the older preserved-batch-only blocker. This is still a fail-closed ownership
-classification, not a region-owned close/submit implementation. The live guard
-has a separate submit-elision authorization input that is currently `0`, so a
-future lifecycle-state change cannot remove a submit unless ownership and
-authorization are both wired deliberately.
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
+This is a fail-closed ownership classification, not a region-owned
+close/submit implementation. The live guard has a separate submit-elision
+authorization input that is currently `0`, so a future lifecycle-state change
+cannot remove a submit unless ownership and authorization are both wired
+deliberately.
+
+`PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=stack_exit_close_submit` is the
+first behavior-neutral stack-exit close/submit owner mode. It marks only the
+live stack-exit close/submit lifecycle as
+`region_exit_close_submit_owner_active_region_owned_close_submit_available` and
+lets `RegionExitCloseSubmitOwner.v0` report
+`region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner`.
+It still preserves every phase-boundary submit, creates no deferred submit, and
+keeps `authorizes_submit_elision=0`. Its only purpose is to let
+the stack-exit runtime-point row prove the close-submit component at the actual
+stack-exit owner scope. It does not relabel earlier phase-boundary submits as
+region-owned close/submit work, and the selected-boundary transfer still needs
+a later join before it can move past close-submit ownership.
 
 `RegionExitOwnershipTransfer.v0` is the aggregate transfer row above the
 close-submit, command-pool reset-deferral, pending-retire transfer,
@@ -163,7 +176,7 @@ with a fail-closed
 `region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed`
 close/submit owner status. This does not promote that batch into a region
 close/submit owner; the blocker stays
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
+`region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
 
 The first real `vits_140` bridge run with this canary is not a valid
 performance result. It removed exactly one selected submit, but bridge sanity
