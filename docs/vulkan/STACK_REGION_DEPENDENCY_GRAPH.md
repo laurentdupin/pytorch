@@ -862,7 +862,8 @@ when the preserved context command pool is observed through the stack-exit
 release point. This proves current context retention, not region ownership, and
 refines the older `command_pool_reset_deferral_proof_blocked_retention_unavailable`
 and implementation-missing proof buckets without changing command-pool reset
-behavior.
+behavior. `StackRegionCommandPoolLifetimeContract.v0` reports the same split as
+`command_pool_lifetime_context_retained_not_region_owned`.
 `StackRegionCommandPoolResetDeferralOwner.v0` consumes that proof and emits the
 first-class owner surface for reset deferral. It is still diagnostic-only:
 `owner_available=0`, `reset_deferral_behavior_enabled=0`,

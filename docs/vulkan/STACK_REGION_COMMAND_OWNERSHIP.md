@@ -264,7 +264,8 @@ timeline creation. Reset deferral remains fail-closed with
 proof layer can now report
 `command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point`
 for the existing context-retained path; that proof does not authorize submit
-elision or transfer reset ownership to the region.
+elision or transfer reset ownership to the region. The lifetime contract reports
+that distinction as `command_pool_lifetime_context_retained_not_region_owned`.
 `StackRegionCommandPoolResetDeferralOwner.v0` is the behavior-neutral owner
 surface for that missing step. It records the proof key/status, current
 command-pool owner scope, requested stack-region owner scope, and planned

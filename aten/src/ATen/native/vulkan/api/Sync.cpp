@@ -23119,15 +23119,14 @@ evaluate_stack_region_command_pool_lifetime_contract(
   if (request.planned_region_exit_release_point_status ==
       "exit_release_point_runtime_observed_context_submit_preserved") {
     result.reason =
-        "context_command_pool_retention_observed_reset_deferral_missing";
-    result.top_blocker =
-        "command_pool_reset_deferral_implementation_missing";
+        "context_command_pool_retention_observed_region_lifetime_not_owned";
+    result.top_blocker = "command_pool_lifetime_context_retained_not_region_owned";
     result.current_command_pool_owner_status =
         "command_pool_owner_context_phase_submit_scope_retained_until_release_point";
     result.command_pool_retention_api_status =
         "command_pool_retention_request_api_present_release_point_observed";
     result.command_pool_reset_deferral_status =
-        "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing";
+        "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point";
     return result;
   }
   return result;

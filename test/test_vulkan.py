@@ -23128,6 +23128,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_command_pool_lifetime_extension",
                     "command_pool_cannot_extend_beyond_phase_submit",
                     "missing_command_pool_retention_api",
+                    "command_pool_lifetime_context_retained_not_region_owned",
                     "command_pool_retention_implementation_missing",
                     "missing_region_exit_release_ownership",
                     "missing_region_exit_release_ownership_implementation",

@@ -589,7 +589,9 @@ proof can now report
 `command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point`
 when the context-retained command pool is observed through the stack-exit
 release point. That is a proof of current context retention only; it is not a
-region-owned reset-deferral owner.
+region-owned reset-deferral owner. The command-pool lifetime contract now uses
+`command_pool_lifetime_context_retained_not_region_owned` for that state instead
+of blaming the reset-deferral proof layer.
 That reset-deferral proof status and top blocker now flow into
 `StackRegionExitCloseSubmitOwnerRequest.v0`,
 `StackRegionExitCloseSubmitOwnerResult.v0`, and
