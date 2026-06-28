@@ -1356,6 +1356,8 @@ struct StackRegionPendingRetireTransferResult final {
   uint32_t region_exit_bound_source_state = 0u;
   uint64_t region_exit_bound_resource_count = 0u;
   uint64_t region_exit_bound_resource_bytes = 0u;
+  uint64_t region_exit_bound_missing_resource_count = 0u;
+  uint64_t region_exit_bound_missing_resource_bytes = 0u;
   std::string result_status =
       "pending_retire_transfer_plan_result_unavailable";
   std::string transfer_status =
@@ -1371,6 +1373,8 @@ struct StackRegionPendingRetireTransferResult final {
       "planned_region_exit_submit_point_synthetic_unimplemented";
   std::string region_exit_bound_source_status =
       "pending_retire_transfer_source_not_bound";
+  std::string region_exit_bound_source_coverage_status =
+      "pending_retire_transfer_source_coverage_unavailable";
   std::string runtime_api_source =
       "StackRegionPendingRetireTransferRuntimeApi.v0";
 };

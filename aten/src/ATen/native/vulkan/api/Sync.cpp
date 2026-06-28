@@ -14064,6 +14064,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << pending_retire_transfer_result.region_exit_bound_resource_count
         << " region_exit_bound_resource_bytes="
         << pending_retire_transfer_result.region_exit_bound_resource_bytes
+        << " region_exit_bound_missing_resource_count="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_resource_count
+        << " region_exit_bound_missing_resource_bytes="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_resource_bytes
+        << " region_exit_bound_source_coverage_status="
+        << pending_retire_transfer_result
+               .region_exit_bound_source_coverage_status
         << " phase_boundary_submits_preserved=1"
         << " submit_elision_enabled=0"
         << " deferred_submit_enabled=0"

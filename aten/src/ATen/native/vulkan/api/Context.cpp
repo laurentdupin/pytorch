@@ -1487,17 +1487,60 @@ Context::snapshot_stack_region_pending_retire_transfer(
   result.region_exit_bound_source_status =
       stack_region_pending_retire_transfer_source_state_name(
           bound_source_state);
+  result.region_exit_bound_missing_resource_count =
+      request.graph_pending_resource_count >
+          result.region_exit_bound_resource_count
+      ? request.graph_pending_resource_count -
+          result.region_exit_bound_resource_count
+      : 0u;
+  result.region_exit_bound_missing_resource_bytes =
+      request.graph_pending_resource_bytes >
+          result.region_exit_bound_resource_bytes
+      ? request.graph_pending_resource_bytes -
+          result.region_exit_bound_resource_bytes
+      : 0u;
   const bool graph_and_bound_source_match =
       request.graph_pending_resource_count ==
           result.region_exit_bound_resource_count &&
       request.graph_pending_resource_bytes ==
           result.region_exit_bound_resource_bytes;
+  const bool bound_source_present =
+      result.region_exit_bound_resource_count > 0u ||
+      result.region_exit_bound_resource_bytes > 0u;
+  if (
+      result.source_match_status ==
+      "pending_retire_transfer_source_not_required") {
+    result.region_exit_bound_source_coverage_status =
+        "pending_retire_transfer_source_coverage_not_required";
+  } else if (!bound_source_present) {
+    result.region_exit_bound_source_coverage_status =
+        "pending_retire_transfer_source_coverage_not_bound";
+  } else if (graph_and_bound_source_match) {
+    result.region_exit_bound_source_coverage_status =
+        "pending_retire_transfer_source_coverage_complete";
+  } else if (
+      result.region_exit_bound_resource_count <
+          request.graph_pending_resource_count ||
+      result.region_exit_bound_resource_bytes <
+          request.graph_pending_resource_bytes) {
+    result.region_exit_bound_source_coverage_status =
+        "pending_retire_transfer_source_coverage_partial";
+  } else {
+    result.region_exit_bound_source_coverage_status =
+        "pending_retire_transfer_source_coverage_mismatch";
+  }
   if (result.source_match_status ==
           "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
       graph_and_bound_source_match &&
       result.region_exit_bound_resource_count > 0u) {
     result.source_match_status =
         "pending_retire_transfer_source_bound_to_region_exit_submit";
+  } else if (
+      result.source_match_status ==
+          "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
+      bound_source_present) {
+    result.source_match_status =
+        "pending_retire_transfer_source_partially_bound_to_region_exit_submit";
   }
   return result;
 }

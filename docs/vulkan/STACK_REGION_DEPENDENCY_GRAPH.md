@@ -827,6 +827,11 @@ preserved submit path retires the stack-internal batch. That lets the transfer
 plan report `pending_retire_transfer_source_bound_to_region_exit_submit` when
 the bound source matches the graph pending set, while still leaving the source
 context-owned and not transferred.
+If the bound source covers only a subset of the graph pending set, the plan now
+reports `pending_retire_transfer_source_partially_bound_to_region_exit_submit`
+and records bound versus missing count/byte tuples. That makes the gap between
+the region-exit source and the full graph-pending set explicit before any
+future owner can claim retire transfer behavior.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

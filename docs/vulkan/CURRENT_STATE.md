@@ -549,6 +549,11 @@ matches the graph pending set, the plan reports
 `pending_retire_transfer_source_bound_to_region_exit_submit` instead of only
 `pending_retire_transfer_source_already_consumed_by_preserved_submit`. This is
 source accounting, not a resource transfer.
+Partial source bindings now remain explicit: when the stack-exit source covers
+only a subset of the graph pending set, the plan reports
+`pending_retire_transfer_source_partially_bound_to_region_exit_submit` plus the
+bound and missing count/byte tuples. This keeps the next ownership blocker
+visible without transferring pending retires or enabling submit elision.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
