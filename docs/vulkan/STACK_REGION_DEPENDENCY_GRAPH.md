@@ -814,6 +814,14 @@ keep `owner_available=0`, `behavior_enabled=0`,
 `transfers_retire_timeline=0`, `authorizes_submit_elision=0`, and fail closed
 on `retire_timeline_owner_behavior_disabled` when migration accounting is
 available.
+`StackRegionPendingRetireTransferPlan.v0` is the next behavior-neutral handoff
+surface. It snapshots the Context pending-retire queues and stack-internal
+retire batch without moving entries, then compares those counts and bytes with
+the submit-level graph pending set. The plan can say whether the source still
+lives in context pending-retire storage, in the stack-internal batch, has
+already been consumed by the preserved submit, or differs from the graph view.
+It does not transfer resources, change retire queue ownership, or authorize
+submit elision.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an

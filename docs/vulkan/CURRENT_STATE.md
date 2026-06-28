@@ -535,6 +535,14 @@ owner row can report migration accounting availability, but it keeps
 `authorizes_submit_elision=0`, and fail-closes with
 `retire_timeline_owner_behavior_disabled` until a real region-owned retire
 timeline handoff is implemented.
+`StackRegionPendingRetireTransferPlan.v0` now snapshots the concrete pending
+retire source that such a handoff would need to own. The Context reports the
+current pending-retire resource count/bytes plus the stack-internal retire
+batch count/bytes, and the row compares that source with the submit-level graph
+pending set. This is still planning only: rows can distinguish context-pending,
+stack-batch, already-consumed-by-preserved-submit, or mismatched sources, but
+`transfer_behavior_enabled=0`, `transfers_pending_retires=0`, and
+`authorizes_submit_elision=0`.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

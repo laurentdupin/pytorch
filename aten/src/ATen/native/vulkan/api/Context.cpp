@@ -1390,6 +1390,52 @@ Context::snapshot_stack_region_retire_timeline_owner(
   return result;
 }
 
+StackRegionPendingRetireTransferResult
+Context::snapshot_stack_region_pending_retire_transfer(
+    const StackRegionPendingRetireTransferRequest& request) {
+  uint64_t pending_resource_count = 0u;
+  uint64_t pending_resource_bytes = 0u;
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(
+        pending_retire_buffers_mutex_);
+    pending_resource_count += pending_retire_buffers_.size();
+    for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+      pending_resource_bytes += pending.bytes;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    pending_resource_count += pending_retire_images_.size();
+    for (const PendingRetireImage& pending : pending_retire_images_) {
+      pending_resource_bytes += pending.bytes;
+    }
+  }
+  uint64_t stack_internal_batch_resource_count = 0u;
+  uint64_t stack_internal_batch_resource_bytes = 0u;
+  {
+    std::lock_guard<std::mutex> batch_lock(
+        stack_internal_temp_retire_batch_mutex_);
+    stack_internal_batch_resource_count +=
+        stack_internal_temp_retire_batch_buffers_.size();
+    for (const PendingRetireBuffer& pending :
+         stack_internal_temp_retire_batch_buffers_) {
+      stack_internal_batch_resource_bytes += pending.bytes;
+    }
+    stack_internal_batch_resource_count +=
+        stack_internal_temp_retire_batch_images_.size();
+    for (const PendingRetireImage& pending :
+         stack_internal_temp_retire_batch_images_) {
+      stack_internal_batch_resource_bytes += pending.bytes;
+    }
+  }
+  return evaluate_stack_region_pending_retire_transfer_plan(
+      request,
+      pending_resource_count,
+      pending_resource_bytes,
+      stack_internal_batch_resource_count,
+      stack_internal_batch_resource_bytes);
+}
+
 DescriptorPool& Context::active_descriptor_pool() {
   return external_recording_cmd() ? persistent_descriptor_pool_ : descriptor_pool_;
 }

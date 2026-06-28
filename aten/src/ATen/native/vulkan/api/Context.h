@@ -530,6 +530,9 @@ class TORCH_API Context final {
   StackRegionRetireTimelineOwnerResult
   snapshot_stack_region_retire_timeline_owner(
       const StackRegionRetireTimelineOwnerRequest& request) const;
+  StackRegionPendingRetireTransferResult
+  snapshot_stack_region_pending_retire_transfer(
+      const StackRegionPendingRetireTransferRequest& request);
   void begin_stack_planned_recording();
   StackPlannedRecordingStats end_stack_planned_recording_and_submit();
   StackPlannedRecordingStats cancel_stack_planned_recording();
