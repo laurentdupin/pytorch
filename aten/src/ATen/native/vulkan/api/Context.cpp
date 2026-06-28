@@ -2746,6 +2746,18 @@ VulkanSubmission Context::submit_cmd_to_gpu(
                 std::memory_order_acquire),
             stack_region_close_submit_owner_state_.load(
                 std::memory_order_acquire),
+            stack_region_command_pool_reset_deferral_owner_id_.load(
+                std::memory_order_acquire),
+            stack_region_command_pool_reset_deferral_owner_state_.load(
+                std::memory_order_acquire),
+            stack_region_retire_timeline_owner_id_.load(
+                std::memory_order_acquire),
+            stack_region_retire_timeline_owner_state_.load(
+                std::memory_order_acquire),
+            stack_region_pending_retire_transfer_owner_id_.load(
+                std::memory_order_acquire),
+            stack_region_pending_retire_transfer_owner_state_.load(
+                std::memory_order_acquire),
             stack_region_close_submit_owner_behavior_enabled(),
             /*region_close_submit_owner_authorizes_submit_elision=*/false);
     const bool should_coalesce_phase_boundary_explicit_sync =

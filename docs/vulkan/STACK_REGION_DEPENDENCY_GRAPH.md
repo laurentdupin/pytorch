@@ -988,6 +988,12 @@ still records
 blockers. This gives a future region-exit owner a single handoff surface
 without treating component proof completion as permission to remove or defer a
 submit.
+The existing `StackRegionSingleRecordingCanary.v0` guard consumes the same
+component lifecycle state and records the aggregate transfer status on canary
+rows. The guard remains fail-closed: after the earlier proof and barrier gates,
+it stops at `region_exit_ownership_transfer_incomplete` unless a future
+implementation marks the aggregate transfer complete and authorizes submit
+elision.
 The opt-in
 `PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER=context_retained_release_point`
 canary advances only this owner surface when the proof is complete:

@@ -125,6 +125,13 @@ runtime exit submit point, or public/final/host/readback output boundaries. The
 row is the next handoff surface for a future region-exit owner; it does not
 transfer command-buffer, command-pool, descriptor, retire, or output ownership
 in the current topology.
+The live `StackRegionSingleRecordingCanary.v0` guard now consumes the same
+component lifecycle state and emits the aggregate transfer status on its rows.
+Even if earlier proof and barrier predicates pass, the guard fails closed with
+`region_exit_ownership_transfer_incomplete` until that transfer is complete and
+explicitly authorized. The current implementation therefore keeps
+`submits_removed=0`, `deferred_submit_enabled=0`, and
+`region_exit_ownership_transfer_complete=0`.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,

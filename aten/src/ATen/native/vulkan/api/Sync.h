@@ -2174,6 +2174,12 @@ TORCH_API bool maybe_defer_stack_region_single_recording_owner_canary(
     uint32_t single_recording_owner_state,
     uint64_t region_close_submit_owner_id,
     uint32_t region_close_submit_owner_state,
+    uint64_t reset_deferral_owner_id,
+    uint32_t reset_deferral_owner_state,
+    uint64_t retire_timeline_owner_id,
+    uint32_t retire_timeline_owner_state,
+    uint64_t pending_retire_transfer_owner_id,
+    uint32_t pending_retire_transfer_owner_state,
     bool region_close_submit_owner_behavior_enabled,
     bool region_close_submit_owner_authorizes_submit_elision);
 TORCH_API VulkanSubmitPhase current_submit_phase();

@@ -1868,6 +1868,12 @@ std::string stack_region_single_recording_canary_key(
     const uint32_t single_recording_owner_state,
     const uint64_t region_close_submit_owner_id,
     const uint32_t region_close_submit_owner_state,
+    const uint64_t reset_deferral_owner_id,
+    const uint32_t reset_deferral_owner_state,
+    const uint64_t retire_timeline_owner_id,
+    const uint32_t retire_timeline_owner_state,
+    const uint64_t pending_retire_transfer_owner_id,
+    const uint32_t pending_retire_transfer_owner_state,
     const bool region_close_submit_owner_behavior_enabled,
     const bool region_close_submit_owner_authorizes_submit_elision,
     const uint64_t candidate_records,
@@ -1901,6 +1907,37 @@ std::string stack_region_single_recording_canary_key(
   const bool preserved_phase_submit_batch_close_submit_owner_available =
       preserved_phase_submit_batch_scope_observed &&
       region_close_submit_owner_behavior_enabled;
+  const bool reset_deferral_owner_active =
+      reset_deferral_owner_id != 0u && reset_deferral_owner_state == 1u;
+  const bool retire_timeline_owner_active =
+      retire_timeline_owner_id != 0u && retire_timeline_owner_state == 1u;
+  const bool pending_retire_transfer_owner_active =
+      pending_retire_transfer_owner_id != 0u &&
+      pending_retire_transfer_owner_state == 1u;
+  const bool region_exit_ownership_transfer_accounting_joined =
+      preserved_phase_submit_batch_close_submit_owner_available &&
+      reset_deferral_owner_active && retire_timeline_owner_active &&
+      pending_retire_transfer_owner_active;
+  const char* const region_exit_ownership_transfer_status =
+      region_exit_ownership_transfer_accounting_joined
+      ? "region_exit_ownership_transfer_accounting_joined_fail_closed"
+      : !preserved_phase_submit_batch_close_submit_owner_available
+      ? "region_exit_ownership_transfer_blocked_by_close_submit_owner"
+      : !reset_deferral_owner_active
+      ? "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner"
+      : !retire_timeline_owner_active
+      ? "region_exit_ownership_transfer_blocked_by_retire_timeline_owner"
+      : "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner";
+  const char* const region_exit_ownership_transfer_top_blocker =
+      region_exit_ownership_transfer_accounting_joined
+      ? "region_exit_ownership_transfer_behavior_disabled"
+      : !preserved_phase_submit_batch_close_submit_owner_available
+      ? "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
+      : !reset_deferral_owner_active
+      ? "command_pool_reset_deferral_owner_behavior_disabled"
+      : !retire_timeline_owner_active
+      ? "retire_timeline_owner_behavior_disabled"
+      : "pending_retire_transfer_owner_behavior_disabled";
   const uint64_t pending_dispatch_last_position =
       g_stack_dispatch_dependency_position;
   const bool live_pending_dispatch_range_available =
@@ -2019,6 +2056,28 @@ std::string stack_region_single_recording_canary_key(
       << stack_region_single_recording_close_submit_owner_lifecycle_status(
              region_close_submit_owner_state)
       << " region_exit_close_submit_owner_availability_source=ContextStackRegionCloseSubmitOwnerState.v0"
+      << " region_exit_ownership_transfer_status="
+      << region_exit_ownership_transfer_status
+      << " region_exit_ownership_transfer_top_blocker="
+      << region_exit_ownership_transfer_top_blocker
+      << " region_exit_ownership_transfer_accounting_joined="
+      << (region_exit_ownership_transfer_accounting_joined ? 1 : 0)
+      << " region_exit_ownership_transfer_complete=0"
+      << " region_exit_ownership_transfer_authorizes_submit_elision=0"
+      << " reset_deferral_owner_id=" << reset_deferral_owner_id
+      << " reset_deferral_owner_state=" << reset_deferral_owner_state
+      << " reset_deferral_owner_active="
+      << (reset_deferral_owner_active ? 1 : 0)
+      << " retire_timeline_owner_id=" << retire_timeline_owner_id
+      << " retire_timeline_owner_state=" << retire_timeline_owner_state
+      << " retire_timeline_owner_active="
+      << (retire_timeline_owner_active ? 1 : 0)
+      << " pending_retire_transfer_owner_id="
+      << pending_retire_transfer_owner_id
+      << " pending_retire_transfer_owner_state="
+      << pending_retire_transfer_owner_state
+      << " pending_retire_transfer_owner_active="
+      << (pending_retire_transfer_owner_active ? 1 : 0)
       << " command_buffer_recording_id=" << command_buffer_recording_id
       << " single_recording_owner_recording_id_match="
       << (live_command_buffer_id_observed ? 1 : 0)
@@ -2115,6 +2174,12 @@ void record_stack_region_single_recording_canary_locked(
     const uint32_t single_recording_owner_state,
     const uint64_t region_close_submit_owner_id,
     const uint32_t region_close_submit_owner_state,
+    const uint64_t reset_deferral_owner_id,
+    const uint32_t reset_deferral_owner_state,
+    const uint64_t retire_timeline_owner_id,
+    const uint32_t retire_timeline_owner_state,
+    const uint64_t pending_retire_transfer_owner_id,
+    const uint32_t pending_retire_transfer_owner_state,
     const bool region_close_submit_owner_behavior_enabled,
     const bool region_close_submit_owner_authorizes_submit_elision,
     const uint64_t candidate_records,
@@ -2149,11 +2214,17 @@ void record_stack_region_single_recording_canary_locked(
           stack_planned_recording_owned_by_current_thread,
           single_recording_owner_id,
           single_recording_owner_state,
-        region_close_submit_owner_id,
-        region_close_submit_owner_state,
-        region_close_submit_owner_behavior_enabled,
-        region_close_submit_owner_authorizes_submit_elision,
-        candidate_records,
+          region_close_submit_owner_id,
+          region_close_submit_owner_state,
+          reset_deferral_owner_id,
+          reset_deferral_owner_state,
+          retire_timeline_owner_id,
+          retire_timeline_owner_state,
+          pending_retire_transfer_owner_id,
+          pending_retire_transfer_owner_state,
+          region_close_submit_owner_behavior_enabled,
+          region_close_submit_owner_authorizes_submit_elision,
+          candidate_records,
           eligible_records,
           eligible_boundary_count,
           barrier_validated_count,
@@ -29648,6 +29719,12 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     const uint32_t single_recording_owner_state,
     const uint64_t region_close_submit_owner_id,
     const uint32_t region_close_submit_owner_state,
+    const uint64_t reset_deferral_owner_id,
+    const uint32_t reset_deferral_owner_state,
+    const uint64_t retire_timeline_owner_id,
+    const uint32_t retire_timeline_owner_state,
+    const uint64_t pending_retire_transfer_owner_id,
+    const uint32_t pending_retire_transfer_owner_state,
     const bool region_close_submit_owner_behavior_enabled,
     const bool region_close_submit_owner_authorizes_submit_elision) {
   const char* const target = stack_region_single_recording_canary_target();
@@ -29695,6 +29772,12 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
         single_recording_owner_state,
         region_close_submit_owner_id,
         region_close_submit_owner_state,
+        reset_deferral_owner_id,
+        reset_deferral_owner_state,
+        retire_timeline_owner_id,
+        retire_timeline_owner_state,
+        pending_retire_transfer_owner_id,
+        pending_retire_transfer_owner_state,
         region_close_submit_owner_behavior_enabled,
         region_close_submit_owner_authorizes_submit_elision,
         eligibility_summary.candidate_records,
@@ -29768,6 +29851,11 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     record_fail("pending_dispatch_barrier_coverage_incomplete");
     return false;
   }
+  constexpr bool region_exit_ownership_transfer_complete = false;
+  if (!region_exit_ownership_transfer_complete) {
+    record_fail("region_exit_ownership_transfer_incomplete");
+    return false;
+  }
   if (!region_close_submit_owner_authorizes_submit_elision) {
     record_fail("region_exit_close_submit_owner_authorizes_submit_elision_disabled");
     return false;
@@ -29801,6 +29889,12 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
       single_recording_owner_state,
       region_close_submit_owner_id,
       region_close_submit_owner_state,
+      reset_deferral_owner_id,
+      reset_deferral_owner_state,
+      retire_timeline_owner_id,
+      retire_timeline_owner_state,
+      pending_retire_transfer_owner_id,
+      pending_retire_transfer_owner_state,
       region_close_submit_owner_behavior_enabled,
       region_close_submit_owner_authorizes_submit_elision,
       eligibility_summary.candidate_records,

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `6977a2011a1d` plus
-region-exit ownership transfer accounting.
+Last refreshed: 2026-06-28 at local HEAD `099f5c3692ef` plus
+single-recording canary consumption of region-exit ownership transfer.
 
 ## Repo State Summary
 
@@ -734,6 +734,17 @@ submit point, or
 public/final/host/readback output-boundary blockers. This is still
 behavior-neutral and does not transfer command-buffer, command-pool,
 descriptor, retire, or output ownership.
+`StackRegionSingleRecordingCanary.v0` now consumes that aggregate transfer as a
+live guard. Its rows include the transfer status, top blocker, accounting
+joined bit, completion bit, and component lifecycle state for close-submit,
+reset-deferral, retire-timeline, and pending-retire transfer ownership. The
+guard remains fail-closed with
+`region_exit_ownership_transfer_incomplete` after earlier proof/barrier gates
+until a future region-exit ownership transfer implementation can set
+`region_exit_ownership_transfer_complete=1` and explicitly authorize submit
+elision. Current rows still keep `submits_removed=0`,
+`deferred_submit_enabled=0`, and
+`region_exit_ownership_transfer_complete=0`.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

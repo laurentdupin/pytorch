@@ -25591,6 +25591,35 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["region_exit_close_submit_owner_availability_source"],
                 "ContextStackRegionCloseSubmitOwnerState.v0",
             )
+            self.assertIn(
+                row["region_exit_ownership_transfer_status"],
+                {
+                    "region_exit_ownership_transfer_accounting_joined_fail_closed",
+                    "region_exit_ownership_transfer_blocked_by_close_submit_owner",
+                    "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner",
+                    "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
+                    "region_exit_ownership_transfer_blocked_by_retire_timeline_owner",
+                },
+            )
+            self.assertIn(
+                row["region_exit_ownership_transfer_top_blocker"],
+                {
+                    "region_exit_ownership_transfer_behavior_disabled",
+                    "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
+                    "pending_retire_transfer_owner_behavior_disabled",
+                    "retire_timeline_owner_behavior_disabled",
+                },
+            )
+            self.assertIn(
+                row["region_exit_ownership_transfer_accounting_joined"],
+                {"0", "1"},
+            )
+            self.assertEqual(row["region_exit_ownership_transfer_complete"], "0")
+            self.assertEqual(
+                row["region_exit_ownership_transfer_authorizes_submit_elision"],
+                "0",
+            )
             self.assertEqual(row["single_recording_canary_enabled"], "0")
             self.assertEqual(row["final_use_false"], "0")
             self.assertEqual(
