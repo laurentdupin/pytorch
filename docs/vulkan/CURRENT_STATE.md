@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `e928760888e` plus the
-close-submit owner accounting bridge.
+Last refreshed: 2026-06-28 at local HEAD `068744c6e7b` plus the
+reset-deferral owner behavior canary.
 
 ## Repo State Summary
 
@@ -619,6 +619,12 @@ deferral behavior gate is implemented. The row also carries
 `ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle id/state
 from stack entry through submit or cancel finalization, but all observed states
 remain context-owned and not deferred.
+An opt-in reset-deferral owner canary is available through
+`PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER=context_retained_release_point`.
+When the context-retained proof is complete, this canary sets the owner row to
+`reset_deferral_behavior_enabled=1` and `defers_command_pool_reset=1` while
+keeping `authorizes_submit_elision=0`. It does not remove submits, create
+deferred submits, or transfer close-submit ownership.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

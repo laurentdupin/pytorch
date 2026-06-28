@@ -23624,7 +23624,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             expected_reset_deferral_owner_available = (
                 "1"
                 if first_reset_deferral_owner_record["owner_status"]
-                == "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled"
+                in {
+                    "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled",
+                    "command_pool_reset_deferral_owner_available_context_retained_behavior_enabled",
+                }
                 else "0"
             )
             self.assertEqual(
@@ -23664,6 +23667,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "command_pool_reset_deferral_owner_unavailable_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled",
+                    "command_pool_reset_deferral_owner_available_context_retained_behavior_enabled",
                     "command_pool_reset_deferral_owner_blocked_by_proof_dependency",
                     "command_pool_reset_deferral_owner_blocked_by_host_fence_public_readback",
                     "command_pool_reset_deferral_owner_not_required",
@@ -24697,6 +24701,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_single_recording_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
+        previous_reset_deferral_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
@@ -24704,6 +24711,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         os.environ["PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"] = (
             "non_capture_residual2_norm1_block1"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"] = (
+            "context_retained_release_point"
         )
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
@@ -24799,14 +24809,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed",
                 },
             )
-            self.assertIn(
+            self.assertEqual(
                 row["region_exit_close_submit_owner_fail_closed_reason"],
-                {
-                    "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
-                    "command_pool_reset_deferral_implementation_missing",
-                    "command_pool_reset_deferral_owner_context_retained_not_region_owned",
-                    "command_pool_reset_deferral_owner_behavior_disabled",
-                },
+                "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
             )
             self.assertNotEqual(
                 row["region_exit_close_submit_owner_lifecycle_id"], "0"
@@ -24888,6 +24893,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
                 ] = previous_single_recording_canary
+            if previous_reset_deferral_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
+                ] = previous_reset_deferral_owner
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 

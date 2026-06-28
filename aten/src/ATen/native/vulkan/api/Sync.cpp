@@ -2430,6 +2430,21 @@ bool stack_region_single_recording_canary_target_selected(
       value == "producer_block_0_consumer_block_1";
 }
 
+const char* stack_region_reset_deferral_owner_target() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER");
+  return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_reset_deferral_owner_behavior_enabled() {
+  const char* const target = stack_region_reset_deferral_owner_target();
+  if (target == nullptr) {
+    return false;
+  }
+  const std::string value(target);
+  return value == "1" || value == "context_retained_release_point";
+}
+
 bool stack_region_single_recording_close_submit_owner_available(
     const uint64_t owner_id,
     const uint32_t owner_state,
@@ -23092,15 +23107,30 @@ request_stack_region_command_pool_reset_deferral_owner(
   if (
       request.reset_deferral_proof_status ==
       "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point") {
+    const bool reset_deferral_behavior_enabled =
+        stack_region_reset_deferral_owner_behavior_enabled();
     result.owner_available = true;
-    result.result_status =
-        "command_pool_reset_deferral_owner_result_available_context_retained_behavior_disabled";
-    result.owner_status =
-        "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled";
-    result.top_blocker =
-        "command_pool_reset_deferral_owner_behavior_disabled";
-    result.implementation_status =
-        "command_pool_reset_deferral_owner_context_retained_behavior_disabled";
+    result.reset_deferral_behavior_enabled =
+        reset_deferral_behavior_enabled;
+    result.defers_command_pool_reset = reset_deferral_behavior_enabled;
+    if (reset_deferral_behavior_enabled) {
+      result.result_status =
+          "command_pool_reset_deferral_owner_result_available_context_retained_behavior_enabled";
+      result.owner_status =
+          "command_pool_reset_deferral_owner_available_context_retained_behavior_enabled";
+      result.top_blocker = "none";
+      result.implementation_status =
+          "command_pool_reset_deferral_owner_context_retained_behavior_enabled";
+    } else {
+      result.result_status =
+          "command_pool_reset_deferral_owner_result_available_context_retained_behavior_disabled";
+      result.owner_status =
+          "command_pool_reset_deferral_owner_available_context_retained_behavior_disabled";
+      result.top_blocker =
+          "command_pool_reset_deferral_owner_behavior_disabled";
+      result.implementation_status =
+          "command_pool_reset_deferral_owner_context_retained_behavior_disabled";
+    }
     return result;
   }
   result.top_blocker = request.reset_deferral_proof_top_blocker;

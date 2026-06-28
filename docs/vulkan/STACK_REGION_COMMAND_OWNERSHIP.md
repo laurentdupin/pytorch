@@ -282,6 +282,11 @@ blocker is `command_pool_reset_deferral_owner_behavior_disabled`. It also
 reports `ContextStackRegionCommandPoolResetDeferralOwnerState.v0` lifecycle
 id/state/status/source from stack entry through submit or cancel finalization.
 Those states are context-owned and not deferred; they are not region ownership.
+`PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER=context_retained_release_point`
+turns on only the reset-deferral owner canary for rows whose proof is complete.
+It clears the reset-deferral owner blocker and reports that command-pool reset
+would be deferred to the observed release point, but it does not authorize
+submit elision or make the close-submit owner available for execution.
 
 ### Release Ownership
 

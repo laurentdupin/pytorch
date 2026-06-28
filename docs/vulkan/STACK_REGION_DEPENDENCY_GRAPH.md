@@ -884,6 +884,12 @@ not-started, active context-owned, submit-finalized context-owned, and
 cancel-finalized context-owned states. None of those states transfers reset
 ownership to the region. Close-submit ownership must consume this owner surface
 rather than treating proof strings as behavior authorization.
+The opt-in
+`PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER=context_retained_release_point`
+canary advances only this owner surface when the proof is complete:
+`reset_deferral_behavior_enabled=1`, `defers_command_pool_reset=1`, and
+`authorizes_submit_elision=0`. It intentionally leaves close-submit ownership
+fail-closed so a later slice can prove that boundary separately.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair
 with the planned callsites. Current rows are behavior-neutral with
 `hook_installed=0`, `request_hook_plan_api_present_result_unavailable`, and
