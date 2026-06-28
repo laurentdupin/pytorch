@@ -148,10 +148,11 @@ observation for the existing stack planned recording exit submit. It changes
 diagnostic classification only: planned bridge rows can report
 `planned_region_exit_submit_point_runtime_observed_context_submit_preserved`
 and then fail closed on
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
-because the preserved phase-submit batch lease is not a region close/submit
-owner. It remains fail-closed until a real region-owned close/submit lease
-exists.
+`command_pool_reset_deferral_implementation_missing` when the preserved
+phase-submit batch lease is observed but command-pool reset deferral still has
+no region-owned implementation. The preserved batch remains accounting evidence,
+not a region close/submit owner, and the path stays fail-closed until a real
+region-owned close/submit lease and reset-deferral owner exist.
 The ownership rows now preserve that distinction at both stack entry and stack
 exit: the planned stack-region scope can be observed, but
 `stack_entry_acquire_record_emitted=1`,

@@ -828,11 +828,14 @@ context/phase-submit close-submit owner, requested region-exit ownership,
 region-owned command-buffer or batch availability, queue/timeline owner
 availability, retire-timeline handoff availability, descriptor-lifetime
 handoff availability, command-pool cleanup availability, and final
-fail-closed reason. Current rows fail closed with
-`region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
-once the preserved phase-submit batch lease is observed but still lacks region
-close/submit ownership; the surface is diagnostic-only and does not create,
-defer, close, or submit command buffers.
+fail-closed reason. Current rows still treat the preserved phase-submit batch
+lease as accounting evidence rather than transferable close/submit ownership.
+When the command-pool reset-deferral proof has already identified the selected
+missing implementation, the close-submit owner request/result and surface rows
+propagate `command_pool_reset_deferral_implementation_missing` as the more
+specific fail-closed blocker instead of stopping at the generic preserved-batch
+classification. The surface is diagnostic-only and does not create, defer,
+close, or submit command buffers.
 `StackRegionSingleRecordingCanary.v0` now consumes a live Context-owned
 close/submit owner lifecycle id/state for that same decision. Active stack
 planned recording creates a lifecycle record, but the current state only

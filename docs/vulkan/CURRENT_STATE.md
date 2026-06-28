@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `5a6abb5a007` plus the
-stack command-pool retention anchor slice.
+Last refreshed: 2026-06-28 at local HEAD `5424c744bfa` plus the
+reset-deferral close-submit blocker propagation slice.
 
 ## Repo State Summary
 
@@ -586,6 +586,14 @@ not defer a reset or retain a command pool. Current selected rows fail closed
 because the context command pool is retained only by the preserved stack-exit
 submit path and no region-owned reset-deferral implementation exists yet, so the
 refined blocker is `command_pool_reset_deferral_implementation_missing`.
+That reset-deferral proof status and top blocker now flow into
+`StackRegionExitCloseSubmitOwnerRequest.v0`,
+`StackRegionExitCloseSubmitOwnerResult.v0`, and
+`RegionExitCloseSubmitOwner.v0` rows. When a preserved phase-submit batch is
+otherwise observed, close-submit owner diagnostics now fail closed on the more
+specific reset-deferral implementation blocker instead of only reporting the
+generic preserved-batch-only blocker. This is classification only: no submit is
+deferred, elided, closed, or transferred to a region owner.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

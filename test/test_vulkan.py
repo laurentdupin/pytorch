@@ -21515,6 +21515,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_runtime_submit_point_observed_missing_region_owned_lease",
                     "region_exit_close_submit_owner_context_phase_submit_candidate_not_transferable",
                     "region_exit_close_submit_owner_preserved_phase_submit_batch_lacks_region_close_submit",
+                    "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_missing",
                     "region_exit_close_submit_owner_implementation_blocked_by_host_fence_public_readback",
                     "region_exit_close_submit_owner_implementation_not_required",
                 },
@@ -21980,6 +21981,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                    "command_pool_reset_deferral_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -22212,6 +22214,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
+            )
+            self.assertIn(
+                "command_pool_reset_deferral_status",
+                first_region_owned_command_buffer_lease_record,
+            )
+            self.assertIn(
+                "command_pool_reset_deferral_top_blocker",
+                first_region_owned_command_buffer_lease_record,
             )
             self.assertIn(
                 first_region_owned_command_buffer_lease_record[
@@ -22452,6 +22462,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_surface_present_fail_closed",
                     "region_exit_close_submit_owner_planned_region_present_context_owned",
                     "region_exit_close_submit_owner_runtime_submit_point_observed_missing_region_owned_lease",
+                    "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_missing",
                     "region_exit_close_submit_owner_implementation_blocked_by_host_fence_public_readback",
                     "region_exit_close_submit_owner_implementation_not_required",
                 },
@@ -22467,10 +22478,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                    "command_pool_reset_deferral_implementation_missing",
                     "planned_region_topology_present_close_submit_still_context_owned",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
+            )
+            self.assertIn(
+                "command_pool_reset_deferral_status",
+                first_exit_close_submit_owner_result_record,
+            )
+            self.assertIn(
+                "command_pool_reset_deferral_top_blocker",
+                first_exit_close_submit_owner_result_record,
             )
             self.assertIn(
                 first_exit_close_submit_owner_result_record[
@@ -22633,9 +22653,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "command_pool_lifetime_cleanup_unavailable_until_region_owned_command_buffer",
+                    "command_pool_lifetime_cleanup_blocked_reset_deferral_implementation_missing",
                     "command_pool_lifetime_cleanup_blocked_by_host_fence_public_readback",
                     "command_pool_lifetime_cleanup_not_required",
                 },
+            )
+            self.assertIn(
+                "command_pool_reset_deferral_status",
+                first_region_exit_close_submit_owner_record,
+            )
+            self.assertIn(
+                "command_pool_reset_deferral_top_blocker",
+                first_region_exit_close_submit_owner_record,
             )
             self.assertIn(
                 first_region_exit_close_submit_owner_record[
@@ -22648,6 +22677,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "planned_region_topology_present_close_submit_still_context_owned",
+                    "command_pool_reset_deferral_implementation_missing",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -24637,9 +24667,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["region_exit_close_submit_owner_status"],
                 "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
             )
-            self.assertEqual(
+            self.assertIn(
                 row["region_exit_close_submit_owner_fail_closed_reason"],
-                "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                {
+                    "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                    "command_pool_reset_deferral_implementation_missing",
+                },
             )
             self.assertNotEqual(
                 row["region_exit_close_submit_owner_lifecycle_id"], "0"

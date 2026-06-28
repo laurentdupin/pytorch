@@ -938,6 +938,10 @@ struct RegionOwnedCommandBufferLeaseRequest final {
       "region_exit_close_submit_owner_not_started";
   std::string region_exit_close_submit_owner_availability_source =
       "ContextStackRegionCloseSubmitOwnerState.v0";
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string command_pool_reset_deferral_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
   bool acquire_hook_behavior_enabled = false;
   bool acquire_hook_lease_available = false;
   bool lease_required = true;
@@ -1027,6 +1031,10 @@ struct RegionOwnedCommandBufferLeaseResult final {
       "region_exit_close_submit_owner_not_started";
   std::string region_exit_close_submit_owner_availability_source =
       "ContextStackRegionCloseSubmitOwnerState.v0";
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string command_pool_reset_deferral_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
 };
 
 TORCH_API RegionOwnedCommandBufferLeaseResult
@@ -1064,6 +1072,10 @@ struct StackRegionExitCloseSubmitOwnerRequest final {
   bool require_same_stream_queue = true;
   bool public_final_host_readback_boundary = false;
   bool stack_scope_planned_region_present = false;
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string command_pool_reset_deferral_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
 };
 
 struct StackRegionExitCloseSubmitOwnerResult final {
@@ -1090,6 +1102,10 @@ struct StackRegionExitCloseSubmitOwnerResult final {
       "missing_retire_timeline_release_ownership";
   std::string descriptor_lifetime_ownership_status =
       "missing_descriptor_release_ownership";
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string command_pool_reset_deferral_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
   uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
   uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
   bool region_exit_close_submit_owner_behavior_enabled = false;
@@ -1138,6 +1154,10 @@ struct StackRegionExitCloseSubmitOwnerSurfaceRequest final {
   bool owner_required = true;
   bool public_final_host_readback_boundary = false;
   bool stack_scope_planned_region_present = false;
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string command_pool_reset_deferral_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
 };
 
 struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
@@ -1165,6 +1185,10 @@ struct StackRegionExitCloseSubmitOwnerSurfaceResult final {
       "descriptor_lifetime_handoff_unavailable_until_region_owned_command_buffer";
   std::string command_pool_lifetime_cleanup_status =
       "command_pool_lifetime_cleanup_unavailable_until_region_owned_command_buffer";
+  std::string command_pool_reset_deferral_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string command_pool_reset_deferral_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
   uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
   uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
   bool region_exit_close_submit_owner_behavior_enabled = false;
