@@ -836,6 +836,12 @@ propagate `command_pool_reset_deferral_implementation_missing` as the more
 specific fail-closed blocker instead of stopping at the generic preserved-batch
 classification. The surface is diagnostic-only and does not create, defer,
 close, or submit command buffers.
+When the reset-deferral owner accounting bridge is present, close-submit
+request/result rows can report accounting availability, but
+`RegionExitCloseSubmitOwner.v0` remains fail-closed with
+`region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed`
+and `ownership_available=0`. This keeps accounting separate from behavior
+authorization.
 `StackRegionSingleRecordingCanary.v0` now consumes a live Context-owned
 close/submit owner lifecycle id/state for that same decision. Active stack
 planned recording creates a lifecycle record, but the current state only

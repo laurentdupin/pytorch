@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `9d4dcc8b3bb` plus the
-reset-deferral owner accounting bridge.
+Last refreshed: 2026-06-28 at local HEAD `e928760888e` plus the
+close-submit owner accounting bridge.
 
 ## Repo State Summary
 
@@ -600,6 +600,13 @@ otherwise observed, close-submit owner diagnostics now fail closed on the more
 specific reset-deferral owner blocker instead of only reporting the generic
 preserved-batch-only blocker. This is classification only: no submit is
 deferred, elided, closed, or transferred to a region owner.
+When the reset-deferral owner accounting surface is present but behavior is
+disabled, the close-submit request/result rows can expose accounting
+availability while still reporting
+`region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_behavior_disabled`.
+The downstream `RegionExitCloseSubmitOwner.v0` surface remains unavailable for
+execution and reports
+`region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed`.
 `StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
 surface between that proof and close-submit ownership. It records whether a
 region-owned command-pool reset-deferral owner exists, whether reset deferral is

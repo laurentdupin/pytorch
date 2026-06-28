@@ -21453,6 +21453,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_planned_region_present_fail_closed",
                     "region_exit_close_submit_owner_runtime_submit_point_observed_fail_closed",
                     "region_exit_close_submit_owner_context_phase_submit_candidate_fail_closed",
+                    "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed",
                     "region_exit_close_submit_owner_blocked_by_output_boundary",
                     "region_exit_close_submit_owner_rejected_public_final_host_readback_boundary",
                     "region_exit_close_submit_owner_not_required",
@@ -21491,6 +21492,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_owned_command_buffer_lease_unavailable_missing_region_command_buffer_or_batch_lease",
                     "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
                     "planned_region_topology_present_close_submit_still_context_owned",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
                     "host_fence_public_final_readback_blocker",
                     "none",
                 },
@@ -21514,6 +21516,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "exit_close_submit_owner_request_api_present_result_unavailable",
                     "exit_close_submit_owner_request_api_present_owner_surface_fail_closed",
+                    "exit_close_submit_owner_request_api_present_accounting_available_behavior_disabled",
                     "exit_close_submit_owner_request_api_rejected_host_fence_public_readback_blocker",
                     "exit_close_submit_owner_request_api_not_required",
                 },
@@ -21593,6 +21596,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "exit_close_submit_owner_request_api_present_result_unavailable",
                     "exit_close_submit_owner_request_api_present_owner_surface_fail_closed",
+                    "exit_close_submit_owner_request_api_present_accounting_available_behavior_disabled",
                     "exit_close_submit_owner_request_api_rejected_host_fence_public_readback_blocker",
                     "exit_close_submit_owner_request_api_not_required",
                 },
@@ -22457,16 +22461,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_exit_close_submit_owner_result_record
             )
             self.assertEqual(
-                first_exit_close_submit_owner_result_record[
-                    "owner_available"
-                ],
-                "0",
+                first_exit_close_submit_owner_result_record["owner_available"],
+                (
+                    "1"
+                    if first_exit_close_submit_owner_result_record[
+                        "result_status"
+                    ]
+                    == "exit_close_submit_owner_result_accounting_available_behavior_disabled"
+                    else "0"
+                ),
             )
             self.assertIn(
                 first_exit_close_submit_owner_result_record["result_status"],
                 {
                     "exit_close_submit_owner_result_api_present_unavailable",
                     "exit_close_submit_owner_result_owner_surface_present_fail_closed",
+                    "exit_close_submit_owner_result_accounting_available_behavior_disabled",
                     "exit_close_submit_owner_result_rejected_host_fence_public_readback_blocker",
                     "exit_close_submit_owner_result_not_required",
                 },
@@ -22566,6 +22576,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_close_submit_owner_runtime_submit_point_observed_fail_closed",
                     "region_exit_close_submit_owner_context_phase_submit_candidate_fail_closed",
                     "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
+                    "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed",
                     "region_exit_close_submit_owner_rejected_public_final_host_readback_boundary",
                     "region_exit_close_submit_owner_not_required",
                 },
@@ -22590,6 +22601,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "requested_region_exit_close_submit_ownership_recorded",
                     "requested_region_exit_close_submit_ownership_blocked_context_candidate_not_transferable",
                     "requested_region_exit_close_submit_ownership_blocked_preserved_phase_submit_batch_only",
+                    "requested_region_exit_close_submit_ownership_blocked_reset_deferral_behavior_disabled",
                     "requested_region_exit_close_submit_ownership_blocked_by_output_boundary",
                     "region_exit_close_submit_ownership_not_required",
                 },
@@ -24780,9 +24792,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["region_owned_command_buffer_lease_top_blocker"],
                 "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
             )
-            self.assertEqual(
+            self.assertIn(
                 row["region_exit_close_submit_owner_status"],
-                "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
+                {
+                    "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed",
+                    "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed",
+                },
             )
             self.assertIn(
                 row["region_exit_close_submit_owner_fail_closed_reason"],

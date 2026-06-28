@@ -22567,6 +22567,10 @@ request_stack_region_exit_close_submit_owner(
       request.region_exit_close_submit_owner_authorizes_submit_elision;
   result.region_exit_close_submit_owner_availability_source =
       request.region_exit_close_submit_owner_availability_source;
+  result.command_pool_reset_deferral_status =
+      request.command_pool_reset_deferral_status;
+  result.command_pool_reset_deferral_top_blocker =
+      request.command_pool_reset_deferral_top_blocker;
   if (!request.request_required) {
     result.owner_available = false;
     result.request_api_status =
@@ -22645,6 +22649,11 @@ request_stack_region_exit_close_submit_owner(
         ? request.command_pool_reset_deferral_top_blocker
         : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
     if (reset_deferral_behavior_disabled) {
+      result.owner_available = true;
+      result.request_api_status =
+          "exit_close_submit_owner_request_api_present_accounting_available_behavior_disabled";
+      result.result_status =
+          "exit_close_submit_owner_result_accounting_available_behavior_disabled";
       result.implementation_status =
           "region_exit_close_submit_owner_preserved_batch_blocked_by_reset_deferral_behavior_disabled";
     } else {
@@ -22798,15 +22807,18 @@ evaluate_stack_region_exit_close_submit_owner_surface(
     const bool reset_deferral_behavior_disabled =
         request.command_pool_reset_deferral_top_blocker ==
         "command_pool_reset_deferral_owner_behavior_disabled";
-    result.owner_status =
-        "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed";
+    result.owner_status = reset_deferral_behavior_disabled
+        ? "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed"
+        : "region_exit_close_submit_owner_preserved_phase_submit_batch_fail_closed";
     result.final_fail_closed_reason = reset_deferral_owner_blocked
         ? request.command_pool_reset_deferral_top_blocker
         : "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only";
     result.current_command_buffer_owner_status =
         "current_phase_submit_owns_preserved_phase_submit_batch_close_submit";
     result.requested_region_exit_ownership_status =
-        "requested_region_exit_close_submit_ownership_blocked_preserved_phase_submit_batch_only";
+        reset_deferral_behavior_disabled
+        ? "requested_region_exit_close_submit_ownership_blocked_reset_deferral_behavior_disabled"
+        : "requested_region_exit_close_submit_ownership_blocked_preserved_phase_submit_batch_only";
     result.region_owned_command_buffer_status =
         "preserved_phase_submit_batch_lease_available_close_submit_context_owned";
     if (reset_deferral_behavior_disabled) {

@@ -87,6 +87,13 @@ supporting
 region-owned command-buffer or batch lease once the real preserved stack-exit
 submit point is observed. This preserves all phase-boundary submits and
 queue-submit behavior.
+If the preserved phase-submit batch and reset-deferral owner accounting surface
+are both present, close-submit rows may mark accounting availability while
+leaving `ownership_available=0`,
+`region_exit_close_submit_owner_behavior_enabled=0`, and
+`region_exit_close_submit_owner_authorizes_submit_elision=0`. The fail-closed
+blocker remains `command_pool_reset_deferral_owner_behavior_disabled` until an
+actual reset-deferral behavior implementation exists.
 
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,
