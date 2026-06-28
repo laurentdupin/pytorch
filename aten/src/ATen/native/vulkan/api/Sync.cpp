@@ -9245,6 +9245,7 @@ void append_stack_region_submit_epoch_ordering_json(
   std::vector<std::string> stack_region_retire_timeline_owner_rows;
   std::vector<std::string> stack_region_pending_retire_transfer_rows;
   std::vector<std::string> stack_region_pending_retire_transfer_owner_rows;
+  std::vector<std::string> region_exit_ownership_transfer_rows;
   std::vector<std::string> stack_region_single_recording_plan_rows;
   std::vector<std::string> stack_region_single_recording_owner_rows;
   std::vector<std::string> stack_region_command_buffer_topology_plan_rows;
@@ -10677,6 +10678,9 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
     const std::string command_pool_reset_deferral_owner_key =
         "stack_region_command_pool_reset_deferral_owner:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string region_exit_ownership_transfer_key =
+        "region_exit_ownership_transfer:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
     StackRegionCommandBufferRequest command_buffer_request;
     command_buffer_request.stack_region_id = stack_region_id;
@@ -14178,6 +14182,150 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_pending_retire_transfer_owner_rows.emplace_back(
         pending_retire_transfer_owner_row.str());
+    const bool close_submit_accounting_joined =
+        region_exit_close_submit_owner_result.owner_status ==
+            "region_exit_close_submit_owner_available_preserved_phase_submit_batch_behavior_enabled_no_submit_elision" ||
+        region_exit_close_submit_owner_result.owner_status ==
+            "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed";
+    const bool reset_deferral_accounting_joined =
+        command_pool_reset_deferral_owner_result.owner_available ||
+        command_pool_reset_deferral_owner_result.owner_status ==
+            "command_pool_reset_deferral_owner_not_required";
+    const bool pending_retire_accounting_joined =
+        pending_retire_transfer_owner_result.owner_surface_available ||
+        pending_retire_transfer_owner_result.owner_status ==
+            "pending_retire_transfer_owner_not_required";
+    const bool retire_timeline_accounting_joined =
+        retire_timeline_owner_result.transfer_accounting_available ||
+        retire_timeline_owner_result.owner_status ==
+            "retire_timeline_owner_not_required";
+    const bool release_point_accounting_joined =
+        exit_release_point_result.release_point_status ==
+            "exit_release_point_runtime_observed_context_submit_preserved" ||
+        exit_release_point_result.release_point_status ==
+            "exit_release_point_not_required";
+    const bool ownership_transfer_accounting_joined =
+        !phase_submit_execution_flush_dependency_observed ||
+        (!release_output_boundary_blocker && close_submit_accounting_joined &&
+         reset_deferral_accounting_joined && pending_retire_accounting_joined &&
+         retire_timeline_accounting_joined && release_point_accounting_joined);
+    std::string region_exit_ownership_transfer_status;
+    std::string region_exit_ownership_transfer_top_blocker;
+    if (!phase_submit_execution_flush_dependency_observed) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_not_required";
+      region_exit_ownership_transfer_top_blocker = "none";
+    } else if (release_output_boundary_blocker) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_blocked_by_output_boundary";
+      region_exit_ownership_transfer_top_blocker =
+          "host_fence_public_final_readback_blocker";
+    } else if (!release_point_accounting_joined) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_waiting_for_runtime_exit_submit";
+      region_exit_ownership_transfer_top_blocker =
+          "runtime_exit_submit_point";
+    } else if (!close_submit_accounting_joined) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_blocked_by_close_submit_owner";
+      region_exit_ownership_transfer_top_blocker =
+          region_exit_close_submit_owner_result.final_fail_closed_reason;
+    } else if (!reset_deferral_accounting_joined) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner";
+      region_exit_ownership_transfer_top_blocker =
+          command_pool_reset_deferral_owner_result.top_blocker;
+    } else if (!pending_retire_accounting_joined) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner";
+      region_exit_ownership_transfer_top_blocker =
+          pending_retire_transfer_owner_result.top_blocker;
+    } else if (!retire_timeline_accounting_joined) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_blocked_by_retire_timeline_owner";
+      region_exit_ownership_transfer_top_blocker =
+          retire_timeline_owner_result.top_blocker;
+    } else {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_accounting_joined_fail_closed";
+      region_exit_ownership_transfer_top_blocker =
+          "region_exit_ownership_transfer_behavior_disabled";
+    }
+    std::ostringstream region_exit_ownership_transfer_row;
+    region_exit_ownership_transfer_row
+        << "schema=RegionExitOwnershipTransfer.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " transfer_key=" << region_exit_ownership_transfer_key
+        << " stack_region_id="
+        << pending_retire_transfer_owner_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " transfer_required="
+        << (phase_submit_execution_flush_dependency_observed ? "1" : "0")
+        << " transfer_status=" << region_exit_ownership_transfer_status
+        << " top_blocker=" << region_exit_ownership_transfer_top_blocker
+        << " ownership_transfer_accounting_joined="
+        << (ownership_transfer_accounting_joined ? "1" : "0")
+        << " ownership_transfer_complete=0"
+        << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
+        << " region_exit_close_submit_owner_key="
+        << region_exit_close_submit_owner_key
+        << " region_exit_close_submit_owner_status="
+        << region_exit_close_submit_owner_result.owner_status
+        << " region_exit_close_submit_owner_fail_closed_reason="
+        << region_exit_close_submit_owner_result.final_fail_closed_reason
+        << " close_submit_accounting_joined="
+        << (close_submit_accounting_joined ? "1" : "0")
+        << " command_pool_reset_deferral_owner=StackRegionCommandPoolResetDeferralOwner.v0"
+        << " command_pool_reset_deferral_owner_key="
+        << command_pool_reset_deferral_owner_key
+        << " command_pool_reset_deferral_owner_status="
+        << command_pool_reset_deferral_owner_result.owner_status
+        << " command_pool_reset_deferral_owner_top_blocker="
+        << command_pool_reset_deferral_owner_result.top_blocker
+        << " command_pool_reset_deferral_accounting_joined="
+        << (reset_deferral_accounting_joined ? "1" : "0")
+        << " pending_retire_transfer_owner=StackRegionPendingRetireTransferOwner.v0"
+        << " pending_retire_transfer_owner_key="
+        << pending_retire_transfer_owner_key
+        << " pending_retire_transfer_owner_status="
+        << pending_retire_transfer_owner_result.owner_status
+        << " pending_retire_transfer_owner_top_blocker="
+        << pending_retire_transfer_owner_result.top_blocker
+        << " pending_retire_transfer_accounting_joined="
+        << (pending_retire_accounting_joined ? "1" : "0")
+        << " pending_retire_transfer_source_match_status="
+        << pending_retire_transfer_owner_result.source_match_status
+        << " pending_retire_transfer_source_coverage_status="
+        << pending_retire_transfer_result
+               .region_exit_bound_source_coverage_status
+        << " retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
+        << " retire_timeline_owner_key=" << retire_timeline_owner_key
+        << " retire_timeline_owner_status="
+        << retire_timeline_owner_result.owner_status
+        << " retire_timeline_accounting_joined="
+        << (retire_timeline_accounting_joined ? "1" : "0")
+        << " exit_release_point=StackRegionExitReleasePoint.v0"
+        << " exit_release_point_key=" << exit_release_point_key
+        << " exit_release_point_status="
+        << exit_release_point_result.release_point_status
+        << " release_point_accounting_joined="
+        << (release_point_accounting_joined ? "1" : "0")
+        << " stack_region_exit_release_ownership=StackRegionExitReleaseOwnership.v0"
+        << " stack_region_exit_release_ownership_key="
+        << exit_release_ownership_key
+        << " stack_region_exit_release_ownership_status="
+        << exit_release_ownership_status
+        << " phase_boundary_submits_preserved=1"
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " authorizes_submit_elision=0"
+        << " future_complete_state=region_exit_ownership_transfer_complete"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    region_exit_ownership_transfer_rows.emplace_back(
+        region_exit_ownership_transfer_row.str());
     const std::string region_command_ownership_key =
         "region_command_buffer_ownership:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -17940,6 +18088,20 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_pending_retire_transfer_owner_implementation_counts;
   std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_status_counts;
+  std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_close_submit_counts;
+  std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_reset_deferral_counts;
+  std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_pending_retire_counts;
+  std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_retire_timeline_counts;
+  std::map<std::string, uint64_t>
+      region_exit_ownership_transfer_release_point_counts;
+  std::map<std::string, uint64_t>
       stack_region_single_recording_plan_status_counts;
   std::map<std::string, uint64_t>
       stack_region_single_recording_plan_top_blocker_counts;
@@ -18797,6 +18959,34 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "implementation_status",
         "missing_implementation_status")] += count;
+  }
+  for (const auto& row : region_exit_ownership_transfer_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    region_exit_ownership_transfer_status_counts[field_or(
+        fields, "transfer_status", "missing_transfer_status")] += count;
+    region_exit_ownership_transfer_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    region_exit_ownership_transfer_close_submit_counts[field_or(
+        fields,
+        "region_exit_close_submit_owner_status",
+        "missing_region_exit_close_submit_owner_status")] += count;
+    region_exit_ownership_transfer_reset_deferral_counts[field_or(
+        fields,
+        "command_pool_reset_deferral_owner_status",
+        "missing_command_pool_reset_deferral_owner_status")] += count;
+    region_exit_ownership_transfer_pending_retire_counts[field_or(
+        fields,
+        "pending_retire_transfer_owner_status",
+        "missing_pending_retire_transfer_owner_status")] += count;
+    region_exit_ownership_transfer_retire_timeline_counts[field_or(
+        fields,
+        "retire_timeline_owner_status",
+        "missing_retire_timeline_owner_status")] += count;
+    region_exit_ownership_transfer_release_point_counts[field_or(
+        fields,
+        "exit_release_point_status",
+        "missing_exit_release_point_status")] += count;
   }
   for (const auto& row : stack_region_single_recording_plan_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -21236,6 +21426,40 @@ void append_stack_region_submit_epoch_ordering_json(
         out,
         stack_region_pending_retire_transfer_owner_rows[i],
         "stack_region_pending_retire_transfer_owner");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_status_counts\":";
+  append_u64_map_object(out, region_exit_ownership_transfer_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_top_blocker_counts\":";
+  append_u64_map_object(out, region_exit_ownership_transfer_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_close_submit_status_counts\":";
+  append_u64_map_object(out, region_exit_ownership_transfer_close_submit_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_reset_deferral_status_counts\":";
+  append_u64_map_object(
+      out, region_exit_ownership_transfer_reset_deferral_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_pending_retire_status_counts\":";
+  append_u64_map_object(out, region_exit_ownership_transfer_pending_retire_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_retire_timeline_status_counts\":";
+  append_u64_map_object(out, region_exit_ownership_transfer_retire_timeline_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_release_point_status_counts\":";
+  append_u64_map_object(out, region_exit_ownership_transfer_release_point_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"region_exit_ownership_transfer_records\":[";
+  for (size_t i = 0u; i < region_exit_ownership_transfer_rows.size(); ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        region_exit_ownership_transfer_rows[i],
+        "region_exit_ownership_transfer");
   }
   out << "]";
   append_json_comma(out, submit_level_first);

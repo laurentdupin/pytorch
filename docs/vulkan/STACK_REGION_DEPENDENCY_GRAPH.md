@@ -976,6 +976,18 @@ not-started, active context-owned, submit-finalized context-owned, and
 cancel-finalized context-owned states. None of those states transfers reset
 ownership to the region. Close-submit ownership must consume this owner surface
 rather than treating proof strings as behavior authorization.
+`RegionExitOwnershipTransfer.v0` joins the close-submit owner, command-pool
+reset-deferral owner, pending-retire transfer owner, retire-timeline owner, and
+stack-exit release point surfaces into one behavior-neutral transfer row for
+the selected stack-region instance and phase boundary. The row can report
+joined accounting when all required component surfaces are present, but it
+still records
+`ownership_transfer_complete=0`, `submit_elision_enabled=0`,
+`deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
+`phase_boundary_submits_preserved=1`. Missing components remain explicit
+blockers. This gives a future region-exit owner a single handoff surface
+without treating component proof completion as permission to remove or defer a
+submit.
 The opt-in
 `PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER=context_retained_release_point`
 canary advances only this owner surface when the proof is complete:

@@ -109,6 +109,23 @@ has a separate submit-elision authorization input that is currently `0`, so a
 future lifecycle-state change cannot remove a submit unless ownership and
 authorization are both wired deliberately.
 
+`RegionExitOwnershipTransfer.v0` is the aggregate transfer row above the
+close-submit, command-pool reset-deferral, pending-retire transfer,
+retire-timeline owner, and stack-exit release-point surfaces. It records
+whether those component surfaces can be joined for the selected stack-region
+instance and phase boundary, then keeps the result behavior-neutral:
+`phase_boundary_submits_preserved=1`, `submit_elision_enabled=0`,
+`deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
+`ownership_transfer_complete=0`. When the component accounting is present, the
+row can report `region_exit_ownership_transfer_accounting_joined_fail_closed`
+with `region_exit_ownership_transfer_behavior_disabled`. Missing components are
+reported as explicit blockers such as close-submit ownership, reset-deferral
+ownership, pending-retire transfer ownership, retire-timeline ownership, the
+runtime exit submit point, or public/final/host/readback output boundaries. The
+row is the next handoff surface for a future region-exit owner; it does not
+transfer command-buffer, command-pool, descriptor, retire, or output ownership
+in the current topology.
+
 The current proof surfaces show that a phase-boundary submit is not just a
 resource visibility edge. It also closes and submits active recording state,
 creates the timeline point used by retire ownership, and anchors descriptor and

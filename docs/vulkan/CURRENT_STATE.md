@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `f072d0b3bba` plus
-pending-retire transfer owner accounting.
+Last refreshed: 2026-06-28 at local HEAD `6977a2011a1d` plus
+region-exit ownership transfer accounting.
 
 ## Repo State Summary
 
@@ -719,6 +719,21 @@ When the context-retained proof is complete, this canary sets the owner row to
 `reset_deferral_behavior_enabled=1` and `defers_command_pool_reset=1` while
 keeping `authorizes_submit_elision=0`. It does not remove submits, create
 deferred submits, or transfer close-submit ownership.
+`RegionExitOwnershipTransfer.v0` is now the aggregate handoff row above the
+close-submit owner, command-pool reset-deferral owner, pending-retire transfer
+owner, retire-timeline owner, and stack-exit release-point surfaces. It reports
+whether those
+component surfaces can be joined for the selected stack-region instance and
+phase boundary, then remains fail-closed with
+`ownership_transfer_complete=0`, `submit_elision_enabled=0`,
+`deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
+`phase_boundary_submits_preserved=1`. Rows can now distinguish joined
+accounting from missing close-submit ownership, reset-deferral ownership,
+pending-retire transfer ownership, retire-timeline ownership, runtime exit
+submit point, or
+public/final/host/readback output-boundary blockers. This is still
+behavior-neutral and does not transfer command-buffer, command-pool,
+descriptor, retire, or output ownership.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

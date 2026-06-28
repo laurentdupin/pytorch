@@ -21681,6 +21681,38 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "stack_region_pending_retire_transfer_owner_implementation_status_counts",
                 submit_level_proof,
             )
+            self.assertIn(
+                "region_exit_ownership_transfer_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_close_submit_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_reset_deferral_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_pending_retire_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_retire_timeline_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_exit_ownership_transfer_release_point_status_counts",
+                submit_level_proof,
+            )
             first_pending_retire_transfer_record = selected_plan_record(
                 "stack_region_pending_retire_transfer_records"
             )
@@ -21894,6 +21926,140 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 first_pending_retire_transfer_owner_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            first_region_exit_ownership_transfer_record = selected_plan_record(
+                "region_exit_ownership_transfer_records"
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record["schema"],
+                "RegionExitOwnershipTransfer.v0",
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "behavior_neutral"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "default_behavior_unchanged"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "transfer_status"
+                ],
+                {
+                    "region_exit_ownership_transfer_accounting_joined_fail_closed",
+                    "region_exit_ownership_transfer_blocked_by_close_submit_owner",
+                    "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner",
+                    "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
+                    "region_exit_ownership_transfer_blocked_by_retire_timeline_owner",
+                    "region_exit_ownership_transfer_blocked_by_output_boundary",
+                    "region_exit_ownership_transfer_waiting_for_runtime_exit_submit",
+                    "region_exit_ownership_transfer_not_required",
+                },
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record["top_blocker"],
+                {
+                    "region_exit_ownership_transfer_behavior_disabled",
+                    "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
+                    "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
+                    "command_pool_reset_deferral_owner_behavior_disabled",
+                    "pending_retire_transfer_owner_behavior_disabled",
+                    "pending_retire_transfer_owner_unavailable",
+                    "retire_timeline_owner_behavior_disabled",
+                    "retire_timeline_owner_blocked_by_migration_proof",
+                    "runtime_exit_submit_point",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "ownership_transfer_accounting_joined"
+                ],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "ownership_transfer_complete"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "region_exit_close_submit_owner"
+                ],
+                "RegionExitCloseSubmitOwner.v0",
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "close_submit_accounting_joined"
+                ],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "command_pool_reset_deferral_owner"
+                ],
+                "StackRegionCommandPoolResetDeferralOwner.v0",
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "command_pool_reset_deferral_accounting_joined"
+                ],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "pending_retire_transfer_owner"
+                ],
+                "StackRegionPendingRetireTransferOwner.v0",
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "pending_retire_transfer_accounting_joined"
+                ],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "retire_timeline_owner"
+                ],
+                "StackRegionRetireTimelineOwner.v0",
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "retire_timeline_accounting_joined"
+                ],
+                {"0", "1"},
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "phase_boundary_submits_preserved"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "submit_elision_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
+                    "deferred_submit_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_region_exit_ownership_transfer_record[
                     "authorizes_submit_elision"
                 ],
                 "0",
