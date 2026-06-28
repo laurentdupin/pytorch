@@ -246,6 +246,8 @@ const char* stack_region_pending_retire_transfer_source_state_name(
       return "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred";
     case 3u:
       return "pending_retire_transfer_source_finalized_cancel_context_owned_not_transferred";
+    case 4u:
+      return "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred";
     default:
       return "pending_retire_transfer_source_not_bound";
   }
@@ -1539,6 +1541,13 @@ Context::snapshot_stack_region_pending_retire_transfer(
           request.graph_pending_resource_bytes) {
     result.region_exit_bound_source_coverage_status =
         "pending_retire_transfer_source_coverage_partial";
+  } else if (
+      result.region_exit_bound_resource_count >=
+          request.graph_pending_resource_count &&
+      result.region_exit_bound_resource_bytes >=
+          request.graph_pending_resource_bytes) {
+    result.region_exit_bound_source_coverage_status =
+        "pending_retire_transfer_source_coverage_superset";
   } else {
     result.region_exit_bound_source_coverage_status =
         "pending_retire_transfer_source_coverage_mismatch";
@@ -1547,14 +1556,25 @@ Context::snapshot_stack_region_pending_retire_transfer(
           "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
       graph_and_bound_source_match &&
       result.region_exit_bound_resource_count > 0u) {
-    result.source_match_status =
-        "pending_retire_transfer_source_bound_to_region_exit_submit";
+    result.source_match_status = bound_source_state == 4u
+        ? "pending_retire_transfer_source_complete_at_preserved_phase_submit"
+        : "pending_retire_transfer_source_bound_to_region_exit_submit";
   } else if (
       result.source_match_status ==
           "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
       bound_source_present) {
-    result.source_match_status =
-        "pending_retire_transfer_source_partially_bound_to_region_exit_submit";
+    const bool bound_source_superset =
+        result.region_exit_bound_resource_count >=
+            request.graph_pending_resource_count &&
+        result.region_exit_bound_resource_bytes >=
+            request.graph_pending_resource_bytes;
+    result.source_match_status = bound_source_state == 4u
+        ? (bound_source_superset
+               ? "pending_retire_transfer_source_superset_at_preserved_phase_submit"
+               : "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit")
+        : (bound_source_superset
+               ? "pending_retire_transfer_source_superset_at_region_exit_submit"
+               : "pending_retire_transfer_source_partially_bound_to_region_exit_submit");
   }
   return result;
 }
@@ -2667,6 +2687,12 @@ VulkanSubmission Context::submit_cmd_to_gpu(
         inspect_pending_resource(pending);
       }
     }
+    if (record_phase_boundary_dry_run && pending_resource_count > 0u) {
+      snapshot_stack_region_pending_retire_transfer_source_locked(
+          4u,
+          /*include_context_pending_retires=*/true,
+          /*preserve_larger_source=*/true);
+    }
     bool dry_run_all_safe_group_eligible = false;
     if (record_phase_boundary_dry_run) {
       std::ostringstream dry_run_signature_stream;
@@ -3016,7 +3042,9 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
   snapshot_stack_region_pending_retire_transfer_source_locked(
-      2u);
+      2u,
+      /*include_context_pending_retires=*/false,
+      /*preserve_larger_source=*/true);
   retire_stack_internal_temp_retire_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
@@ -3186,9 +3214,28 @@ void Context::clear_stack_internal_temp_retire_batch_locked() {
 }
 
 void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
-    const uint32_t state) {
+    const uint32_t state,
+    const bool include_context_pending_retires,
+    const bool preserve_larger_source) {
   uint64_t resource_count = 0u;
   uint64_t resource_bytes = 0u;
+  if (include_context_pending_retires) {
+    {
+      std::lock_guard<std::mutex> bufferlist_lock(
+          pending_retire_buffers_mutex_);
+      resource_count += pending_retire_buffers_.size();
+      for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+        resource_bytes += pending.bytes;
+      }
+    }
+    {
+      std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+      resource_count += pending_retire_images_.size();
+      for (const PendingRetireImage& pending : pending_retire_images_) {
+        resource_bytes += pending.bytes;
+      }
+    }
+  }
   {
     std::lock_guard<std::mutex> batch_lock(
         stack_internal_temp_retire_batch_mutex_);
@@ -3201,6 +3248,22 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
     for (const PendingRetireImage& pending :
          stack_internal_temp_retire_batch_images_) {
       resource_bytes += pending.bytes;
+    }
+  }
+  if (preserve_larger_source) {
+    const uint64_t existing_count =
+        stack_region_pending_retire_transfer_source_count_.load(
+            std::memory_order_acquire);
+    const uint64_t existing_bytes =
+        stack_region_pending_retire_transfer_source_bytes_.load(
+            std::memory_order_acquire);
+    const uint32_t existing_state =
+        stack_region_pending_retire_transfer_source_state_.load(
+            std::memory_order_acquire);
+    if (
+        existing_state != 0u && existing_count >= resource_count &&
+        existing_bytes >= resource_bytes) {
+      return;
     }
   }
   stack_region_pending_retire_transfer_source_count_.store(

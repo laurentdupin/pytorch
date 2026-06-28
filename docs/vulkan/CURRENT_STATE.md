@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `055c06645fe` plus
-behavior-neutral pending-retire owner source accounting.
+Last refreshed: 2026-06-28 at local HEAD `3a9310888ab` plus
+behavior-neutral preserved phase-submit pending-retire source binding.
 
 ## Repo State Summary
 
@@ -550,10 +550,19 @@ matches the graph pending set, the plan reports
 `pending_retire_transfer_source_bound_to_region_exit_submit` instead of only
 `pending_retire_transfer_source_already_consumed_by_preserved_submit`. This is
 source accounting, not a resource transfer.
-Partial source bindings now remain explicit: when the stack-exit source covers
-only a subset of the graph pending set, the plan reports
-`pending_retire_transfer_source_partially_bound_to_region_exit_submit` plus the
-bound and missing count/byte tuples. This keeps the next ownership blocker
+The source binding now also records the preserved phase-boundary pending-retire
+set before that submit consumes it. When that earlier source covers the graph
+pending set, the plan reports
+`pending_retire_transfer_source_complete_at_preserved_phase_submit` rather
+than treating it as a region-exit source. When the preserved phase-submit
+source is a superset of the selected graph-pending set, it reports
+`pending_retire_transfer_source_superset_at_preserved_phase_submit`; that row
+is still fail-closed because the extra source resources remain owned by the
+preserved phase-submit path, not by a region-exit owner. Partial source
+bindings remain explicit through
+`pending_retire_transfer_source_partially_bound_to_region_exit_submit` or
+`pending_retire_transfer_source_partially_bound_to_preserved_phase_submit` plus
+the bound and missing count/byte tuples. This keeps the next ownership blocker
 visible without transferring pending retires or enabling submit elision.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
@@ -566,9 +575,11 @@ still keeps `behavior_enabled=0`, `transfers_pending_retires=0`, and
 `authorizes_submit_elision=0`. When the transfer plan and source are otherwise
 complete, the row fail-closes on
 `pending_retire_transfer_owner_behavior_disabled`; when the source is
-incomplete, it fails closed on `pending_retire_transfer_source_incomplete`; and
-when the transfer plan is blocked, it propagates the plan blocker instead of
-hiding it behind close-submit ownership.
+available only at the preserved phase submit, it fails closed on
+`pending_retire_transfer_source_preserved_phase_submit_owned`; when the source
+is incomplete, it fails closed on `pending_retire_transfer_source_incomplete`;
+and when the transfer plan is blocked, it propagates the plan blocker instead
+of hiding it behind close-submit ownership.
 That owner handoff status is now threaded into
 `StackRegionExitReleaseOwnership.v0`, `RegionCommandBufferOwnership.v0`, and
 `StackRegionDeferredSubmitRuntimeHookPlan.v0` as a separate owner-release

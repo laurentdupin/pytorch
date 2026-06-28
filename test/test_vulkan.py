@@ -21485,6 +21485,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
                     "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
                     "pending_retire_transfer_owner_not_required",
@@ -21804,6 +21805,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_already_consumed_by_preserved_submit",
                     "pending_retire_transfer_source_bound_to_region_exit_submit",
                     "pending_retire_transfer_source_partially_bound_to_region_exit_submit",
+                    "pending_retire_transfer_source_complete_at_preserved_phase_submit",
+                    "pending_retire_transfer_source_superset_at_preserved_phase_submit",
+                    "pending_retire_transfer_source_superset_at_region_exit_submit",
+                    "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit",
                     "pending_retire_transfer_source_differs_from_graph_pending_set",
                     "pending_retire_transfer_source_waiting_for_migration_accounting",
                     "pending_retire_transfer_source_blocked_by_output_boundary",
@@ -21818,6 +21823,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_not_bound",
                     "pending_retire_transfer_source_active_waiting_for_region_exit_submit",
                     "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred",
+                    "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred",
                     "pending_retire_transfer_source_finalized_cancel_context_owned_not_transferred",
                 },
             )
@@ -21831,6 +21837,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_coverage_not_bound",
                     "pending_retire_transfer_source_coverage_complete",
                     "pending_retire_transfer_source_coverage_partial",
+                    "pending_retire_transfer_source_coverage_superset",
                     "pending_retire_transfer_source_coverage_mismatch",
                 },
             )
@@ -21909,6 +21916,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "pending_retire_transfer_owner_region_handoff_behavior_disabled",
                     "pending_retire_transfer_owner_source_incomplete_behavior_disabled",
+                    "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_implementation_blocked_by_host_fence_public_readback",
                     "pending_retire_transfer_owner_implementation_not_required",
@@ -21924,6 +21932,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_already_consumed_by_preserved_submit",
                     "pending_retire_transfer_source_bound_to_region_exit_submit",
                     "pending_retire_transfer_source_partially_bound_to_region_exit_submit",
+                    "pending_retire_transfer_source_complete_at_preserved_phase_submit",
+                    "pending_retire_transfer_source_superset_at_preserved_phase_submit",
+                    "pending_retire_transfer_source_superset_at_region_exit_submit",
+                    "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit",
                     "pending_retire_transfer_source_differs_from_graph_pending_set",
                     "pending_retire_transfer_source_waiting_for_migration_accounting",
                     "pending_retire_transfer_source_blocked_by_output_boundary",
@@ -25835,7 +25847,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
-                "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
+                "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
             )
             self.assertIn(
                 transfer_row["transfer_status"],

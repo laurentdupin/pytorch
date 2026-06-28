@@ -24941,6 +24941,11 @@ request_stack_region_pending_retire_transfer_owner(
           "pending_retire_transfer_source_matches_stack_internal_batch" ||
       request.source_match_status ==
           "pending_retire_transfer_source_bound_to_region_exit_submit";
+  const bool source_preserved_phase_submit =
+      request.source_match_status ==
+          "pending_retire_transfer_source_complete_at_preserved_phase_submit" ||
+      request.source_match_status ==
+          "pending_retire_transfer_source_superset_at_preserved_phase_submit";
   result.owner_surface_available = true;
   result.owner_available = source_available;
   result.behavior_enabled = false;
@@ -24950,13 +24955,19 @@ request_stack_region_pending_retire_transfer_owner(
       "pending_retire_transfer_owner_result_accounting_available_behavior_disabled";
   result.owner_status = source_available
       ? "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed"
-      : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed";
+      : (source_preserved_phase_submit
+             ? "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed"
+             : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed");
   result.top_blocker = source_available
       ? "pending_retire_transfer_owner_behavior_disabled"
-      : "pending_retire_transfer_source_incomplete";
+      : (source_preserved_phase_submit
+             ? "pending_retire_transfer_source_preserved_phase_submit_owned"
+             : "pending_retire_transfer_source_incomplete");
   result.implementation_status = source_available
       ? "pending_retire_transfer_owner_region_handoff_behavior_disabled"
-      : "pending_retire_transfer_owner_source_incomplete_behavior_disabled";
+      : (source_preserved_phase_submit
+             ? "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled"
+             : "pending_retire_transfer_owner_source_incomplete_behavior_disabled");
   result.current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   result.requested_owner_status =

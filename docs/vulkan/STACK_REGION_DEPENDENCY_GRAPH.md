@@ -824,16 +824,22 @@ lives in context pending-retire storage, in the stack-internal batch, has
 already been consumed by the preserved submit, or differs from the graph view.
 It does not transfer resources, change retire queue ownership, or authorize
 submit elision.
-The Context now also binds the stack-exit pending-retire source before the
-preserved submit path retires the stack-internal batch. That lets the transfer
-plan report `pending_retire_transfer_source_bound_to_region_exit_submit` when
-the bound source matches the graph pending set, while still leaving the source
-context-owned and not transferred.
-If the bound source covers only a subset of the graph pending set, the plan now
-reports `pending_retire_transfer_source_partially_bound_to_region_exit_submit`
-and records bound versus missing count/byte tuples. That makes the gap between
-the region-exit source and the full graph-pending set explicit before any
-future owner can claim retire transfer behavior.
+The Context now also binds pending-retire sources before the preserved submit
+path consumes them. A stack-exit source can report
+`pending_retire_transfer_source_bound_to_region_exit_submit` when it matches
+the graph pending set. A source observed earlier at the preserved phase-boundary
+submit reports
+`pending_retire_transfer_source_complete_at_preserved_phase_submit` when it
+matches the graph pending set, making clear that the source exists but is still
+owned by the preserved phase-submit path. A preserved phase-submit source that
+is a superset of the selected graph-pending set reports
+`pending_retire_transfer_source_superset_at_preserved_phase_submit`; it remains
+fail-closed because the extra source resources are not transferable region-exit
+ownership. Partial source bindings remain explicit through
+`pending_retire_transfer_source_partially_bound_to_region_exit_submit` or
+`pending_retire_transfer_source_partially_bound_to_preserved_phase_submit`.
+These rows make the gap between known sources and transferable region-exit
+ownership explicit before any future owner can claim retire transfer behavior.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner
@@ -843,9 +849,11 @@ keeps transfer behavior disabled. Generic rows keep `owner_available=0`; rows
 with a concrete source match can expose `owner_available=1` for accounting
 only. All rows keep `behavior_enabled=0`, `transfers_pending_retires=0`, and
 `authorizes_submit_elision=0`. A complete source therefore fails closed on
-`pending_retire_transfer_owner_behavior_disabled`, an incomplete source fails
-closed on `pending_retire_transfer_source_incomplete`, and a blocked plan
-propagates the transfer-plan blocker.
+`pending_retire_transfer_owner_behavior_disabled`, a source available only at
+the preserved phase submit fails closed on
+`pending_retire_transfer_source_preserved_phase_submit_owned`, an incomplete
+source fails closed on `pending_retire_transfer_source_incomplete`, and a
+blocked plan propagates the transfer-plan blocker.
 Exit-release ownership, region command-buffer ownership, and deferred-submit
 runtime-hook plan rows now consume this owner status as a separate
 pending-retire owner handoff field. This keeps the source snapshot and the

@@ -190,7 +190,9 @@ class TORCH_API Context final {
   void retire_stack_internal_temp_retire_batch_locked(
       const VulkanSubmission& submission);
   void snapshot_stack_region_pending_retire_transfer_source_locked(
-      uint32_t state);
+      uint32_t state,
+      bool include_context_pending_retires = false,
+      bool preserve_larger_source = false);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;
