@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `b44783d02622` plus
-retire-timeline migration accounting.
+Last refreshed: 2026-06-28 at local HEAD `f072d0b3bba` plus
+pending-retire transfer owner accounting.
 
 ## Repo State Summary
 
@@ -543,6 +543,16 @@ pending set. This is still planning only: rows can distinguish context-pending,
 stack-batch, already-consumed-by-preserved-submit, or mismatched sources, but
 `transfer_behavior_enabled=0`, `transfers_pending_retires=0`, and
 `authorizes_submit_elision=0`.
+`StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
+and records the region-owner handoff decision that would be required before a
+future close/submit owner can take retire entries away from the preserved
+context submit path. It is an owner surface, not a transfer implementation:
+current rows can report transfer-plan accounting and source matching, but keep
+`owner_available=0`, `behavior_enabled=0`, `transfers_pending_retires=0`, and
+`authorizes_submit_elision=0`. When the transfer plan is otherwise complete,
+the row fail-closes on `pending_retire_transfer_owner_behavior_disabled`; when
+the transfer plan is blocked, it propagates the plan blocker instead of hiding
+it behind close-submit ownership.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

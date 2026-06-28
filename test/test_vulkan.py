@@ -21596,6 +21596,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "stack_region_pending_retire_transfer_source_match_counts",
                 submit_level_proof,
             )
+            self.assertIn(
+                "stack_region_pending_retire_transfer_owner_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_pending_retire_transfer_owner_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_pending_retire_transfer_owner_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_pending_retire_transfer_owner_result_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_pending_retire_transfer_owner_implementation_status_counts",
+                submit_level_proof,
+            )
             first_pending_retire_transfer_record = selected_plan_record(
                 "stack_region_pending_retire_transfer_records"
             )
@@ -21669,6 +21689,101 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 first_pending_retire_transfer_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            first_pending_retire_transfer_owner_record = selected_plan_record(
+                "stack_region_pending_retire_transfer_owner_records"
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record["schema"],
+                "StackRegionPendingRetireTransferOwner.v0",
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record[
+                    "behavior_neutral"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record[
+                    "default_behavior_unchanged"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record["result_status"],
+                {
+                    "pending_retire_transfer_owner_result_accounting_available_behavior_disabled",
+                    "pending_retire_transfer_owner_result_blocked_by_transfer_plan",
+                    "pending_retire_transfer_owner_rejected_host_fence_public_readback",
+                    "pending_retire_transfer_owner_result_not_required",
+                },
+            )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record["owner_status"],
+                {
+                    "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_blocked_by_transfer_plan",
+                    "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
+                    "pending_retire_transfer_owner_not_required",
+                },
+            )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record["top_blocker"],
+                {
+                    "pending_retire_transfer_owner_behavior_disabled",
+                    "pending_retire_transfer_owner_unavailable",
+                    "pending_retire_transfer_behavior_disabled",
+                    "pending_retire_transfer_owner_unavailable",
+                    "retire_timeline_owner_behavior_disabled",
+                    "retire_timeline_owner_blocked_by_migration_proof",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record[
+                    "implementation_status"
+                ],
+                {
+                    "pending_retire_transfer_owner_region_handoff_behavior_disabled",
+                    "pending_retire_transfer_owner_blocked_by_transfer_plan",
+                    "pending_retire_transfer_owner_implementation_blocked_by_host_fence_public_readback",
+                    "pending_retire_transfer_owner_implementation_not_required",
+                },
+            )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record[
+                    "source_match_status"
+                ],
+                {
+                    "pending_retire_transfer_source_matches_context_pending_retire",
+                    "pending_retire_transfer_source_matches_stack_internal_batch",
+                    "pending_retire_transfer_source_already_consumed_by_preserved_submit",
+                    "pending_retire_transfer_source_differs_from_graph_pending_set",
+                    "pending_retire_transfer_source_waiting_for_migration_accounting",
+                    "pending_retire_transfer_source_blocked_by_output_boundary",
+                    "pending_retire_transfer_source_not_required",
+                },
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record["owner_available"],
+                "0",
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record["behavior_enabled"],
+                "0",
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record[
+                    "transfers_pending_retires"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record[
                     "authorizes_submit_elision"
                 ],
                 "0",

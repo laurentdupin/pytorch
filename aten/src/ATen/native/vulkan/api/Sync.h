@@ -1377,6 +1377,79 @@ evaluate_stack_region_pending_retire_transfer_plan(
     uint64_t stack_internal_batch_resource_count,
     uint64_t stack_internal_batch_resource_bytes);
 
+struct StackRegionPendingRetireTransferOwnerRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string pending_retire_transfer_key = "missing";
+  std::string pending_retire_transfer_result_status =
+      "pending_retire_transfer_plan_result_unavailable";
+  std::string pending_retire_transfer_status =
+      "pending_retire_transfer_unavailable";
+  std::string pending_retire_transfer_top_blocker =
+      "pending_retire_transfer_unavailable";
+  std::string source_match_status =
+      "pending_retire_transfer_source_unavailable";
+  std::string retire_timeline_owner_status =
+      "retire_timeline_owner_unavailable";
+  std::string retire_timeline_owner_top_blocker =
+      "retire_timeline_owner_unavailable";
+  std::string planned_release_submit_point_id = "missing";
+  std::string planned_release_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  uint64_t graph_pending_resource_count = 0u;
+  uint64_t graph_pending_resource_bytes = 0u;
+  uint64_t context_pending_resource_count = 0u;
+  uint64_t context_pending_resource_bytes = 0u;
+  uint64_t stack_internal_batch_resource_count = 0u;
+  uint64_t stack_internal_batch_resource_bytes = 0u;
+  bool owner_required = true;
+  bool transfer_plan_available = false;
+  bool transfer_behavior_enabled = false;
+  bool transfers_pending_retires = false;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionPendingRetireTransferOwnerResult final {
+  bool api_present = true;
+  bool owner_record_emitted = true;
+  bool owner_surface_available = false;
+  bool owner_available = false;
+  bool behavior_enabled = false;
+  bool transfers_pending_retires = false;
+  bool authorizes_submit_elision = false;
+  uint64_t graph_pending_resource_count = 0u;
+  uint64_t graph_pending_resource_bytes = 0u;
+  uint64_t context_pending_resource_count = 0u;
+  uint64_t context_pending_resource_bytes = 0u;
+  uint64_t stack_internal_batch_resource_count = 0u;
+  uint64_t stack_internal_batch_resource_bytes = 0u;
+  std::string result_status =
+      "pending_retire_transfer_owner_result_unavailable";
+  std::string owner_status =
+      "pending_retire_transfer_owner_unavailable";
+  std::string top_blocker = "pending_retire_transfer_owner_unavailable";
+  std::string implementation_status =
+      "pending_retire_transfer_owner_implementation_missing";
+  std::string source_match_status =
+      "pending_retire_transfer_source_unavailable";
+  std::string current_owner_status =
+      "pending_retires_still_context_or_preserved_submit_owned";
+  std::string requested_owner_status =
+      "region_pending_retires_owner_requested";
+  std::string retire_timeline_owner_status =
+      "retire_timeline_owner_unavailable";
+  std::string planned_release_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string runtime_api_source =
+      "StackRegionPendingRetireTransferOwnerRuntimeApi.v0";
+};
+
+TORCH_API StackRegionPendingRetireTransferOwnerResult
+request_stack_region_pending_retire_transfer_owner(
+    const StackRegionPendingRetireTransferOwnerRequest& request);
+
 struct StackRegionCommandPoolRetentionRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";

@@ -822,6 +822,15 @@ lives in context pending-retire storage, in the stack-internal batch, has
 already been consumed by the preserved submit, or differs from the graph view.
 It does not transfer resources, change retire queue ownership, or authorize
 submit elision.
+`StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
+surface. It consumes the transfer-plan status, source match, retire-timeline
+owner status, and planned release submit point, then emits a separate owner
+decision. The current implementation is still behavior-neutral: it can expose
+an accounting surface and the concrete source that would need to move, but it
+keeps `owner_available=0`, `behavior_enabled=0`,
+`transfers_pending_retires=0`, and `authorizes_submit_elision=0`. A complete
+plan therefore fails closed on `pending_retire_transfer_owner_behavior_disabled`;
+a blocked plan propagates the transfer-plan blocker.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an
