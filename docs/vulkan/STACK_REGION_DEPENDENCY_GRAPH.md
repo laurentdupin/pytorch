@@ -822,6 +822,11 @@ lives in context pending-retire storage, in the stack-internal batch, has
 already been consumed by the preserved submit, or differs from the graph view.
 It does not transfer resources, change retire queue ownership, or authorize
 submit elision.
+The Context now also binds the stack-exit pending-retire source before the
+preserved submit path retires the stack-internal batch. That lets the transfer
+plan report `pending_retire_transfer_source_bound_to_region_exit_submit` when
+the bound source matches the graph pending set, while still leaving the source
+context-owned and not transferred.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

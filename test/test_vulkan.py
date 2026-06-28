@@ -21706,10 +21706,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_matches_context_pending_retire",
                     "pending_retire_transfer_source_matches_stack_internal_batch",
                     "pending_retire_transfer_source_already_consumed_by_preserved_submit",
+                    "pending_retire_transfer_source_bound_to_region_exit_submit",
                     "pending_retire_transfer_source_differs_from_graph_pending_set",
                     "pending_retire_transfer_source_waiting_for_migration_accounting",
                     "pending_retire_transfer_source_blocked_by_output_boundary",
                     "pending_retire_transfer_source_not_required",
+                },
+            )
+            self.assertIn(
+                first_pending_retire_transfer_record[
+                    "region_exit_bound_source_status"
+                ],
+                {
+                    "pending_retire_transfer_source_not_bound",
+                    "pending_retire_transfer_source_active_waiting_for_region_exit_submit",
+                    "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred",
+                    "pending_retire_transfer_source_finalized_cancel_context_owned_not_transferred",
                 },
             )
             self.assertEqual(
@@ -21799,6 +21811,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_matches_context_pending_retire",
                     "pending_retire_transfer_source_matches_stack_internal_batch",
                     "pending_retire_transfer_source_already_consumed_by_preserved_submit",
+                    "pending_retire_transfer_source_bound_to_region_exit_submit",
                     "pending_retire_transfer_source_differs_from_graph_pending_set",
                     "pending_retire_transfer_source_waiting_for_migration_accounting",
                     "pending_retire_transfer_source_blocked_by_output_boundary",

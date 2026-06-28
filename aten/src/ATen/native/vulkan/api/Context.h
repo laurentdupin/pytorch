@@ -167,6 +167,11 @@ class TORCH_API Context final {
   std::atomic<uint64_t> stack_region_pending_retire_transfer_owner_id_;
   std::atomic<uint64_t> next_stack_region_pending_retire_transfer_owner_id_;
   std::atomic<uint32_t> stack_region_pending_retire_transfer_owner_state_;
+  std::atomic<uint64_t> stack_region_pending_retire_transfer_source_id_;
+  std::atomic<uint64_t> next_stack_region_pending_retire_transfer_source_id_;
+  std::atomic<uint32_t> stack_region_pending_retire_transfer_source_state_;
+  std::atomic<uint64_t> stack_region_pending_retire_transfer_source_count_;
+  std::atomic<uint64_t> stack_region_pending_retire_transfer_source_bytes_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;
@@ -184,6 +189,8 @@ class TORCH_API Context final {
   void restore_stack_internal_temp_retire_batch_to_pending_locked();
   void retire_stack_internal_temp_retire_batch_locked(
       const VulkanSubmission& submission);
+  void snapshot_stack_region_pending_retire_transfer_source_locked(
+      uint32_t state);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;

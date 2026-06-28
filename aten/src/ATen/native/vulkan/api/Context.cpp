@@ -223,6 +223,20 @@ const char* stack_region_pending_retire_transfer_owner_state_name(
   }
 }
 
+const char* stack_region_pending_retire_transfer_source_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "pending_retire_transfer_source_active_waiting_for_region_exit_submit";
+    case 2u:
+      return "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred";
+    case 3u:
+      return "pending_retire_transfer_source_finalized_cancel_context_owned_not_transferred";
+    default:
+      return "pending_retire_transfer_source_not_bound";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -842,6 +856,11 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_pending_retire_transfer_owner_id_{0u},
       next_stack_region_pending_retire_transfer_owner_id_{1u},
       stack_region_pending_retire_transfer_owner_state_{0u},
+      stack_region_pending_retire_transfer_source_id_{0u},
+      next_stack_region_pending_retire_transfer_source_id_{1u},
+      stack_region_pending_retire_transfer_source_state_{0u},
+      stack_region_pending_retire_transfer_source_count_{0u},
+      stack_region_pending_retire_transfer_source_bytes_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -1445,12 +1464,42 @@ Context::snapshot_stack_region_pending_retire_transfer(
       stack_internal_batch_resource_bytes += pending.bytes;
     }
   }
-  return evaluate_stack_region_pending_retire_transfer_plan(
-      request,
-      pending_resource_count,
-      pending_resource_bytes,
-      stack_internal_batch_resource_count,
-      stack_internal_batch_resource_bytes);
+  StackRegionPendingRetireTransferResult result =
+      evaluate_stack_region_pending_retire_transfer_plan(
+          request,
+          pending_resource_count,
+          pending_resource_bytes,
+          stack_internal_batch_resource_count,
+          stack_internal_batch_resource_bytes);
+  result.region_exit_bound_source_id =
+      stack_region_pending_retire_transfer_source_id_.load(
+          std::memory_order_acquire);
+  const uint32_t bound_source_state =
+      stack_region_pending_retire_transfer_source_state_.load(
+          std::memory_order_acquire);
+  result.region_exit_bound_source_state = bound_source_state;
+  result.region_exit_bound_resource_count =
+      stack_region_pending_retire_transfer_source_count_.load(
+          std::memory_order_acquire);
+  result.region_exit_bound_resource_bytes =
+      stack_region_pending_retire_transfer_source_bytes_.load(
+          std::memory_order_acquire);
+  result.region_exit_bound_source_status =
+      stack_region_pending_retire_transfer_source_state_name(
+          bound_source_state);
+  const bool graph_and_bound_source_match =
+      request.graph_pending_resource_count ==
+          result.region_exit_bound_resource_count &&
+      request.graph_pending_resource_bytes ==
+          result.region_exit_bound_resource_bytes;
+  if (result.source_match_status ==
+          "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
+      graph_and_bound_source_match &&
+      result.region_exit_bound_resource_count > 0u) {
+    result.source_match_status =
+        "pending_retire_transfer_source_bound_to_region_exit_submit";
+  }
+  return result;
 }
 
 StackRegionPendingRetireTransferOwnerResult
@@ -2862,6 +2911,16 @@ void Context::begin_stack_planned_recording() {
       std::memory_order_release);
   stack_region_pending_retire_transfer_owner_state_.store(
       1u, std::memory_order_release);
+  stack_region_pending_retire_transfer_source_id_.store(
+      next_stack_region_pending_retire_transfer_source_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_pending_retire_transfer_source_count_.store(
+      0u, std::memory_order_release);
+  stack_region_pending_retire_transfer_source_bytes_.store(
+      0u, std::memory_order_release);
+  stack_region_pending_retire_transfer_source_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2875,6 +2934,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       "Vulkan stack planned recording ended from the wrong thread");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
+  snapshot_stack_region_pending_retire_transfer_source_locked(
+      2u);
   retire_stack_internal_temp_retire_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
@@ -2904,6 +2965,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       is_stack_planned_recording_active(),
       "Vulkan stack planned recording is not active");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
+  snapshot_stack_region_pending_retire_transfer_source_locked(
+      3u);
   restore_stack_internal_temp_retire_batch_to_pending_locked();
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
@@ -3033,6 +3096,32 @@ void Context::clear_stack_internal_temp_retire_batch_locked() {
       stack_internal_temp_retire_batch_mutex_);
   stack_internal_temp_retire_batch_buffers_.clear();
   stack_internal_temp_retire_batch_images_.clear();
+}
+
+void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
+    const uint32_t state) {
+  uint64_t resource_count = 0u;
+  uint64_t resource_bytes = 0u;
+  {
+    std::lock_guard<std::mutex> batch_lock(
+        stack_internal_temp_retire_batch_mutex_);
+    resource_count += stack_internal_temp_retire_batch_buffers_.size();
+    for (const PendingRetireBuffer& pending :
+         stack_internal_temp_retire_batch_buffers_) {
+      resource_bytes += pending.bytes;
+    }
+    resource_count += stack_internal_temp_retire_batch_images_.size();
+    for (const PendingRetireImage& pending :
+         stack_internal_temp_retire_batch_images_) {
+      resource_bytes += pending.bytes;
+    }
+  }
+  stack_region_pending_retire_transfer_source_count_.store(
+      resource_count, std::memory_order_release);
+  stack_region_pending_retire_transfer_source_bytes_.store(
+      resource_bytes, std::memory_order_release);
+  stack_region_pending_retire_transfer_source_state_.store(
+      state, std::memory_order_release);
 }
 
 void Context::restore_stack_internal_temp_retire_batch_to_pending_locked() {

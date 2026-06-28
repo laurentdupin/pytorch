@@ -543,6 +543,12 @@ pending set. This is still planning only: rows can distinguish context-pending,
 stack-batch, already-consumed-by-preserved-submit, or mismatched sources, but
 `transfer_behavior_enabled=0`, `transfers_pending_retires=0`, and
 `authorizes_submit_elision=0`.
+The Context also records a stack-exit source binding before the preserved
+submit path retires the stack-internal batch. When that bound count/byte tuple
+matches the graph pending set, the plan reports
+`pending_retire_transfer_source_bound_to_region_exit_submit` instead of only
+`pending_retire_transfer_source_already_consumed_by_preserved_submit`. This is
+source accounting, not a resource transfer.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
