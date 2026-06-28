@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `df2619f5991` plus
-capture-sensitive submit-pending old-carry join accounting.
+Last refreshed: 2026-06-28 at local HEAD `5fdcb877d8b5` plus
+runtime stack-exit submit-point accounting.
 
 ## Repo State Summary
 
@@ -504,6 +504,14 @@ and the close/submit owner surface advances to
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an
 accounting/lifecycle lease, not as a region close/submit owner.
+Submit-level equivalence rows now consume that preserved runtime exit-submit
+point even when the planned region context has already closed and the graph has
+exactly one unambiguous `StackPlannedRecordingSubmit` exit row. This moves the
+deferred-submit plan status from a synthetic planned-target blocker to
+`stack_region_deferred_submit_plan_available_retire_migration_unproven`, with
+the top blocker reported as `retire_timeline_migration`. It remains
+behavior-neutral: the runtime exit submit is preserved, phase-boundary submits
+are preserved, and submit elision stays disabled.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

@@ -8373,29 +8373,35 @@ summarize_stack_region_exit_submit_runtime_points(
     const bool planned_region_context_present,
     const VulkanStackPlannedRegionContext& planned_region_context) {
   StackRegionExitSubmitRuntimePointSummary summary;
-  if (!planned_region_context_present) {
-    return summary;
-  }
-  const std::string expected_stack_region_id =
-      stack_region_row_token(planned_region_context.region_id);
-  const std::string expected_stack_context_id =
-      stack_region_row_token(planned_region_context.stack_context_id);
-  const std::string expected_bridge_session_id =
-      stack_region_row_token(planned_region_context.bridge_session_id);
-  const std::string expected_stack_plan_id =
-      stack_region_row_token(planned_region_context.stack_plan_id);
   for (const auto& row : rows) {
     const auto fields = parse_space_separated_fields(row);
-    if (
-        field_or(fields, "context_present", "0") != "1" ||
-        field_or(fields, "stack_region_id", "missing") !=
-            expected_stack_region_id ||
-        field_or(fields, "stack_context_id", "missing") !=
-            expected_stack_context_id ||
-        field_or(fields, "bridge_session_id", "missing") !=
-            expected_bridge_session_id ||
-        field_or(fields, "stack_plan_id", "missing") !=
-            expected_stack_plan_id) {
+    bool row_matches_context = false;
+    if (planned_region_context_present) {
+      const std::string expected_stack_region_id =
+          stack_region_row_token(planned_region_context.region_id);
+      const std::string expected_stack_context_id =
+          stack_region_row_token(planned_region_context.stack_context_id);
+      const std::string expected_bridge_session_id =
+          stack_region_row_token(planned_region_context.bridge_session_id);
+      const std::string expected_stack_plan_id =
+          stack_region_row_token(planned_region_context.stack_plan_id);
+      row_matches_context =
+          field_or(fields, "context_present", "0") == "1" &&
+          field_or(fields, "stack_region_id", "missing") ==
+              expected_stack_region_id &&
+          field_or(fields, "stack_context_id", "missing") ==
+              expected_stack_context_id &&
+          field_or(fields, "bridge_session_id", "missing") ==
+              expected_bridge_session_id &&
+          field_or(fields, "stack_plan_id", "missing") ==
+              expected_stack_plan_id;
+    } else {
+      row_matches_context =
+          rows.size() == 1u &&
+          field_or(fields, "submit_origin", "missing") ==
+              "StackPlannedRecordingSubmit";
+    }
+    if (!row_matches_context) {
       continue;
     }
     summary.count += parsed_u64(fields, "count");
@@ -8407,6 +8413,24 @@ summarize_stack_region_exit_submit_runtime_points(
     summary.timeline_value = parsed_u64(fields, "timeline_value");
     summary.pending_dispatch_count =
         parsed_u64(fields, "pending_dispatch_count");
+  }
+  if (
+      summary.count == 0u && !planned_region_context_present &&
+      rows.size() == 1u) {
+    const auto fields = parse_space_separated_fields(rows.front());
+    if (
+        field_or(fields, "submit_origin", "missing") ==
+        "StackPlannedRecordingSubmit") {
+      summary.count += parsed_u64(fields, "count");
+      summary.had_cmd_count += parsed_u64(fields, "had_cmd_count");
+      summary.command_buffer_recording_id =
+          parsed_u64(fields, "command_buffer_recording_id");
+      summary.submit_epoch_before = parsed_u64(fields, "submit_epoch_before");
+      summary.submit_epoch_after = parsed_u64(fields, "submit_epoch_after");
+      summary.timeline_value = parsed_u64(fields, "timeline_value");
+      summary.pending_dispatch_count =
+          parsed_u64(fields, "pending_dispatch_count");
+    }
   }
   summary.observed = summary.count > 0u && summary.had_cmd_count > 0u;
   return summary;
@@ -10329,6 +10353,30 @@ void append_stack_region_submit_epoch_ordering_json(
         !predicate_no_public_final_host_readback_blocker
         ? "intervening_public_final_host_readback_blocker_observed"
         : "intervening_stream_queue_fence_pool_reset_status_uninstrumented";
+    const uint64_t stack_region_instance_id_count =
+        proof.stack_region_instance_ids.size();
+    const std::string stack_region_instance_id =
+        stack_region_instance_id_count == 1u
+        ? *proof.stack_region_instance_ids.begin()
+        : (stack_region_instance_id_count == 0u ? "missing" : "ambiguous");
+    const bool planned_region_context_present =
+        stack_planned_region_context_active();
+    const VulkanStackPlannedRegionContext planned_region_context =
+        current_stack_planned_region_context();
+    const std::string stack_region_id = planned_region_context_present
+        ? planned_region_context.region_id
+        : "stack_region_instance:" + stack_region_instance_id;
+    const std::string planned_submit_point_id =
+        "planned_region_exit_submit_point:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const StackRegionExitSubmitRuntimePointSummary
+        exit_submit_runtime_point_summary =
+            summarize_stack_region_exit_submit_runtime_points(
+                exit_submit_runtime_point_rows,
+                planned_region_context_present,
+                planned_region_context);
+    const bool runtime_exit_submit_point_observed =
+        exit_submit_runtime_point_summary.observed;
     if (!phase_submit_execution_flush_dependency_observed) {
       proof.phase_submit_command_buffer_continuity_proof_status =
           "phase_submit_command_buffer_continuity_not_required";
@@ -10383,55 +10431,69 @@ void append_stack_region_submit_epoch_ordering_json(
         ? "deferred_submit_point_not_required"
         : (later_queue_submit_candidate_observed
                ? "later_region_submit_point_observed"
-               : (planned_region_submit_point_available
-                      ? "planned_region_submit_point_exists_synthetic_only"
-                      : "later_region_submit_point_not_observed"));
+               : (runtime_exit_submit_point_observed
+                      ? "planned_region_exit_submit_point_runtime_observed_context_submit_preserved"
+                      : (planned_region_submit_point_available
+                             ? "planned_region_submit_point_exists_synthetic_only"
+                             : "later_region_submit_point_not_observed")));
     proof.stack_region_deferred_submit_later_candidate_id =
         later_queue_submit_candidate_observed
         ? "same_command_buffer_same_submit_epoch_candidate"
-        : (planned_region_submit_point_available
-               ? "planned_region_exit_submit_point"
-               : "missing_later_region_submit_point");
+        : (runtime_exit_submit_point_observed
+               ? "planned_region_exit_submit_runtime_point"
+               : (planned_region_submit_point_available
+                      ? "planned_region_exit_submit_point"
+                      : "missing_later_region_submit_point"));
     proof.stack_region_deferred_submit_same_stream_queue_status =
         !phase_submit_execution_flush_dependency_observed
         ? "same_stream_queue_not_required"
         : (later_queue_submit_candidate_observed
                ? "same_stream_queue_unproven_for_deferred_submit"
-               : (planned_region_submit_point_available
-                      ? "same_stream_queue_expected_but_unproven_planned_target"
-                      : "unknown_no_later_region_submit_point"));
+               : (runtime_exit_submit_point_observed
+                      ? "same_stream_queue_unproven_runtime_exit_target"
+                      : (planned_region_submit_point_available
+                             ? "same_stream_queue_expected_but_unproven_planned_target"
+                             : "unknown_no_later_region_submit_point")));
     proof.stack_region_deferred_submit_same_region_owner_status =
         !phase_submit_execution_flush_dependency_observed
         ? "same_region_owner_not_required"
         : (later_queue_submit_candidate_observed
                ? "same_region_owner_unproven_for_deferred_submit"
-               : (planned_region_submit_point_available
-                      ? "same_region_owner_planned"
-                      : "unknown_no_later_region_submit_point"));
+               : (runtime_exit_submit_point_observed
+                      ? "same_region_owner_unproven_runtime_exit_target"
+                      : (planned_region_submit_point_available
+                             ? "same_region_owner_planned"
+                             : "unknown_no_later_region_submit_point")));
     proof.stack_region_deferred_submit_retire_migration_status =
         !phase_submit_execution_flush_dependency_observed
         ? "retire_timeline_migration_not_required"
         : (later_queue_submit_candidate_observed
                ? "retire_timeline_migration_unproven"
-               : (planned_region_submit_point_available
-                      ? "retire_timeline_migration_unproven_planned_target"
-                      : "retire_timeline_migration_blocked_no_later_submit_point"));
+               : (runtime_exit_submit_point_observed
+                      ? "retire_timeline_migration_unproven_runtime_exit_target"
+                      : (planned_region_submit_point_available
+                             ? "retire_timeline_migration_unproven_planned_target"
+                             : "retire_timeline_migration_blocked_no_later_submit_point")));
     proof.stack_region_deferred_submit_descriptor_lifetime_status =
         !phase_submit_execution_flush_dependency_observed
         ? "descriptor_lifetime_migration_not_required"
         : (later_queue_submit_candidate_observed
                ? "descriptor_pool_reuse_risk_unproven"
-               : (planned_region_submit_point_available
-                      ? "descriptor_pool_reuse_risk_unproven_planned_target"
-                      : "descriptor_pool_reuse_risk_blocked_no_later_submit_point"));
+               : (runtime_exit_submit_point_observed
+                      ? "descriptor_pool_reuse_risk_unproven_runtime_exit_target"
+                      : (planned_region_submit_point_available
+                             ? "descriptor_pool_reuse_risk_unproven_planned_target"
+                             : "descriptor_pool_reuse_risk_blocked_no_later_submit_point")));
     proof.stack_region_deferred_submit_command_pool_status =
         !phase_submit_execution_flush_dependency_observed
         ? "command_pool_lifetime_migration_not_required"
         : (later_queue_submit_candidate_observed
                ? "command_pool_reset_risk_unproven"
-               : (planned_region_submit_point_available
-                      ? "command_pool_reset_risk_unproven_planned_target"
-                      : "command_pool_reset_risk_blocked_no_later_submit_point"));
+               : (runtime_exit_submit_point_observed
+                      ? "command_pool_reset_risk_unproven_runtime_exit_target"
+                      : (planned_region_submit_point_available
+                             ? "command_pool_reset_risk_unproven_planned_target"
+                             : "command_pool_reset_risk_blocked_no_later_submit_point")));
     proof.stack_region_deferred_submit_host_fence_public_blocker_status =
         predicate_no_public_final_host_readback_blocker
         ? "no_host_fence_public_final_readback_blocker_observed"
@@ -10441,9 +10503,11 @@ void append_stack_region_submit_epoch_ordering_json(
         ? "stream_queue_switch_not_required"
         : (later_queue_submit_candidate_observed
                ? "stream_queue_switch_status_unproven"
-               : (planned_region_submit_point_available
-                      ? "stream_queue_switch_unproven_planned_target"
-                      : "stream_queue_switch_unknown_no_later_submit_point"));
+               : (runtime_exit_submit_point_observed
+                      ? "stream_queue_switch_unproven_runtime_exit_target"
+                      : (planned_region_submit_point_available
+                             ? "stream_queue_switch_unproven_planned_target"
+                             : "stream_queue_switch_unknown_no_later_submit_point")));
     if (!phase_submit_execution_flush_dependency_observed) {
       proof.stack_region_deferred_submit_plan_status =
           "stack_region_deferred_submit_plan_not_required";
@@ -10458,6 +10522,7 @@ void append_stack_region_submit_epoch_ordering_json(
           "host_fence_public_final_readback_blocker";
     } else if (
         !later_queue_submit_candidate_observed &&
+        !runtime_exit_submit_point_observed &&
         !planned_region_submit_point_available) {
       proof.stack_region_deferred_submit_plan_status =
           "stack_region_deferred_submit_plan_no_deferred_submit_point_available";
@@ -10465,7 +10530,9 @@ void append_stack_region_submit_epoch_ordering_json(
           "later_region_submit_point_not_observed";
       proof.stack_region_deferred_submit_top_migration_blocker =
           "later_region_submit_point";
-    } else if (!later_queue_submit_candidate_observed) {
+    } else if (
+        !later_queue_submit_candidate_observed &&
+        !runtime_exit_submit_point_observed) {
       proof.stack_region_deferred_submit_plan_status =
           "stack_region_deferred_submit_plan_planned_target_unimplemented";
       proof.stack_region_deferred_submit_plan_reason =
@@ -10474,7 +10541,9 @@ void append_stack_region_submit_epoch_ordering_json(
           "missing_command_pool_lifetime_extension";
     } else if (
         proof.stack_region_deferred_submit_retire_migration_status ==
-        "retire_timeline_migration_unproven") {
+            "retire_timeline_migration_unproven" ||
+        proof.stack_region_deferred_submit_retire_migration_status ==
+            "retire_timeline_migration_unproven_runtime_exit_target") {
       proof.stack_region_deferred_submit_plan_status =
           "stack_region_deferred_submit_plan_available_retire_migration_unproven";
       proof.stack_region_deferred_submit_plan_reason =
@@ -10568,30 +10637,6 @@ void append_stack_region_submit_epoch_ordering_json(
         : *proof.topology_signatures.begin();
     const uint64_t boundary_submit_key_count =
         submit_level_submit_keys_by_boundary_id[proof.boundary_id].size();
-    const uint64_t stack_region_instance_id_count =
-        proof.stack_region_instance_ids.size();
-    const std::string stack_region_instance_id =
-        stack_region_instance_id_count == 1u
-        ? *proof.stack_region_instance_ids.begin()
-        : (stack_region_instance_id_count == 0u ? "missing" : "ambiguous");
-    const bool planned_region_context_present =
-        stack_planned_region_context_active();
-    const VulkanStackPlannedRegionContext planned_region_context =
-        current_stack_planned_region_context();
-    const std::string stack_region_id = planned_region_context_present
-        ? planned_region_context.region_id
-        : "stack_region_instance:" + stack_region_instance_id;
-    const std::string planned_submit_point_id =
-        "planned_region_exit_submit_point:instance:" +
-        stack_region_instance_id + ":boundary:" + proof.boundary_id;
-    const StackRegionExitSubmitRuntimePointSummary
-        exit_submit_runtime_point_summary =
-            summarize_stack_region_exit_submit_runtime_points(
-                exit_submit_runtime_point_rows,
-                planned_region_context_present,
-                planned_region_context);
-    const bool runtime_exit_submit_point_observed =
-        exit_submit_runtime_point_summary.observed;
     const std::string planned_submit_point_status =
         !phase_submit_execution_flush_dependency_observed
         ? "synthetic_planned_submit_point_not_required"

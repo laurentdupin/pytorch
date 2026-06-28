@@ -785,6 +785,15 @@ the close/submit owner rows advance from a synthetic planned target to
 `StackRegionExitReleasePoint.v0` now also advances to
 `exit_release_point_runtime_observed_context_submit_preserved`, giving later
 ownership proofs a concrete stack-exit release point.
+`StackBoundarySubmitLevelEquivalenceProof.v0` also consumes that preserved
+runtime exit-submit point when the planned context has already closed and the
+graph contains a single unambiguous `StackPlannedRecordingSubmit` exit row. The
+submit-level deferred-submit status can therefore report
+`planned_region_exit_submit_point_runtime_observed_context_submit_preserved`
+instead of stopping at a synthetic planned target. The next blocker becomes
+`retire_timeline_migration`: the runtime submit point is observed, but pending
+resources have not been migrated to a later region-owned retire timeline. This
+does not authorize submit elision or change any submit behavior.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an
