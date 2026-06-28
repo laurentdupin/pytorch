@@ -25800,6 +25800,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "0",
             )
+            submit_level_proof = graph["stack_region_submit_epoch_ordering"][
+                "stack_boundary_proof_records"
+            ]["submit_level_equivalence_proof"]
+            transfer_rows = [
+                row["fields"]
+                for row in submit_level_proof[
+                    "region_exit_ownership_transfer_records"
+                ]
+                if row["fields"].get("runtime_close_submit_owner_joined")
+                == "1"
+            ]
+            self.assertTrue(transfer_rows)
+            transfer_row = transfer_rows[0]
+            self.assertEqual(
+                transfer_row["close_submit_ownership_complete"], "1"
+            )
+            self.assertEqual(
+                transfer_row["close_submit_owner_handoff_available"], "1"
+            )
+            self.assertEqual(
+                transfer_row["close_submit_owner_handoff_status"],
+                "region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner",
+            )
+            self.assertIn(
+                transfer_row["transfer_status"],
+                {
+                    "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner",
+                    "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
+                    "region_exit_ownership_transfer_blocked_by_retire_timeline_owner",
+                    "region_exit_ownership_transfer_complete_fail_closed",
+                },
+            )
+            self.assertNotEqual(
+                transfer_row["top_blocker"],
+                "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
+            )
+            self.assertEqual(transfer_row["submit_elision_enabled"], "0")
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)

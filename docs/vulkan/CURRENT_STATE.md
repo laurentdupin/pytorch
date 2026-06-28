@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `63d36dab567` plus
-behavior-neutral stack-exit close-submit ownership canary wiring.
+Last refreshed: 2026-06-28 at local HEAD `9f04c6af670` plus
+behavior-neutral stack-exit close-submit owner transfer join.
 
 ## Repo State Summary
 
@@ -710,13 +710,13 @@ report lifecycle state `4` /
 `region_exit_close_submit_owner_active_region_owned_close_submit_available`
 and a close-submit handoff status of
 `region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner`.
-Earlier phase-boundary rows still report the preserved-batch context-owned
-blocker. The stack-exit mode only proves the close-submit component on the
-stack-exit runtime-point row where the real owner is live. It does not yet join
-that owner back into selected phase-boundary canary rows, so the aggregate
-transfer remains incomplete until a later join wires the stack-exit owner into
-the selected-boundary transfer and reset-deferral, pending-retire, and
-retire-timeline ownership are real.
+Earlier live phase-boundary canary rows still report the preserved-batch
+context-owned blocker. The submit-level graph, however, now joins the
+stack-exit runtime-point owner back into selected-boundary
+`RegionExitOwnershipTransfer.v0` rows, so those rows can report
+`runtime_close_submit_owner_joined=1`, close-submit ownership complete, and
+then fail closed on the next incomplete owner. Phase-boundary submits remain
+preserved and `authorizes_submit_elision=0`.
 `StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
 surface between that proof and close-submit ownership. It records whether a
 region-owned command-pool reset-deferral owner exists, whether reset deferral is

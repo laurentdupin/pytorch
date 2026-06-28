@@ -8531,6 +8531,11 @@ struct StackRegionExitSubmitRuntimePointSummary final {
   uint64_t submit_epoch_after = 0u;
   uint64_t timeline_value = 0u;
   uint64_t pending_dispatch_count = 0u;
+  uint64_t region_exit_close_submit_owner_lifecycle_id = 0u;
+  uint32_t region_exit_close_submit_owner_lifecycle_state = 0u;
+  bool region_exit_close_submit_owner_behavior_enabled = false;
+  bool region_exit_close_submit_owner_authorizes_submit_elision = false;
+  bool close_submit_owner_handoff_available = false;
 };
 
 StackRegionExitSubmitRuntimePointSummary
@@ -8579,6 +8584,20 @@ summarize_stack_region_exit_submit_runtime_points(
     summary.timeline_value = parsed_u64(fields, "timeline_value");
     summary.pending_dispatch_count =
         parsed_u64(fields, "pending_dispatch_count");
+    summary.region_exit_close_submit_owner_lifecycle_id =
+        parsed_u64(fields, "region_exit_close_submit_owner_lifecycle_id");
+    summary.region_exit_close_submit_owner_lifecycle_state = static_cast<uint32_t>(
+        parsed_u64(fields, "region_exit_close_submit_owner_lifecycle_state"));
+    summary.region_exit_close_submit_owner_behavior_enabled =
+        field_or(fields, "region_exit_close_submit_owner_behavior_enabled", "0") ==
+        "1";
+    summary.region_exit_close_submit_owner_authorizes_submit_elision =
+        field_or(
+            fields,
+            "region_exit_close_submit_owner_authorizes_submit_elision",
+            "0") == "1";
+    summary.close_submit_owner_handoff_available =
+        field_or(fields, "close_submit_owner_handoff_available", "0") == "1";
   }
   if (
       summary.count == 0u && !planned_region_context_present &&
@@ -8596,6 +8615,23 @@ summarize_stack_region_exit_submit_runtime_points(
       summary.timeline_value = parsed_u64(fields, "timeline_value");
       summary.pending_dispatch_count =
           parsed_u64(fields, "pending_dispatch_count");
+      summary.region_exit_close_submit_owner_lifecycle_id =
+          parsed_u64(fields, "region_exit_close_submit_owner_lifecycle_id");
+      summary.region_exit_close_submit_owner_lifecycle_state =
+          static_cast<uint32_t>(parsed_u64(
+              fields, "region_exit_close_submit_owner_lifecycle_state"));
+      summary.region_exit_close_submit_owner_behavior_enabled =
+          field_or(
+              fields,
+              "region_exit_close_submit_owner_behavior_enabled",
+              "0") == "1";
+      summary.region_exit_close_submit_owner_authorizes_submit_elision =
+          field_or(
+              fields,
+              "region_exit_close_submit_owner_authorizes_submit_elision",
+              "0") == "1";
+      summary.close_submit_owner_handoff_available =
+          field_or(fields, "close_submit_owner_handoff_available", "0") == "1";
     }
   }
   summary.observed = summary.count > 0u && summary.had_cmd_count > 0u;
@@ -10548,6 +10584,8 @@ void append_stack_region_submit_epoch_ordering_json(
                 planned_region_context);
     const bool runtime_exit_submit_point_observed =
         exit_submit_runtime_point_summary.observed;
+    const bool runtime_close_submit_owner_available =
+        exit_submit_runtime_point_summary.close_submit_owner_handoff_available;
     if (!phase_submit_execution_flush_dependency_observed) {
       proof.phase_submit_command_buffer_continuity_proof_status =
           "phase_submit_command_buffer_continuity_not_required";
@@ -11108,6 +11146,36 @@ void append_stack_region_submit_epoch_ordering_json(
         stack_region_single_recording_owner_result =
             context()->snapshot_stack_region_single_recording_owner(
                 stack_region_single_recording_owner_request);
+    const uint64_t effective_close_submit_owner_lifecycle_id =
+        runtime_close_submit_owner_available
+        ? exit_submit_runtime_point_summary
+              .region_exit_close_submit_owner_lifecycle_id
+        : stack_region_single_recording_owner_result
+              .region_exit_close_submit_owner_lifecycle_id;
+    const uint32_t effective_close_submit_owner_lifecycle_state =
+        runtime_close_submit_owner_available
+        ? exit_submit_runtime_point_summary
+              .region_exit_close_submit_owner_lifecycle_state
+        : stack_region_single_recording_owner_result
+              .region_exit_close_submit_owner_lifecycle_state;
+    const bool effective_close_submit_owner_behavior_enabled =
+        runtime_close_submit_owner_available
+        ? exit_submit_runtime_point_summary
+              .region_exit_close_submit_owner_behavior_enabled
+        : stack_region_single_recording_owner_result
+              .region_exit_close_submit_owner_behavior_enabled;
+    const bool effective_close_submit_owner_authorizes_submit_elision =
+        runtime_close_submit_owner_available
+        ? exit_submit_runtime_point_summary
+              .region_exit_close_submit_owner_authorizes_submit_elision
+        : stack_region_single_recording_owner_result
+              .region_exit_close_submit_owner_authorizes_submit_elision;
+    const std::string effective_close_submit_owner_lifecycle_status =
+        runtime_close_submit_owner_available
+        ? stack_region_single_recording_close_submit_owner_lifecycle_status(
+              effective_close_submit_owner_lifecycle_state)
+        : stack_region_single_recording_owner_result
+              .region_exit_close_submit_owner_lifecycle_status;
     const std::string stack_region_command_buffer_topology_plan_key =
         "stack_region_command_buffer_topology_plan:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -11226,24 +11294,19 @@ void append_stack_region_submit_epoch_ordering_json(
             stack_region_single_recording_owner_result.behavior_enabled;
     stack_region_command_buffer_acquire_hook_request
         .region_exit_close_submit_owner_lifecycle_id =
-            stack_region_single_recording_owner_result
-                .region_exit_close_submit_owner_lifecycle_id;
+            effective_close_submit_owner_lifecycle_id;
     stack_region_command_buffer_acquire_hook_request
         .region_exit_close_submit_owner_lifecycle_state =
-            stack_region_single_recording_owner_result
-                .region_exit_close_submit_owner_lifecycle_state;
+            effective_close_submit_owner_lifecycle_state;
     stack_region_command_buffer_acquire_hook_request
         .region_exit_close_submit_owner_lifecycle_status =
-            stack_region_single_recording_owner_result
-                .region_exit_close_submit_owner_lifecycle_status;
+            effective_close_submit_owner_lifecycle_status;
     stack_region_command_buffer_acquire_hook_request
         .region_exit_close_submit_owner_behavior_enabled =
-            stack_region_single_recording_owner_result
-                .region_exit_close_submit_owner_behavior_enabled;
+            effective_close_submit_owner_behavior_enabled;
     stack_region_command_buffer_acquire_hook_request
         .region_exit_close_submit_owner_authorizes_submit_elision =
-            stack_region_single_recording_owner_result
-                .region_exit_close_submit_owner_authorizes_submit_elision;
+            effective_close_submit_owner_authorizes_submit_elision;
     stack_region_command_buffer_acquire_hook_request
         .region_exit_close_submit_owner_availability_source =
             stack_region_single_recording_owner_result
@@ -14382,6 +14445,8 @@ void append_stack_region_submit_epoch_ordering_json(
         pending_retire_transfer_owner_row.str());
     const bool close_submit_accounting_joined =
         region_exit_close_submit_owner_result.owner_status ==
+            "region_exit_close_submit_owner_available_stack_exit_close_submit_behavior_enabled_no_submit_elision" ||
+        region_exit_close_submit_owner_result.owner_status ==
             "region_exit_close_submit_owner_available_preserved_phase_submit_batch_behavior_enabled_no_submit_elision" ||
         region_exit_close_submit_owner_result.owner_status ==
             "region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed";
@@ -14536,6 +14601,16 @@ void append_stack_region_submit_epoch_ordering_json(
         << " close_submit_owner_handoff_top_blocker="
         << region_exit_close_submit_owner_result
                .close_submit_owner_handoff_top_blocker
+        << " runtime_close_submit_owner_joined="
+        << (runtime_close_submit_owner_available ? "1" : "0")
+        << " runtime_close_submit_owner_lifecycle_state="
+        << exit_submit_runtime_point_summary
+               .region_exit_close_submit_owner_lifecycle_state
+        << " runtime_close_submit_owner_handoff_available="
+        << (exit_submit_runtime_point_summary
+                    .close_submit_owner_handoff_available
+                ? "1"
+                : "0")
         << " close_submit_accounting_joined="
         << (close_submit_accounting_joined ? "1" : "0")
         << " command_pool_reset_deferral_owner=StackRegionCommandPoolResetDeferralOwner.v0"

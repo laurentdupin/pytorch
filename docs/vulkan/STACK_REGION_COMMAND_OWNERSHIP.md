@@ -116,11 +116,13 @@ live stack-exit close/submit lifecycle as
 lets `RegionExitCloseSubmitOwner.v0` report
 `region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner`.
 It still preserves every phase-boundary submit, creates no deferred submit, and
-keeps `authorizes_submit_elision=0`. Its only purpose is to let
-the stack-exit runtime-point row prove the close-submit component at the actual
-stack-exit owner scope. It does not relabel earlier phase-boundary submits as
-region-owned close/submit work, and the selected-boundary transfer still needs
-a later join before it can move past close-submit ownership.
+keeps `authorizes_submit_elision=0`. Its purpose is to let the stack-exit
+runtime-point row prove the close-submit component at the actual stack-exit
+owner scope. It does not relabel earlier phase-boundary submits as
+region-owned close/submit work. The submit-level graph joins the stack-exit
+runtime-point owner into selected-boundary transfer rows, so those rows can
+advance past close-submit ownership before failing closed on the next
+incomplete owner.
 
 `RegionExitOwnershipTransfer.v0` is the aggregate transfer row above the
 close-submit, command-pool reset-deferral, pending-retire transfer,
@@ -136,7 +138,8 @@ reported as explicit blockers such as close-submit ownership, reset-deferral
 ownership, pending-retire transfer ownership, retire-timeline ownership, the
 runtime exit submit point, or public/final/host/readback output boundaries. A
 preserved phase-submit batch can join accounting but is not treated as completed
-close/submit ownership. The row is the next handoff surface for a future
+close/submit ownership; the stack-exit runtime-point owner can complete only
+the close-submit component. The row is the next handoff surface for a future
 region-exit owner; it does not transfer command-buffer, command-pool,
 descriptor, retire, or output ownership in the current topology.
 The live `StackRegionSingleRecordingCanary.v0` guard now consumes the same

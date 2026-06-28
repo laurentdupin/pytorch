@@ -934,8 +934,9 @@ close/submit lifecycle as region-owned for accounting, emits
 `region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner`,
 and leaves submit elision authorization disabled on the stack-exit runtime-point
 row. Earlier phase-boundary rows remain preserved-batch/context-owned, so the
-selected-boundary aggregate transfer still needs a future stack-exit-owner join
-before it can advance past close-submit ownership.
+submit-level graph joins the stack-exit runtime-point owner back into the
+selected-boundary aggregate transfer. That join lets the transfer advance past
+close-submit ownership, then fail closed on the next incomplete owner.
 The live `StackRegionSingleRecordingCanary.v0` guard consumes the same opt-in
 flag. This lets selected-boundary rows distinguish an unavailable preserved
 batch from a behavior-enabled close-submit owner surface whose submit-elision
@@ -993,11 +994,12 @@ joined accounting when all required component surfaces are present, and it now
 computes ownership completion separately from accounting. Current rows still
 report `ownership_transfer_complete=0`, `submit_elision_enabled=0`,
 `deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
-`phase_boundary_submits_preserved=1` because preserved phase-submit batches are
-not completed region close/submit ownership. Missing or incomplete components
-remain explicit blockers. This gives a future region-exit owner a single
-handoff surface without treating component proof completion as permission to
-remove or defer a submit.
+`phase_boundary_submits_preserved=1`. Preserved phase-submit batches are not
+completed region close/submit ownership, while the stack-exit runtime-point
+owner can complete only that close-submit component. Missing or incomplete
+components remain explicit blockers. This gives a future region-exit owner a
+single handoff surface without treating component proof completion as
+permission to remove or defer a submit.
 The existing `StackRegionSingleRecordingCanary.v0` guard consumes the same
 component lifecycle state and records the aggregate transfer status on canary
 rows. The guard remains fail-closed: after the earlier proof and barrier gates,
