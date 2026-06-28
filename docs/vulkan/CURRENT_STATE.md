@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `9f04c6af670` plus
-behavior-neutral stack-exit close-submit owner transfer join.
+Last refreshed: 2026-06-28 at local HEAD `bf03da4b9fb` plus
+behavior-neutral retire-timeline owner accounting from stack-exit close-submit.
 
 ## Repo State Summary
 
@@ -529,9 +529,11 @@ cancel, but the observed states remain context-owned and not transferred:
 `retire_timeline_owner_candidate_active_context_owned_not_transferred`,
 `retire_timeline_owner_finalized_submit_context_owned_not_transferred`, or
 `retire_timeline_owner_finalized_cancel_context_owned_not_transferred`. The
-owner row can report migration accounting availability, but it keeps
-`owner_available=0`, `transfers_retire_timeline=0`,
-`authorizes_submit_elision=0`, and fail-closes with
+owner row can report migration accounting availability. Generic rows keep
+`owner_available=0`, but the stack-exit close-submit owner mode can expose
+`owner_available=1` for accounting after the runtime exit-submit owner is
+joined. In both cases `transfers_retire_timeline=0`,
+`authorizes_submit_elision=0`, and the row fail-closes with
 `retire_timeline_owner_behavior_disabled` until a real region-owned retire
 timeline handoff is implemented.
 `StackRegionPendingRetireTransferPlan.v0` now snapshots the concrete pending

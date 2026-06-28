@@ -11692,6 +11692,8 @@ void append_stack_region_submit_epoch_ordering_json(
         phase_submit_execution_flush_dependency_observed;
     retire_timeline_owner_request.transfer_accounting_available =
         retire_timeline_migration_result.transfer_accounting_available;
+    retire_timeline_owner_request.close_submit_owner_available =
+        region_exit_close_submit_owner_result.ownership_available;
     retire_timeline_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
     const StackRegionRetireTimelineOwnerResult retire_timeline_owner_result =
@@ -24732,17 +24734,21 @@ StackRegionRetireTimelineOwnerResult request_stack_region_retire_timeline_owner(
   if (
       request.retire_timeline_migration_status ==
       "retire_timeline_migration_accounting_available_behavior_disabled") {
+    result.owner_available = request.close_submit_owner_available;
     result.result_status =
         "retire_timeline_owner_result_accounting_available_behavior_disabled";
-    result.owner_status =
-        "retire_timeline_owner_accounting_available_behavior_disabled_fail_closed";
+    result.owner_status = request.close_submit_owner_available
+        ? "retire_timeline_owner_available_close_submit_owner_behavior_disabled_fail_closed"
+        : "retire_timeline_owner_accounting_available_behavior_disabled_fail_closed";
     result.top_blocker = "retire_timeline_owner_behavior_disabled";
     result.implementation_status =
         "retire_timeline_owner_context_owned_behavior_disabled";
     result.current_retire_timeline_owner_status =
         "current_phase_submit_retire_timeline_preserved_context_owned";
     result.requested_retire_timeline_owner_status =
-        "requested_region_retire_timeline_owner_recorded_behavior_disabled";
+        request.close_submit_owner_available
+        ? "requested_region_retire_timeline_owner_close_submit_owner_available_behavior_disabled"
+        : "requested_region_retire_timeline_owner_recorded_behavior_disabled";
     return result;
   }
   result.top_blocker = request.retire_timeline_migration_top_blocker;

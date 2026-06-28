@@ -1291,6 +1291,7 @@ struct StackRegionRetireTimelineOwnerRequest final {
       "ContextStackRegionRetireTimelineOwnerState.v0";
   bool owner_required = true;
   bool transfer_accounting_available = false;
+  bool close_submit_owner_available = false;
   bool public_final_host_readback_boundary = false;
 };
 

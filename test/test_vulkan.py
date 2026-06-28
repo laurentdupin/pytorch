@@ -25823,14 +25823,28 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 transfer_row["close_submit_owner_handoff_status"],
                 "region_exit_close_submit_owner_handoff_available_stack_exit_close_submit_owner",
             )
+            self.assertEqual(
+                transfer_row["retire_timeline_accounting_joined"], "1"
+            )
+            self.assertEqual(
+                transfer_row["retire_timeline_owner_status"],
+                "retire_timeline_owner_available_close_submit_owner_behavior_disabled_fail_closed",
+            )
+            self.assertEqual(
+                transfer_row["pending_retire_transfer_owner_status"],
+                "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+            )
             self.assertIn(
                 transfer_row["transfer_status"],
                 {
-                    "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner",
                     "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
                     "region_exit_ownership_transfer_blocked_by_retire_timeline_owner",
                     "region_exit_ownership_transfer_complete_fail_closed",
                 },
+            )
+            self.assertNotEqual(
+                transfer_row["transfer_status"],
+                "region_exit_ownership_transfer_blocked_by_close_submit_owner",
             )
             self.assertNotEqual(
                 transfer_row["top_blocker"],
