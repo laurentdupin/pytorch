@@ -21809,6 +21809,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_pending_retire_transfer_owner_record["owner_available"],
                 "0",
             )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record[
+                    "lifecycle_status"
+                ],
+                {
+                    "pending_retire_transfer_owner_not_started",
+                    "pending_retire_transfer_owner_candidate_active_context_owned_not_transferred",
+                    "pending_retire_transfer_owner_finalized_submit_context_owned_not_transferred",
+                    "pending_retire_transfer_owner_finalized_cancel_context_owned_not_transferred",
+                },
+            )
+            self.assertEqual(
+                first_pending_retire_transfer_owner_record[
+                    "lifecycle_source"
+                ],
+                "ContextStackRegionPendingRetireTransferOwnerState.v0",
+            )
             self.assertEqual(
                 first_pending_retire_transfer_owner_record["behavior_enabled"],
                 "0",

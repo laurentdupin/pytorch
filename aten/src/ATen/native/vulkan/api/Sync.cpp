@@ -11560,7 +11560,7 @@ void append_stack_region_submit_epoch_ordering_json(
         release_output_boundary_blocker;
     const StackRegionPendingRetireTransferOwnerResult
         pending_retire_transfer_owner_result =
-            request_stack_region_pending_retire_transfer_owner(
+            context()->snapshot_stack_region_pending_retire_transfer_owner(
                 pending_retire_transfer_owner_request);
     const std::string command_buffer_close_submit_ownership_status =
         !phase_submit_execution_flush_dependency_observed
@@ -14088,6 +14088,14 @@ void append_stack_region_submit_epoch_ordering_json(
                                                                         : "0")
         << " owner_available="
         << (pending_retire_transfer_owner_result.owner_available ? "1" : "0")
+        << " lifecycle_id="
+        << pending_retire_transfer_owner_result.lifecycle_id
+        << " lifecycle_state="
+        << pending_retire_transfer_owner_result.lifecycle_state
+        << " lifecycle_status="
+        << pending_retire_transfer_owner_result.lifecycle_status
+        << " lifecycle_source="
+        << pending_retire_transfer_owner_result.lifecycle_source
         << " behavior_enabled="
         << (pending_retire_transfer_owner_result.behavior_enabled ? "1" : "0")
         << " transfers_pending_retires="

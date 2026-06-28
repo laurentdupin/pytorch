@@ -837,6 +837,11 @@ pending-retire owner handoff field. This keeps the source snapshot and the
 ownership handoff distinct: a report can say that the source is known while the
 region owner remains behavior-disabled, or that the owner is waiting on the
 transfer plan itself.
+The row now carries `ContextStackRegionPendingRetireTransferOwnerState.v0`
+lifecycle id/state/status/source. This mirrors the close-submit,
+reset-deferral, and retire-timeline owner surfaces: the owner is observed from
+stack entry through stack exit, but the active/submitted/canceled states remain
+context-owned and not transferred.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an

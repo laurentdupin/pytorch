@@ -560,6 +560,11 @@ status. The older transfer-source status remains available, but downstream
 release/command ownership reports can now show whether the missing piece is the
 transfer source, the retire timeline owner, or the region pending-retire owner
 handoff.
+The owner row is also anchored to
+`ContextStackRegionPendingRetireTransferOwnerState.v0`; stack planned recording
+creates a lifecycle id at stack entry and finalizes it on submit or cancel. All
+current lifecycle states remain context-owned and not transferred, so the row is
+proven to be lifecycle-backed without changing ownership or moving resources.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

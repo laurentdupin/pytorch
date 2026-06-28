@@ -1425,6 +1425,8 @@ struct StackRegionPendingRetireTransferOwnerResult final {
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
   uint64_t stack_internal_batch_resource_bytes = 0u;
+  uint64_t lifecycle_id = 0u;
+  uint32_t lifecycle_state = 0u;
   std::string result_status =
       "pending_retire_transfer_owner_result_unavailable";
   std::string owner_status =
@@ -1442,6 +1444,10 @@ struct StackRegionPendingRetireTransferOwnerResult final {
       "retire_timeline_owner_unavailable";
   std::string planned_release_submit_point_status =
       "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string lifecycle_status =
+      "pending_retire_transfer_owner_not_started";
+  std::string lifecycle_source =
+      "ContextStackRegionPendingRetireTransferOwnerState.v0";
   std::string runtime_api_source =
       "StackRegionPendingRetireTransferOwnerRuntimeApi.v0";
 };

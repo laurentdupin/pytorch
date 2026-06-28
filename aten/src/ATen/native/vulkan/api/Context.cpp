@@ -209,6 +209,20 @@ const char* stack_region_retire_timeline_owner_state_name(
   }
 }
 
+const char* stack_region_pending_retire_transfer_owner_state_name(
+    const uint32_t state) {
+  switch (state) {
+    case 1u:
+      return "pending_retire_transfer_owner_candidate_active_context_owned_not_transferred";
+    case 2u:
+      return "pending_retire_transfer_owner_finalized_submit_context_owned_not_transferred";
+    case 3u:
+      return "pending_retire_transfer_owner_finalized_cancel_context_owned_not_transferred";
+    default:
+      return "pending_retire_transfer_owner_not_started";
+  }
+}
+
 VulkanStackRawResourceAllocationProof stack_raw_allocation_proof(
     const PendingRetireBuffer& pending) {
   VulkanStackRawResourceAllocationProof proof;
@@ -825,6 +839,9 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_retire_timeline_owner_id_{0u},
       next_stack_region_retire_timeline_owner_id_{1u},
       stack_region_retire_timeline_owner_state_{0u},
+      stack_region_pending_retire_transfer_owner_id_{0u},
+      next_stack_region_pending_retire_transfer_owner_id_{1u},
+      stack_region_pending_retire_transfer_owner_state_{0u},
       // Memory Management
       pending_retire_buffers_mutex_{},
       pending_retire_buffers_{},
@@ -1434,6 +1451,26 @@ Context::snapshot_stack_region_pending_retire_transfer(
       pending_resource_bytes,
       stack_internal_batch_resource_count,
       stack_internal_batch_resource_bytes);
+}
+
+StackRegionPendingRetireTransferOwnerResult
+Context::snapshot_stack_region_pending_retire_transfer_owner(
+    const StackRegionPendingRetireTransferOwnerRequest& request) const {
+  StackRegionPendingRetireTransferOwnerResult result =
+      request_stack_region_pending_retire_transfer_owner(request);
+  const uint32_t pending_retire_transfer_owner_state =
+      stack_region_pending_retire_transfer_owner_state_.load(
+          std::memory_order_acquire);
+  result.lifecycle_id =
+      stack_region_pending_retire_transfer_owner_id_.load(
+          std::memory_order_acquire);
+  result.lifecycle_state = pending_retire_transfer_owner_state;
+  result.lifecycle_status =
+      stack_region_pending_retire_transfer_owner_state_name(
+          pending_retire_transfer_owner_state);
+  result.lifecycle_source =
+      "ContextStackRegionPendingRetireTransferOwnerState.v0";
+  return result;
 }
 
 DescriptorPool& Context::active_descriptor_pool() {
@@ -2819,6 +2856,12 @@ void Context::begin_stack_planned_recording() {
       std::memory_order_release);
   stack_region_retire_timeline_owner_state_.store(
       1u, std::memory_order_release);
+  stack_region_pending_retire_transfer_owner_id_.store(
+      next_stack_region_pending_retire_transfer_owner_id_.fetch_add(
+          1u, std::memory_order_relaxed),
+      std::memory_order_release);
+  stack_region_pending_retire_transfer_owner_state_.store(
+      1u, std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -2848,6 +2891,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       2u, std::memory_order_release);
   stack_region_retire_timeline_owner_state_.store(
       2u, std::memory_order_release);
+  stack_region_pending_retire_transfer_owner_state_.store(
+      2u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -2874,6 +2919,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   stack_region_command_pool_reset_deferral_owner_state_.store(
       3u, std::memory_order_release);
   stack_region_retire_timeline_owner_state_.store(
+      3u, std::memory_order_release);
+  stack_region_pending_retire_transfer_owner_state_.store(
       3u, std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
