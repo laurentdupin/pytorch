@@ -2181,6 +2181,13 @@ std::string stack_region_single_recording_canary_key(
               actual_norm1_input_barrier_rows >= selected_submit_rows
           ? 1
           : 0)
+      << " selected_boundary_barrier_coverage_status="
+      << (selected_submit_rows > 0u &&
+              actual_norm1_input_barrier_rows >= selected_submit_rows
+          ? "selected_boundary_actual_consumer_barrier_coverage_complete"
+          : "selected_boundary_actual_consumer_barrier_coverage_incomplete")
+      << " pending_dispatch_barrier_coverage_policy="
+      << "selected_boundary_actual_consumer_barrier_not_raw_pending_dispatch_count"
       << " old_carry_retire_only_non_escaping_proof_complete="
       << (selected_submit_rows > 0u &&
               old_carry_retire_only_rows >= selected_submit_rows
@@ -29857,8 +29864,11 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     record_fail("selected_boundary_proof_predicate_missing");
     return false;
   }
-  if (eligibility_summary.barrier_validated_count < pending_dispatch_count) {
-    record_fail("pending_dispatch_barrier_coverage_incomplete");
+  if (
+      proof_guard_summary.selected_submit_rows == 0u ||
+      proof_guard_summary.actual_norm1_input_barrier_rows <
+          proof_guard_summary.selected_submit_rows) {
+    record_fail("selected_boundary_actual_consumer_barrier_coverage_incomplete");
     return false;
   }
   constexpr bool region_exit_ownership_transfer_complete = false;

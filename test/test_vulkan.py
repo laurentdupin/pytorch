@@ -25421,7 +25421,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
-    def test_vulkan_stack_region_single_recording_canary_requires_full_barrier_coverage(
+    def test_vulkan_stack_region_single_recording_canary_requires_ownership_transfer(
         self,
     ):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
@@ -25528,7 +25528,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["fields"]
                 for row in canary_rows
                 if row["fields"].get("guard_fail_reason")
-                == "pending_dispatch_barrier_coverage_incomplete"
+                == "region_exit_ownership_transfer_incomplete"
             ]
             self.assertTrue(rejected_rows)
             row = rejected_rows[0]
@@ -25542,7 +25542,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 row["guard_fail_reason"],
-                "pending_dispatch_barrier_coverage_incomplete",
+                "region_exit_ownership_transfer_incomplete",
             )
             self.assertEqual(
                 row["single_recording_owner_status"],
@@ -25643,6 +25643,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 row["actual_norm1_input_barrier_proof_present"], "1"
+            )
+            self.assertEqual(
+                row["selected_boundary_barrier_coverage_status"],
+                "selected_boundary_actual_consumer_barrier_coverage_complete",
+            )
+            self.assertEqual(
+                row["pending_dispatch_barrier_coverage_policy"],
+                "selected_boundary_actual_consumer_barrier_"
+                "not_raw_pending_dispatch_count",
             )
             self.assertEqual(
                 row["old_carry_retire_only_non_escaping_proof_complete"], "1"

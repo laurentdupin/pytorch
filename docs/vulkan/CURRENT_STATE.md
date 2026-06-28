@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `099f5c3692ef` plus
-single-recording canary consumption of region-exit ownership transfer.
+Last refreshed: 2026-06-28 at local HEAD `3c7010c62e2` plus
+selected-boundary single-recording barrier guard cleanup.
 
 ## Repo State Summary
 
@@ -190,10 +190,9 @@ submit-pending capture-sensitive join fields:
 `capture_sensitive_submit_pending_old_carry_joined_records`,
 `capture_sensitive_submit_pending_join_status`, and
 `capture_sensitive_submit_pending_join_reject_reason`. These fields make the
-remaining submit-site blocker visible without changing the
-`pending_dispatch_barrier_coverage_incomplete` guard or authorizing submit
-elision. Descriptor updates now have actual update-generation evidence, but
-pending dispatch completion and command-buffer visibility are still separate
+remaining submit-site blocker visible without authorizing submit elision.
+Descriptor updates now have actual update-generation evidence, but pending
+dispatch completion and command-buffer visibility are still separate
 fail-closed gates. Submit-level rows report
 pending dispatch list identity, recorded-position range, command-buffer
 recording id, submit epochs, and explicit completion/visibility status. A
@@ -602,7 +601,11 @@ phase-submit batch lease as available for accounting, then fail closed on
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`.
 This only aligns the canary readiness report with the ownership rows; it does
 not authorize submit elision, make the batch a region close/submit owner, or
-change the `pending_dispatch_barrier_coverage_incomplete` guard.
+turn selected-boundary barrier proof into permission to skip a submit. The
+single-recording canary now treats the actual Norm1 input barrier as
+selected-boundary value-preservation evidence rather than requiring one barrier
+per pending dispatch/bookkeeping row, so rows with complete selected-boundary
+proof advance to the `region_exit_ownership_transfer_incomplete` guard.
 The behavior guard also has an explicit close/submit-owner capability check, so
 even after a future barrier-coverage proof becomes complete the canary remains
 fail-closed until a real region exit close/submit owner exists.

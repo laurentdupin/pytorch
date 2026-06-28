@@ -148,13 +148,13 @@ stack-region command recording open across exactly that phase boundary and
 close/submit at stack exit. The canary is not default behavior, does not use
 the older retire-time submit-elision canary, and does not remove any boundary
 outside the selected one. The real `vits_140` failure showed that one actual
-Norm1 input barrier is not enough to replace the full phase submit, so the
-canary now requires validated barrier coverage to span the pending dispatch
-range before any selected submit can be deferred. The focused test asserts
-output parity and fail-closed behavior when barrier coverage is incomplete,
-while still checking the single-recording owner, live command-buffer id,
-pending dispatch range, actual Norm1 input barrier proof, and
-host/final/readback blocker checks.
+Norm1 input barrier is not enough to replace the full phase submit. The canary
+therefore treats that barrier as selected-boundary value-preservation evidence
+only; it no longer requires a barrier for every pending dispatch/bookkeeping
+row. The focused test asserts output parity and fail-closed behavior at
+region-exit ownership transfer after checking the single-recording owner, live
+command-buffer id, pending dispatch range, actual Norm1 input barrier proof,
+and host/final/readback blocker checks.
 The canary row now mirrors the preserved phase-submit batch lease when the
 planned stack scope is active:
 `region_owned_command_buffer_batch_lease_available_preserved_phase_submits`
