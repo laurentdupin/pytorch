@@ -553,6 +553,13 @@ current rows can report transfer-plan accounting and source matching, but keep
 the row fail-closes on `pending_retire_transfer_owner_behavior_disabled`; when
 the transfer plan is blocked, it propagates the plan blocker instead of hiding
 it behind close-submit ownership.
+That owner handoff status is now threaded into
+`StackRegionExitReleaseOwnership.v0`, `RegionCommandBufferOwnership.v0`, and
+`StackRegionDeferredSubmitRuntimeHookPlan.v0` as a separate owner-release
+status. The older transfer-source status remains available, but downstream
+release/command ownership reports can now show whether the missing piece is the
+transfer source, the retire timeline owner, or the region pending-retire owner
+handoff.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

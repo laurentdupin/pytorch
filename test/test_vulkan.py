@@ -20407,6 +20407,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_proof,
             )
             self.assertIn(
+                "stack_region_deferred_submit_runtime_hook_pending_retire_owner_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
                 "stack_region_command_buffer_ownership_plan_records",
                 submit_level_proof,
             )
@@ -20532,6 +20536,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "stack_region_exit_release_ownership_pending_retires_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_exit_release_ownership_pending_retire_owner_status_counts",
                 submit_level_proof,
             )
             self.assertIn(
@@ -20704,6 +20712,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn(
                 "region_command_buffer_ownership_command_pool_lease_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "region_command_buffer_ownership_pending_retire_owner_status_counts",
                 submit_level_proof,
             )
             self.assertIn(
@@ -21401,6 +21413,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retires_transfer_accounting_available_no_pending_retires",
                     "pending_retires_transfer_blocked_by_output_boundary",
                     "pending_retires_transfer_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "pending_retire_transfer_owner_release_status"
+                ],
+                {
+                    "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_blocked_by_transfer_plan",
+                    "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
+                    "pending_retire_transfer_owner_not_required",
+                },
+            )
+            self.assertIn(
+                first_exit_release_ownership_scaffold_record[
+                    "pending_retire_transfer_owner_release_top_blocker"
+                ],
+                {
+                    "pending_retire_transfer_owner_behavior_disabled",
+                    "pending_retire_transfer_behavior_disabled",
+                    "pending_retire_transfer_owner_unavailable",
+                    "retire_timeline_owner_behavior_disabled",
+                    "retire_timeline_owner_blocked_by_migration_proof",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
                 },
             )
             first_retire_timeline_migration_record = selected_plan_record(
@@ -23425,6 +23462,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retires_not_transferred_phase_submit_retire_timeline_preserved",
                     "pending_retires_transfer_blocked_by_output_boundary",
                     "pending_retires_transfer_not_required",
+                },
+            )
+            self.assertIn(
+                first_command_release_record[
+                    "pending_retire_transfer_owner_release_status"
+                ],
+                {
+                    "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_blocked_by_transfer_plan",
+                    "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
+                    "pending_retire_transfer_owner_not_required",
                 },
             )
             self.assertEqual(

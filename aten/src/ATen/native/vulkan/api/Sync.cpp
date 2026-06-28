@@ -11633,6 +11633,14 @@ void append_stack_region_submit_epoch_ordering_json(
         !phase_submit_execution_flush_dependency_observed
         ? "pending_retires_transfer_not_required"
         : retire_timeline_migration_result.pending_retires_transfer_status;
+    const std::string exit_release_pending_retires_owner_status =
+        !phase_submit_execution_flush_dependency_observed
+        ? "pending_retire_transfer_owner_not_required"
+        : pending_retire_transfer_owner_result.owner_status;
+    const std::string exit_release_pending_retires_owner_top_blocker =
+        !phase_submit_execution_flush_dependency_observed
+        ? "none"
+        : pending_retire_transfer_owner_result.top_blocker;
     const std::string exit_release_descriptor_lifetime_status =
         !phase_submit_execution_flush_dependency_observed
         ? "descriptor_release_ownership_not_required"
@@ -13788,6 +13796,15 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_release_final_outputs_status
         << " pending_retires_transfer_release_status="
         << exit_release_pending_retires_status
+        << " pending_retire_transfer_owner=StackRegionPendingRetireTransferOwner.v0"
+        << " pending_retire_transfer_owner_key="
+        << pending_retire_transfer_owner_key
+        << " pending_retire_transfer_owner_release_status="
+        << exit_release_pending_retires_owner_status
+        << " pending_retire_transfer_owner_release_top_blocker="
+        << exit_release_pending_retires_owner_top_blocker
+        << " pending_retire_transfer_owner_implementation_status="
+        << pending_retire_transfer_owner_result.implementation_status
         << " descriptor_lifetime_release_ownership_status="
         << exit_release_descriptor_lifetime_status
         << " retire_timeline_release_ownership_status="
@@ -14417,6 +14434,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_release_final_outputs_status
         << " pending_retires_transfer_release_status="
         << exit_release_pending_retires_status
+        << " pending_retire_transfer_owner=StackRegionPendingRetireTransferOwner.v0"
+        << " pending_retire_transfer_owner_key="
+        << pending_retire_transfer_owner_key
+        << " pending_retire_transfer_owner_release_status="
+        << exit_release_pending_retires_owner_status
+        << " pending_retire_transfer_owner_release_top_blocker="
+        << exit_release_pending_retires_owner_top_blocker
         << " command_pool_reset_deferral_status="
         << command_pool_reset_deferral_proof_result.proof_status
         << " command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred"
@@ -14577,6 +14601,11 @@ void append_stack_region_submit_epoch_ordering_json(
         << deferred_runtime_hook_cross_phase_recording_status
         << " retire_timeline_migration_hook_status="
         << deferred_runtime_hook_retire_timeline_status
+        << " pending_retire_transfer_owner=StackRegionPendingRetireTransferOwner.v0"
+        << " pending_retire_transfer_owner_status="
+        << pending_retire_transfer_owner_result.owner_status
+        << " pending_retire_transfer_owner_top_blocker="
+        << pending_retire_transfer_owner_result.top_blocker
         << " descriptor_lifetime_extension_hook_status="
         << deferred_runtime_hook_descriptor_lifetime_status
         << " command_pool_lifetime_extension_hook_status="
@@ -17812,6 +17841,8 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_exit_release_ownership_pending_retires_counts;
   std::map<std::string, uint64_t>
+      stack_region_exit_release_ownership_pending_retire_owner_counts;
+  std::map<std::string, uint64_t>
       stack_region_exit_release_ownership_descriptor_lifetime_counts;
   std::map<std::string, uint64_t>
       stack_region_exit_release_ownership_retire_timeline_counts_v0;
@@ -17974,6 +18005,8 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_command_ownership_pending_retire_transfer_counts;
   std::map<std::string, uint64_t>
+      stack_region_command_ownership_pending_retire_owner_counts;
+  std::map<std::string, uint64_t>
       stack_region_command_ownership_command_pool_reset_counts;
   std::map<std::string, uint64_t>
       stack_region_deferred_submit_runtime_hook_plan_status_counts;
@@ -17985,6 +18018,8 @@ void append_stack_region_submit_epoch_ordering_json(
       stack_region_deferred_submit_runtime_hook_cross_phase_recording_counts;
   std::map<std::string, uint64_t>
       stack_region_deferred_submit_runtime_hook_retire_timeline_counts;
+  std::map<std::string, uint64_t>
+      stack_region_deferred_submit_runtime_hook_pending_retire_owner_counts;
   std::map<std::string, uint64_t>
       stack_region_deferred_submit_runtime_hook_descriptor_lifetime_counts;
   std::map<std::string, uint64_t>
@@ -18596,6 +18631,10 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "pending_retires_transfer_release_status",
         "missing_pending_retires_transfer_release_status")] += count;
+    stack_region_exit_release_ownership_pending_retire_owner_counts[field_or(
+        fields,
+        "pending_retire_transfer_owner_release_status",
+        "missing_pending_retire_transfer_owner_release_status")] += count;
     stack_region_exit_release_ownership_descriptor_lifetime_counts[field_or(
         fields,
         "descriptor_lifetime_release_ownership_status",
@@ -18921,6 +18960,10 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "pending_retires_transfer_release_status",
         "missing_pending_retires_transfer_release_status")] += count;
+    stack_region_command_ownership_pending_retire_owner_counts[field_or(
+        fields,
+        "pending_retire_transfer_owner_release_status",
+        "missing_pending_retire_transfer_owner_release_status")] += count;
     stack_region_command_ownership_command_pool_reset_counts[field_or(
         fields,
         "command_pool_reset_deferral_status",
@@ -18951,6 +18994,11 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "retire_timeline_migration_hook_status",
         "missing_retire_timeline_migration_hook_status")] += count;
+    stack_region_deferred_submit_runtime_hook_pending_retire_owner_counts
+        [field_or(
+            fields,
+            "pending_retire_transfer_owner_status",
+            "missing_pending_retire_transfer_owner_status")] += count;
     stack_region_deferred_submit_runtime_hook_descriptor_lifetime_counts[field_or(
         fields,
         "descriptor_lifetime_extension_hook_status",
@@ -20913,6 +20961,10 @@ void append_stack_region_submit_epoch_ordering_json(
   append_u64_map_object(
       out, stack_region_exit_release_ownership_pending_retires_counts);
   append_json_comma(out, submit_level_first);
+  out << "\"stack_region_exit_release_ownership_pending_retire_owner_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_exit_release_ownership_pending_retire_owner_counts);
+  append_json_comma(out, submit_level_first);
   out << "\"stack_region_exit_release_ownership_descriptor_lifetime_status_counts\":";
   append_u64_map_object(
       out, stack_region_exit_release_ownership_descriptor_lifetime_counts);
@@ -21416,6 +21468,10 @@ void append_stack_region_submit_epoch_ordering_json(
   append_u64_map_object(
       out, stack_region_command_ownership_pending_retire_transfer_counts);
   append_json_comma(out, submit_level_first);
+  out << "\"region_command_buffer_ownership_pending_retire_owner_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_ownership_pending_retire_owner_counts);
+  append_json_comma(out, submit_level_first);
   out << "\"region_command_buffer_ownership_command_pool_reset_status_counts\":";
   append_u64_map_object(
       out, stack_region_command_ownership_command_pool_reset_counts);
@@ -21458,6 +21514,12 @@ void append_stack_region_submit_epoch_ordering_json(
       << "\"stack_region_deferred_submit_runtime_hook_retire_timeline_status_counts\":";
   append_u64_map_object(
       out, stack_region_deferred_submit_runtime_hook_retire_timeline_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_deferred_submit_runtime_hook_pending_retire_owner_status_counts\":";
+  append_u64_map_object(
+      out,
+      stack_region_deferred_submit_runtime_hook_pending_retire_owner_counts);
   append_json_comma(out, submit_level_first);
   out
       << "\"stack_region_deferred_submit_runtime_hook_descriptor_lifetime_status_counts\":";
