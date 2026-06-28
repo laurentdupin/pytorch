@@ -20739,6 +20739,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_level_proof,
             )
             self.assertIn(
+                "stack_region_command_pool_reset_deferral_owner_records",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_pool_reset_deferral_owner_status_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
+                "stack_region_command_pool_reset_deferral_owner_top_blocker_counts",
+                submit_level_proof,
+            )
+            self.assertIn(
                 "stack_region_command_buffer_request_hook_plan_records",
                 submit_level_proof,
             )
@@ -23560,6 +23572,53 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 first_reset_deferral_record["authorizes_submit_elision"],
                 "0",
+            )
+            first_reset_deferral_owner_record = selected_plan_record(
+                "stack_region_command_pool_reset_deferral_owner_records"
+            )
+            self.assertEqual(
+                first_reset_deferral_owner_record["schema"],
+                "StackRegionCommandPoolResetDeferralOwner.v0",
+            )
+            self.assertEqual(
+                first_reset_deferral_owner_record["owner_available"],
+                "0",
+            )
+            self.assertEqual(
+                first_reset_deferral_owner_record["defers_command_pool_reset"],
+                "0",
+            )
+            self.assertEqual(
+                first_reset_deferral_owner_record["authorizes_submit_elision"],
+                "0",
+            )
+            self.assertIn(
+                first_reset_deferral_owner_record["owner_status"],
+                {
+                    "command_pool_reset_deferral_owner_unavailable_reset_deferral_implementation_missing",
+                    "command_pool_reset_deferral_owner_blocked_by_proof_dependency",
+                    "command_pool_reset_deferral_owner_blocked_by_host_fence_public_readback",
+                    "command_pool_reset_deferral_owner_not_required",
+                },
+            )
+            self.assertIn(
+                first_reset_deferral_owner_record["top_blocker"],
+                {
+                    "command_pool_retention_implementation_missing",
+                    "missing_region_exit_release_ownership",
+                    "region_exit_release_point_unimplemented",
+                    "command_pool_reset_deferral_implementation_missing",
+                    "missing_command_buffer_close_submit_release_ownership",
+                    "region_exit_close_submit_owner_missing",
+                    "region_exit_close_submit_owner_implementation_missing",
+                    "command_buffer_still_context_phase_submit_owned",
+                    "region_owned_command_buffer_lease_unavailable_acquire_hook_behavior_disabled",
+                    "region_owned_command_buffer_lease_unavailable_missing_single_region_recording_owner",
+                    "region_owned_command_buffer_lease_unavailable_single_recording_owner_lacks_close_submit_ownership",
+                    "region_owned_command_buffer_lease_unavailable_context_phase_submit_owner",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
             )
             first_request_record = selected_plan_record(
                 "stack_region_command_buffer_request_records"

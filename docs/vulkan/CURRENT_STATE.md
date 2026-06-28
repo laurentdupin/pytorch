@@ -594,6 +594,13 @@ otherwise observed, close-submit owner diagnostics now fail closed on the more
 specific reset-deferral implementation blocker instead of only reporting the
 generic preserved-batch-only blocker. This is classification only: no submit is
 deferred, elided, closed, or transferred to a region owner.
+`StackRegionCommandPoolResetDeferralOwner.v0` is now the behavior-neutral owner
+surface between that proof and close-submit ownership. It records whether a
+region-owned command-pool reset-deferral owner exists, whether reset deferral is
+enabled, and whether command-pool reset would be deferred. Current rows report
+`owner_available=0`, `defers_command_pool_reset=0`, and
+`authorizes_submit_elision=0`; the selected blocker remains
+`command_pool_reset_deferral_implementation_missing`.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair to
 the planned stack-entry and stack-exit callsites. The hook is not installed,
 authorizes no behavior, and refines the top blocker to

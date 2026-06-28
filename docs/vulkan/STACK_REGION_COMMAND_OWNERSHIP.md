@@ -261,6 +261,11 @@ region ownership exists, phase-boundary submits continue to own command-buffer
 recording closure, command-pool reset eligibility, descriptor lifetime, and
 timeline creation. Reset deferral remains fail-closed with
 `command_pool_reset_deferral_implementation_missing`.
+`StackRegionCommandPoolResetDeferralOwner.v0` is the behavior-neutral owner
+surface for that missing step. It records the proof key/status, current
+command-pool owner scope, requested stack-region owner scope, and planned
+release/reset point while keeping `owner_available=0`,
+`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`.
 
 ### Release Ownership
 

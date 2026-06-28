@@ -9180,6 +9180,8 @@ void append_stack_region_submit_epoch_ordering_json(
   std::vector<std::string> stack_region_command_pool_retention_result_rows;
   std::vector<std::string>
       stack_region_command_pool_reset_deferral_proof_rows;
+  std::vector<std::string>
+      stack_region_command_pool_reset_deferral_owner_rows;
   std::vector<std::string> stack_region_command_pool_lifetime_contract_rows;
   std::vector<std::string> stack_region_command_buffer_request_rows;
   std::vector<std::string> stack_region_command_buffer_request_result_rows;
@@ -10537,6 +10539,9 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string command_pool_reset_deferral_proof_key =
         "stack_region_command_pool_reset_deferral_proof:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string command_pool_reset_deferral_owner_key =
+        "stack_region_command_pool_reset_deferral_owner:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
     StackRegionCommandBufferRequest command_buffer_request;
     command_buffer_request.stack_region_id = stack_region_id;
     command_buffer_request.stack_region_instance_id = stack_region_instance_id;
@@ -10694,6 +10699,39 @@ void append_stack_region_submit_epoch_ordering_json(
         command_pool_reset_deferral_proof_result =
             evaluate_stack_region_command_pool_reset_deferral_proof(
                 command_pool_reset_deferral_proof_request);
+    StackRegionCommandPoolResetDeferralOwnerRequest
+        command_pool_reset_deferral_owner_request;
+    command_pool_reset_deferral_owner_request.stack_region_id =
+        command_pool_reset_deferral_proof_request.stack_region_id;
+    command_pool_reset_deferral_owner_request.stack_region_instance_id =
+        stack_region_instance_id;
+    command_pool_reset_deferral_owner_request.reset_deferral_proof_key =
+        command_pool_reset_deferral_proof_key;
+    command_pool_reset_deferral_owner_request.reset_deferral_proof_status =
+        command_pool_reset_deferral_proof_result.proof_status;
+    command_pool_reset_deferral_owner_request.reset_deferral_proof_top_blocker =
+        command_pool_reset_deferral_proof_result.top_blocker;
+    command_pool_reset_deferral_owner_request.current_command_pool_owner_scope =
+        command_pool_reset_deferral_proof_request
+            .current_command_pool_owner_scope;
+    command_pool_reset_deferral_owner_request.requested_owner_scope =
+        "stack_region";
+    command_pool_reset_deferral_owner_request.planned_release_reset_point_id =
+        command_pool_reset_deferral_proof_request
+            .planned_release_reset_point_id;
+    command_pool_reset_deferral_owner_request
+        .planned_release_reset_point_status =
+            command_pool_reset_deferral_proof_result
+                .planned_release_reset_point_status;
+    command_pool_reset_deferral_owner_request.owner_required =
+        command_pool_reset_deferral_proof_request.proof_required;
+    command_pool_reset_deferral_owner_request.public_final_host_readback_boundary =
+        command_pool_reset_deferral_proof_request
+            .public_final_host_readback_boundary;
+    const StackRegionCommandPoolResetDeferralOwnerResult
+        command_pool_reset_deferral_owner_result =
+            request_stack_region_command_pool_reset_deferral_owner(
+                command_pool_reset_deferral_owner_request);
     const std::string exit_release_ownership_key =
         "stack_region_exit_release_ownership:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -11066,7 +11104,7 @@ void append_stack_region_submit_epoch_ordering_json(
             command_pool_reset_deferral_proof_result.proof_status;
     region_owned_command_buffer_lease_request
         .command_pool_reset_deferral_top_blocker =
-            command_pool_reset_deferral_proof_result.top_blocker;
+            command_pool_reset_deferral_owner_result.top_blocker;
     region_owned_command_buffer_lease_request.acquire_hook_behavior_enabled =
         stack_region_command_buffer_acquire_hook_result.behavior_enabled;
     region_owned_command_buffer_lease_request.acquire_hook_lease_available =
@@ -11147,7 +11185,7 @@ void append_stack_region_submit_epoch_ordering_json(
     exit_close_submit_owner_request.command_pool_reset_deferral_status =
         command_pool_reset_deferral_proof_result.proof_status;
     exit_close_submit_owner_request.command_pool_reset_deferral_top_blocker =
-        command_pool_reset_deferral_proof_result.top_blocker;
+        command_pool_reset_deferral_owner_result.top_blocker;
     const StackRegionExitCloseSubmitOwnerResult
         exit_close_submit_owner_result =
             request_stack_region_exit_close_submit_owner(
@@ -11219,7 +11257,7 @@ void append_stack_region_submit_epoch_ordering_json(
         command_pool_reset_deferral_proof_result.proof_status;
     region_exit_close_submit_owner_request
         .command_pool_reset_deferral_top_blocker =
-            command_pool_reset_deferral_proof_result.top_blocker;
+            command_pool_reset_deferral_owner_result.top_blocker;
     const StackRegionExitCloseSubmitOwnerSurfaceResult
         region_exit_close_submit_owner_result =
             evaluate_stack_region_exit_close_submit_owner_surface(
@@ -14514,6 +14552,71 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_command_pool_reset_deferral_proof_rows.emplace_back(
         command_pool_reset_deferral_proof_row.str());
+    std::ostringstream command_pool_reset_deferral_owner_row;
+    command_pool_reset_deferral_owner_row
+        << "schema=StackRegionCommandPoolResetDeferralOwner.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " owner_key=" << command_pool_reset_deferral_owner_key
+        << " stack_region_id="
+        << command_pool_reset_deferral_owner_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " reset_deferral_proof=StackRegionCommandPoolResetDeferralProof.v0"
+        << " reset_deferral_proof_key="
+        << command_pool_reset_deferral_owner_request.reset_deferral_proof_key
+        << " reset_deferral_proof_status="
+        << command_pool_reset_deferral_owner_result
+               .reset_deferral_proof_status
+        << " reset_deferral_proof_top_blocker="
+        << command_pool_reset_deferral_owner_result
+               .reset_deferral_proof_top_blocker
+        << " owner_required="
+        << (command_pool_reset_deferral_owner_request.owner_required ? "1"
+                                                                    : "0")
+        << " owner_record_emitted="
+        << (command_pool_reset_deferral_owner_result.owner_record_emitted
+                ? "1"
+                : "0")
+        << " owner_available="
+        << (command_pool_reset_deferral_owner_result.owner_available ? "1"
+                                                                    : "0")
+        << " result_status="
+        << command_pool_reset_deferral_owner_result.result_status
+        << " owner_status="
+        << command_pool_reset_deferral_owner_result.owner_status
+        << " top_blocker="
+        << command_pool_reset_deferral_owner_result.top_blocker
+        << " implementation_status="
+        << command_pool_reset_deferral_owner_result.implementation_status
+        << " current_command_pool_owner_status="
+        << command_pool_reset_deferral_owner_result
+               .current_command_pool_owner_status
+        << " requested_owner_status="
+        << command_pool_reset_deferral_owner_result.requested_owner_status
+        << " planned_release_reset_point_id="
+        << command_pool_reset_deferral_owner_request
+               .planned_release_reset_point_id
+        << " planned_release_reset_point_status="
+        << command_pool_reset_deferral_owner_result
+               .planned_release_reset_point_status
+        << " reset_deferral_behavior_enabled="
+        << (command_pool_reset_deferral_owner_result
+                    .reset_deferral_behavior_enabled
+                ? "1"
+                : "0")
+        << " defers_command_pool_reset="
+        << (command_pool_reset_deferral_owner_result.defers_command_pool_reset
+                ? "1"
+                : "0")
+        << " runtime_api_source="
+        << command_pool_reset_deferral_owner_result.runtime_api_source
+        << " future_accepted_state=region_owned_command_pool_reset_deferral_owner"
+        << " authorizes_submit_elision=0"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_command_pool_reset_deferral_owner_rows.emplace_back(
+        command_pool_reset_deferral_owner_row.str());
     std::ostringstream request_row;
     request_row
         << "schema=StackRegionCommandBufferRequest.v0"
@@ -17255,6 +17358,14 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_command_pool_reset_deferral_retire_timeline_counts;
   std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_owner_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_owner_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_owner_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_command_pool_reset_deferral_owner_implementation_counts;
+  std::map<std::string, uint64_t>
       stack_region_command_buffer_request_api_status_counts;
   std::map<std::string, uint64_t>
       stack_region_command_buffer_request_requested_resource_type_counts;
@@ -18234,6 +18345,21 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "retire_timeline_status",
         "missing_retire_timeline_status")] += count;
+  }
+  for (const auto& row : stack_region_command_pool_reset_deferral_owner_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_command_pool_reset_deferral_owner_status_counts[field_or(
+        fields, "owner_status", "missing_owner_status")] += count;
+    stack_region_command_pool_reset_deferral_owner_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_command_pool_reset_deferral_owner_result_status_counts
+        [field_or(fields, "result_status", "missing_result_status")] += count;
+    stack_region_command_pool_reset_deferral_owner_implementation_counts
+        [field_or(
+            fields,
+            "implementation_status",
+            "missing_implementation_status")] += count;
   }
   for (const auto& row : stack_region_command_buffer_request_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -20716,6 +20842,37 @@ void append_stack_region_submit_epoch_ordering_json(
   }
   out << "]";
   append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_owner_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_owner_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_owner_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_owner_result_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_owner_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out
+      << "\"stack_region_command_pool_reset_deferral_owner_implementation_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_command_pool_reset_deferral_owner_implementation_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_command_pool_reset_deferral_owner_records\":[";
+  for (size_t i = 0u;
+       i < stack_region_command_pool_reset_deferral_owner_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_command_pool_reset_deferral_owner_rows[i],
+        "stack_region_command_pool_reset_deferral_owner");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
   out << "\"stack_region_command_buffer_request_api_status_counts\":";
   append_u64_map_object(out, stack_region_command_buffer_request_api_status_counts);
   append_json_comma(out, submit_level_first);
@@ -22824,6 +22981,65 @@ evaluate_stack_region_command_pool_reset_deferral_proof(
       "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing";
   result.proof_reason = "command_pool_reset_deferral_implementation_missing";
   result.top_blocker = "command_pool_reset_deferral_implementation_missing";
+  return result;
+}
+
+StackRegionCommandPoolResetDeferralOwnerResult
+request_stack_region_command_pool_reset_deferral_owner(
+    const StackRegionCommandPoolResetDeferralOwnerRequest& request) {
+  StackRegionCommandPoolResetDeferralOwnerResult result;
+  result.reset_deferral_proof_status = request.reset_deferral_proof_status;
+  result.reset_deferral_proof_top_blocker =
+      request.reset_deferral_proof_top_blocker;
+  result.current_command_pool_owner_status =
+      request.current_command_pool_owner_scope;
+  result.requested_owner_status =
+      request.requested_owner_scope + "_reset_deferral_owner_scope_requested";
+  result.planned_release_reset_point_status =
+      request.planned_release_reset_point_status;
+  if (!request.owner_required) {
+    result.result_status = "command_pool_reset_deferral_owner_not_required";
+    result.owner_status = "command_pool_reset_deferral_owner_not_required";
+    result.top_blocker = "none";
+    result.implementation_status =
+        "command_pool_reset_deferral_owner_implementation_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.result_status =
+        "command_pool_reset_deferral_owner_rejected_host_fence_public_readback_blocker";
+    result.owner_status =
+        "command_pool_reset_deferral_owner_blocked_by_host_fence_public_readback";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.implementation_status =
+        "command_pool_reset_deferral_owner_implementation_blocked_by_host_fence_public_readback";
+    return result;
+  }
+  if (request.reset_deferral_proof_status ==
+      "command_pool_reset_deferral_proof_not_required") {
+    result.result_status = "command_pool_reset_deferral_owner_not_required";
+    result.owner_status = "command_pool_reset_deferral_owner_not_required";
+    result.top_blocker = "none";
+    result.implementation_status =
+        "command_pool_reset_deferral_owner_implementation_not_required";
+    return result;
+  }
+  result.top_blocker = request.reset_deferral_proof_top_blocker;
+  if (result.top_blocker.empty() || result.top_blocker == "none") {
+    result.top_blocker = "command_pool_reset_deferral_implementation_missing";
+  }
+  if (result.top_blocker ==
+      "command_pool_reset_deferral_implementation_missing") {
+    result.owner_status =
+        "command_pool_reset_deferral_owner_unavailable_reset_deferral_implementation_missing";
+    result.implementation_status =
+        "command_pool_reset_deferral_owner_implementation_missing";
+    return result;
+  }
+  result.owner_status =
+      "command_pool_reset_deferral_owner_blocked_by_proof_dependency";
+  result.implementation_status =
+      "command_pool_reset_deferral_owner_blocked_by_proof_dependency";
   return result;
 }
 

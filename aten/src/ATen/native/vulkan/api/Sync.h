@@ -1295,6 +1295,57 @@ TORCH_API StackRegionCommandPoolResetDeferralProofResult
 evaluate_stack_region_command_pool_reset_deferral_proof(
     const StackRegionCommandPoolResetDeferralProofRequest& request);
 
+struct StackRegionCommandPoolResetDeferralOwnerRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string reset_deferral_proof_key = "missing";
+  std::string reset_deferral_proof_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string reset_deferral_proof_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
+  std::string current_command_pool_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string requested_owner_scope = "stack_region";
+  std::string planned_release_reset_point_id = "missing";
+  std::string planned_release_reset_point_status =
+      "region_exit_release_point_unimplemented";
+  bool owner_required = true;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionCommandPoolResetDeferralOwnerResult final {
+  bool api_present = true;
+  bool owner_record_emitted = true;
+  bool owner_available = false;
+  bool reset_deferral_behavior_enabled = false;
+  bool authorizes_submit_elision = false;
+  bool defers_command_pool_reset = false;
+  std::string result_status =
+      "command_pool_reset_deferral_owner_result_unavailable";
+  std::string owner_status =
+      "command_pool_reset_deferral_owner_unavailable";
+  std::string top_blocker =
+      "command_pool_reset_deferral_implementation_missing";
+  std::string implementation_status =
+      "command_pool_reset_deferral_owner_implementation_missing";
+  std::string reset_deferral_proof_status =
+      "missing_command_pool_reset_deferral_proof";
+  std::string reset_deferral_proof_top_blocker =
+      "missing_command_pool_reset_deferral_proof";
+  std::string current_command_pool_owner_status =
+      "command_pool_owner_context_phase_submit_scope";
+  std::string requested_owner_status =
+      "requested_stack_region_reset_deferral_owner_scope";
+  std::string planned_release_reset_point_status =
+      "region_exit_release_point_unimplemented";
+  std::string runtime_api_source =
+      "StackRegionCommandPoolResetDeferralOwnerRuntimeApi.v0";
+};
+
+TORCH_API StackRegionCommandPoolResetDeferralOwnerResult
+request_stack_region_command_pool_reset_deferral_owner(
+    const StackRegionCommandPoolResetDeferralOwnerRequest& request);
+
 struct StackRegionCommandPoolLifetimeContractRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";

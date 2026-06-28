@@ -862,6 +862,12 @@ because the preserved context command pool is observed through the stack-exit
 release point but no region-owned reset-deferral implementation exists yet. This
 refines the older `command_pool_reset_deferral_proof_blocked_retention_unavailable`
 bucket without changing command-pool reset behavior.
+`StackRegionCommandPoolResetDeferralOwner.v0` consumes that proof and emits the
+first-class owner surface for reset deferral. It is still diagnostic-only:
+`owner_available=0`, `reset_deferral_behavior_enabled=0`,
+`defers_command_pool_reset=0`, and `authorizes_submit_elision=0`. Close-submit
+ownership must consume this owner surface rather than treating proof strings as
+behavior authorization.
 `StackRegionCommandBufferRequestHookPlan.v0` joins that request/result pair
 with the planned callsites. Current rows are behavior-neutral with
 `hook_installed=0`, `request_hook_plan_api_present_result_unavailable`, and
