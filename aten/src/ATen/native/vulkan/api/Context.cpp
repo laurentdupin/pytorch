@@ -95,6 +95,16 @@ bool stack_region_close_submit_owner_stack_exit_enabled() {
   return std::string(env) == "stack_exit_close_submit";
 }
 
+bool stack_region_close_submit_owner_preserved_phase_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value == "1" || value == "preserved_phase_submit_batch";
+}
+
 const char* stack_region_single_recording_plan_state_name(
     const uint32_t state) {
   switch (state) {
@@ -151,6 +161,12 @@ const char* stack_region_close_submit_owner_state_name(const uint32_t state) {
       return "region_exit_close_submit_owner_finalized_submit_region_owned_close_submit_available";
     case 6u:
       return "region_exit_close_submit_owner_finalized_cancel_region_owned_close_submit_available";
+    case 7u:
+      return "region_exit_close_submit_owner_active_preserved_phase_submit_close_submit_available";
+    case 8u:
+      return "region_exit_close_submit_owner_finalized_submit_preserved_phase_submit_close_submit_available";
+    case 9u:
+      return "region_exit_close_submit_owner_finalized_cancel_preserved_phase_submit_close_submit_available";
     default:
       return "region_exit_close_submit_owner_not_started";
   }
@@ -2693,6 +2709,14 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           /*include_context_pending_retires=*/true,
           /*preserve_larger_source=*/true);
     }
+    if (
+        record_phase_boundary_dry_run &&
+        stack_region_close_submit_owner_preserved_phase_enabled() &&
+        stack_region_close_submit_owner_state_.load(
+            std::memory_order_acquire) == 1u) {
+      stack_region_close_submit_owner_state_.store(
+          7u, std::memory_order_release);
+    }
     bool dry_run_all_safe_group_eligible = false;
     if (record_phase_boundary_dry_run) {
       std::ostringstream dry_run_signature_stream;
@@ -3055,9 +3079,14 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       2u, std::memory_order_release);
   const uint32_t close_submit_owner_state =
       stack_region_close_submit_owner_state_.load(std::memory_order_acquire);
+  uint32_t finalized_close_submit_owner_state = 2u;
+  if (close_submit_owner_state == 4u) {
+    finalized_close_submit_owner_state = 5u;
+  } else if (close_submit_owner_state == 7u) {
+    finalized_close_submit_owner_state = 8u;
+  }
   stack_region_close_submit_owner_state_.store(
-      close_submit_owner_state == 4u ? 5u : 2u,
-      std::memory_order_release);
+      finalized_close_submit_owner_state, std::memory_order_release);
   stack_region_command_ownership_state_.store(
       2u, std::memory_order_release);
   stack_region_command_pool_reset_deferral_owner_state_.store(
@@ -3089,9 +3118,14 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       3u, std::memory_order_release);
   const uint32_t close_submit_owner_state =
       stack_region_close_submit_owner_state_.load(std::memory_order_acquire);
+  uint32_t finalized_close_submit_owner_state = 3u;
+  if (close_submit_owner_state == 4u) {
+    finalized_close_submit_owner_state = 6u;
+  } else if (close_submit_owner_state == 7u) {
+    finalized_close_submit_owner_state = 9u;
+  }
   stack_region_close_submit_owner_state_.store(
-      close_submit_owner_state == 4u ? 6u : 3u,
-      std::memory_order_release);
+      finalized_close_submit_owner_state, std::memory_order_release);
   stack_region_command_ownership_state_.store(
       3u, std::memory_order_release);
   stack_region_command_pool_reset_deferral_owner_state_.store(

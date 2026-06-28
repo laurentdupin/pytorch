@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `3a9310888ab` plus
-behavior-neutral preserved phase-submit pending-retire source binding.
+Last refreshed: 2026-06-28 at local HEAD `c266601675e` plus behavior-neutral
+preserved phase-submit close/submit owner lifecycle accounting.
 
 ## Repo State Summary
 
@@ -636,9 +636,12 @@ separate behavior-enabled bit, so a lifecycle state cannot authorize submit
 elision by itself: `actual_elided_submit_count=0` and phase-boundary submits
 are preserved. With
 `PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`,
-the live canary can observe the close-submit behavior canary and report
-the preserved-batch handoff blocker; without a real region-owned close/submit
-owner it reports
+the live canary can observe the preserved phase-boundary close/submit lifecycle
+as state `7` /
+`region_exit_close_submit_owner_active_preserved_phase_submit_close_submit_available`
+and report the preserved-batch handoff blocker. This is accounting over the
+existing phase-boundary submit only: it does not make that submit a transferable
+region-exit owner. Without a real region-owned close/submit owner it reports
 `region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
 The live guard now has a separate close-submit authorization input, currently
 passed as `0`, so close-submit owner availability cannot become submit removal
@@ -716,9 +719,9 @@ execution and reports
 `region_exit_close_submit_owner_accounting_available_behavior_disabled_fail_closed`.
 An opt-in close-submit owner canary is available through
 `PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`.
-It only applies after reset deferral has no blocker. It can report
-`region_exit_close_submit_owner_behavior_enabled=1` and an available
-close-submit owner surface, but still reports
+It only applies after reset deferral has no blocker. It can report the active
+preserved phase-submit close/submit lifecycle state, behavior availability,
+and an available close-submit owner surface, but still reports
 `region_exit_close_submit_owner_authorizes_submit_elision=0` and
 `region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`.
 `PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=stack_exit_close_submit`

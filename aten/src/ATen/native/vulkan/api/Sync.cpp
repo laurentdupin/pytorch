@@ -2657,6 +2657,12 @@ const char* stack_region_single_recording_close_submit_owner_lifecycle_status(
       return "region_exit_close_submit_owner_finalized_submit_region_owned_close_submit_available";
     case 6u:
       return "region_exit_close_submit_owner_finalized_cancel_region_owned_close_submit_available";
+    case 7u:
+      return "region_exit_close_submit_owner_active_preserved_phase_submit_close_submit_available";
+    case 8u:
+      return "region_exit_close_submit_owner_finalized_submit_preserved_phase_submit_close_submit_available";
+    case 9u:
+      return "region_exit_close_submit_owner_finalized_cancel_preserved_phase_submit_close_submit_available";
     default:
       return "region_exit_close_submit_owner_not_started";
   }

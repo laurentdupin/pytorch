@@ -935,9 +935,13 @@ and `ownership_available=0`. This keeps accounting separate from behavior
 authorization.
 `PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER=preserved_phase_submit_batch`
 is the next canary layer. It requires the reset-deferral owner blocker to be
-clear, then records close-submit owner behavior availability while keeping
-`region_exit_close_submit_owner_authorizes_submit_elision=0`. The fail-closed
-reason becomes
+clear, then records the active preserved phase-boundary close/submit lifecycle
+state `7` /
+`region_exit_close_submit_owner_active_preserved_phase_submit_close_submit_available`
+plus close-submit owner behavior availability while keeping
+`region_exit_close_submit_owner_authorizes_submit_elision=0`. This is
+accounting over the existing phase-boundary submit only, not transferable
+region-exit ownership. The fail-closed reason becomes
 `region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned`,
 so the next behavior-changing step still requires a real region close/submit
 owner rather than preserved-batch accounting.
