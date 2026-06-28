@@ -1258,6 +1258,66 @@ TORCH_API StackRegionRetireTimelineMigrationResult
 evaluate_stack_region_retire_timeline_migration(
     const StackRegionRetireTimelineMigrationRequest& request);
 
+struct StackRegionRetireTimelineOwnerRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string retire_timeline_migration_key = "missing";
+  std::string retire_timeline_migration_status =
+      "retire_timeline_migration_unimplemented";
+  std::string retire_timeline_migration_top_blocker =
+      "retire_timeline_migration";
+  std::string current_retire_timeline_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string requested_retire_timeline_owner_scope = "stack_region";
+  std::string planned_release_submit_point_id = "missing";
+  std::string planned_release_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  uint64_t lifecycle_id = 0u;
+  uint32_t lifecycle_state = 0u;
+  std::string lifecycle_status = "retire_timeline_owner_not_started";
+  std::string lifecycle_source =
+      "ContextStackRegionRetireTimelineOwnerState.v0";
+  bool owner_required = true;
+  bool transfer_accounting_available = false;
+  bool public_final_host_readback_boundary = false;
+};
+
+struct StackRegionRetireTimelineOwnerResult final {
+  bool api_present = true;
+  bool owner_record_emitted = true;
+  bool owner_available = false;
+  bool transfer_accounting_available = false;
+  bool behavior_enabled = false;
+  bool transfers_retire_timeline = false;
+  bool authorizes_submit_elision = false;
+  uint64_t lifecycle_id = 0u;
+  uint32_t lifecycle_state = 0u;
+  std::string result_status = "retire_timeline_owner_result_unavailable";
+  std::string owner_status = "retire_timeline_owner_unavailable";
+  std::string top_blocker = "retire_timeline_owner_unavailable";
+  std::string implementation_status =
+      "retire_timeline_owner_implementation_missing";
+  std::string migration_status = "retire_timeline_migration_unimplemented";
+  std::string migration_top_blocker = "retire_timeline_migration";
+  std::string current_retire_timeline_owner_status =
+      "retire_timeline_owner_context_phase_submit_scope";
+  std::string requested_retire_timeline_owner_status =
+      "requested_stack_region_retire_timeline_owner_scope";
+  std::string planned_release_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string lifecycle_status = "retire_timeline_owner_not_started";
+  std::string lifecycle_source =
+      "ContextStackRegionRetireTimelineOwnerState.v0";
+  std::string runtime_api_source =
+      "StackRegionRetireTimelineOwnerRuntimeApi.v0";
+};
+
+TORCH_API StackRegionRetireTimelineOwnerResult
+request_stack_region_retire_timeline_owner(
+    const StackRegionRetireTimelineOwnerRequest& request);
+
 struct StackRegionCommandPoolRetentionRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";

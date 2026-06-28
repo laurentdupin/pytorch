@@ -804,6 +804,16 @@ rows can report
 current retire timeline and resource lifetime still belong to the preserved
 context submit path. The row is not a transfer, does not move retire entries,
 does not defer or create submits, and does not authorize submit elision.
+`StackRegionRetireTimelineOwner.v0` now consumes that migration row and adds
+the corresponding Context-owned lifecycle surface. Stack planned recording
+creates a `ContextStackRegionRetireTimelineOwnerState.v0` id, then finalizes
+it on submit or cancel while keeping the current ownership scope context-owned:
+the active/submitted/canceled states all end in
+`context_owned_not_transferred`. This is an accounting owner only. Current rows
+keep `owner_available=0`, `behavior_enabled=0`,
+`transfers_retire_timeline=0`, `authorizes_submit_elision=0`, and fail closed
+on `retire_timeline_owner_behavior_disabled` when migration accounting is
+available.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an

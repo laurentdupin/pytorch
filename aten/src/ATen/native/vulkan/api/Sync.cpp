@@ -9242,6 +9242,7 @@ void append_stack_region_submit_epoch_ordering_json(
   std::vector<std::string>
       stack_region_exit_close_submit_owner_result_rows;
   std::vector<std::string> stack_region_retire_timeline_migration_rows;
+  std::vector<std::string> stack_region_retire_timeline_owner_rows;
   std::vector<std::string> stack_region_single_recording_plan_rows;
   std::vector<std::string> stack_region_single_recording_owner_rows;
   std::vector<std::string> stack_region_command_buffer_topology_plan_rows;
@@ -11425,6 +11426,42 @@ void append_stack_region_submit_epoch_ordering_json(
         retire_timeline_migration_result =
             evaluate_stack_region_retire_timeline_migration(
                 retire_timeline_migration_request);
+    const std::string retire_timeline_migration_key =
+        "stack_region_retire_timeline_migration:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    const std::string retire_timeline_owner_key =
+        "stack_region_retire_timeline_owner:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    StackRegionRetireTimelineOwnerRequest retire_timeline_owner_request;
+    retire_timeline_owner_request.stack_region_id =
+        retire_timeline_migration_request.stack_region_id;
+    retire_timeline_owner_request.stack_region_instance_id =
+        stack_region_instance_id;
+    retire_timeline_owner_request.boundary_id = proof.boundary_id;
+    retire_timeline_owner_request.boundary_class = proof.boundary_class;
+    retire_timeline_owner_request.retire_timeline_migration_key =
+        retire_timeline_migration_key;
+    retire_timeline_owner_request.retire_timeline_migration_status =
+        retire_timeline_migration_result.result_status;
+    retire_timeline_owner_request.retire_timeline_migration_top_blocker =
+        retire_timeline_migration_result.top_blocker;
+    retire_timeline_owner_request.current_retire_timeline_owner_scope =
+        retire_timeline_migration_request.current_retire_timeline_owner_scope;
+    retire_timeline_owner_request.requested_retire_timeline_owner_scope =
+        retire_timeline_migration_request.requested_retire_timeline_owner_scope;
+    retire_timeline_owner_request.planned_release_submit_point_id =
+        planned_submit_point_id;
+    retire_timeline_owner_request.planned_release_submit_point_status =
+        planned_submit_point_status;
+    retire_timeline_owner_request.owner_required =
+        phase_submit_execution_flush_dependency_observed;
+    retire_timeline_owner_request.transfer_accounting_available =
+        retire_timeline_migration_result.transfer_accounting_available;
+    retire_timeline_owner_request.public_final_host_readback_boundary =
+        release_output_boundary_blocker;
+    const StackRegionRetireTimelineOwnerResult retire_timeline_owner_result =
+        context()->snapshot_stack_region_retire_timeline_owner(
+            retire_timeline_owner_request);
     const std::string command_buffer_close_submit_ownership_status =
         !phase_submit_execution_flush_dependency_observed
         ? "command_buffer_close_submit_ownership_not_required"
@@ -13655,6 +13692,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << exit_release_descriptor_lifetime_status
         << " retire_timeline_release_ownership_status="
         << exit_release_retire_timeline_status
+        << " stack_region_retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
+        << " stack_region_retire_timeline_owner_key="
+        << retire_timeline_owner_key
+        << " stack_region_retire_timeline_owner_status="
+        << retire_timeline_owner_result.owner_status
+        << " stack_region_retire_timeline_owner_top_blocker="
+        << retire_timeline_owner_result.top_blocker
         << " allocator_resource_lifetime_release_ownership_status="
         << exit_release_allocator_resource_status
         << " command_buffer_close_submit_ownership_status="
@@ -13700,9 +13744,6 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_exit_release_ownership_rows.emplace_back(
         exit_release_ownership_row.str());
-    const std::string retire_timeline_migration_key =
-        "stack_region_retire_timeline_migration:instance:" +
-        stack_region_instance_id + ":boundary:" + proof.boundary_id;
     std::ostringstream retire_timeline_migration_row;
     retire_timeline_migration_row
         << "schema=StackRegionRetireTimelineMigration.v0"
@@ -13744,6 +13785,21 @@ void append_stack_region_submit_epoch_ordering_json(
         << " requested_retire_timeline_owner_status="
         << retire_timeline_migration_result
                .requested_retire_timeline_owner_status
+        << " stack_region_retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
+        << " stack_region_retire_timeline_owner_key="
+        << retire_timeline_owner_key
+        << " stack_region_retire_timeline_owner_status="
+        << retire_timeline_owner_result.owner_status
+        << " stack_region_retire_timeline_owner_result_status="
+        << retire_timeline_owner_result.result_status
+        << " stack_region_retire_timeline_owner_top_blocker="
+        << retire_timeline_owner_result.top_blocker
+        << " retire_timeline_owner_lifecycle_id="
+        << retire_timeline_owner_result.lifecycle_id
+        << " retire_timeline_owner_lifecycle_state="
+        << retire_timeline_owner_result.lifecycle_state
+        << " retire_timeline_owner_lifecycle_status="
+        << retire_timeline_owner_result.lifecycle_status
         << " pending_retires_transfer_status="
         << retire_timeline_migration_result.pending_retires_transfer_status
         << " queue_timeline_status="
@@ -13762,6 +13818,71 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_retire_timeline_migration_rows.emplace_back(
         retire_timeline_migration_row.str());
+    std::ostringstream retire_timeline_owner_row;
+    retire_timeline_owner_row
+        << "schema=StackRegionRetireTimelineOwner.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " owner_key=" << retire_timeline_owner_key
+        << " migration_key=" << retire_timeline_migration_key
+        << " stack_region_id="
+        << retire_timeline_owner_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " owner_required="
+        << (retire_timeline_owner_request.owner_required ? "1" : "0")
+        << " owner_record_emitted="
+        << (retire_timeline_owner_result.owner_record_emitted ? "1" : "0")
+        << " api_present="
+        << (retire_timeline_owner_result.api_present ? "1" : "0")
+        << " owner_available="
+        << (retire_timeline_owner_result.owner_available ? "1" : "0")
+        << " transfer_accounting_available="
+        << (retire_timeline_owner_result.transfer_accounting_available ? "1"
+                                                                       : "0")
+        << " lifecycle_id=" << retire_timeline_owner_result.lifecycle_id
+        << " lifecycle_state=" << retire_timeline_owner_result.lifecycle_state
+        << " lifecycle_status="
+        << retire_timeline_owner_result.lifecycle_status
+        << " lifecycle_source="
+        << retire_timeline_owner_result.lifecycle_source
+        << " result_status=" << retire_timeline_owner_result.result_status
+        << " owner_status=" << retire_timeline_owner_result.owner_status
+        << " top_blocker=" << retire_timeline_owner_result.top_blocker
+        << " implementation_status="
+        << retire_timeline_owner_result.implementation_status
+        << " migration_status="
+        << retire_timeline_owner_result.migration_status
+        << " migration_top_blocker="
+        << retire_timeline_owner_result.migration_top_blocker
+        << " current_retire_timeline_owner_status="
+        << retire_timeline_owner_result
+               .current_retire_timeline_owner_status
+        << " requested_retire_timeline_owner_status="
+        << retire_timeline_owner_result
+               .requested_retire_timeline_owner_status
+        << " planned_release_submit_point_id="
+        << retire_timeline_owner_request.planned_release_submit_point_id
+        << " planned_release_submit_point_status="
+        << retire_timeline_owner_result.planned_release_submit_point_status
+        << " behavior_enabled="
+        << (retire_timeline_owner_result.behavior_enabled ? "1" : "0")
+        << " transfers_retire_timeline="
+        << (retire_timeline_owner_result.transfers_retire_timeline ? "1"
+                                                                   : "0")
+        << " current_phase_boundary_submits_preserved=1"
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " authorizes_submit_elision="
+        << (retire_timeline_owner_result.authorizes_submit_elision ? "1"
+                                                                   : "0")
+        << " runtime_api_source="
+        << retire_timeline_owner_result.runtime_api_source
+        << " future_accepted_state=region_owned_retire_timeline_owner"
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_retire_timeline_owner_rows.emplace_back(
+        retire_timeline_owner_row.str());
     const std::string region_command_ownership_key =
         "region_command_buffer_ownership:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -14050,6 +14171,13 @@ void append_stack_region_submit_epoch_ordering_json(
         << " command_pool_reset_ownership_status=command_pool_reset_still_context_owned_not_deferred"
         << " descriptor_lifetime_ownership_status=descriptor_lifetime_still_context_owned_not_releasable"
         << " retire_timeline_ownership_status=retire_timeline_still_context_owned_not_transferred"
+        << " stack_region_retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
+        << " stack_region_retire_timeline_owner_key="
+        << retire_timeline_owner_key
+        << " stack_region_retire_timeline_owner_status="
+        << retire_timeline_owner_result.owner_status
+        << " stack_region_retire_timeline_owner_top_blocker="
+        << retire_timeline_owner_result.top_blocker
         << " command_pool_reset_proven_after_region_release=0"
         << " command_pool_reset_fail_closed=1"
         << " acquire_status=" << region_command_ownership_acquire_status
@@ -17479,6 +17607,14 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_retire_timeline_migration_owner_counts;
   std::map<std::string, uint64_t>
+      stack_region_retire_timeline_owner_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_retire_timeline_owner_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_retire_timeline_owner_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_retire_timeline_owner_implementation_counts;
+  std::map<std::string, uint64_t>
       stack_region_single_recording_plan_status_counts;
   std::map<std::string, uint64_t>
       stack_region_single_recording_plan_top_blocker_counts;
@@ -18287,6 +18423,20 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "requested_retire_timeline_owner_status",
         "missing_requested_retire_timeline_owner_status")] += count;
+  }
+  for (const auto& row : stack_region_retire_timeline_owner_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_retire_timeline_owner_status_counts[field_or(
+        fields, "owner_status", "missing_owner_status")] += count;
+    stack_region_retire_timeline_owner_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_retire_timeline_owner_result_status_counts[field_or(
+        fields, "result_status", "missing_result_status")] += count;
+    stack_region_retire_timeline_owner_implementation_counts[field_or(
+        fields,
+        "implementation_status",
+        "missing_implementation_status")] += count;
   }
   for (const auto& row : stack_region_single_recording_plan_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -20626,6 +20776,34 @@ void append_stack_region_submit_epoch_ordering_json(
         out,
         stack_region_retire_timeline_migration_rows[i],
         "stack_region_retire_timeline_migration");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_owner_status_counts\":";
+  append_u64_map_object(out, stack_region_retire_timeline_owner_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_owner_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_owner_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_owner_result_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_owner_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_owner_implementation_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_owner_implementation_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_owner_records\":[";
+  for (size_t i = 0u; i < stack_region_retire_timeline_owner_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_retire_timeline_owner_rows[i],
+        "stack_region_retire_timeline_owner");
   }
   out << "]";
   append_json_comma(out, submit_level_first);
@@ -23397,6 +23575,88 @@ evaluate_stack_region_retire_timeline_migration(
       "queue_timeline_preserved_context_submit_runtime_exit_target_observed";
   result.resource_lifetime_status =
       "resource_lifetime_preserved_context_retire_queue_behavior_disabled";
+  return result;
+}
+
+StackRegionRetireTimelineOwnerResult request_stack_region_retire_timeline_owner(
+    const StackRegionRetireTimelineOwnerRequest& request) {
+  StackRegionRetireTimelineOwnerResult result;
+  result.transfer_accounting_available =
+      request.transfer_accounting_available;
+  result.lifecycle_id = request.lifecycle_id;
+  result.lifecycle_state = request.lifecycle_state;
+  result.lifecycle_status = request.lifecycle_status;
+  result.lifecycle_source = request.lifecycle_source;
+  result.migration_status = request.retire_timeline_migration_status;
+  result.migration_top_blocker = request.retire_timeline_migration_top_blocker;
+  result.current_retire_timeline_owner_status =
+      request.current_retire_timeline_owner_scope +
+      "_retire_timeline_scope_preserved";
+  result.requested_retire_timeline_owner_status =
+      request.requested_retire_timeline_owner_scope +
+      "_retire_timeline_owner_scope_requested";
+  result.planned_release_submit_point_status =
+      request.planned_release_submit_point_status;
+  if (!request.owner_required) {
+    result.result_status = "retire_timeline_owner_result_not_required";
+    result.owner_status = "retire_timeline_owner_not_required";
+    result.top_blocker = "none";
+    result.implementation_status =
+        "retire_timeline_owner_implementation_not_required";
+    result.current_retire_timeline_owner_status =
+        "retire_timeline_owner_not_required";
+    result.requested_retire_timeline_owner_status =
+        "region_retire_timeline_owner_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.result_status =
+        "retire_timeline_owner_result_rejected_host_fence_public_readback_blocker";
+    result.owner_status =
+        "retire_timeline_owner_blocked_by_host_fence_public_readback";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.implementation_status =
+        "retire_timeline_owner_implementation_blocked_by_host_fence_public_readback";
+    result.current_retire_timeline_owner_status =
+        "retire_timeline_owner_context_scope_blocked_by_output_boundary";
+    result.requested_retire_timeline_owner_status =
+        "region_retire_timeline_owner_blocked_by_output_boundary";
+    return result;
+  }
+  if (
+      request.retire_timeline_migration_status ==
+      "retire_timeline_migration_not_required") {
+    result.result_status = "retire_timeline_owner_result_not_required";
+    result.owner_status = "retire_timeline_owner_not_required";
+    result.top_blocker = "none";
+    result.implementation_status =
+        "retire_timeline_owner_implementation_not_required";
+    return result;
+  }
+  if (
+      request.retire_timeline_migration_status ==
+      "retire_timeline_migration_accounting_available_behavior_disabled") {
+    result.result_status =
+        "retire_timeline_owner_result_accounting_available_behavior_disabled";
+    result.owner_status =
+        "retire_timeline_owner_accounting_available_behavior_disabled_fail_closed";
+    result.top_blocker = "retire_timeline_owner_behavior_disabled";
+    result.implementation_status =
+        "retire_timeline_owner_context_owned_behavior_disabled";
+    result.current_retire_timeline_owner_status =
+        "current_phase_submit_retire_timeline_preserved_context_owned";
+    result.requested_retire_timeline_owner_status =
+        "requested_region_retire_timeline_owner_recorded_behavior_disabled";
+    return result;
+  }
+  result.top_blocker = request.retire_timeline_migration_top_blocker;
+  if (result.top_blocker.empty() || result.top_blocker == "none") {
+    result.top_blocker = "retire_timeline_owner_blocked_by_migration_proof";
+  }
+  result.result_status = "retire_timeline_owner_result_blocked_by_migration";
+  result.owner_status = "retire_timeline_owner_blocked_by_migration";
+  result.implementation_status =
+      "retire_timeline_owner_blocked_by_migration_proof";
   return result;
 }
 

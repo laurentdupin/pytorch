@@ -523,6 +523,18 @@ resource lifetime, retire queue, submit, or command-pool behavior changes:
 `authorizes_submit_elision=0`, phase-boundary submits remain preserved, and the
 next implementation gate is still a real behavior-enabled retire-timeline
 handoff under region ownership.
+`StackRegionRetireTimelineOwner.v0` is now the matching behavior-neutral owner
+surface. Context creates a `ContextStackRegionRetireTimelineOwnerState.v0`
+lifecycle id at stack planned-recording entry and finalizes it on submit or
+cancel, but the observed states remain context-owned and not transferred:
+`retire_timeline_owner_candidate_active_context_owned_not_transferred`,
+`retire_timeline_owner_finalized_submit_context_owned_not_transferred`, or
+`retire_timeline_owner_finalized_cancel_context_owned_not_transferred`. The
+owner row can report migration accounting availability, but it keeps
+`owner_available=0`, `transfers_retire_timeline=0`,
+`authorizes_submit_elision=0`, and fail-closes with
+`retire_timeline_owner_behavior_disabled` until a real region-owned retire
+timeline handoff is implemented.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

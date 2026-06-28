@@ -161,6 +161,9 @@ class TORCH_API Context final {
   std::atomic<uint64_t>
       next_stack_region_command_pool_reset_deferral_owner_id_;
   std::atomic<uint32_t> stack_region_command_pool_reset_deferral_owner_state_;
+  std::atomic<uint64_t> stack_region_retire_timeline_owner_id_;
+  std::atomic<uint64_t> next_stack_region_retire_timeline_owner_id_;
+  std::atomic<uint32_t> stack_region_retire_timeline_owner_state_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;
@@ -524,6 +527,9 @@ class TORCH_API Context final {
   StackRegionCommandPoolResetDeferralOwnerResult
   snapshot_stack_region_command_pool_reset_deferral_owner(
       const StackRegionCommandPoolResetDeferralOwnerRequest& request) const;
+  StackRegionRetireTimelineOwnerResult
+  snapshot_stack_region_retire_timeline_owner(
+      const StackRegionRetireTimelineOwnerRequest& request) const;
   void begin_stack_planned_recording();
   StackPlannedRecordingStats end_stack_planned_recording_and_submit();
   StackPlannedRecordingStats cancel_stack_planned_recording();
