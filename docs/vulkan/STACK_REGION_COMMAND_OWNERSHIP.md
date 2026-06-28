@@ -260,7 +260,11 @@ release point, but this is not a transferable region command-pool lease. Until
 region ownership exists, phase-boundary submits continue to own command-buffer
 recording closure, command-pool reset eligibility, descriptor lifetime, and
 timeline creation. Reset deferral remains fail-closed with
-`command_pool_reset_deferral_implementation_missing`.
+`command_pool_reset_deferral_implementation_missing` at the owner layer. The
+proof layer can now report
+`command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point`
+for the existing context-retained path; that proof does not authorize submit
+elision or transfer reset ownership to the region.
 `StackRegionCommandPoolResetDeferralOwner.v0` is the behavior-neutral owner
 surface for that missing step. It records the proof key/status, current
 command-pool owner scope, requested stack-region owner scope, and planned

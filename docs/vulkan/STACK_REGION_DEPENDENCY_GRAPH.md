@@ -857,11 +857,12 @@ result. It records the current phase-submit recording-epoch consumption point,
 planned region-exit release/reset point, linked retention result key/status,
 descriptor lifetime status, command-buffer lifetime status, retire-timeline
 status, and fail-closed top blocker. Current rows report
-`command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing`,
-because the preserved context command pool is observed through the stack-exit
-release point but no region-owned reset-deferral implementation exists yet. This
+`command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point`
+when the preserved context command pool is observed through the stack-exit
+release point. This proves current context retention, not region ownership, and
 refines the older `command_pool_reset_deferral_proof_blocked_retention_unavailable`
-bucket without changing command-pool reset behavior.
+and implementation-missing proof buckets without changing command-pool reset
+behavior.
 `StackRegionCommandPoolResetDeferralOwner.v0` consumes that proof and emits the
 first-class owner surface for reset deferral. It is still diagnostic-only:
 `owner_available=0`, `reset_deferral_behavior_enabled=0`,

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `62b816c21f6` plus the
-reset-deferral owner context-lifecycle observation slice.
+Last refreshed: 2026-06-28 at local HEAD `d5e39b4934b` plus the
+context-retained reset-deferral proof slice.
 
 ## Repo State Summary
 
@@ -584,8 +584,12 @@ retention result, and descriptor, command-buffer, and retire-timeline lifetime
 blockers. The proof currently returns unavailable and complete=false; it does
 not defer a reset or retain a command pool. Current selected rows fail closed
 because the context command pool is retained only by the preserved stack-exit
-submit path and no region-owned reset-deferral implementation exists yet, so the
-refined blocker is `command_pool_reset_deferral_implementation_missing`.
+submit path and no region-owned reset-deferral implementation exists yet. The
+proof can now report
+`command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point`
+when the context-retained command pool is observed through the stack-exit
+release point. That is a proof of current context retention only; it is not a
+region-owned reset-deferral owner.
 That reset-deferral proof status and top blocker now flow into
 `StackRegionExitCloseSubmitOwnerRequest.v0`,
 `StackRegionExitCloseSubmitOwnerResult.v0`, and

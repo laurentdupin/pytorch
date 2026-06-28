@@ -23346,6 +23346,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "missing_command_pool_reset_deferral_proof",
                     "command_pool_reset_deferral_proof_blocked_retention_unavailable",
                     "command_pool_reset_deferral_proof_blocked_planned_release_point_missing",
+                    "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point",
                     "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_proof_rejected_host_fence_public_readback_blocker",
                     "command_pool_reset_deferral_blocked_by_host_fence_public_readback",
@@ -23471,6 +23472,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "command_pool_reset_deferral_proof_blocked_retention_unavailable",
                     "command_pool_reset_deferral_proof_blocked_planned_release_point_missing",
+                    "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point",
                     "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_proof_rejected_host_fence_public_readback_blocker",
                     "command_pool_reset_deferral_proof_not_required",
@@ -23510,13 +23512,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 first_reset_deferral_record["proof_complete"],
-                "0",
+                "1"
+                if first_reset_deferral_record["proof_status"]
+                == "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point"
+                else "0",
             )
             self.assertIn(
                 first_reset_deferral_record["proof_status"],
                 {
                     "command_pool_reset_deferral_proof_blocked_retention_unavailable",
                     "command_pool_reset_deferral_proof_blocked_planned_release_point_missing",
+                    "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point",
                     "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing",
                     "command_pool_reset_deferral_proof_rejected_host_fence_public_readback_blocker",
                     "command_pool_reset_deferral_proof_not_required",

@@ -22902,12 +22902,11 @@ request_stack_region_command_pool_retention(
         "command_pool_retention_result_context_pool_retained_until_observed_release_point";
     result.reason =
         "context_command_pool_retained_until_stack_exit_release_point";
-    result.top_blocker =
-        "command_pool_reset_deferral_implementation_missing";
+    result.top_blocker = "none";
     result.implementation_status =
         "command_pool_retention_context_pool_retained_region_reset_not_owned";
     result.reset_deferral_proof_status =
-        "command_pool_reset_deferral_proof_unavailable_reset_deferral_implementation_missing";
+        "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point";
   }
   result.same_stream_queue_status = request.require_same_stream_queue
       ? "same_stream_queue_required_unproven"
@@ -22982,6 +22981,25 @@ evaluate_stack_region_command_pool_reset_deferral_proof(
         "command_pool_reset_deferral_proof_blocked_planned_release_point_missing";
     result.proof_reason = "planned_region_exit_release_point_unimplemented";
     result.top_blocker = "region_exit_release_point_unimplemented";
+    return result;
+  }
+  if (
+      request.current_reset_point_status ==
+          "recording_epoch_consumed_at_phase_submit" &&
+      request.planned_release_reset_point_status ==
+          "exit_release_point_runtime_observed_context_submit_preserved") {
+    result.proof_complete = true;
+    result.proof_status =
+        "command_pool_reset_deferral_proof_complete_context_pool_retained_until_release_point";
+    result.proof_reason =
+        "context_command_pool_reset_deferred_until_stack_exit_release_point";
+    result.top_blocker = "none";
+    result.descriptor_lifetime_status =
+        "descriptor_lifetime_context_owned_until_release_point";
+    result.command_buffer_lifetime_status =
+        "command_buffer_lifetime_context_owned_until_release_point";
+    result.retire_timeline_status =
+        "retire_timeline_context_owned_until_release_point";
     return result;
   }
   result.proof_complete = false;
