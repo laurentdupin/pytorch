@@ -1205,6 +1205,59 @@ TORCH_API StackRegionExitCloseSubmitOwnerSurfaceResult
 evaluate_stack_region_exit_close_submit_owner_surface(
     const StackRegionExitCloseSubmitOwnerSurfaceRequest& request);
 
+struct StackRegionRetireTimelineMigrationRequest final {
+  std::string stack_region_id = "unknown";
+  std::string stack_region_instance_id = "missing";
+  std::string boundary_id = "missing";
+  std::string boundary_class = "unknown";
+  std::string planned_region_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string exit_release_point_status =
+      "exit_release_point_synthetic_planned_only";
+  std::string current_retire_timeline_owner_scope =
+      "vulkan_context_phase_submit_owner";
+  std::string requested_retire_timeline_owner_scope = "stack_region";
+  uint64_t pending_resource_count = 0u;
+  uint64_t pending_resource_bytes = 0u;
+  uint64_t retire_side_effect_count = 0u;
+  bool migration_required = true;
+  bool public_final_host_readback_boundary = false;
+  bool runtime_exit_submit_point_observed = false;
+  bool close_submit_owner_available = false;
+};
+
+struct StackRegionRetireTimelineMigrationResult final {
+  bool api_present = true;
+  bool transfer_accounting_available = false;
+  bool behavior_enabled = false;
+  bool authorizes_submit_elision = false;
+  std::string request_status =
+      "retire_timeline_migration_request_api_present_result_unavailable";
+  std::string result_status =
+      "retire_timeline_migration_result_unavailable";
+  std::string reason =
+      "retire_timeline_migration_unimplemented";
+  std::string top_blocker = "retire_timeline_migration";
+  std::string runtime_exit_submit_point_status =
+      "planned_region_exit_submit_point_synthetic_unimplemented";
+  std::string current_retire_timeline_owner_status =
+      "current_phase_submit_retire_timeline_preserved";
+  std::string requested_retire_timeline_owner_status =
+      "region_retire_timeline_owner_unavailable";
+  std::string pending_retires_transfer_status =
+      "pending_retires_transfer_unavailable";
+  std::string queue_timeline_status =
+      "queue_timeline_still_context_owned";
+  std::string resource_lifetime_status =
+      "resource_lifetime_still_context_retire_queue_owned";
+  std::string runtime_api_source =
+      "StackRegionRetireTimelineMigrationRuntimeApi.v0";
+};
+
+TORCH_API StackRegionRetireTimelineMigrationResult
+evaluate_stack_region_retire_timeline_migration(
+    const StackRegionRetireTimelineMigrationRequest& request);
+
 struct StackRegionCommandPoolRetentionRequest final {
   std::string stack_region_id = "unknown";
   std::string stack_region_instance_id = "missing";

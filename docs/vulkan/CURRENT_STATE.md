@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `5fdcb877d8b5` plus
-runtime stack-exit submit-point accounting.
+Last refreshed: 2026-06-28 at local HEAD `b44783d02622` plus
+retire-timeline migration accounting.
 
 ## Repo State Summary
 
@@ -512,6 +512,17 @@ deferred-submit plan status from a synthetic planned-target blocker to
 the top blocker reported as `retire_timeline_migration`. It remains
 behavior-neutral: the runtime exit submit is preserved, phase-boundary submits
 are preserved, and submit elision stays disabled.
+`StackRegionRetireTimelineMigration.v0` is now the typed accounting surface
+under that blocker. It records the observed runtime stack-exit submit point,
+the selected boundary's pending resource and retire side-effect counts, the
+current context-owned retire timeline, the requested region-owned retire
+timeline owner, and the pending-retire transfer status. Current rows can report
+`retire_timeline_migration_accounting_available_behavior_disabled` and
+`pending_retires_transfer_accounting_available_behavior_disabled`, but no
+resource lifetime, retire queue, submit, or command-pool behavior changes:
+`authorizes_submit_elision=0`, phase-boundary submits remain preserved, and the
+next implementation gate is still a real behavior-enabled retire-timeline
+handoff under region ownership.
 `RegionCommandBufferOwnership.v0` now carries this through explicit
 stack-entry/stack-exit lifecycle fields: the planned stack-region scope is
 observed, the preserved phase-submit batch lifecycle is recorded, but actual

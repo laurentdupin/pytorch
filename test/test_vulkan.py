@@ -21374,8 +21374,70 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retires_not_transferred_phase_submit_retire_timeline_preserved",
+                    "pending_retires_transfer_accounting_available_behavior_disabled",
+                    "pending_retires_transfer_accounting_available_no_pending_retires",
                     "pending_retires_transfer_not_required",
                 },
+            )
+            first_retire_timeline_migration_record = selected_plan_record(
+                "stack_region_retire_timeline_migration_records"
+            )
+            self.assertEqual(
+                first_retire_timeline_migration_record["schema"],
+                "StackRegionRetireTimelineMigration.v0",
+            )
+            self.assertEqual(
+                first_retire_timeline_migration_record["behavior_neutral"],
+                "1",
+            )
+            self.assertEqual(
+                first_retire_timeline_migration_record[
+                    "default_behavior_unchanged"
+                ],
+                "1",
+            )
+            self.assertIn(
+                first_retire_timeline_migration_record["result_status"],
+                {
+                    "retire_timeline_migration_accounting_available_behavior_disabled",
+                    "retire_timeline_migration_unavailable_missing_runtime_exit_submit",
+                    "retire_timeline_migration_blocked_by_host_fence_public_readback",
+                    "retire_timeline_migration_not_required",
+                },
+            )
+            self.assertIn(
+                first_retire_timeline_migration_record[
+                    "pending_retires_transfer_status"
+                ],
+                {
+                    "pending_retires_transfer_accounting_available_behavior_disabled",
+                    "pending_retires_transfer_accounting_available_no_pending_retires",
+                    "pending_retires_transfer_waiting_for_runtime_exit_submit_point",
+                    "pending_retires_transfer_blocked_by_output_boundary",
+                    "pending_retires_transfer_not_required",
+                },
+            )
+            self.assertIn(
+                first_retire_timeline_migration_record["top_blocker"],
+                {
+                    "retire_timeline_migration_behavior_disabled",
+                    "retire_timeline_migration",
+                    "runtime_exit_submit_point",
+                    "host_fence_public_final_readback_blocker",
+                    "none",
+                },
+            )
+            self.assertEqual(
+                first_retire_timeline_migration_record[
+                    "authorizes_submit_elision"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                first_retire_timeline_migration_record[
+                    "phase_boundary_submits_preserved"
+                ],
+                "1",
             )
             self.assertIn(
                 first_exit_release_ownership_scaffold_record[

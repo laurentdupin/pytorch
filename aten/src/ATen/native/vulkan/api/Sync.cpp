@@ -9241,6 +9241,7 @@ void append_stack_region_submit_epoch_ordering_json(
       stack_region_exit_close_submit_owner_request_rows;
   std::vector<std::string>
       stack_region_exit_close_submit_owner_result_rows;
+  std::vector<std::string> stack_region_retire_timeline_migration_rows;
   std::vector<std::string> stack_region_single_recording_plan_rows;
   std::vector<std::string> stack_region_single_recording_owner_rows;
   std::vector<std::string> stack_region_command_buffer_topology_plan_rows;
@@ -11394,6 +11395,36 @@ void append_stack_region_submit_epoch_ordering_json(
         region_exit_close_submit_owner_result =
             evaluate_stack_region_exit_close_submit_owner_surface(
                 region_exit_close_submit_owner_request);
+    StackRegionRetireTimelineMigrationRequest
+        retire_timeline_migration_request;
+    retire_timeline_migration_request.stack_region_id =
+        exit_release_point_request.stack_region_id;
+    retire_timeline_migration_request.stack_region_instance_id =
+        stack_region_instance_id;
+    retire_timeline_migration_request.boundary_id = proof.boundary_id;
+    retire_timeline_migration_request.boundary_class = proof.boundary_class;
+    retire_timeline_migration_request.planned_region_exit_submit_point_status =
+        planned_submit_point_status;
+    retire_timeline_migration_request.exit_release_point_status =
+        exit_release_point_result.release_point_status;
+    retire_timeline_migration_request.pending_resource_count =
+        proof.pending_resource_count;
+    retire_timeline_migration_request.pending_resource_bytes =
+        proof.pending_resource_bytes;
+    retire_timeline_migration_request.retire_side_effect_count =
+        proof.retire_side_effect_count;
+    retire_timeline_migration_request.migration_required =
+        phase_submit_execution_flush_dependency_observed;
+    retire_timeline_migration_request.public_final_host_readback_boundary =
+        release_output_boundary_blocker;
+    retire_timeline_migration_request.runtime_exit_submit_point_observed =
+        runtime_exit_submit_point_observed;
+    retire_timeline_migration_request.close_submit_owner_available =
+        region_exit_close_submit_owner_result.ownership_available;
+    const StackRegionRetireTimelineMigrationResult
+        retire_timeline_migration_result =
+            evaluate_stack_region_retire_timeline_migration(
+                retire_timeline_migration_request);
     const std::string command_buffer_close_submit_ownership_status =
         !phase_submit_execution_flush_dependency_observed
         ? "command_buffer_close_submit_ownership_not_required"
@@ -11464,7 +11495,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string exit_release_pending_retires_status =
         !phase_submit_execution_flush_dependency_observed
         ? "pending_retires_transfer_not_required"
-        : "pending_retires_not_transferred_phase_submit_retire_timeline_preserved";
+        : retire_timeline_migration_result.pending_retires_transfer_status;
     const std::string exit_release_descriptor_lifetime_status =
         !phase_submit_execution_flush_dependency_observed
         ? "descriptor_release_ownership_not_required"
@@ -11531,7 +11562,7 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::string deferred_runtime_hook_retire_timeline_status =
         !phase_submit_execution_flush_dependency_observed
         ? "retire_timeline_migration_hook_not_required"
-        : command_buffer_request_runtime_result.retire_timeline_migration_status;
+        : retire_timeline_migration_result.result_status;
     const std::string deferred_runtime_hook_descriptor_lifetime_status =
         !phase_submit_execution_flush_dependency_observed
         ? "descriptor_lifetime_extension_hook_not_required"
@@ -13669,6 +13700,68 @@ void append_stack_region_submit_epoch_ordering_json(
         << " bytes=" << proof.bytes;
     stack_region_exit_release_ownership_rows.emplace_back(
         exit_release_ownership_row.str());
+    const std::string retire_timeline_migration_key =
+        "stack_region_retire_timeline_migration:instance:" +
+        stack_region_instance_id + ":boundary:" + proof.boundary_id;
+    std::ostringstream retire_timeline_migration_row;
+    retire_timeline_migration_row
+        << "schema=StackRegionRetireTimelineMigration.v0"
+        << " behavior_neutral=1 default_behavior_unchanged=1"
+        << " migration_key=" << retire_timeline_migration_key
+        << " stack_region_id="
+        << retire_timeline_migration_request.stack_region_id
+        << " stack_region_instance_id=" << stack_region_instance_id
+        << " boundary_id=" << proof.boundary_id
+        << " boundary_class=" << proof.boundary_class
+        << " owner_scope=stack_region"
+        << " requester_scope=stack_owner"
+        << " request_status="
+        << retire_timeline_migration_result.request_status
+        << " result_status="
+        << retire_timeline_migration_result.result_status
+        << " reason=" << retire_timeline_migration_result.reason
+        << " top_blocker="
+        << retire_timeline_migration_result.top_blocker
+        << " planned_region_exit_submit_point_status="
+        << retire_timeline_migration_result.runtime_exit_submit_point_status
+        << " exit_release_point_status="
+        << retire_timeline_migration_request.exit_release_point_status
+        << " runtime_exit_submit_point_observed="
+        << (runtime_exit_submit_point_observed ? "1" : "0")
+        << " transfer_accounting_available="
+        << (retire_timeline_migration_result.transfer_accounting_available
+                ? "1"
+                : "0")
+        << " behavior_enabled="
+        << (retire_timeline_migration_result.behavior_enabled ? "1" : "0")
+        << " authorizes_submit_elision="
+        << (retire_timeline_migration_result.authorizes_submit_elision
+                ? "1"
+                : "0")
+        << " current_retire_timeline_owner_status="
+        << retire_timeline_migration_result
+               .current_retire_timeline_owner_status
+        << " requested_retire_timeline_owner_status="
+        << retire_timeline_migration_result
+               .requested_retire_timeline_owner_status
+        << " pending_retires_transfer_status="
+        << retire_timeline_migration_result.pending_retires_transfer_status
+        << " queue_timeline_status="
+        << retire_timeline_migration_result.queue_timeline_status
+        << " resource_lifetime_status="
+        << retire_timeline_migration_result.resource_lifetime_status
+        << " pending_resource_count=" << proof.pending_resource_count
+        << " pending_resource_bytes=" << proof.pending_resource_bytes
+        << " retire_side_effect_count=" << proof.retire_side_effect_count
+        << " phase_boundary_submits_preserved=1"
+        << " submit_elision_enabled=0"
+        << " deferred_submit_enabled=0"
+        << " runtime_api_source="
+        << retire_timeline_migration_result.runtime_api_source
+        << " count=" << proof.records
+        << " bytes=" << proof.bytes;
+    stack_region_retire_timeline_migration_rows.emplace_back(
+        retire_timeline_migration_row.str());
     const std::string region_command_ownership_key =
         "region_command_buffer_ownership:instance:" +
         stack_region_instance_id + ":boundary:" + proof.boundary_id;
@@ -17378,6 +17471,14 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, uint64_t>
       stack_region_exit_close_submit_owner_planned_point_status_counts;
   std::map<std::string, uint64_t>
+      stack_region_retire_timeline_migration_result_status_counts;
+  std::map<std::string, uint64_t>
+      stack_region_retire_timeline_migration_top_blocker_counts;
+  std::map<std::string, uint64_t>
+      stack_region_retire_timeline_migration_transfer_counts;
+  std::map<std::string, uint64_t>
+      stack_region_retire_timeline_migration_owner_counts;
+  std::map<std::string, uint64_t>
       stack_region_single_recording_plan_status_counts;
   std::map<std::string, uint64_t>
       stack_region_single_recording_plan_top_blocker_counts;
@@ -18170,6 +18271,22 @@ void append_stack_region_submit_epoch_ordering_json(
         fields,
         "planned_region_exit_submit_point_status",
         "missing_planned_region_exit_submit_point_status")] += count;
+  }
+  for (const auto& row : stack_region_retire_timeline_migration_rows) {
+    const auto fields = parse_space_separated_fields(row);
+    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
+    stack_region_retire_timeline_migration_result_status_counts[field_or(
+        fields, "result_status", "missing_result_status")] += count;
+    stack_region_retire_timeline_migration_top_blocker_counts[field_or(
+        fields, "top_blocker", "missing_top_blocker")] += count;
+    stack_region_retire_timeline_migration_transfer_counts[field_or(
+        fields,
+        "pending_retires_transfer_status",
+        "missing_pending_retires_transfer_status")] += count;
+    stack_region_retire_timeline_migration_owner_counts[field_or(
+        fields,
+        "requested_retire_timeline_owner_status",
+        "missing_requested_retire_timeline_owner_status")] += count;
   }
   for (const auto& row : stack_region_single_recording_plan_rows) {
     const auto fields = parse_space_separated_fields(row);
@@ -20480,6 +20597,35 @@ void append_stack_region_submit_epoch_ordering_json(
         out,
         stack_region_exit_close_submit_owner_result_rows[i],
         "stack_region_exit_close_submit_owner_result");
+  }
+  out << "]";
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_migration_result_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_migration_result_status_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_migration_top_blocker_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_migration_top_blocker_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_migration_transfer_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_migration_transfer_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_migration_owner_status_counts\":";
+  append_u64_map_object(
+      out, stack_region_retire_timeline_migration_owner_counts);
+  append_json_comma(out, submit_level_first);
+  out << "\"stack_region_retire_timeline_migration_records\":[";
+  for (size_t i = 0u; i < stack_region_retire_timeline_migration_rows.size();
+       ++i) {
+    if (i > 0u) {
+      out << ',';
+    }
+    append_graph_row_object(
+        out,
+        stack_region_retire_timeline_migration_rows[i],
+        "stack_region_retire_timeline_migration");
   }
   out << "]";
   append_json_comma(out, submit_level_first);
@@ -23169,6 +23315,88 @@ evaluate_stack_region_exit_close_submit_owner_surface(
           request.command_buffer_batch_lease_status;
     }
   }
+  return result;
+}
+
+StackRegionRetireTimelineMigrationResult
+evaluate_stack_region_retire_timeline_migration(
+    const StackRegionRetireTimelineMigrationRequest& request) {
+  StackRegionRetireTimelineMigrationResult result;
+  result.runtime_exit_submit_point_status =
+      request.planned_region_exit_submit_point_status;
+  if (!request.migration_required) {
+    result.transfer_accounting_available = false;
+    result.request_status =
+        "retire_timeline_migration_request_api_not_required";
+    result.result_status = "retire_timeline_migration_not_required";
+    result.reason = "phase_submit_not_required_for_selected_pending_range";
+    result.top_blocker = "none";
+    result.current_retire_timeline_owner_status =
+        "retire_timeline_owner_not_required";
+    result.requested_retire_timeline_owner_status =
+        "region_retire_timeline_owner_not_required";
+    result.pending_retires_transfer_status =
+        "pending_retires_transfer_not_required";
+    result.queue_timeline_status = "queue_timeline_not_required";
+    result.resource_lifetime_status = "resource_lifetime_not_required";
+    return result;
+  }
+  if (request.public_final_host_readback_boundary) {
+    result.transfer_accounting_available = false;
+    result.request_status =
+        "retire_timeline_migration_request_rejected_host_fence_public_readback";
+    result.result_status =
+        "retire_timeline_migration_blocked_by_host_fence_public_readback";
+    result.reason = "host_fence_public_final_readback_blocker_observed";
+    result.top_blocker = "host_fence_public_final_readback_blocker";
+    result.current_retire_timeline_owner_status =
+        "current_phase_submit_retire_timeline_blocked_by_output_boundary";
+    result.requested_retire_timeline_owner_status =
+        "region_retire_timeline_owner_blocked_by_output_boundary";
+    result.pending_retires_transfer_status =
+        "pending_retires_transfer_blocked_by_output_boundary";
+    result.queue_timeline_status =
+        "queue_timeline_blocked_by_output_boundary";
+    result.resource_lifetime_status =
+        "resource_lifetime_blocked_by_output_boundary";
+    return result;
+  }
+  if (!request.runtime_exit_submit_point_observed) {
+    result.transfer_accounting_available = false;
+    result.request_status =
+        "retire_timeline_migration_request_api_present_runtime_exit_missing";
+    result.result_status =
+        "retire_timeline_migration_unavailable_missing_runtime_exit_submit";
+    result.reason = "runtime_stack_exit_submit_point_not_observed";
+    result.top_blocker = "runtime_exit_submit_point";
+    result.pending_retires_transfer_status =
+        "pending_retires_transfer_waiting_for_runtime_exit_submit_point";
+    return result;
+  }
+  result.transfer_accounting_available = true;
+  result.behavior_enabled = false;
+  result.authorizes_submit_elision = false;
+  result.request_status =
+      "retire_timeline_migration_request_api_present_runtime_exit_target";
+  result.result_status =
+      "retire_timeline_migration_accounting_available_behavior_disabled";
+  result.reason =
+      "runtime_exit_submit_point_observed_pending_retires_still_context_owned";
+  result.top_blocker = "retire_timeline_migration_behavior_disabled";
+  result.current_retire_timeline_owner_status =
+      "current_phase_submit_retire_timeline_preserved";
+  result.requested_retire_timeline_owner_status =
+      request.close_submit_owner_available
+      ? "region_retire_timeline_owner_requested_close_submit_owner_available_behavior_disabled"
+      : "region_retire_timeline_owner_requested_close_submit_owner_unavailable";
+  result.pending_retires_transfer_status =
+      request.retire_side_effect_count > 0u || request.pending_resource_count > 0u
+      ? "pending_retires_transfer_accounting_available_behavior_disabled"
+      : "pending_retires_transfer_accounting_available_no_pending_retires";
+  result.queue_timeline_status =
+      "queue_timeline_preserved_context_submit_runtime_exit_target_observed";
+  result.resource_lifetime_status =
+      "resource_lifetime_preserved_context_retire_queue_behavior_disabled";
   return result;
 }
 

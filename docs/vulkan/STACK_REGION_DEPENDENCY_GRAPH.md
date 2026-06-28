@@ -794,6 +794,16 @@ instead of stopping at a synthetic planned target. The next blocker becomes
 `retire_timeline_migration`: the runtime submit point is observed, but pending
 resources have not been migrated to a later region-owned retire timeline. This
 does not authorize submit elision or change any submit behavior.
+`StackRegionRetireTimelineMigration.v0` is the behavior-neutral accounting
+surface for that blocker. It consumes the same runtime exit-submit observation,
+the selected submit-level pending resource counts, and the close/submit owner
+state, then reports whether retire transfer accounting is available. Current
+rows can report
+`retire_timeline_migration_accounting_available_behavior_disabled` with
+`pending_retires_transfer_accounting_available_behavior_disabled`, but the
+current retire timeline and resource lifetime still belong to the preserved
+context submit path. The row is not a transfer, does not move retire entries,
+does not defer or create submits, and does not authorize submit elision.
 The next blocker remains fail-closed:
 `region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only`
 because the preserved phase-submit batch lease is available only as an
