@@ -21962,12 +21962,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_ownership_transfer_blocked_by_output_boundary",
                     "region_exit_ownership_transfer_waiting_for_runtime_exit_submit",
                     "region_exit_ownership_transfer_not_required",
+                    "region_exit_ownership_transfer_complete_fail_closed",
                 },
             )
             self.assertIn(
                 first_region_exit_ownership_transfer_record["top_blocker"],
                 {
                     "region_exit_ownership_transfer_behavior_disabled",
+                    "region_exit_ownership_transfer_authorization_disabled",
                     "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
                     "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
                     "command_pool_reset_deferral_owner_behavior_disabled",
@@ -21991,6 +21993,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "ownership_transfer_complete"
                 ],
                 "0",
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "close_submit_ownership_complete"
+                ],
+                {"0", "1"},
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "command_pool_reset_deferral_ownership_complete"
+                ],
+                {"0", "1"},
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "pending_retire_transfer_ownership_complete"
+                ],
+                {"0", "1"},
+            )
+            self.assertIn(
+                first_region_exit_ownership_transfer_record[
+                    "retire_timeline_ownership_complete"
+                ],
+                {"0", "1"},
             )
             self.assertEqual(
                 first_region_exit_ownership_transfer_record[
@@ -25605,10 +25631,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["region_exit_ownership_transfer_top_blocker"],
                 {
                     "region_exit_ownership_transfer_behavior_disabled",
+                    "region_exit_ownership_transfer_authorization_disabled",
                     "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
+                    "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only",
                     "command_pool_reset_deferral_owner_behavior_disabled",
                     "pending_retire_transfer_owner_behavior_disabled",
                     "retire_timeline_owner_behavior_disabled",
+                    "command_pool_reset_deferral_owner_not_region_owned",
+                    "pending_retire_transfer_owner_not_region_owned",
+                    "retire_timeline_owner_not_region_owned",
                 },
             )
             self.assertIn(
@@ -25619,6 +25650,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 row["region_exit_ownership_transfer_authorizes_submit_elision"],
                 "0",
+            )
+            self.assertEqual(
+                row["region_exit_close_submit_owner_ownership_complete"], "0"
+            )
+            self.assertEqual(row["reset_deferral_owner_ownership_complete"], "0")
+            self.assertEqual(row["retire_timeline_owner_ownership_complete"], "0")
+            self.assertEqual(
+                row["pending_retire_transfer_owner_ownership_complete"], "0"
             )
             self.assertEqual(row["single_recording_canary_enabled"], "0")
             self.assertEqual(row["final_use_false"], "0")

@@ -548,6 +548,17 @@ struct StackRegionSingleRecordingCanarySnapshot final {
   bool submit_removed = false;
 };
 
+struct StackRegionExitOwnershipTransferCanaryState final {
+  bool accounting_joined = false;
+  bool ownership_transfer_complete = false;
+  bool close_submit_ownership_complete = false;
+  bool reset_deferral_ownership_complete = false;
+  bool retire_timeline_ownership_complete = false;
+  bool pending_retire_transfer_ownership_complete = false;
+  const char* status = "region_exit_ownership_transfer_missing";
+  const char* top_blocker = "region_exit_ownership_transfer_missing";
+};
+
 struct StackRegionExitSubmitRuntimePointValue final {
   uint64_t count = 0u;
   uint64_t had_cmd_count = 0u;
@@ -1891,6 +1902,81 @@ void record_stack_region_submit_elision_canary_locked(
 
 const char* stack_region_single_recording_close_submit_owner_lifecycle_status(
     uint32_t owner_state);
+bool stack_region_single_recording_close_submit_owner_available(
+    uint64_t owner_id,
+    uint32_t owner_state,
+    bool behavior_enabled);
+const char* stack_region_single_recording_close_submit_owner_blocker(
+    uint64_t owner_id,
+    uint32_t owner_state,
+    bool behavior_enabled);
+
+StackRegionExitOwnershipTransferCanaryState
+stack_region_single_recording_ownership_transfer_canary_state(
+    const bool preserved_phase_submit_batch_scope_observed,
+    const uint64_t region_close_submit_owner_id,
+    const uint32_t region_close_submit_owner_state,
+    const uint64_t reset_deferral_owner_id,
+    const uint32_t reset_deferral_owner_state,
+    const uint64_t retire_timeline_owner_id,
+    const uint32_t retire_timeline_owner_state,
+    const uint64_t pending_retire_transfer_owner_id,
+    const uint32_t pending_retire_transfer_owner_state,
+    const bool region_close_submit_owner_behavior_enabled) {
+  StackRegionExitOwnershipTransferCanaryState state;
+  const bool close_submit_accounting_joined =
+      preserved_phase_submit_batch_scope_observed &&
+      region_close_submit_owner_behavior_enabled &&
+      region_close_submit_owner_id != 0u &&
+      region_close_submit_owner_state != 0u;
+  const bool reset_deferral_accounting_joined =
+      reset_deferral_owner_id != 0u && reset_deferral_owner_state != 0u;
+  const bool retire_timeline_accounting_joined =
+      retire_timeline_owner_id != 0u && retire_timeline_owner_state != 0u;
+  const bool pending_retire_transfer_accounting_joined =
+      pending_retire_transfer_owner_id != 0u &&
+      pending_retire_transfer_owner_state != 0u;
+  state.accounting_joined = close_submit_accounting_joined &&
+      reset_deferral_accounting_joined && retire_timeline_accounting_joined &&
+      pending_retire_transfer_accounting_joined;
+  state.close_submit_ownership_complete =
+      stack_region_single_recording_close_submit_owner_available(
+          region_close_submit_owner_id,
+          region_close_submit_owner_state,
+          region_close_submit_owner_behavior_enabled);
+  state.reset_deferral_ownership_complete = false;
+  state.retire_timeline_ownership_complete = false;
+  state.pending_retire_transfer_ownership_complete = false;
+  state.ownership_transfer_complete =
+      state.close_submit_ownership_complete &&
+      state.reset_deferral_ownership_complete &&
+      state.retire_timeline_ownership_complete &&
+      state.pending_retire_transfer_ownership_complete;
+  if (state.ownership_transfer_complete) {
+    state.status = "region_exit_ownership_transfer_complete_fail_closed";
+    state.top_blocker = "region_exit_ownership_transfer_authorization_disabled";
+  } else if (!state.close_submit_ownership_complete) {
+    state.status = "region_exit_ownership_transfer_blocked_by_close_submit_owner";
+    state.top_blocker =
+        stack_region_single_recording_close_submit_owner_blocker(
+            region_close_submit_owner_id,
+            region_close_submit_owner_state,
+            region_close_submit_owner_behavior_enabled);
+  } else if (!state.reset_deferral_ownership_complete) {
+    state.status =
+        "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner";
+    state.top_blocker =
+        "command_pool_reset_deferral_owner_not_region_owned";
+  } else if (!state.retire_timeline_ownership_complete) {
+    state.status = "region_exit_ownership_transfer_blocked_by_retire_timeline_owner";
+    state.top_blocker = "retire_timeline_owner_not_region_owned";
+  } else {
+    state.status =
+        "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner";
+    state.top_blocker = "pending_retire_transfer_owner_not_region_owned";
+  }
+  return state;
+}
 
 std::string stack_region_single_recording_canary_key(
     const StackRegionSingleRecordingCanarySnapshot& snapshot) {
@@ -1972,36 +2058,24 @@ std::string stack_region_single_recording_canary_key(
       preserved_phase_submit_batch_scope_observed &&
       region_close_submit_owner_behavior_enabled;
   const bool reset_deferral_owner_active =
-      reset_deferral_owner_id != 0u && reset_deferral_owner_state == 1u;
+      reset_deferral_owner_id != 0u && reset_deferral_owner_state != 0u;
   const bool retire_timeline_owner_active =
-      retire_timeline_owner_id != 0u && retire_timeline_owner_state == 1u;
+      retire_timeline_owner_id != 0u && retire_timeline_owner_state != 0u;
   const bool pending_retire_transfer_owner_active =
       pending_retire_transfer_owner_id != 0u &&
-      pending_retire_transfer_owner_state == 1u;
-  const bool region_exit_ownership_transfer_accounting_joined =
-      preserved_phase_submit_batch_close_submit_owner_available &&
-      reset_deferral_owner_active && retire_timeline_owner_active &&
-      pending_retire_transfer_owner_active;
-  const char* const region_exit_ownership_transfer_status =
-      region_exit_ownership_transfer_accounting_joined
-      ? "region_exit_ownership_transfer_accounting_joined_fail_closed"
-      : !preserved_phase_submit_batch_close_submit_owner_available
-      ? "region_exit_ownership_transfer_blocked_by_close_submit_owner"
-      : !reset_deferral_owner_active
-      ? "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner"
-      : !retire_timeline_owner_active
-      ? "region_exit_ownership_transfer_blocked_by_retire_timeline_owner"
-      : "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner";
-  const char* const region_exit_ownership_transfer_top_blocker =
-      region_exit_ownership_transfer_accounting_joined
-      ? "region_exit_ownership_transfer_behavior_disabled"
-      : !preserved_phase_submit_batch_close_submit_owner_available
-      ? "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
-      : !reset_deferral_owner_active
-      ? "command_pool_reset_deferral_owner_behavior_disabled"
-      : !retire_timeline_owner_active
-      ? "retire_timeline_owner_behavior_disabled"
-      : "pending_retire_transfer_owner_behavior_disabled";
+      pending_retire_transfer_owner_state != 0u;
+  const StackRegionExitOwnershipTransferCanaryState ownership_transfer_state =
+      stack_region_single_recording_ownership_transfer_canary_state(
+          preserved_phase_submit_batch_scope_observed,
+          region_close_submit_owner_id,
+          region_close_submit_owner_state,
+          reset_deferral_owner_id,
+          reset_deferral_owner_state,
+          retire_timeline_owner_id,
+          retire_timeline_owner_state,
+          pending_retire_transfer_owner_id,
+          pending_retire_transfer_owner_state,
+          region_close_submit_owner_behavior_enabled);
   const uint64_t pending_dispatch_last_position =
       g_stack_dispatch_dependency_position;
   const bool live_pending_dispatch_range_available =
@@ -2121,13 +2195,24 @@ std::string stack_region_single_recording_canary_key(
              region_close_submit_owner_state)
       << " region_exit_close_submit_owner_availability_source=ContextStackRegionCloseSubmitOwnerState.v0"
       << " region_exit_ownership_transfer_status="
-      << region_exit_ownership_transfer_status
+      << ownership_transfer_state.status
       << " region_exit_ownership_transfer_top_blocker="
-      << region_exit_ownership_transfer_top_blocker
+      << ownership_transfer_state.top_blocker
       << " region_exit_ownership_transfer_accounting_joined="
-      << (region_exit_ownership_transfer_accounting_joined ? 1 : 0)
-      << " region_exit_ownership_transfer_complete=0"
+      << (ownership_transfer_state.accounting_joined ? 1 : 0)
+      << " region_exit_ownership_transfer_complete="
+      << (ownership_transfer_state.ownership_transfer_complete ? 1 : 0)
       << " region_exit_ownership_transfer_authorizes_submit_elision=0"
+      << " region_exit_close_submit_owner_ownership_complete="
+      << (ownership_transfer_state.close_submit_ownership_complete ? 1 : 0)
+      << " reset_deferral_owner_ownership_complete="
+      << (ownership_transfer_state.reset_deferral_ownership_complete ? 1 : 0)
+      << " retire_timeline_owner_ownership_complete="
+      << (ownership_transfer_state.retire_timeline_ownership_complete ? 1 : 0)
+      << " pending_retire_transfer_owner_ownership_complete="
+      << (ownership_transfer_state.pending_retire_transfer_ownership_complete
+              ? 1
+              : 0)
       << " reset_deferral_owner_id=" << reset_deferral_owner_id
       << " reset_deferral_owner_state=" << reset_deferral_owner_state
       << " reset_deferral_owner_active="
@@ -14272,6 +14357,39 @@ void append_stack_region_submit_epoch_ordering_json(
         (!release_output_boundary_blocker && close_submit_accounting_joined &&
          reset_deferral_accounting_joined && pending_retire_accounting_joined &&
          retire_timeline_accounting_joined && release_point_accounting_joined);
+    const bool close_submit_ownership_complete =
+        !phase_submit_execution_flush_dependency_observed ||
+        (region_exit_close_submit_owner_result
+             .region_exit_close_submit_owner_lifecycle_state == 4u &&
+         region_exit_close_submit_owner_result
+             .region_exit_close_submit_owner_behavior_enabled);
+    const bool reset_deferral_ownership_complete =
+        !phase_submit_execution_flush_dependency_observed ||
+        command_pool_reset_deferral_owner_result.defers_command_pool_reset ||
+        command_pool_reset_deferral_owner_result.owner_status ==
+            "command_pool_reset_deferral_owner_not_required";
+    const bool pending_retire_transfer_ownership_complete =
+        !phase_submit_execution_flush_dependency_observed ||
+        pending_retire_transfer_owner_result.transfers_pending_retires ||
+        pending_retire_transfer_owner_result.owner_status ==
+            "pending_retire_transfer_owner_not_required";
+    const bool retire_timeline_ownership_complete =
+        !phase_submit_execution_flush_dependency_observed ||
+        retire_timeline_owner_result.transfers_retire_timeline ||
+        retire_timeline_owner_result.owner_status ==
+            "retire_timeline_owner_not_required";
+    const bool release_point_ownership_complete =
+        !phase_submit_execution_flush_dependency_observed ||
+        exit_release_point_result.release_capable ||
+        exit_release_point_result.release_point_status ==
+            "exit_release_point_not_required";
+    const bool ownership_transfer_complete =
+        !phase_submit_execution_flush_dependency_observed ||
+        (!release_output_boundary_blocker && release_point_ownership_complete &&
+         close_submit_ownership_complete &&
+         reset_deferral_ownership_complete &&
+         pending_retire_transfer_ownership_complete &&
+         retire_timeline_ownership_complete);
     std::string region_exit_ownership_transfer_status;
     std::string region_exit_ownership_transfer_top_blocker;
     if (!phase_submit_execution_flush_dependency_observed) {
@@ -14283,31 +14401,38 @@ void append_stack_region_submit_epoch_ordering_json(
           "region_exit_ownership_transfer_blocked_by_output_boundary";
       region_exit_ownership_transfer_top_blocker =
           "host_fence_public_final_readback_blocker";
-    } else if (!release_point_accounting_joined) {
+    } else if (!release_point_ownership_complete) {
       region_exit_ownership_transfer_status =
           "region_exit_ownership_transfer_waiting_for_runtime_exit_submit";
       region_exit_ownership_transfer_top_blocker =
           "runtime_exit_submit_point";
-    } else if (!close_submit_accounting_joined) {
+    } else if (!close_submit_ownership_complete) {
       region_exit_ownership_transfer_status =
           "region_exit_ownership_transfer_blocked_by_close_submit_owner";
       region_exit_ownership_transfer_top_blocker =
-          region_exit_close_submit_owner_result.final_fail_closed_reason;
-    } else if (!reset_deferral_accounting_joined) {
+          close_submit_accounting_joined
+          ? "region_exit_close_submit_owner_unavailable_preserved_phase_submit_batch_only"
+          : region_exit_close_submit_owner_result.final_fail_closed_reason;
+    } else if (!reset_deferral_ownership_complete) {
       region_exit_ownership_transfer_status =
           "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner";
       region_exit_ownership_transfer_top_blocker =
           command_pool_reset_deferral_owner_result.top_blocker;
-    } else if (!pending_retire_accounting_joined) {
+    } else if (!pending_retire_transfer_ownership_complete) {
       region_exit_ownership_transfer_status =
           "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner";
       region_exit_ownership_transfer_top_blocker =
           pending_retire_transfer_owner_result.top_blocker;
-    } else if (!retire_timeline_accounting_joined) {
+    } else if (!retire_timeline_ownership_complete) {
       region_exit_ownership_transfer_status =
           "region_exit_ownership_transfer_blocked_by_retire_timeline_owner";
       region_exit_ownership_transfer_top_blocker =
           retire_timeline_owner_result.top_blocker;
+    } else if (ownership_transfer_complete) {
+      region_exit_ownership_transfer_status =
+          "region_exit_ownership_transfer_complete_fail_closed";
+      region_exit_ownership_transfer_top_blocker =
+          "region_exit_ownership_transfer_authorization_disabled";
     } else {
       region_exit_ownership_transfer_status =
           "region_exit_ownership_transfer_accounting_joined_fail_closed";
@@ -14330,7 +14455,18 @@ void append_stack_region_submit_epoch_ordering_json(
         << " top_blocker=" << region_exit_ownership_transfer_top_blocker
         << " ownership_transfer_accounting_joined="
         << (ownership_transfer_accounting_joined ? "1" : "0")
-        << " ownership_transfer_complete=0"
+        << " ownership_transfer_complete="
+        << (ownership_transfer_complete ? "1" : "0")
+        << " release_point_ownership_complete="
+        << (release_point_ownership_complete ? "1" : "0")
+        << " close_submit_ownership_complete="
+        << (close_submit_ownership_complete ? "1" : "0")
+        << " command_pool_reset_deferral_ownership_complete="
+        << (reset_deferral_ownership_complete ? "1" : "0")
+        << " pending_retire_transfer_ownership_complete="
+        << (pending_retire_transfer_ownership_complete ? "1" : "0")
+        << " retire_timeline_ownership_complete="
+        << (retire_timeline_ownership_complete ? "1" : "0")
         << " region_exit_close_submit_owner=RegionExitCloseSubmitOwner.v0"
         << " region_exit_close_submit_owner_key="
         << region_exit_close_submit_owner_key
@@ -29871,8 +30007,23 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     record_fail("selected_boundary_actual_consumer_barrier_coverage_incomplete");
     return false;
   }
-  constexpr bool region_exit_ownership_transfer_complete = false;
-  if (!region_exit_ownership_transfer_complete) {
+  const StackRegionExitOwnershipTransferCanaryState ownership_transfer_state =
+      stack_region_single_recording_ownership_transfer_canary_state(
+          stack_planned_recording_active &&
+              stack_planned_recording_owned_by_current_thread &&
+              single_recording_owner_id != 0u &&
+              single_recording_owner_state == 1u &&
+              command_buffer_recording_id != 0u,
+          region_close_submit_owner_id,
+          region_close_submit_owner_state,
+          reset_deferral_owner_id,
+          reset_deferral_owner_state,
+          retire_timeline_owner_id,
+          retire_timeline_owner_state,
+          pending_retire_transfer_owner_id,
+          pending_retire_transfer_owner_state,
+          region_close_submit_owner_behavior_enabled);
+  if (!ownership_transfer_state.ownership_transfer_complete) {
     record_fail("region_exit_ownership_transfer_incomplete");
     return false;
   }

@@ -980,14 +980,15 @@ rather than treating proof strings as behavior authorization.
 reset-deferral owner, pending-retire transfer owner, retire-timeline owner, and
 stack-exit release point surfaces into one behavior-neutral transfer row for
 the selected stack-region instance and phase boundary. The row can report
-joined accounting when all required component surfaces are present, but it
-still records
-`ownership_transfer_complete=0`, `submit_elision_enabled=0`,
+joined accounting when all required component surfaces are present, and it now
+computes ownership completion separately from accounting. Current rows still
+report `ownership_transfer_complete=0`, `submit_elision_enabled=0`,
 `deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
-`phase_boundary_submits_preserved=1`. Missing components remain explicit
-blockers. This gives a future region-exit owner a single handoff surface
-without treating component proof completion as permission to remove or defer a
-submit.
+`phase_boundary_submits_preserved=1` because preserved phase-submit batches are
+not completed region close/submit ownership. Missing or incomplete components
+remain explicit blockers. This gives a future region-exit owner a single
+handoff surface without treating component proof completion as permission to
+remove or defer a submit.
 The existing `StackRegionSingleRecordingCanary.v0` guard consumes the same
 component lifecycle state and records the aggregate transfer status on canary
 rows. The guard remains fail-closed: after the earlier proof and barrier gates,

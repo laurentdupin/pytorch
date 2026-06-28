@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `3c7010c62e2` plus
-selected-boundary single-recording barrier guard cleanup.
+Last refreshed: 2026-06-28 at local HEAD `29869753a66` plus
+computed region-exit ownership-transfer completion gates.
 
 ## Repo State Summary
 
@@ -727,15 +727,17 @@ close-submit owner, command-pool reset-deferral owner, pending-retire transfer
 owner, retire-timeline owner, and stack-exit release-point surfaces. It reports
 whether those
 component surfaces can be joined for the selected stack-region instance and
-phase boundary, then remains fail-closed with
-`ownership_transfer_complete=0`, `submit_elision_enabled=0`,
+phase boundary, then computes a stricter ownership-completion predicate over
+the close-submit owner, reset-deferral owner, pending-retire transfer owner,
+retire-timeline owner, and exit release point. Preserved phase-submit batch
+accounting does not count as completed close/submit ownership. Current rows
+still keep `ownership_transfer_complete=0`, `submit_elision_enabled=0`,
 `deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
-`phase_boundary_submits_preserved=1`. Rows can now distinguish joined
-accounting from missing close-submit ownership, reset-deferral ownership,
+`phase_boundary_submits_preserved=1`. Rows can distinguish joined accounting
+from missing or incomplete close-submit ownership, reset-deferral ownership,
 pending-retire transfer ownership, retire-timeline ownership, runtime exit
-submit point, or
-public/final/host/readback output-boundary blockers. This is still
-behavior-neutral and does not transfer command-buffer, command-pool,
+submit point, or public/final/host/readback output-boundary blockers. This is
+still behavior-neutral and does not transfer command-buffer, command-pool,
 descriptor, retire, or output ownership.
 `StackRegionSingleRecordingCanary.v0` now consumes that aggregate transfer as a
 live guard. Its rows include the transfer status, top blocker, accounting

@@ -118,13 +118,14 @@ instance and phase boundary, then keeps the result behavior-neutral:
 `deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
 `ownership_transfer_complete=0`. When the component accounting is present, the
 row can report `region_exit_ownership_transfer_accounting_joined_fail_closed`
-with `region_exit_ownership_transfer_behavior_disabled`. Missing components are
+with a separate computed ownership-completion predicate. Missing components are
 reported as explicit blockers such as close-submit ownership, reset-deferral
 ownership, pending-retire transfer ownership, retire-timeline ownership, the
-runtime exit submit point, or public/final/host/readback output boundaries. The
-row is the next handoff surface for a future region-exit owner; it does not
-transfer command-buffer, command-pool, descriptor, retire, or output ownership
-in the current topology.
+runtime exit submit point, or public/final/host/readback output boundaries. A
+preserved phase-submit batch can join accounting but is not treated as completed
+close/submit ownership. The row is the next handoff surface for a future
+region-exit owner; it does not transfer command-buffer, command-pool,
+descriptor, retire, or output ownership in the current topology.
 The live `StackRegionSingleRecordingCanary.v0` guard now consumes the same
 component lifecycle state and emits the aggregate transfer status on its rows.
 Even if earlier proof and barrier predicates pass, the guard fails closed with
