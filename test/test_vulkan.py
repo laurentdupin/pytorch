@@ -26803,6 +26803,63 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 graph["summary"]["single_recording_canary_submits_removed"],
                 0,
             )
+            self.assertGreater(
+                graph["summary"]["stack_region_segment_plan_rows"], 0
+            )
+            segment_plan_rows = [
+                row["fields"] for row in graph["stack_region_segment_plan_rows"]
+            ]
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionSegmentPlan.v0"
+                    and row["row_kind"] == "summary"
+                    and row["behavior_neutral"] == "1"
+                    and row["behavior_change_allowed"] == "0"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    and row["command_buffer_execution_topology_changed"] == "0"
+                    and row["segmented_canary_requested"] == "1"
+                    and row["segmented_canary_selected"] == "1"
+                    and row["private_device_consumer_bridge"] == "1"
+                    and row["block_count"] == "4"
+                    and row["runtime_capture_indices"] == "1_3"
+                    and row["plan_capture_indices"] == "1_3"
+                    and row["segment_block_limit"] == "4"
+                    and row["segment_scope_limit"] == "2"
+                    and row["segment_count"] == "2"
+                    and row["segment_ends"] == "1_3"
+                    and row["segment_plan_status"]
+                    == "segment_plan_available_behavior_neutral"
+                    and row["segment_plan_fail_reason"] == "none"
+                    for row in segment_plan_rows
+                )
+            )
+            segment_rows = [
+                row for row in segment_plan_rows if row["row_kind"] == "segment"
+            ]
+            self.assertEqual(len(segment_rows), 2)
+            self.assertTrue(
+                any(
+                    row["segment_index"] == "0"
+                    and row["segment_start_block"] == "0"
+                    and row["segment_end_block"] == "1"
+                    and row["segment_block_count"] == "2"
+                    and row["segment_capture_indices"] == "1"
+                    and row["segment_has_capture_boundary"] == "1"
+                    for row in segment_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row["segment_index"] == "1"
+                    and row["segment_start_block"] == "2"
+                    and row["segment_end_block"] == "3"
+                    and row["segment_block_count"] == "2"
+                    and row["segment_capture_indices"] == "3"
+                    and row["segment_has_capture_boundary"] == "1"
+                    for row in segment_rows
+                )
+            )
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -26878,6 +26935,36 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 all(
                     row["phase_boundary_queue_submits_preserved"] == "1"
                     for row in recording_domain_rows
+                )
+            )
+            self.assertGreater(
+                graph["summary"]["stack_region_segment_plan_rows"], 0
+            )
+            segment_plan_rows = [
+                row["fields"] for row in graph["stack_region_segment_plan_rows"]
+            ]
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionSegmentPlan.v0"
+                    and row["row_kind"] == "summary"
+                    and row["behavior_neutral"] == "1"
+                    and row["behavior_change_allowed"] == "0"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    and row["command_buffer_execution_topology_changed"] == "0"
+                    and row["segmented_canary_requested"] == "1"
+                    and row["segmented_canary_selected"] == "0"
+                    and row["private_device_consumer_bridge"] == "1"
+                    and row["block_count"] == "6"
+                    and row["runtime_capture_indices"] == "1_3_5"
+                    and row["plan_capture_indices"] == "1_3_5"
+                    and row["segment_block_limit"] == "4"
+                    and row["segment_scope_limit"] == "2"
+                    and row["segment_plan_status"]
+                    == "segment_plan_rejected_behavior_neutral"
+                    and row["segment_plan_fail_reason"]
+                    == "segment_scope_limit_exceeded"
+                    for row in segment_plan_rows
                 )
             )
         finally:

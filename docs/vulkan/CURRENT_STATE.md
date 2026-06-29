@@ -99,6 +99,15 @@ each scope at its local stack-exit boundary. Stacks with an over-budget segment
 or too many segments still fail closed to the context-owned path. Exploratory
 full `vits_140` runs exposed stack-overflow risk for both unsegmented recording
 and four capture-aligned scopes, so DAv2 remains on the context-owned path.
+`StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
+planner. It emits a summary row for every segmented canary request and
+per-segment rows when candidate segments are computed. The rows record generic
+inputs and budgets only: private-bridge policy, runtime capture indices,
+plan-capture indices, block count, segment ends, four-block segment budget,
+two-scope budget, and fail-closed reason such as
+`segment_scope_limit_exceeded`. They do not change command-buffer topology,
+open recording scopes by themselves, move cleanup resources, defer submits, or
+authorize submit elision.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

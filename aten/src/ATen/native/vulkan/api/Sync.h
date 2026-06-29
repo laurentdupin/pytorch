@@ -2358,6 +2358,31 @@ TORCH_API void note_stack_region_external_recording_cleanup_logical_boundary(
     uint64_t allocation_identity_missing_count,
     uint64_t stack_provenance_defined_count,
     const std::string& allocation_signature);
+TORCH_API void note_stack_region_segment_plan(
+    const char* row_kind,
+    uint64_t region_id,
+    uint32_t region_state,
+    const char* owned_command_buffer_mode,
+    bool segmented_canary_requested,
+    bool segmented_canary_selected,
+    bool private_device_consumer_bridge,
+    bool preserve_private_captures_in_plan,
+    bool shape_plan_ready,
+    uint64_t block_count,
+    const std::string& runtime_capture_indices,
+    const std::string& plan_capture_indices,
+    uint64_t segment_count,
+    const std::string& segment_ends,
+    uint64_t segment_index,
+    uint64_t segment_start_block,
+    uint64_t segment_end_block,
+    uint64_t segment_block_count,
+    const std::string& segment_capture_indices,
+    bool segment_has_capture_boundary,
+    uint64_t segment_block_limit,
+    uint64_t segment_scope_limit,
+    const char* segment_plan_status,
+    const char* segment_plan_fail_reason);
 TORCH_API bool stack_region_recording_domain_observation_enabled();
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);

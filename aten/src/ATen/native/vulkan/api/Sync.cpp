@@ -588,6 +588,10 @@ struct StackRegionExternalRecordingCleanupLogicalBoundaryValue final {
   uint64_t count = 0u;
 };
 
+struct StackRegionSegmentPlanValue final {
+  uint64_t count = 0u;
+};
+
 struct StackRawResourceProducerRegistrationValue final {
   uint64_t count = 0u;
   uint64_t byte_range = 0u;
@@ -710,6 +714,12 @@ stack_region_external_recording_cleanup_logical_boundary_rows() {
       std::string,
       StackRegionExternalRecordingCleanupLogicalBoundaryValue>
       rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionSegmentPlanValue>&
+stack_region_segment_plan_rows() {
+  static std::map<std::string, StackRegionSegmentPlanValue> rows;
   return rows;
 }
 
@@ -2493,6 +2503,89 @@ void record_stack_region_external_recording_cleanup_logical_boundary(
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_region_external_recording_cleanup_logical_boundary_rows()[key.str()]
       .count += 1u;
+}
+
+void record_stack_region_segment_plan(
+    const char* const row_kind,
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const char* const owned_command_buffer_mode,
+    const bool segmented_canary_requested,
+    const bool segmented_canary_selected,
+    const bool private_device_consumer_bridge,
+    const bool preserve_private_captures_in_plan,
+    const bool shape_plan_ready,
+    const uint64_t block_count,
+    const std::string& runtime_capture_indices,
+    const std::string& plan_capture_indices,
+    const uint64_t segment_count,
+    const std::string& segment_ends,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_block_count,
+    const std::string& segment_capture_indices,
+    const bool segment_has_capture_boundary,
+    const uint64_t segment_block_limit,
+    const uint64_t segment_scope_limit,
+    const char* const segment_plan_status,
+    const char* const segment_plan_fail_reason) {
+  std::ostringstream key;
+  key << "stack_region_segment_plan=1"
+      << " schema=StackRegionSegmentPlan.v0"
+      << " row_kind=" << (row_kind && row_kind[0] != '\0' ? row_kind : "summary")
+      << " region_id=" << region_id
+      << " region_state=" << region_state
+      << " owned_command_buffer_mode="
+      << (owned_command_buffer_mode && owned_command_buffer_mode[0] != '\0'
+              ? owned_command_buffer_mode
+              : "none")
+      << " segmented_canary_requested="
+      << (segmented_canary_requested ? 1 : 0)
+      << " segmented_canary_selected=" << (segmented_canary_selected ? 1 : 0)
+      << " private_device_consumer_bridge="
+      << (private_device_consumer_bridge ? 1 : 0)
+      << " preserve_private_captures_in_plan="
+      << (preserve_private_captures_in_plan ? 1 : 0)
+      << " shape_plan_ready=" << (shape_plan_ready ? 1 : 0)
+      << " block_count=" << block_count
+      << " runtime_capture_indices="
+      << stack_region_row_token(runtime_capture_indices)
+      << " plan_capture_indices=" << stack_region_row_token(plan_capture_indices)
+      << " segment_block_limit=" << segment_block_limit
+      << " segment_scope_limit=" << segment_scope_limit
+      << " segment_count=" << segment_count
+      << " segment_ends=" << stack_region_row_token(segment_ends)
+      << " segment_index=" << segment_index
+      << " segment_start_block=" << segment_start_block
+      << " segment_end_block=" << segment_end_block
+      << " segment_block_count=" << segment_block_count
+      << " segment_capture_indices="
+      << stack_region_row_token(segment_capture_indices)
+      << " segment_has_capture_boundary="
+      << (segment_has_capture_boundary ? 1 : 0)
+      << " segment_private_capture_only="
+      << (private_device_consumer_bridge ? 1 : 0)
+      << " opens_stack_owned_recording_scope=0"
+      << " expected_stack_exit_submit_kind=local_segment_exit"
+      << " dispatch_count_observed=unknown"
+      << " external_cleanup_resource_count=unknown"
+      << " external_cleanup_resource_bytes=unknown"
+      << " segment_plan_status="
+      << (segment_plan_status && segment_plan_status[0] != '\0'
+              ? segment_plan_status
+              : "segment_plan_status_missing")
+      << " segment_plan_fail_reason="
+      << (segment_plan_fail_reason && segment_plan_fail_reason[0] != '\0'
+              ? segment_plan_fail_reason
+              : "segment_plan_fail_reason_missing")
+      << " behavior_neutral=1 default_behavior_unchanged=1"
+      << " behavior_change_allowed=0"
+      << " submit_elision_enabled=0"
+      << " deferred_submit_enabled=0"
+      << " command_buffer_execution_topology_changed=0";
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_region_segment_plan_rows()[key.str()].count += 1u;
 }
 
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
@@ -23768,6 +23861,7 @@ void split_stack_graph_rows(
     std::vector<std::string>& exit_submit_runtime_point_rows,
     std::vector<std::string>& recording_domain_rows,
     std::vector<std::string>& external_recording_cleanup_logical_boundary_rows,
+    std::vector<std::string>& segment_plan_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
     if (row.find("stack_region_recording_domain=1") != std::string::npos) {
@@ -23779,6 +23873,10 @@ void split_stack_graph_rows(
             "stack_region_external_recording_cleanup_logical_boundary=1") !=
         std::string::npos) {
       external_recording_cleanup_logical_boundary_rows.emplace_back(row);
+      continue;
+    }
+    if (row.find("stack_region_segment_plan=1") != std::string::npos) {
+      segment_plan_rows.emplace_back(row);
       continue;
     }
     if (
@@ -23891,6 +23989,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> exit_submit_runtime_point_rows;
   std::vector<std::string> recording_domain_rows;
   std::vector<std::string> external_recording_cleanup_logical_boundary_rows;
+  std::vector<std::string> segment_plan_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
@@ -23910,6 +24009,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       exit_submit_runtime_point_rows,
       recording_domain_rows,
       external_recording_cleanup_logical_boundary_rows,
+      segment_plan_rows,
       raw_resource_producer_rows);
 
   std::vector<std::string> resource_nodes;
@@ -24128,6 +24228,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_segment_plan_rows",
+      segment_plan_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "raw_resource_producer_rows",
       raw_resource_producer_rows.size(),
       summary_first);
@@ -24272,6 +24377,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_external_recording_cleanup_logical_boundary_rows",
       external_recording_cleanup_logical_boundary_rows,
       "stack_region_external_recording_cleanup_logical_boundary",
+      first);
+  append_graph_array(
+      out,
+      "stack_region_segment_plan_rows",
+      segment_plan_rows,
+      "stack_region_segment_plan",
       first);
   append_graph_array(
       out,
@@ -24422,6 +24533,58 @@ void note_stack_region_external_recording_cleanup_logical_boundary(
       allocation_identity_missing_count,
       stack_provenance_defined_count,
       allocation_signature);
+}
+
+void note_stack_region_segment_plan(
+    const char* const row_kind,
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const char* const owned_command_buffer_mode,
+    const bool segmented_canary_requested,
+    const bool segmented_canary_selected,
+    const bool private_device_consumer_bridge,
+    const bool preserve_private_captures_in_plan,
+    const bool shape_plan_ready,
+    const uint64_t block_count,
+    const std::string& runtime_capture_indices,
+    const std::string& plan_capture_indices,
+    const uint64_t segment_count,
+    const std::string& segment_ends,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_block_count,
+    const std::string& segment_capture_indices,
+    const bool segment_has_capture_boundary,
+    const uint64_t segment_block_limit,
+    const uint64_t segment_scope_limit,
+    const char* const segment_plan_status,
+    const char* const segment_plan_fail_reason) {
+  record_stack_region_segment_plan(
+      row_kind,
+      region_id,
+      region_state,
+      owned_command_buffer_mode,
+      segmented_canary_requested,
+      segmented_canary_selected,
+      private_device_consumer_bridge,
+      preserve_private_captures_in_plan,
+      shape_plan_ready,
+      block_count,
+      runtime_capture_indices,
+      plan_capture_indices,
+      segment_count,
+      segment_ends,
+      segment_index,
+      segment_start_block,
+      segment_end_block,
+      segment_block_count,
+      segment_capture_indices,
+      segment_has_capture_boundary,
+      segment_block_limit,
+      segment_scope_limit,
+      segment_plan_status,
+      segment_plan_fail_reason);
 }
 
 bool stack_region_recording_domain_observation_enabled() {
@@ -32340,6 +32503,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_exit_submit_runtime_point_rows().size() +
       stack_region_recording_domain_rows().size() +
       stack_region_external_recording_cleanup_logical_boundary_rows().size() +
+      stack_region_segment_plan_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
@@ -32521,6 +32685,11 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_segment_plan_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_raw_resource_producer_registration_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -32558,6 +32727,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_exit_submit_runtime_point_rows().clear();
   stack_region_recording_domain_rows().clear();
   stack_region_external_recording_cleanup_logical_boundary_rows().clear();
+  stack_region_segment_plan_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }

@@ -1190,6 +1190,14 @@ four blocks or fewer, allows at most two scopes, then submits each scope at its
 local stack-exit. Over-budget or too-many-segment stacks stay on the
 context-owned path because unbounded and four-scope full-stack experiments have
 already shown stack-overflow/device-loss risk.
+`StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
+It emits a summary row even when segmentation rejects, and per-segment rows
+when candidate segments are computed. Rows carry only generic inputs and
+budgets: private bridge state, runtime capture indices, plan-capture indices,
+block count, segment ends, the four-block segment limit, the two-scope limit,
+and fail-closed reasons such as `segment_scope_limit_exceeded`. The row is
+behavior-neutral: it does not open scopes, change command-buffer topology,
+move pending retires, defer submits, or authorize submit elision.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

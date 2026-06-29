@@ -1420,50 +1420,115 @@ bool stack_owned_command_buffer_segmented_canary_enabled() {
   return std::string(env) == "segmented_stack_entry_to_exit";
 }
 
-std::optional<std::vector<size_t>> stack_owned_command_buffer_segment_ends(
+constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 4u;
+constexpr size_t kSegmentedOwnedCommandBufferScopeLimit = 2u;
+
+struct StackOwnedCommandBufferSegmentPlan final {
+  std::vector<size_t> segment_ends;
+  const char* status = "segmentation_not_requested";
+  const char* fail_reason = "segmentation_not_requested";
+};
+
+std::string format_segment_plan_indices(const std::vector<int64_t>& indices) {
+  if (indices.empty()) {
+    return "none";
+  }
+  std::ostringstream stream;
+  for (size_t i = 0u; i < indices.size(); ++i) {
+    if (i > 0u) {
+      stream << ",";
+    }
+    stream << indices[i];
+  }
+  return stream.str();
+}
+
+std::string format_segment_plan_ends(const std::vector<size_t>& segment_ends) {
+  if (segment_ends.empty()) {
+    return "none";
+  }
+  std::ostringstream stream;
+  for (size_t i = 0u; i < segment_ends.size(); ++i) {
+    if (i > 0u) {
+      stream << ",";
+    }
+    stream << segment_ends[i];
+  }
+  return stream.str();
+}
+
+StackOwnedCommandBufferSegmentPlan stack_owned_command_buffer_segment_plan(
     const size_t block_count,
     const std::vector<int64_t>& capture_indices) {
-  constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 4u;
-  constexpr size_t kSegmentedOwnedCommandBufferScopeLimit = 2u;
-  if (block_count <= 2u || capture_indices.empty()) {
-    return std::nullopt;
+  StackOwnedCommandBufferSegmentPlan plan;
+  if (block_count <= 2u) {
+    plan.status = "segment_plan_rejected_behavior_neutral";
+    plan.fail_reason = "block_count_not_over_unsegmented_limit";
+    return plan;
+  }
+  if (capture_indices.empty()) {
+    plan.status = "segment_plan_rejected_behavior_neutral";
+    plan.fail_reason = "capture_indices_empty";
+    return plan;
   }
   std::vector<size_t> capture_blocks;
   capture_blocks.reserve(capture_indices.size());
   for (const int64_t capture_idx : capture_indices) {
     if (capture_idx < 0 ||
         capture_idx >= static_cast<int64_t>(block_count)) {
-      return std::nullopt;
+      plan.status = "segment_plan_rejected_behavior_neutral";
+      plan.fail_reason = "capture_index_out_of_range";
+      return plan;
     }
     capture_blocks.push_back(static_cast<size_t>(capture_idx));
   }
   std::sort(capture_blocks.begin(), capture_blocks.end());
   if (std::adjacent_find(capture_blocks.begin(), capture_blocks.end()) !=
       capture_blocks.end()) {
-    return std::nullopt;
+    plan.status = "segment_plan_rejected_behavior_neutral";
+    plan.fail_reason = "duplicate_capture_index";
+    return plan;
   }
-  std::vector<size_t> segment_ends;
   size_t segment_start = 0u;
   for (const size_t capture_block : capture_blocks) {
     const size_t segment_length = capture_block + 1u - segment_start;
     if (segment_length == 0u ||
         segment_length > kSegmentedOwnedCommandBufferBlockLimit) {
-      return std::nullopt;
+      plan.status = "segment_plan_rejected_behavior_neutral";
+      plan.fail_reason = "segment_block_limit_exceeded";
+      return plan;
     }
-    segment_ends.push_back(capture_block);
+    plan.segment_ends.push_back(capture_block);
     segment_start = capture_block + 1u;
   }
   if (segment_start < block_count) {
     const size_t segment_length = block_count - segment_start;
     if (segment_length > kSegmentedOwnedCommandBufferBlockLimit) {
-      return std::nullopt;
+      plan.status = "segment_plan_rejected_behavior_neutral";
+      plan.fail_reason = "segment_block_limit_exceeded";
+      return plan;
     }
-    segment_ends.push_back(block_count - 1u);
+    plan.segment_ends.push_back(block_count - 1u);
   }
-  if (segment_ends.size() > kSegmentedOwnedCommandBufferScopeLimit) {
+  if (plan.segment_ends.size() > kSegmentedOwnedCommandBufferScopeLimit) {
+    plan.status = "segment_plan_rejected_behavior_neutral";
+    plan.fail_reason = "segment_scope_limit_exceeded";
+    return plan;
+  }
+  plan.status = "segment_plan_available_behavior_neutral";
+  plan.fail_reason = "none";
+  return plan;
+}
+
+std::optional<std::vector<size_t>> stack_owned_command_buffer_segment_ends(
+    const size_t block_count,
+    const std::vector<int64_t>& capture_indices) {
+  StackOwnedCommandBufferSegmentPlan plan =
+      stack_owned_command_buffer_segment_plan(block_count, capture_indices);
+  if (plan.fail_reason != std::string("none")) {
     return std::nullopt;
   }
-  return segment_ends;
+  return plan.segment_ends;
 }
 
 class VulkanStackCommandRecordingScope final {
@@ -8607,6 +8672,10 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       private_device_consumer_bridge && !preserve_private_captures_in_plan
       ? std::vector<int64_t>{}
       : capture_indices_vec;
+  const std::string runtime_capture_indices_signature =
+      format_segment_plan_indices(capture_indices_vec);
+  const std::string plan_capture_indices_signature =
+      format_segment_plan_indices(plan_capture_indices);
   VulkanVisionStackShapePlan* stack_shape_plan = nullptr;
   {
     VulkanVisionStackShapePlan& plan =
@@ -8634,17 +8703,111 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
             build_stack_planned_dispatch_positions(*stack_shape_plan));
   }
   std::unique_ptr<VulkanStackCommandRecordingScope> planned_recording_scope;
-  const std::optional<std::vector<size_t>>
-      segmented_stack_owned_command_buffer_segment_ends =
-          private_device_consumer_bridge &&
-          stack_owned_command_buffer_segmented_canary_enabled()
-      ? stack_owned_command_buffer_segment_ends(
+  const bool segmented_canary_requested =
+      stack_owned_command_buffer_segmented_canary_enabled();
+  StackOwnedCommandBufferSegmentPlan segmented_stack_owned_command_buffer_plan;
+  if (!segmented_canary_requested) {
+    segmented_stack_owned_command_buffer_plan.status =
+        "segment_plan_rejected_behavior_neutral";
+    segmented_stack_owned_command_buffer_plan.fail_reason =
+        "segmentation_not_requested";
+  } else if (!private_device_consumer_bridge) {
+    segmented_stack_owned_command_buffer_plan.status =
+        "segment_plan_rejected_behavior_neutral";
+    segmented_stack_owned_command_buffer_plan.fail_reason =
+        "segmentation_requires_private_device_consumer_bridge";
+  } else if (
+      !(stack_shape_plan &&
+        stack_plan_ready_for_planned_recording(*stack_shape_plan))) {
+    segmented_stack_owned_command_buffer_plan.status =
+        "segment_plan_rejected_behavior_neutral";
+    segmented_stack_owned_command_buffer_plan.fail_reason =
+        "stack_shape_plan_not_ready";
+  } else {
+    segmented_stack_owned_command_buffer_plan =
+        stack_owned_command_buffer_segment_plan(
             context->blocks().size(),
-            capture_indices_vec)
-      : std::nullopt;
+            capture_indices_vec);
+  }
   const bool segmented_stack_owned_command_buffer_canary =
       stack_shape_plan && stack_plan_ready_for_planned_recording(*stack_shape_plan) &&
-      segmented_stack_owned_command_buffer_segment_ends.has_value();
+      segmented_canary_requested && private_device_consumer_bridge &&
+      segmented_stack_owned_command_buffer_plan.fail_reason ==
+          std::string("none");
+  if (api::stack_region_recording_domain_observation_enabled()) {
+    const std::string segment_ends_signature =
+        format_segment_plan_ends(
+            segmented_stack_owned_command_buffer_plan.segment_ends);
+    api::note_stack_region_segment_plan(
+        "summary",
+        0u,
+        0u,
+        segmented_canary_requested ? "segmented_stack_entry_to_exit" : "none",
+        segmented_canary_requested,
+        segmented_stack_owned_command_buffer_canary,
+        private_device_consumer_bridge,
+        preserve_private_captures_in_plan,
+        stack_shape_plan &&
+            stack_plan_ready_for_planned_recording(*stack_shape_plan),
+        context->blocks().size(),
+        runtime_capture_indices_signature,
+        plan_capture_indices_signature,
+        segmented_stack_owned_command_buffer_plan.segment_ends.size(),
+        segment_ends_signature,
+        0u,
+        0u,
+        0u,
+        0u,
+        "none",
+        false,
+        kSegmentedOwnedCommandBufferBlockLimit,
+        kSegmentedOwnedCommandBufferScopeLimit,
+        segmented_stack_owned_command_buffer_plan.status,
+        segmented_stack_owned_command_buffer_plan.fail_reason);
+    size_t segment_start = 0u;
+    for (size_t segment_index = 0u;
+         segment_index <
+         segmented_stack_owned_command_buffer_plan.segment_ends.size();
+         ++segment_index) {
+      const size_t segment_end =
+          segmented_stack_owned_command_buffer_plan.segment_ends[segment_index];
+      std::vector<int64_t> segment_capture_indices;
+      for (const int64_t capture_idx : capture_indices_vec) {
+        if (
+            capture_idx >= static_cast<int64_t>(segment_start) &&
+            capture_idx <= static_cast<int64_t>(segment_end)) {
+          segment_capture_indices.push_back(capture_idx);
+        }
+      }
+      api::note_stack_region_segment_plan(
+          "segment",
+          0u,
+          0u,
+          "segmented_stack_entry_to_exit",
+          segmented_canary_requested,
+          segmented_stack_owned_command_buffer_canary,
+          private_device_consumer_bridge,
+          preserve_private_captures_in_plan,
+          stack_shape_plan &&
+              stack_plan_ready_for_planned_recording(*stack_shape_plan),
+          context->blocks().size(),
+          runtime_capture_indices_signature,
+          plan_capture_indices_signature,
+          segmented_stack_owned_command_buffer_plan.segment_ends.size(),
+          segment_ends_signature,
+          segment_index,
+          segment_start,
+          segment_end,
+          segment_end + 1u - segment_start,
+          format_segment_plan_indices(segment_capture_indices),
+          !segment_capture_indices.empty(),
+          kSegmentedOwnedCommandBufferBlockLimit,
+          kSegmentedOwnedCommandBufferScopeLimit,
+          segmented_stack_owned_command_buffer_plan.status,
+          segmented_stack_owned_command_buffer_plan.fail_reason);
+      segment_start = segment_end + 1u;
+    }
+  }
   if (stack_shape_plan &&
       stack_plan_ready_for_planned_recording(*stack_shape_plan)) {
     planned_counters.planned_record_hit.fetch_add(
@@ -8747,9 +8910,9 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
     }
     if (segmented_stack_owned_command_buffer_canary &&
         segmented_stack_owned_command_buffer_segment_index <
-            segmented_stack_owned_command_buffer_segment_ends->size() &&
+            segmented_stack_owned_command_buffer_plan.segment_ends.size() &&
         block_idx ==
-            segmented_stack_owned_command_buffer_segment_ends->at(
+            segmented_stack_owned_command_buffer_plan.segment_ends.at(
                 segmented_stack_owned_command_buffer_segment_index)) {
       planned_recording_scope.reset();
       segmented_stack_owned_command_buffer_segment_index++;
