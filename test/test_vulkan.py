@@ -26492,6 +26492,118 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_owned_command_buffer_canary_records_external_domain(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.owned_command_buffer",
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        graph_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_stack_region_owned_command_buffer_test.json",
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": graph_path,
+            "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY": (
+                "non_capture_residual2_norm1_block1"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY": (
+                "non_capture_residual2_norm1_block1"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY": (
+                "non_capture_residual2_norm1_block1"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER": (
+                "context_retained_release_point"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER": (
+                "stack_exit_close_submit"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER": (
+                "stack_exit_close_submit"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER": (
+                "preserved_phase_submit_handoff"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES": "1",
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "stack_entry_to_exit"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                actual = (
+                    torch.ops.vulkan_prepack
+                    .run_vision_backbone_stack_private_capture_debug(
+                        x,
+                        stack_context,
+                        [1],
+                        True,
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertEqual(actual[0].cpu(), expected[0].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            recording_domain_rows = [
+                row["fields"]
+                for row in graph["stack_region_recording_domain_rows"]
+            ]
+            self.assertTrue(
+                any(row["event"] == "active_cmd_external" for row in recording_domain_rows)
+            )
+            self.assertTrue(
+                any(
+                    row["event"] == "active_cmd_external"
+                    and row["recording_domain_mode"]
+                    == "stack_region_owned_external_recording"
+                    and row["command_buffer_owner_scope"]
+                    == "stack_region_owned_command_buffer"
+                    and row["region_owned_command_buffer_active"] == "1"
+                    for row in recording_domain_rows
+                )
+            )
+            self.assertFalse(
+                any(row["event"] == "active_cmd_context" for row in recording_domain_rows)
+            )
+            self.assertTrue(
+                any(row["event"] == "stack_entry_begin" for row in recording_domain_rows)
+            )
+            self.assertTrue(
+                any(row["event"] == "stack_exit_submit" for row in recording_domain_rows)
+            )
+            self.assertEqual(
+                graph["summary"]["single_recording_canary_submits_removed"],
+                0,
+            )
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
         self,
     ):

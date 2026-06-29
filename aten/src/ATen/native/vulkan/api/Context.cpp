@@ -106,6 +106,16 @@ bool stack_region_close_submit_owner_preserved_phase_enabled() {
   return value == "1" || value == "preserved_phase_submit_batch";
 }
 
+bool stack_region_owned_command_buffer_canary_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value == "1" || value == "stack_entry_to_exit";
+}
+
 bool stack_region_pending_retire_transfer_owner_stack_internal_enabled() {
   const char* env =
       std::getenv("PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER");
@@ -1352,13 +1362,17 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       // Command buffer submission
       cmd_mutex_{},
       cmd_(VK_NULL_HANDLE, 0u, nullptr),
+      stack_region_owned_cmd_(VK_NULL_HANDLE, 0u, nullptr),
       submit_count_{0u},
       command_buffer_recording_id_{0u},
       next_command_buffer_recording_id_{1u},
       stack_planned_recording_active_{false},
       stack_region_recording_domain_observation_active_{false},
+      stack_region_owned_command_buffer_active_{false},
       stack_planned_recording_owner_{},
       stack_planned_recording_stats_{},
+      stack_region_owned_recording_retained_buffers_{},
+      stack_region_owned_recording_retained_images_{},
       stack_region_single_recording_plan_id_{0u},
       next_stack_region_single_recording_plan_id_{1u},
       stack_region_single_recording_plan_state_{0u},
@@ -2299,7 +2313,9 @@ CommandBuffer& Context::active_cmd() {
           submit_epoch,
           submit_count_,
           VulkanSubmitPhase::StackOwner,
-          VulkanRetireCallSite::Unknown);
+          VulkanRetireCallSite::Unknown,
+          stack_region_owned_command_buffer_active_.load(
+              std::memory_order_acquire));
     }
     return *external_cmd;
   }
@@ -3652,8 +3668,34 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
     stack_region_close_submit_owner_state_.store(
         4u, std::memory_order_release);
   }
-  VulkanSubmission submission = submit_cmd_to_gpu(
-      VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
+  const bool stack_region_owned_close_submit =
+      stack_region_owned_command_buffer_active_.load(std::memory_order_acquire);
+  VulkanSubmission submission{};
+  if (stack_region_owned_close_submit) {
+    end_external_command_recording();
+    take_external_recording_cleanup_resources(
+        stack_region_owned_recording_retained_buffers_,
+        stack_region_owned_recording_retained_images_);
+    stack_region_owned_cmd_.end();
+    submission = submit_cmd_handle_to_gpu(
+        current_stream(),
+        stack_region_owned_cmd_.get_submit_handle(/*final_use=*/true),
+        VulkanSubmitOrigin::StackPlannedRecordingSubmit,
+        VK_NULL_HANDLE,
+        /*final_use=*/true);
+    last_submission_ = submission;
+    retire_deferred_cleanup(
+        submission, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
+    stack_region_owned_recording_retained_buffers_.clear();
+    stack_region_owned_recording_retained_images_.clear();
+    stack_region_owned_command_buffer_active_.store(
+        false, std::memory_order_release);
+    submit_count_ = 0u;
+    command_buffer_recording_id_ = 0u;
+  } else {
+    submission = submit_cmd_to_gpu(
+        VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
+  }
   const uint64_t submit_epoch_after =
       submission.timeline_value != 0u ? submission.timeline_value
                                       : submit_epoch_before;
@@ -3678,7 +3720,8 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
       submit_epoch_after,
       pending_dispatch_count,
       VulkanSubmitPhase::StackOwner,
-      VulkanRetireCallSite::StackPlannedRecordingEnd);
+      VulkanRetireCallSite::StackPlannedRecordingEnd,
+      stack_region_owned_close_submit);
   return submission;
 }
 
@@ -3773,6 +3816,16 @@ void Context::begin_stack_planned_recording() {
     stack_region_pending_retire_transfer_source_signature_.clear();
   }
   clear_stack_region_pending_retire_handoff_batch_locked();
+  stack_region_owned_recording_retained_buffers_.clear();
+  stack_region_owned_recording_retained_images_.clear();
+  if (stack_region_owned_command_buffer_canary_enabled()) {
+    stack_region_owned_cmd_ = acquire_persistent_command_buffer();
+    command_buffer_recording_id_ = next_command_buffer_recording_id_++;
+    submit_count_ = 0u;
+    begin_external_command_recording(stack_region_owned_cmd_);
+    stack_region_owned_command_buffer_active_.store(
+        true, std::memory_order_release);
+  }
   stack_region_recording_domain_observation_active_.store(
       stack_region_recording_domain_observation_enabled(),
       std::memory_order_release);
@@ -3786,7 +3839,9 @@ void Context::begin_stack_planned_recording() {
       current_stream().last_submitted_value.load(std::memory_order_relaxed),
       submit_count_,
       VulkanSubmitPhase::StackOwner,
-      VulkanRetireCallSite::Unknown);
+      VulkanRetireCallSite::Unknown,
+      stack_region_owned_command_buffer_active_.load(
+          std::memory_order_acquire));
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
@@ -3858,6 +3913,23 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       3u);
   restore_stack_internal_temp_retire_batch_to_pending_locked();
   restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
+  if (stack_region_owned_command_buffer_active_.load(
+          std::memory_order_acquire)) {
+    end_external_command_recording();
+    take_external_recording_cleanup_resources(
+        stack_region_owned_recording_retained_buffers_,
+        stack_region_owned_recording_retained_images_);
+    stack_region_owned_cmd_.end();
+    stack_region_owned_cmd_.invalidate();
+    stack_region_owned_recording_retained_buffers_.clear();
+    stack_region_owned_recording_retained_images_.clear();
+    stack_region_owned_command_buffer_active_.store(
+        false, std::memory_order_release);
+    submit_count_ = 0u;
+    command_buffer_recording_id_ = 0u;
+  }
+  stack_region_recording_domain_observation_active_.store(
+      false, std::memory_order_release);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
       3u, std::memory_order_release);

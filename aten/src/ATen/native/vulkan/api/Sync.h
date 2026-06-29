@@ -2343,7 +2343,8 @@ TORCH_API void note_stack_region_recording_domain(
     uint64_t submit_epoch_after,
     uint64_t pending_dispatch_count,
     VulkanSubmitPhase phase,
-    VulkanRetireCallSite callsite);
+    VulkanRetireCallSite callsite,
+    bool region_owned_command_buffer_active = false);
 TORCH_API bool stack_region_recording_domain_observation_enabled();
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);

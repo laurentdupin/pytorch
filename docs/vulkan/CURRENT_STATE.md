@@ -76,6 +76,15 @@ also records `active_cmd_context` rows during stack planned recording to show
 that dispatch recording still uses the context command buffer rather than a
 region-owned command buffer.
 
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=stack_entry_to_exit` is now
+the first opt-in planned-region command-buffer canary. It reuses the existing
+prepared-command-buffer/external-recording substrate: stack entry acquires a
+persistent command buffer, stack dispatches record through
+`active_cmd_external`, and stack exit closes and submits that prepared command
+buffer. The default path remains context-owned. The canary is validated only on
+the focused two-block synthetic vision stack and still makes no broad DAv2
+performance claim.
+
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.
 `torch.backends.vulkan.is_available()` is not a valid availability signal here.

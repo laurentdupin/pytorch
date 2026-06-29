@@ -137,13 +137,17 @@ class TORCH_API Context final {
   // Command buffers submission
   std::mutex cmd_mutex_;
   CommandBuffer cmd_;
+  CommandBuffer stack_region_owned_cmd_;
   uint32_t submit_count_;
   uint64_t command_buffer_recording_id_;
   uint64_t next_command_buffer_recording_id_;
   std::atomic<bool> stack_planned_recording_active_;
   std::atomic<bool> stack_region_recording_domain_observation_active_;
+  std::atomic<bool> stack_region_owned_command_buffer_active_;
   std::thread::id stack_planned_recording_owner_;
   StackPlannedRecordingStats stack_planned_recording_stats_;
+  std::vector<VulkanBuffer> stack_region_owned_recording_retained_buffers_;
+  std::vector<VulkanImage> stack_region_owned_recording_retained_images_;
   std::atomic<uint64_t> stack_region_single_recording_plan_id_;
   std::atomic<uint64_t> next_stack_region_single_recording_plan_id_;
   std::atomic<uint32_t> stack_region_single_recording_plan_state_;

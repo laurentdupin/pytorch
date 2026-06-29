@@ -1164,6 +1164,14 @@ enabled, the same schema also records `active_cmd_context` observations from
 dispatch recording is still routed through the context-owned command buffer;
 they are intentionally gated diagnostics and do not create a region-owned
 recording scope.
+The opt-in
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=stack_entry_to_exit` canary
+uses the existing prepared-command-buffer external-recording path to create the
+first stack-entry-to-exit recording domain. Under that canary, stack dispatches
+emit `active_cmd_external` rows and stack exit submits the prepared command
+buffer. This is a focused canary only; it does not change the default path and
+does not convert the older current-topology submit-elision canary into an
+accepted optimization.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

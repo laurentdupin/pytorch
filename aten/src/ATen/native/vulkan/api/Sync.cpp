@@ -2391,20 +2391,31 @@ void record_stack_region_recording_domain(
     const uint64_t submit_epoch_after,
     const uint64_t pending_dispatch_count,
     const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite) {
+    const VulkanRetireCallSite callsite,
+    const bool region_owned_command_buffer_active) {
+  const char* const recording_domain_mode =
+      region_owned_command_buffer_active ? "stack_region_owned_external_recording"
+                                         : "context_phase_submit_compat";
+  const char* const command_buffer_owner_scope =
+      region_owned_command_buffer_active ? "stack_region_owned_command_buffer"
+                                         : "vulkan_context_phase_submit_owner";
+  const char* const top_blocker = region_owned_command_buffer_active
+      ? "submit_elision_disabled_region_owned_canary_only"
+      : "missing_region_owned_command_buffer_recording_domain";
   std::ostringstream key;
   key << "stack_region_recording_domain=1"
       << " schema=StackRegionRecordingDomain.v0"
       << " event=" << (event && event[0] != '\0' ? event : "missing")
       << " region_id=" << region_id
       << " region_state=" << region_state
-      << " recording_domain_mode=context_phase_submit_compat"
-      << " command_buffer_owner_scope=vulkan_context_phase_submit_owner"
+      << " recording_domain_mode=" << recording_domain_mode
+      << " command_buffer_owner_scope=" << command_buffer_owner_scope
       << " requested_command_buffer_owner_scope=stack_region"
-      << " region_owned_command_buffer_active=0"
+      << " region_owned_command_buffer_active="
+      << (region_owned_command_buffer_active ? 1 : 0)
       << " phase_boundary_submits_preserved=1"
       << " current_topology_submit_elision_forbidden=1"
-      << " top_blocker=missing_region_owned_command_buffer_recording_domain"
+      << " top_blocker=" << top_blocker
       << " command_buffer_recording_id=" << command_buffer_recording_id
       << " submit_epoch_before=" << submit_epoch_before
       << " submit_epoch_after=" << submit_epoch_after
@@ -24282,7 +24293,8 @@ void note_stack_region_recording_domain(
     const uint64_t submit_epoch_after,
     const uint64_t pending_dispatch_count,
     const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite) {
+    const VulkanRetireCallSite callsite,
+    const bool region_owned_command_buffer_active) {
   record_stack_region_recording_domain(
       event,
       region_id,
@@ -24292,7 +24304,8 @@ void note_stack_region_recording_domain(
       submit_epoch_after,
       pending_dispatch_count,
       phase,
-      callsite);
+      callsite,
+      region_owned_command_buffer_active);
 }
 
 bool stack_region_recording_domain_observation_enabled() {
