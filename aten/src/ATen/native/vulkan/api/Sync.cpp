@@ -588,6 +588,10 @@ struct StackRegionExternalRecordingCleanupLogicalBoundaryValue final {
   uint64_t count = 0u;
 };
 
+struct StackRegionExternalRecordingCleanupRetireValue final {
+  uint64_t count = 0u;
+};
+
 struct StackRegionSegmentPlanValue final {
   uint64_t count = 0u;
 };
@@ -713,6 +717,15 @@ stack_region_external_recording_cleanup_logical_boundary_rows() {
   static std::map<
       std::string,
       StackRegionExternalRecordingCleanupLogicalBoundaryValue>
+      rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionExternalRecordingCleanupRetireValue>&
+stack_region_external_recording_cleanup_retire_rows() {
+  static std::map<
+      std::string,
+      StackRegionExternalRecordingCleanupRetireValue>
       rows;
   return rows;
 }
@@ -2516,6 +2529,48 @@ void record_stack_region_external_recording_cleanup_logical_boundary(
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_region_external_recording_cleanup_logical_boundary_rows()[key.str()]
       .count += 1u;
+}
+
+void record_stack_region_external_recording_cleanup_retire(
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const uint64_t buffer_count,
+    const uint64_t image_count,
+    const uint64_t resource_count,
+    const uint64_t resource_bytes,
+    const bool timeline_valid,
+    const char* const retire_action) {
+  std::ostringstream key;
+  key << "stack_region_external_recording_cleanup_retire=1"
+      << " schema=StackRegionExternalRecordingCleanupRetire.v0"
+      << " region_id=" << region_id
+      << " region_state=" << region_state
+      << " recording_domain_mode=stack_region_owned_external_recording"
+      << " command_buffer_owner_scope=stack_region_owned_command_buffer"
+      << " region_owned_command_buffer_active=1"
+      << " command_buffer_recording_id=" << command_buffer_recording_id
+      << " submit_epoch_after=" << submit_epoch_after
+      << " pending_dispatch_count=" << pending_dispatch_count
+      << " external_cleanup_buffer_count=" << buffer_count
+      << " external_cleanup_image_count=" << image_count
+      << " external_cleanup_resource_count=" << resource_count
+      << " external_cleanup_resource_bytes=" << resource_bytes
+      << " external_cleanup_timeline_valid=" << (timeline_valid ? 1 : 0)
+      << " external_cleanup_retire_action="
+      << (retire_action && retire_action[0] != '\0' ? retire_action
+                                                     : "unknown")
+      << " behavior_neutral=1 default_behavior_unchanged=1"
+      << " metadata_only=1"
+      << " transfer_behavior_enabled=0"
+      << " transfers_pending_retires=0"
+      << " submit_elision_enabled=0"
+      << " deferred_submit_enabled=0"
+      << " top_blocker=external_recording_cleanup_transfer_unimplemented";
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_region_external_recording_cleanup_retire_rows()[key.str()].count += 1u;
 }
 
 void record_stack_region_segment_plan(
@@ -23897,6 +23952,7 @@ void split_stack_graph_rows(
     std::vector<std::string>& exit_submit_runtime_point_rows,
     std::vector<std::string>& recording_domain_rows,
     std::vector<std::string>& external_recording_cleanup_logical_boundary_rows,
+    std::vector<std::string>& external_recording_cleanup_retire_rows,
     std::vector<std::string>& segment_plan_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
@@ -23909,6 +23965,12 @@ void split_stack_graph_rows(
             "stack_region_external_recording_cleanup_logical_boundary=1") !=
         std::string::npos) {
       external_recording_cleanup_logical_boundary_rows.emplace_back(row);
+      continue;
+    }
+    if (
+        row.find("stack_region_external_recording_cleanup_retire=1") !=
+        std::string::npos) {
+      external_recording_cleanup_retire_rows.emplace_back(row);
       continue;
     }
     if (row.find("stack_region_segment_plan=1") != std::string::npos) {
@@ -24025,6 +24087,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> exit_submit_runtime_point_rows;
   std::vector<std::string> recording_domain_rows;
   std::vector<std::string> external_recording_cleanup_logical_boundary_rows;
+  std::vector<std::string> external_recording_cleanup_retire_rows;
   std::vector<std::string> segment_plan_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
@@ -24045,6 +24108,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       exit_submit_runtime_point_rows,
       recording_domain_rows,
       external_recording_cleanup_logical_boundary_rows,
+      external_recording_cleanup_retire_rows,
       segment_plan_rows,
       raw_resource_producer_rows);
 
@@ -24264,6 +24328,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_external_recording_cleanup_retire_rows",
+      external_recording_cleanup_retire_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "stack_region_segment_plan_rows",
       segment_plan_rows.size(),
       summary_first);
@@ -24413,6 +24482,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_external_recording_cleanup_logical_boundary_rows",
       external_recording_cleanup_logical_boundary_rows,
       "stack_region_external_recording_cleanup_logical_boundary",
+      first);
+  append_graph_array(
+      out,
+      "stack_region_external_recording_cleanup_retire_rows",
+      external_recording_cleanup_retire_rows,
+      "stack_region_external_recording_cleanup_retire",
       first);
   append_graph_array(
       out,
@@ -24581,6 +24656,35 @@ void note_stack_region_external_recording_cleanup_logical_boundary(
       allocation_identity_missing_count,
       stack_provenance_defined_count,
       allocation_signature);
+}
+
+void note_stack_region_external_recording_cleanup_retire(
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const uint64_t buffer_count,
+    const uint64_t image_count,
+    const uint64_t resource_count,
+    const uint64_t resource_bytes,
+    const bool timeline_valid,
+    const char* const retire_action) {
+  if (stack_region_dependency_graph_path() == nullptr) {
+    return;
+  }
+  record_stack_region_external_recording_cleanup_retire(
+      region_id,
+      region_state,
+      command_buffer_recording_id,
+      submit_epoch_after,
+      pending_dispatch_count,
+      buffer_count,
+      image_count,
+      resource_count,
+      resource_bytes,
+      timeline_valid,
+      retire_action);
 }
 
 void note_stack_region_segment_plan(
@@ -32565,6 +32669,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_exit_submit_runtime_point_rows().size() +
       stack_region_recording_domain_rows().size() +
       stack_region_external_recording_cleanup_logical_boundary_rows().size() +
+      stack_region_external_recording_cleanup_retire_rows().size() +
       stack_region_segment_plan_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
@@ -32747,6 +32852,11 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_external_recording_cleanup_retire_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_region_segment_plan_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count;
@@ -32789,6 +32899,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_exit_submit_runtime_point_rows().clear();
   stack_region_recording_domain_rows().clear();
   stack_region_external_recording_cleanup_logical_boundary_rows().clear();
+  stack_region_external_recording_cleanup_retire_rows().clear();
   stack_region_segment_plan_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();

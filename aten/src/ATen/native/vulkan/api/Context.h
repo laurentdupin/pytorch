@@ -265,7 +265,9 @@ class TORCH_API Context final {
   void retire_external_recording_cleanup_resources(
       VulkanSubmission,
       std::vector<VulkanBuffer>&,
-      std::vector<VulkanImage>&);
+      std::vector<VulkanImage>&,
+      uint64_t command_buffer_recording_id,
+      uint64_t pending_dispatch_count);
 
  public:
   // Adapter access

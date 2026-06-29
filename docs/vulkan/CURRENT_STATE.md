@@ -123,7 +123,15 @@ External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The
 stamp is metadata-only and does not make cleanup resource count a segment
-admission predicate.
+admission predicate. `StackRegionExternalRecordingCleanupRetire.v0` now records
+the matching stack-exit cleanup-retire scheduling event for stack-owned
+external recordings: buffer/image counts, retained cleanup bytes, timeline
+validity, and whether the batch was scheduled on the stack-exit submission or
+cleared because no valid timeline was available. This is still metadata-only:
+it does not transfer pending retires, remove submits, defer submits, or make
+cleanup resource count an admission predicate. Its purpose is to make repeated
+stack-owned recording cleanup pressure visible after the rejected
+dispatch-derived prefix experiment exposed repeat-instability risk.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

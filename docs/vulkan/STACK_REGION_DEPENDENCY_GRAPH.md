@@ -1212,16 +1212,25 @@ budgets: private bridge state, runtime capture indices, plan-capture indices,
 block count, segment ends, total and per-segment planned dispatch counts from
 the existing stack shape plan, the four-block segment limit, the two-scope
 limit, and fail-closed reasons such as `segment_scope_limit_exceeded`. The
-planned dispatch counts are reporting evidence only; rows explicitly mark that
-the count is not enforced and is not a segment-admission predicate. The row is
-behavior-neutral: it does not open scopes, change command-buffer topology,
-move pending retires, defer submits, or authorize submit elision.
+planned dispatch count is a small-scope canary admission predicate for selected
+external segments; over-budget selected segments fail closed before external
+recording starts. The row itself remains behavior-neutral: it does not open
+scopes, change command-buffer topology, move pending retires, defer submits, or
+authorize submit elision.
 Stack-owned external cleanup logical-boundary rows now carry the same segment
 identity when the segmented canary opens a segment scope. The segment index,
 block range, and segment planned dispatch count make cleanup rows joinable to
 `StackRegionSegmentPlan.v0` without inferring from row order. These fields are
 metadata only; they do not transfer pending retires, enforce cleanup budgets, or
 authorize larger segment scopes.
+`StackRegionExternalRecordingCleanupRetire.v0` records the stack-exit cleanup
+scheduling side of stack-owned external recording. It reports retained
+buffer/image counts, retained cleanup bytes, stack-exit submit timeline
+validity, and the cleanup-retire action. A valid row with
+`scheduled_on_stack_exit_submission` only proves the cleanup batch was handed
+to the existing retire queue under the stack-exit submission. It does not
+transfer pending retires, remove phase-boundary submits, defer submits, or prove
+that larger external-recording segments are repeat-stable.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

@@ -2885,8 +2885,42 @@ void Context::retire_deferred_cleanup(
 void Context::retire_external_recording_cleanup_resources(
     const VulkanSubmission submission,
     std::vector<VulkanBuffer>& buffers,
-    std::vector<VulkanImage>& images) {
-  if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
+    std::vector<VulkanImage>& images,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t pending_dispatch_count) {
+  const uint64_t buffer_count = buffers.size();
+  const uint64_t image_count = images.size();
+  const uint64_t resource_count = buffer_count + image_count;
+  uint64_t resource_bytes = 0u;
+  for (const VulkanBuffer& buffer : buffers) {
+    if (buffer.owns_memory()) {
+      resource_bytes += static_cast<uint64_t>(buffer.allocated_size());
+    }
+  }
+  for (const VulkanImage& image : images) {
+    if (image.owns_memory()) {
+      resource_bytes += static_cast<uint64_t>(image.allocated_size());
+    }
+  }
+  const bool timeline_valid =
+      submission.timeline != VK_NULL_HANDLE && submission.timeline_value != 0u;
+  if (resource_count > 0u) {
+    note_stack_region_external_recording_cleanup_retire(
+        stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
+        stack_region_single_recording_owner_state_.load(
+            std::memory_order_acquire),
+        command_buffer_recording_id,
+        submission.timeline_value,
+        pending_dispatch_count,
+        buffer_count,
+        image_count,
+        resource_count,
+        resource_bytes,
+        timeline_valid,
+        timeline_valid ? "scheduled_on_stack_exit_submission"
+                       : "cleared_missing_submission_timeline");
+  }
+  if (!timeline_valid) {
     buffers.clear();
     images.clear();
     return;
@@ -3773,7 +3807,9 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
     retire_external_recording_cleanup_resources(
         submission,
         stack_region_owned_recording_retained_buffers_,
-        stack_region_owned_recording_retained_images_);
+        stack_region_owned_recording_retained_images_,
+        command_buffer_recording_id,
+        pending_dispatch_count);
     stack_region_owned_command_buffer_active_.store(
         false, std::memory_order_release);
     stack_region_owned_recording_dispatch_count_ = 0u;

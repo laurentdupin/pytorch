@@ -26609,10 +26609,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 0,
             )
+            self.assertGreater(
+                graph["summary"][
+                    "stack_region_external_recording_cleanup_retire_rows"
+                ],
+                0,
+            )
             external_cleanup_boundary_rows = [
                 row["fields"]
                 for row in graph[
                     "stack_region_external_recording_cleanup_logical_boundary_rows"
+                ]
+            ]
+            external_cleanup_retire_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_retire_rows"
                 ]
             ]
             self.assertTrue(
@@ -26636,6 +26648,25 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     ]
                     == "0"
                     for row in external_cleanup_boundary_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionExternalRecordingCleanupRetire.v0"
+                    and row["behavior_neutral"] == "1"
+                    and row["metadata_only"] == "1"
+                    and row["transfer_behavior_enabled"] == "0"
+                    and row["transfers_pending_retires"] == "0"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    and row["recording_domain_mode"]
+                    == "stack_region_owned_external_recording"
+                    and row["external_cleanup_timeline_valid"] == "1"
+                    and row["external_cleanup_retire_action"]
+                    == "scheduled_on_stack_exit_submission"
+                    and int(row["external_cleanup_resource_count"]) > 0
+                    and int(row["external_cleanup_resource_bytes"]) > 0
+                    for row in external_cleanup_retire_rows
                 )
             )
         finally:
@@ -27285,6 +27316,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             torch.ops.vulkan_prepack.synchronize()
 
         settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": os.path.join(
+                TEST_FILE_DIR,
+                "vulkan_stack_region_owned_command_buffer_segment_prefix_repeat_test.json",
+            ),
             "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
                 "segmented_stack_prefix_to_exit"
             ),
@@ -27292,6 +27327,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous = {key: os.environ.get(key) for key in settings}
         os.environ.update(settings)
         try:
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
             for _ in range(6):
                 with torch.inference_mode():
                     actual = (
@@ -27306,12 +27346,39 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     torch.ops.vulkan_prepack.synchronize()
                 self.assertEqual(actual[0].cpu(), expected[0].cpu())
                 self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            cleanup_retire_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_retire_rows"
+                ]
+            ]
+            self.assertGreaterEqual(
+                sum(int(row["count"]) for row in cleanup_retire_rows),
+                6,
+            )
+            self.assertTrue(
+                all(
+                    row["schema"] == "StackRegionExternalRecordingCleanupRetire.v0"
+                    and row["external_cleanup_timeline_valid"] == "1"
+                    and row["external_cleanup_retire_action"]
+                    == "scheduled_on_stack_exit_submission"
+                    and row["behavior_neutral"] == "1"
+                    and row["transfer_behavior_enabled"] == "0"
+                    for row in cleanup_retire_rows
+                )
+            )
         finally:
             for key, value in previous.items():
                 if value is None:
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
 
     def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
         self,

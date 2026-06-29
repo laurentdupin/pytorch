@@ -2364,6 +2364,18 @@ TORCH_API void note_stack_region_external_recording_cleanup_logical_boundary(
     uint64_t allocation_identity_missing_count,
     uint64_t stack_provenance_defined_count,
     const std::string& allocation_signature);
+TORCH_API void note_stack_region_external_recording_cleanup_retire(
+    uint64_t region_id,
+    uint32_t region_state,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_after,
+    uint64_t pending_dispatch_count,
+    uint64_t buffer_count,
+    uint64_t image_count,
+    uint64_t resource_count,
+    uint64_t resource_bytes,
+    bool timeline_valid,
+    const char* retire_action);
 TORCH_API void note_stack_region_segment_plan(
     const char* row_kind,
     uint64_t region_id,
