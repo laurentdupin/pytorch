@@ -895,6 +895,14 @@ stack-exit batch path reports
 `source_identity_mismatch_same_class_different_allocation_set`: there is
 resource-class overlap, but no exact identity or allocation/range overlap with
 the selected phase-submit pending graph set.
+The transfer row also keeps the preserved phase-submit source snapshot for the
+same stack-region instance. That comparison can prove the graph pending set is
+present at the preserved phase-submit source while the stack-exit batch source
+is a different allocation set. The preserved source fields include source id,
+state, status, resource count/bytes, allocation signature, identity status, and
+missing identity counts. This is still a handoff candidate only: the preserved
+phase-submit path remains `context_owned_not_transferred`, and no
+pending-retire transfer or submit elision is authorized.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

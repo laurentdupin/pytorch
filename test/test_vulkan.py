@@ -25937,6 +25937,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "source_identity_mismatch_same_class_different_allocation_set",
             )
+            self.assertIn(
+                transfer_row[
+                    "pending_retire_transfer_preserved_phase_submit_source_identity_match_status"
+                ],
+                {
+                    "pending_retire_transfer_source_identity_exact",
+                    "pending_retire_transfer_source_identity_required_entries_present_source_superset",
+                },
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_preserved_phase_submit_source_status"
+                ],
+                "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_preserved_phase_submit_missing_transfer_required_identity_count"
+                ],
+                "0",
+            )
             self.assertGreater(
                 int(
                     transfer_row[
@@ -26018,6 +26039,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 pending_retire_row["source_identity_mismatch_axis"],
                 "source_identity_mismatch_same_class_different_allocation_set",
+            )
+            self.assertIn(
+                pending_retire_row[
+                    "preserved_phase_submit_source_identity_match_status"
+                ],
+                {
+                    "pending_retire_transfer_source_identity_exact",
+                    "pending_retire_transfer_source_identity_required_entries_present_source_superset",
+                },
+            )
+            self.assertEqual(
+                pending_retire_row["preserved_phase_submit_source_id"],
+                pending_retire_row["stack_region_instance_id"],
+            )
+            self.assertEqual(
+                pending_retire_row["preserved_phase_submit_source_state"], "4"
+            )
+            self.assertEqual(
+                pending_retire_row["preserved_phase_submit_source_status"],
+                "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred",
+            )
+            self.assertEqual(
+                pending_retire_row[
+                    "preserved_phase_submit_missing_transfer_required_identity_count"
+                ],
+                "0",
             )
             self.assertEqual(
                 int(

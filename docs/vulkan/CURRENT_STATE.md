@@ -621,6 +621,15 @@ the mismatch is reported as
 distinguishes a real different-source-set blocker from malformed signatures or
 resource-class taxonomy drift; the current interpretation is that the stack-exit
 batch source is not the selected phase-submit pending graph set.
+The transfer row now also retains the preserved phase-submit source snapshot
+for the same stack-region instance and compares it against the graph pending
+set. It reports the preserved source id, state, status, resource count/bytes,
+allocation signature, identity status, and missing identity counts. Current
+selected rows can show exact or source-superset preserved-phase identity
+coverage while the stack-exit batch source still mismatches. This proves the
+source exists before the preserved phase submit consumes it, but it remains
+`context_owned_not_transferred`; the row does not move ownership away from that
+preserved submit or enable deferred submit behavior.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved

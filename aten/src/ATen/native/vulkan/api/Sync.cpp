@@ -14514,6 +14514,33 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_bound_missing_transfer_required_identity_bytes="
         << pending_retire_transfer_result
                .region_exit_bound_missing_transfer_required_identity_bytes
+        << " preserved_phase_submit_source_identity_match_status="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_identity_match_status
+        << " preserved_phase_submit_source_id="
+        << pending_retire_transfer_result.preserved_phase_submit_source_id
+        << " preserved_phase_submit_source_state="
+        << pending_retire_transfer_result.preserved_phase_submit_source_state
+        << " preserved_phase_submit_source_status="
+        << pending_retire_transfer_result.preserved_phase_submit_source_status
+        << " preserved_phase_submit_source_resource_count="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_resource_count
+        << " preserved_phase_submit_source_resource_bytes="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_resource_bytes
+        << " preserved_phase_submit_source_identity_mismatch_axis="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_identity_mismatch_axis
+        << " preserved_phase_submit_missing_transfer_required_identity_count="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_missing_transfer_required_identity_count
+        << " preserved_phase_submit_missing_transfer_required_identity_bytes="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_missing_transfer_required_identity_bytes
+        << " preserved_phase_submit_source_allocation_signature="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_allocation_signature
         << " region_exit_bound_source_coverage_status="
         << pending_retire_transfer_result
                .region_exit_bound_source_coverage_status
@@ -14945,6 +14972,20 @@ void append_stack_region_submit_epoch_ordering_json(
         << " pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_bytes="
         << pending_retire_transfer_result
                .region_exit_bound_missing_transfer_required_identity_bytes
+        << " pending_retire_transfer_preserved_phase_submit_source_identity_match_status="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_identity_match_status
+        << " pending_retire_transfer_preserved_phase_submit_source_status="
+        << pending_retire_transfer_result.preserved_phase_submit_source_status
+        << " pending_retire_transfer_preserved_phase_submit_source_identity_mismatch_axis="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_source_identity_mismatch_axis
+        << " pending_retire_transfer_preserved_phase_submit_missing_transfer_required_identity_count="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_missing_transfer_required_identity_count
+        << " pending_retire_transfer_preserved_phase_submit_missing_transfer_required_identity_bytes="
+        << pending_retire_transfer_result
+               .preserved_phase_submit_missing_transfer_required_identity_bytes
         << " retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
         << " retire_timeline_owner_key=" << retire_timeline_owner_key
         << " retire_timeline_owner_status="

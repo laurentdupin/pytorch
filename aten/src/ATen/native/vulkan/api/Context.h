@@ -183,6 +183,8 @@ class TORCH_API Context final {
   std::string stack_region_pending_retire_transfer_source_signature_;
   std::map<uint64_t, StackRegionPendingRetireTransferSourceSnapshot>
       stack_region_pending_retire_transfer_sources_;
+  std::map<std::string, StackRegionPendingRetireTransferSourceSnapshot>
+      stack_region_pending_retire_transfer_sources_by_state_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;

@@ -1808,11 +1808,12 @@ Context::snapshot_stack_region_pending_retire_transfer(
   result.region_exit_bound_resource_bytes =
       stack_region_pending_retire_transfer_source_bytes_.load(
           std::memory_order_acquire);
+  const uint64_t requested_source_id =
+      stack_region_parse_u64_or(request.stack_region_instance_id);
+  std::string preserved_phase_submit_source_signature = "missing";
   {
     std::lock_guard<std::mutex> signature_lock(
         stack_region_pending_retire_transfer_source_signature_mutex_);
-    const uint64_t requested_source_id =
-        stack_region_parse_u64_or(request.stack_region_instance_id);
     const auto snapshot_it =
         stack_region_pending_retire_transfer_sources_.find(
             requested_source_id);
@@ -1832,6 +1833,24 @@ Context::snapshot_stack_region_pending_retire_transfer(
           stack_region_pending_retire_transfer_source_signature_.empty()
           ? "missing"
           : stack_region_pending_retire_transfer_source_signature_;
+    }
+    const auto preserved_snapshot_it =
+        stack_region_pending_retire_transfer_sources_by_state_.find(
+            std::to_string(requested_source_id) + ":4");
+    if (
+        preserved_snapshot_it !=
+        stack_region_pending_retire_transfer_sources_by_state_.end()) {
+      result.preserved_phase_submit_source_id = requested_source_id;
+      result.preserved_phase_submit_source_state =
+          preserved_snapshot_it->second.state;
+      result.preserved_phase_submit_source_resource_count =
+          preserved_snapshot_it->second.resource_count;
+      result.preserved_phase_submit_source_resource_bytes =
+          preserved_snapshot_it->second.resource_bytes;
+      preserved_phase_submit_source_signature =
+          preserved_snapshot_it->second.allocation_signature.empty()
+          ? "missing"
+          : preserved_snapshot_it->second.allocation_signature;
     }
   }
   result.region_exit_bound_source_status =
@@ -1869,6 +1888,23 @@ Context::snapshot_stack_region_pending_retire_transfer(
       identity_coverage.missing_bytes;
   result.source_identity_match_status = identity_coverage.status;
   result.source_identity_mismatch_axis = identity_coverage.mismatch_axis;
+  result.preserved_phase_submit_source_allocation_signature =
+      preserved_phase_submit_source_signature;
+  result.preserved_phase_submit_source_status =
+      stack_region_pending_retire_transfer_source_state_name(
+          result.preserved_phase_submit_source_state);
+  const PendingRetireAllocationSignatureCoverage preserved_identity_coverage =
+      stack_region_compare_pending_retire_source_identity(
+          request.graph_pending_allocation_signature,
+          preserved_phase_submit_source_signature);
+  result.preserved_phase_submit_source_identity_match_status =
+      preserved_identity_coverage.status;
+  result.preserved_phase_submit_source_identity_mismatch_axis =
+      preserved_identity_coverage.mismatch_axis;
+  result.preserved_phase_submit_missing_transfer_required_identity_count =
+      preserved_identity_coverage.missing_count;
+  result.preserved_phase_submit_missing_transfer_required_identity_bytes =
+      preserved_identity_coverage.missing_bytes;
   result.region_exit_bound_missing_resource_count =
       request.graph_pending_resource_count >
           result.region_exit_bound_resource_count
@@ -3701,6 +3737,34 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
   }
   const std::string allocation_signature =
       stack_region_format_allocation_signature(allocation_signature_resources);
+  const uint64_t source_id =
+      stack_region_pending_retire_transfer_source_id_.load(
+          std::memory_order_acquire);
+  const auto record_source_snapshot_locked =
+      [&](
+          std::map<uint64_t, StackRegionPendingRetireTransferSourceSnapshot>*
+              latest_sources) {
+        StackRegionPendingRetireTransferSourceSnapshot snapshot;
+        snapshot.state = state;
+        snapshot.resource_count = resource_count;
+        snapshot.resource_bytes = resource_bytes;
+        snapshot.allocation_signature = allocation_signature;
+        if (latest_sources) {
+          (*latest_sources)[source_id] = snapshot;
+        }
+        stack_region_pending_retire_transfer_sources_by_state_
+            [std::to_string(source_id) + ":" + std::to_string(state)] =
+                std::move(snapshot);
+        while (stack_region_pending_retire_transfer_sources_.size() > 64u) {
+          stack_region_pending_retire_transfer_sources_.erase(
+              stack_region_pending_retire_transfer_sources_.begin());
+        }
+        while (stack_region_pending_retire_transfer_sources_by_state_.size() >
+               128u) {
+          stack_region_pending_retire_transfer_sources_by_state_.erase(
+              stack_region_pending_retire_transfer_sources_by_state_.begin());
+        }
+      };
   if (preserve_larger_source) {
     const uint64_t existing_count =
         stack_region_pending_retire_transfer_source_count_.load(
@@ -3721,6 +3785,9 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
         existing_state != 0u && existing_count >= resource_count &&
         existing_bytes >= resource_bytes && !existing_signature.empty() &&
         existing_signature != "missing" && existing_signature != "none") {
+      std::lock_guard<std::mutex> signature_lock(
+          stack_region_pending_retire_transfer_source_signature_mutex_);
+      record_source_snapshot_locked(nullptr);
       return;
     }
   }
@@ -3735,20 +3802,7 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
         stack_region_pending_retire_transfer_source_signature_mutex_);
     stack_region_pending_retire_transfer_source_signature_ =
         allocation_signature;
-    const uint64_t source_id =
-        stack_region_pending_retire_transfer_source_id_.load(
-            std::memory_order_acquire);
-    StackRegionPendingRetireTransferSourceSnapshot snapshot;
-    snapshot.state = state;
-    snapshot.resource_count = resource_count;
-    snapshot.resource_bytes = resource_bytes;
-    snapshot.allocation_signature = allocation_signature;
-    stack_region_pending_retire_transfer_sources_[source_id] =
-        std::move(snapshot);
-    while (stack_region_pending_retire_transfer_sources_.size() > 64u) {
-      stack_region_pending_retire_transfer_sources_.erase(
-          stack_region_pending_retire_transfer_sources_.begin());
-    }
+    record_source_snapshot_locked(&stack_region_pending_retire_transfer_sources_);
   }
 }
 
