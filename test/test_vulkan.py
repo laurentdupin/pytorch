@@ -26579,6 +26579,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["command_buffer_owner_scope"]
                     == "stack_region_owned_command_buffer"
                     and row["region_owned_command_buffer_active"] == "1"
+                    and row["phase_boundary_queue_submits_preserved"] == "0"
                     for row in recording_domain_rows
                 )
             )
@@ -26660,6 +26661,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ]
             self.assertTrue(
                 any(row["event"] == "active_cmd_context" for row in recording_domain_rows)
+            )
+            self.assertTrue(
+                all(
+                    row["phase_boundary_queue_submits_preserved"] == "1"
+                    for row in recording_domain_rows
+                )
             )
             self.assertFalse(
                 any(row["event"] == "active_cmd_external" for row in recording_domain_rows)

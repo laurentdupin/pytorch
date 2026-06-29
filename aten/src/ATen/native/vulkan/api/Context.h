@@ -255,6 +255,10 @@ class TORCH_API Context final {
       VkFence fence_handle,
       bool final_use);
   void retire_deferred_cleanup(VulkanSubmission, VulkanSubmitOrigin);
+  void retire_external_recording_cleanup_resources(
+      VulkanSubmission,
+      std::vector<VulkanBuffer>&,
+      std::vector<VulkanImage>&);
 
  public:
   // Adapter access

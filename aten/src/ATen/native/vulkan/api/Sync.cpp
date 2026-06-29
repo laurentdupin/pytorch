@@ -2414,6 +2414,9 @@ void record_stack_region_recording_domain(
       << " region_owned_command_buffer_active="
       << (region_owned_command_buffer_active ? 1 : 0)
       << " phase_boundary_submits_preserved=1"
+      << " phase_boundary_submit_calls_preserved=1"
+      << " phase_boundary_queue_submits_preserved="
+      << (region_owned_command_buffer_active ? 0 : 1)
       << " current_topology_submit_elision_forbidden=1"
       << " top_blocker=" << top_blocker
       << " command_buffer_recording_id=" << command_buffer_recording_id

@@ -2843,6 +2843,37 @@ void Context::retire_deferred_cleanup(
   pending_retire_bytes_.store(0u, std::memory_order_relaxed);
 }
 
+void Context::retire_external_recording_cleanup_resources(
+    const VulkanSubmission submission,
+    std::vector<VulkanBuffer>& buffers,
+    std::vector<VulkanImage>& images) {
+  if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
+    buffers.clear();
+    images.clear();
+    return;
+  }
+  for (VulkanBuffer& buffer : buffers) {
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [buffer = std::make_shared<VulkanBuffer>(
+             std::move(buffer))]() {},
+    });
+  }
+  buffers.clear();
+  for (VulkanImage& image : images) {
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [image = std::make_shared<VulkanImage>(
+             std::move(image))]() {},
+    });
+  }
+  images.clear();
+}
+
 void Context::poll_retire_queue() {
   retire_queue_.poll(device_);
 }
@@ -3686,8 +3717,10 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
     last_submission_ = submission;
     retire_deferred_cleanup(
         submission, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
-    stack_region_owned_recording_retained_buffers_.clear();
-    stack_region_owned_recording_retained_images_.clear();
+    retire_external_recording_cleanup_resources(
+        submission,
+        stack_region_owned_recording_retained_buffers_,
+        stack_region_owned_recording_retained_images_);
     stack_region_owned_command_buffer_active_.store(
         false, std::memory_order_release);
     submit_count_ = 0u;

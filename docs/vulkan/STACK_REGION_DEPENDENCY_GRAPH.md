@@ -1174,6 +1174,12 @@ small private-bridge stack scopes and keeps larger/full DAv2-style stacks on
 the context-owned path. It does not change the default path and does not
 convert the older current-topology submit-elision canary into an accepted
 optimization.
+`StackRegionRecordingDomain.v0` keeps the legacy
+`phase_boundary_submits_preserved=1` compatibility marker, but also records
+`phase_boundary_submit_calls_preserved=1` and
+`phase_boundary_queue_submits_preserved=0` for the owned canary to show that
+logical phase-boundary call sites remain while queue submit ownership moves to
+the stack-exit prepared command buffer.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

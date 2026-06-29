@@ -85,6 +85,9 @@ buffer. The default path remains context-owned. The canary is validated only on
 the focused two-block private-bridge synthetic vision stack, and the stack
 owner refuses the canary for larger/full DAv2-style stacks. It still makes no
 broad DAv2 performance claim.
+Recording-domain rows distinguish this canary with
+`phase_boundary_queue_submits_preserved=0`: logical phase-boundary calls remain,
+but queue submit ownership is deferred to stack exit.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.
