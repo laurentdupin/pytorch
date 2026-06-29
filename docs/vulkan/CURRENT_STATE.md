@@ -605,6 +605,13 @@ pending-retire transfer or submit elision. Conversely, the pending-retire owner
 surface now requires exact or source-superset identity coverage before it can
 report source availability; count/byte coverage without per-entry identity
 stays fail-closed as source-incomplete accounting.
+Source identity snapshots are retained per stack-region source id, which maps
+to the current stack-region instance id in the bridge diagnostics. This prevents
+later warm/timed instances from overwriting an earlier instance's source
+signature at report time. The current stack-exit batch source is still not
+identity-equivalent to the selected phase-submit pending graph set: the source
+id is instance-correct, but the allocation identities differ, so the owner stays
+blocked by source-incomplete accounting.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved

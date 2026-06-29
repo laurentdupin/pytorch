@@ -880,6 +880,12 @@ the raw `source_match_status`: identity coverage is observable, but the owner
 requires exact or source-superset identity coverage before source availability
 can be reported, and no pending-retire entries move until an explicit
 ownership implementation consumes that proof.
+The source signature is retained per stack-region source id and the transfer
+plan reads the snapshot matching its `stack_region_instance_id` when available.
+That makes repeated warm/timed stack runs distinguishable. The current
+stack-exit batch source is therefore instance-correct but still not
+identity-equivalent to the selected phase-submit pending graph set, so the row
+continues to report source-incomplete ownership rather than granting transfer.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

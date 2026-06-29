@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -172,8 +173,16 @@ class TORCH_API Context final {
   std::atomic<uint32_t> stack_region_pending_retire_transfer_source_state_;
   std::atomic<uint64_t> stack_region_pending_retire_transfer_source_count_;
   std::atomic<uint64_t> stack_region_pending_retire_transfer_source_bytes_;
+  struct StackRegionPendingRetireTransferSourceSnapshot final {
+    uint32_t state = 0u;
+    uint64_t resource_count = 0u;
+    uint64_t resource_bytes = 0u;
+    std::string allocation_signature;
+  };
   std::mutex stack_region_pending_retire_transfer_source_signature_mutex_;
   std::string stack_region_pending_retire_transfer_source_signature_;
+  std::map<uint64_t, StackRegionPendingRetireTransferSourceSnapshot>
+      stack_region_pending_retire_transfer_sources_;
   // Memory Management
   std::mutex pending_retire_buffers_mutex_;
   std::vector<PendingRetireBuffer> pending_retire_buffers_;

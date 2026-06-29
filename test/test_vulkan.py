@@ -25943,6 +25943,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             pending_retire_row = pending_retire_rows[0]
             self.assertEqual(pending_retire_row["region_exit_bound_source_state"], "2")
             self.assertEqual(
+                pending_retire_row["region_exit_bound_source_id"],
+                pending_retire_row["stack_region_instance_id"],
+            )
+            self.assertEqual(
                 pending_retire_row["region_exit_bound_source_status"],
                 "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred",
             )
