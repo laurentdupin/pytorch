@@ -671,6 +671,15 @@ zero missing capture-sensitive identities, and
 `pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision`.
 Submit elision remains disabled; region-exit ownership now fails closed on the
 next owner layer, currently `retire_timeline_owner_behavior_disabled`.
+`PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER=stack_exit_close_submit`
+enables the next opt-in owner handoff: when migration accounting and the
+stack-exit close-submit owner are both available, the retire timeline owner
+reports `retire_timeline_owner_transferred_to_stack_exit_close_submit_no_submit_elision`.
+This still does not authorize submit elision. With reset-deferral,
+close-submit, pending-retire handoff, and retire-timeline canaries enabled, the
+joined region-exit ownership row reaches
+`region_exit_ownership_transfer_complete_fail_closed` and stops on
+`region_exit_ownership_transfer_authorization_disabled`.
 When the source identity is incomplete, including bookkeeping-excluded
 count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;

@@ -937,6 +937,15 @@ reports zero missing capture-sensitive identities and
 `pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision`.
 Submit elision remains disabled; the next fail-closed owner is the retire
 timeline owner.
+`PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER=stack_exit_close_submit`
+then transfers that owner only when retire-timeline migration accounting and
+the stack-exit close-submit owner are present. It reports
+`retire_timeline_owner_transferred_to_stack_exit_close_submit_no_submit_elision`
+and keeps `authorizes_submit_elision=0`. With all current ownership canaries
+enabled, the joined exit-ownership row becomes
+`region_exit_ownership_transfer_complete_fail_closed`; the remaining blocker is
+the explicit authorization gate, not a missing close-submit, pending-retire, or
+retire-timeline owner.
 An incomplete or bookkeeping-excluded source fails closed on
 `pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.

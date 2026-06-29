@@ -25633,6 +25633,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_close_submit_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
         )
+        previous_retire_timeline_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"
+        )
         previous_pending_retire_transfer_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
         )
@@ -25651,6 +25654,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "context_retained_release_point"
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"] = (
+            "stack_exit_close_submit"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"] = (
             "stack_exit_close_submit"
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
@@ -25922,7 +25928,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["retire_timeline_owner_status"],
-                "retire_timeline_owner_available_close_submit_owner_behavior_disabled_fail_closed",
+                "retire_timeline_owner_transferred_to_stack_exit_close_submit_no_submit_elision",
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
@@ -26410,10 +26416,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn(
                 transfer_row["transfer_status"],
                 {
-                    "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
-                    "region_exit_ownership_transfer_blocked_by_retire_timeline_owner",
                     "region_exit_ownership_transfer_complete_fail_closed",
                 },
+            )
+            self.assertEqual(
+                transfer_row["top_blocker"],
+                "region_exit_ownership_transfer_authorization_disabled",
             )
             self.assertNotEqual(
                 transfer_row["transfer_status"],
@@ -26467,6 +26475,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
                 ] = previous_close_submit_owner
+            if previous_retire_timeline_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER",
+                    None,
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"
+                ] = previous_retire_timeline_owner
             if previous_pending_retire_transfer_owner is None:
                 os.environ.pop(
                     "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",

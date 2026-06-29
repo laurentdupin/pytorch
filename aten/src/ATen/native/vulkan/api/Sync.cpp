@@ -2635,6 +2635,21 @@ bool stack_region_close_submit_owner_behavior_enabled() {
       value == "stack_exit_close_submit";
 }
 
+const char* stack_region_retire_timeline_owner_target() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER");
+  return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_retire_timeline_owner_behavior_enabled() {
+  const char* const target = stack_region_retire_timeline_owner_target();
+  if (target == nullptr) {
+    return false;
+  }
+  const std::string value(target);
+  return value == "1" || value == "stack_exit_close_submit";
+}
+
 bool stack_region_single_recording_close_submit_owner_available(
     const uint64_t owner_id,
     const uint32_t owner_state,
@@ -25215,21 +25230,36 @@ StackRegionRetireTimelineOwnerResult request_stack_region_retire_timeline_owner(
   if (
       request.retire_timeline_migration_status ==
       "retire_timeline_migration_accounting_available_behavior_disabled") {
+    const bool transfer_enabled =
+        stack_region_retire_timeline_owner_behavior_enabled() &&
+        request.close_submit_owner_available;
     result.owner_available = request.close_submit_owner_available;
+    result.behavior_enabled = transfer_enabled;
+    result.transfers_retire_timeline = transfer_enabled;
+    result.authorizes_submit_elision = false;
     result.result_status =
-        "retire_timeline_owner_result_accounting_available_behavior_disabled";
-    result.owner_status = request.close_submit_owner_available
-        ? "retire_timeline_owner_available_close_submit_owner_behavior_disabled_fail_closed"
-        : "retire_timeline_owner_accounting_available_behavior_disabled_fail_closed";
-    result.top_blocker = "retire_timeline_owner_behavior_disabled";
-    result.implementation_status =
-        "retire_timeline_owner_context_owned_behavior_disabled";
+        transfer_enabled
+        ? "retire_timeline_owner_result_transferred_no_submit_elision"
+        : "retire_timeline_owner_result_accounting_available_behavior_disabled";
+    result.owner_status = transfer_enabled
+        ? "retire_timeline_owner_transferred_to_stack_exit_close_submit_no_submit_elision"
+        : (request.close_submit_owner_available
+               ? "retire_timeline_owner_available_close_submit_owner_behavior_disabled_fail_closed"
+               : "retire_timeline_owner_accounting_available_behavior_disabled_fail_closed");
+    result.top_blocker =
+        transfer_enabled ? "none" : "retire_timeline_owner_behavior_disabled";
+    result.implementation_status = transfer_enabled
+        ? "retire_timeline_owner_transferred_to_stack_exit_close_submit"
+        : "retire_timeline_owner_context_owned_behavior_disabled";
     result.current_retire_timeline_owner_status =
-        "current_phase_submit_retire_timeline_preserved_context_owned";
-    result.requested_retire_timeline_owner_status =
-        request.close_submit_owner_available
-        ? "requested_region_retire_timeline_owner_close_submit_owner_available_behavior_disabled"
-        : "requested_region_retire_timeline_owner_recorded_behavior_disabled";
+        transfer_enabled
+        ? "current_phase_submit_retire_timeline_transferred_to_stack_exit_close_submit"
+        : "current_phase_submit_retire_timeline_preserved_context_owned";
+    result.requested_retire_timeline_owner_status = transfer_enabled
+        ? "requested_region_retire_timeline_owner_stack_exit_close_submit_transferred"
+        : (request.close_submit_owner_available
+               ? "requested_region_retire_timeline_owner_close_submit_owner_available_behavior_disabled"
+               : "requested_region_retire_timeline_owner_recorded_behavior_disabled");
     return result;
   }
   result.top_blocker = request.retire_timeline_migration_top_blocker;
