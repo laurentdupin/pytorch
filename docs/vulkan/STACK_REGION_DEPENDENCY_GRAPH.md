@@ -1147,6 +1147,19 @@ synthetic region-exit target exists the plan status is
 `planned_region_submit_point_exists_but_unimplemented` as the reason and
 missing region-exit release ownership implementation as the top blocker.
 
+`StackRegionRecordingDomain.v0` records the current command-buffer topology
+beside the existing stack graph rows. It emits behavior-neutral rows for stack
+entry, preserved phase-boundary submits, and stack exit with
+`recording_domain_mode=context_phase_submit_compat`,
+`command_buffer_owner_scope=vulkan_context_phase_submit_owner`,
+`region_owned_command_buffer_active=0`, and
+`current_topology_submit_elision_forbidden=1`. These rows are not a new owner
+and do not authorize submit elision; they document that the current topology
+still consumes context-owned command-buffer epochs at phase boundaries before a
+planned region-exit submit. The next behavior-bearing architecture must provide
+a real region-owned command-buffer recording domain before a single-recording
+path can replace the preserved phase submits.
+
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in
 `docs/vulkan/STACK_BOUNDARY_VALUE_PRESERVATION.md` and requires both

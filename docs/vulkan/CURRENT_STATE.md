@@ -62,6 +62,17 @@ phase-submit deletion is not value-preserving. The next performance
 implementation should move to planned single-region recording instead of adding
 more local submit-elision proof fields.
 
+`StackRegionRecordingDomain.v0` now records the current command-buffer topology
+without changing execution. Stack entry, preserved phase-boundary submits, and
+stack exit emit rows in `context_phase_submit_compat` mode with
+`region_owned_command_buffer_active=0`,
+`phase_boundary_submits_preserved=1`, and
+`current_topology_submit_elision_forbidden=1`. This makes the remaining blocker
+explicit: the current context-owned command-buffer path consumes phase-submit
+command-buffer epochs before stack exit, so future performance work needs a
+real region-owned command-buffer recording domain rather than another local
+submit-deletion guard.
+
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.
 `torch.backends.vulkan.is_available()` is not a valid availability signal here.

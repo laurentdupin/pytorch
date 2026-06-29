@@ -26593,6 +26593,40 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(os.path.exists(graph_path))
             with open(graph_path, encoding="utf-8") as handle:
                 graph = json.load(handle)
+            recording_domain_rows = [
+                row["fields"]
+                for row in graph["stack_region_recording_domain_rows"]
+            ]
+            self.assertGreater(
+                graph["summary"]["stack_region_recording_domain_rows"], 0
+            )
+            self.assertTrue(recording_domain_rows)
+            self.assertTrue(
+                any(row["event"] == "stack_entry_begin" for row in recording_domain_rows)
+            )
+            self.assertTrue(
+                any(
+                    row["event"] == "phase_boundary_submit"
+                    for row in recording_domain_rows
+                )
+            )
+            self.assertTrue(
+                any(row["event"] == "stack_exit_submit" for row in recording_domain_rows)
+            )
+            for domain_row in recording_domain_rows:
+                self.assertEqual(
+                    domain_row["recording_domain_mode"],
+                    "context_phase_submit_compat",
+                )
+                self.assertEqual(domain_row["region_owned_command_buffer_active"], "0")
+                self.assertEqual(domain_row["phase_boundary_submits_preserved"], "1")
+                self.assertEqual(
+                    domain_row["current_topology_submit_elision_forbidden"], "1"
+                )
+                self.assertEqual(
+                    domain_row["top_blocker"],
+                    "missing_region_owned_command_buffer_recording_domain",
+                )
             self.assertFalse(graph["summary"]["single_recording_canary_enabled"])
             self.assertEqual(
                 graph["summary"]["single_recording_canary_submits_removed"],

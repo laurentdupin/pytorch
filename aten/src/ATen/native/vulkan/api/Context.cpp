@@ -3513,6 +3513,18 @@ VulkanSubmission Context::submit_cmd_to_gpu(
           attribution.allocation_label);
     }
     if (record_phase_boundary_dry_run) {
+      note_stack_region_recording_domain(
+          "phase_boundary_submit",
+          stack_region_single_recording_owner_id_.load(
+              std::memory_order_acquire),
+          stack_region_single_recording_owner_state_.load(
+              std::memory_order_acquire),
+          command_buffer_recording_id,
+          submit_epoch_before,
+          submit_epoch_after,
+          pending_dispatch_count,
+          phase,
+          callsite);
       note_stack_phase_boundary_lifetime_dry_run_group(
           phase,
           callsite,
@@ -3621,6 +3633,16 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
       stack_region_close_submit_owner_behavior_enabled(),
       /*region_exit_close_submit_owner_authorizes_submit_elision=*/false,
       had_cmd);
+  note_stack_region_recording_domain(
+      "stack_exit_submit",
+      stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
+      stack_region_single_recording_owner_state_.load(std::memory_order_acquire),
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      pending_dispatch_count,
+      VulkanSubmitPhase::StackOwner,
+      VulkanRetireCallSite::StackPlannedRecordingEnd);
   return submission;
 }
 
@@ -3716,6 +3738,16 @@ void Context::begin_stack_planned_recording() {
   }
   clear_stack_region_pending_retire_handoff_batch_locked();
   stack_planned_recording_active_.store(true, std::memory_order_release);
+  note_stack_region_recording_domain(
+      "stack_entry_begin",
+      stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
+      stack_region_single_recording_owner_state_.load(std::memory_order_acquire),
+      command_buffer_recording_id_,
+      current_stream().last_submitted_value.load(std::memory_order_relaxed),
+      current_stream().last_submitted_value.load(std::memory_order_relaxed),
+      submit_count_,
+      VulkanSubmitPhase::StackOwner,
+      VulkanRetireCallSite::Unknown);
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {

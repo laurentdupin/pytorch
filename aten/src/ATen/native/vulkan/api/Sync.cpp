@@ -580,6 +580,10 @@ struct StackRegionExitSubmitRuntimePointValue final {
   bool region_exit_close_submit_owner_authorizes_submit_elision = false;
 };
 
+struct StackRegionRecordingDomainValue final {
+  uint64_t count = 0u;
+};
+
 struct StackRawResourceProducerRegistrationValue final {
   uint64_t count = 0u;
   uint64_t byte_range = 0u;
@@ -685,6 +689,12 @@ stack_region_single_recording_canary_rows() {
 std::map<std::string, StackRegionExitSubmitRuntimePointValue>&
 stack_region_exit_submit_runtime_point_rows() {
   static std::map<std::string, StackRegionExitSubmitRuntimePointValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionRecordingDomainValue>&
+stack_region_recording_domain_rows() {
+  static std::map<std::string, StackRegionRecordingDomainValue> rows;
   return rows;
 }
 
@@ -1935,7 +1945,7 @@ stack_region_single_recording_ownership_transfer_canary_state(
     const bool region_close_submit_owner_behavior_enabled) {
   StackRegionExitOwnershipTransferCanaryState state;
   const bool stack_exit_close_submit_owner_requested =
-      stack_region_close_submit_owner_behavior_enabled &&
+      region_close_submit_owner_behavior_enabled &&
       stack_region_close_submit_owner_target() != nullptr &&
       std::string(stack_region_close_submit_owner_target()) ==
           "stack_exit_close_submit";
@@ -2370,6 +2380,41 @@ void record_stack_region_single_recording_canary_locked(
   if (snapshot.submit_removed) {
     value.submit_removed_count += 1u;
   }
+}
+
+void record_stack_region_recording_domain(
+    const char* const event,
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite) {
+  std::ostringstream key;
+  key << "stack_region_recording_domain=1"
+      << " schema=StackRegionRecordingDomain.v0"
+      << " event=" << (event && event[0] != '\0' ? event : "missing")
+      << " region_id=" << region_id
+      << " region_state=" << region_state
+      << " recording_domain_mode=context_phase_submit_compat"
+      << " command_buffer_owner_scope=vulkan_context_phase_submit_owner"
+      << " requested_command_buffer_owner_scope=stack_region"
+      << " region_owned_command_buffer_active=0"
+      << " phase_boundary_submits_preserved=1"
+      << " current_topology_submit_elision_forbidden=1"
+      << " top_blocker=missing_region_owned_command_buffer_recording_domain"
+      << " command_buffer_recording_id=" << command_buffer_recording_id
+      << " submit_epoch_before=" << submit_epoch_before
+      << " submit_epoch_after=" << submit_epoch_after
+      << " pending_dispatch_count=" << pending_dispatch_count
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " behavior_neutral=1 default_behavior_unchanged=1"
+      << " submit_elision_enabled=0 deferred_submit_enabled=0";
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_region_recording_domain_rows()[key.str()].count += 1u;
 }
 
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
@@ -23643,8 +23688,13 @@ void split_stack_graph_rows(
     std::vector<std::string>& submit_elision_canary_rows,
     std::vector<std::string>& single_recording_canary_rows,
     std::vector<std::string>& exit_submit_runtime_point_rows,
+    std::vector<std::string>& recording_domain_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
+    if (row.find("stack_region_recording_domain=1") != std::string::npos) {
+      recording_domain_rows.emplace_back(row);
+      continue;
+    }
     if (
         row.find("stack_region_exit_submit_runtime_point=1") !=
         std::string::npos) {
@@ -23753,6 +23803,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> submit_elision_canary_rows;
   std::vector<std::string> single_recording_canary_rows;
   std::vector<std::string> exit_submit_runtime_point_rows;
+  std::vector<std::string> recording_domain_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
@@ -23770,6 +23821,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       submit_elision_canary_rows,
       single_recording_canary_rows,
       exit_submit_runtime_point_rows,
+      recording_domain_rows,
       raw_resource_producer_rows);
 
   std::vector<std::string> resource_nodes;
@@ -23978,6 +24030,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_recording_domain_rows",
+      recording_domain_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "raw_resource_producer_rows",
       raw_resource_producer_rows.size(),
       summary_first);
@@ -24113,6 +24170,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "stack_region_recording_domain_rows",
+      recording_domain_rows,
+      "stack_region_recording_domain",
+      first);
+  append_graph_array(
+      out,
       "stack_region_exit_submit_runtime_point_rows",
       exit_submit_runtime_point_rows,
       "stack_region_exit_submit_runtime_point",
@@ -24209,6 +24272,28 @@ void maybe_write_stack_region_dependency_graph_dump() {
 }
 
 } // namespace
+
+void note_stack_region_recording_domain(
+    const char* const event,
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite) {
+  record_stack_region_recording_domain(
+      event,
+      region_id,
+      region_state,
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      pending_dispatch_count,
+      phase,
+      callsite);
+}
 
 StackRegionCommandBufferRequestResult request_stack_region_command_buffer(
     const StackRegionCommandBufferRequest& request) {
@@ -32118,6 +32203,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_submit_elision_canary_rows().size() +
       stack_region_single_recording_canary_rows().size() +
       stack_region_exit_submit_runtime_point_rows().size() +
+      stack_region_recording_domain_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
@@ -32288,6 +32374,11 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " authorizes_submit_elision=0";
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_recording_domain_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_raw_resource_producer_registration_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -32323,6 +32414,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_submit_elision_canary_rows().clear();
   stack_region_single_recording_canary_rows().clear();
   stack_region_exit_submit_runtime_point_rows().clear();
+  stack_region_recording_domain_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }

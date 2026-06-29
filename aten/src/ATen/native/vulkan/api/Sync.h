@@ -2334,6 +2334,16 @@ TORCH_API bool maybe_defer_stack_region_single_recording_owner_canary(
     uint32_t pending_retire_transfer_owner_state,
     bool region_close_submit_owner_behavior_enabled,
     bool region_close_submit_owner_authorizes_submit_elision);
+TORCH_API void note_stack_region_recording_domain(
+    const char* event,
+    uint64_t region_id,
+    uint32_t region_state,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before,
+    uint64_t submit_epoch_after,
+    uint64_t pending_dispatch_count,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite);
 TORCH_API VulkanSubmitPhase current_submit_phase();
 TORCH_API void set_submit_phase(VulkanSubmitPhase phase);
 TORCH_API void reset_submit_phase();
