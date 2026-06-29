@@ -1184,11 +1184,12 @@ The canary uses a separate stack-owned recording dispatch counter for graph
 rows. It does not reuse the context `submit_count_`, so diagnostics can report
 recorded work without accidentally re-enabling context phase-boundary submits.
 `PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_entry_to_exit`
-adds a bounded segmented variant for small private-bridge stacks only. It opens
-two-block stack-owned recording scopes for stacks with three or four blocks and
-at most two private captures, then submits each scope at its local stack-exit.
-Larger/full DAv2-style stacks stay on the context-owned path because the
-unbounded full-stack variant has already shown stack-overflow/device-loss risk.
+adds a bounded segmented variant for private-bridge stacks. It splits at
+capture boundaries, opens one stack-owned recording scope for each segment of
+four blocks or fewer, allows at most two scopes, then submits each scope at its
+local stack-exit. Over-budget or too-many-segment stacks stay on the
+context-owned path because unbounded and four-scope full-stack experiments have
+already shown stack-overflow/device-loss risk.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

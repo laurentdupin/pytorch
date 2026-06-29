@@ -26782,7 +26782,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     ):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
             151,
-            blocks=5,
+            blocks=6,
             label_prefix="vision.synthetic.stack.owned_command_buffer_segment_reject",
         )
 
@@ -26790,7 +26790,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
                 stack_context,
-                [1, 3],
+                [1, 3, 5],
             )
             torch.ops.vulkan_prepack.synchronize()
 
@@ -26817,7 +26817,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     .run_vision_backbone_stack_private_capture_debug(
                         x,
                         stack_context,
-                        [1, 3],
+                        [1, 3, 5],
                         True,
                     )
                 )
@@ -26825,6 +26825,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
             self.assertEqual(actual[0].cpu(), expected[0].cpu())
             self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertEqual(actual[2].cpu(), expected[2].cpu())
             self.assertTrue(os.path.exists(graph_path))
             with open(graph_path, encoding="utf-8") as handle:
                 graph = json.load(handle)

@@ -92,12 +92,13 @@ The canary reports recorded work with a separate stack-owned dispatch counter
 rather than `submit_count_`, keeping the normal context phase-boundary submit
 logic untouched.
 `PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_entry_to_exit`
-is a narrower follow-up canary for small private-bridge stacks with more than
-two and at most four blocks, and at most two private captures. It opens bounded
-two-block stack-owned recording scopes and submits each scope at its local
-stack-exit boundary. Larger/full DAv2-style stacks still fail closed to the
-context-owned path; an exploratory full `vits_140` run exposed stack-overflow
-risk, so this mode is not a DAv2 performance path yet.
+is a narrower follow-up canary for private-bridge stacks that can be split at
+capture boundaries into segments of four blocks or fewer. It opens one
+stack-owned recording scope per segment, allows at most two scopes, and submits
+each scope at its local stack-exit boundary. Stacks with an over-budget segment
+or too many segments still fail closed to the context-owned path. Exploratory
+full `vits_140` runs exposed stack-overflow risk for both unsegmented recording
+and four capture-aligned scopes, so DAv2 remains on the context-owned path.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

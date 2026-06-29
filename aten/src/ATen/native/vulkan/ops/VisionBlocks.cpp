@@ -1420,6 +1420,52 @@ bool stack_owned_command_buffer_segmented_canary_enabled() {
   return std::string(env) == "segmented_stack_entry_to_exit";
 }
 
+std::optional<std::vector<size_t>> stack_owned_command_buffer_segment_ends(
+    const size_t block_count,
+    const std::vector<int64_t>& capture_indices) {
+  constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 4u;
+  constexpr size_t kSegmentedOwnedCommandBufferScopeLimit = 2u;
+  if (block_count <= 2u || capture_indices.empty()) {
+    return std::nullopt;
+  }
+  std::vector<size_t> capture_blocks;
+  capture_blocks.reserve(capture_indices.size());
+  for (const int64_t capture_idx : capture_indices) {
+    if (capture_idx < 0 ||
+        capture_idx >= static_cast<int64_t>(block_count)) {
+      return std::nullopt;
+    }
+    capture_blocks.push_back(static_cast<size_t>(capture_idx));
+  }
+  std::sort(capture_blocks.begin(), capture_blocks.end());
+  if (std::adjacent_find(capture_blocks.begin(), capture_blocks.end()) !=
+      capture_blocks.end()) {
+    return std::nullopt;
+  }
+  std::vector<size_t> segment_ends;
+  size_t segment_start = 0u;
+  for (const size_t capture_block : capture_blocks) {
+    const size_t segment_length = capture_block + 1u - segment_start;
+    if (segment_length == 0u ||
+        segment_length > kSegmentedOwnedCommandBufferBlockLimit) {
+      return std::nullopt;
+    }
+    segment_ends.push_back(capture_block);
+    segment_start = capture_block + 1u;
+  }
+  if (segment_start < block_count) {
+    const size_t segment_length = block_count - segment_start;
+    if (segment_length > kSegmentedOwnedCommandBufferBlockLimit) {
+      return std::nullopt;
+    }
+    segment_ends.push_back(block_count - 1u);
+  }
+  if (segment_ends.size() > kSegmentedOwnedCommandBufferScopeLimit) {
+    return std::nullopt;
+  }
+  return segment_ends;
+}
+
 class VulkanStackCommandRecordingScope final {
  public:
   explicit VulkanStackCommandRecordingScope(
@@ -8588,12 +8634,17 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
             build_stack_planned_dispatch_positions(*stack_shape_plan));
   }
   std::unique_ptr<VulkanStackCommandRecordingScope> planned_recording_scope;
+  const std::optional<std::vector<size_t>>
+      segmented_stack_owned_command_buffer_segment_ends =
+          private_device_consumer_bridge &&
+          stack_owned_command_buffer_segmented_canary_enabled()
+      ? stack_owned_command_buffer_segment_ends(
+            context->blocks().size(),
+            capture_indices_vec)
+      : std::nullopt;
   const bool segmented_stack_owned_command_buffer_canary =
       stack_shape_plan && stack_plan_ready_for_planned_recording(*stack_shape_plan) &&
-      private_device_consumer_bridge &&
-      stack_owned_command_buffer_segmented_canary_enabled() &&
-      context->blocks().size() > 2u && context->blocks().size() <= 4u &&
-      capture_indices_vec.size() <= 2u;
+      segmented_stack_owned_command_buffer_segment_ends.has_value();
   if (stack_shape_plan &&
       stack_plan_ready_for_planned_recording(*stack_shape_plan)) {
     planned_counters.planned_record_hit.fetch_add(
@@ -8625,10 +8676,9 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
 
   Tensor current = input_arg;
   std::vector<Tensor> outputs(capture_indices_vec.size());
-  constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 2u;
+  size_t segmented_stack_owned_command_buffer_segment_index = 0u;
   for (size_t block_idx = 0u; block_idx < context->blocks().size(); ++block_idx) {
-    if (segmented_stack_owned_command_buffer_canary &&
-        block_idx % kSegmentedOwnedCommandBufferBlockLimit == 0u) {
+    if (segmented_stack_owned_command_buffer_canary && !planned_recording_scope) {
       planned_recording_scope =
           std::make_unique<VulkanStackCommandRecordingScope>(
               *api::context(),
@@ -8696,9 +8746,13 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       }
     }
     if (segmented_stack_owned_command_buffer_canary &&
-        ((block_idx + 1u) % kSegmentedOwnedCommandBufferBlockLimit == 0u ||
-         block_idx + 1u == context->blocks().size())) {
+        segmented_stack_owned_command_buffer_segment_index <
+            segmented_stack_owned_command_buffer_segment_ends->size() &&
+        block_idx ==
+            segmented_stack_owned_command_buffer_segment_ends->at(
+                segmented_stack_owned_command_buffer_segment_index)) {
       planned_recording_scope.reset();
+      segmented_stack_owned_command_buffer_segment_index++;
     }
   }
   planned_recording_scope.reset();
