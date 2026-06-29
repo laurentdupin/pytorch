@@ -194,13 +194,20 @@ class TORCH_API Context final {
   std::mutex stack_internal_temp_retire_batch_mutex_;
   std::vector<PendingRetireBuffer> stack_internal_temp_retire_batch_buffers_;
   std::vector<PendingRetireImage> stack_internal_temp_retire_batch_images_;
+  std::mutex stack_region_pending_retire_handoff_batch_mutex_;
+  std::vector<PendingRetireBuffer> stack_region_pending_retire_handoff_buffers_;
+  std::vector<PendingRetireImage> stack_region_pending_retire_handoff_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
 
   void clear_pending_retire_resources_locked();
   void clear_stack_internal_temp_retire_batch_locked();
+  void clear_stack_region_pending_retire_handoff_batch_locked();
   void restore_stack_internal_temp_retire_batch_to_pending_locked();
+  void restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
   void retire_stack_internal_temp_retire_batch_locked(
+      const VulkanSubmission& submission);
+  void retire_stack_region_pending_retire_handoff_batch_locked(
       const VulkanSubmission& submission);
   void snapshot_stack_region_pending_retire_transfer_source_locked(
       uint32_t state,

@@ -919,6 +919,10 @@ with
 `pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed`,
 and it emits explicit handoff API-present/candidate/behavior/transfer fields
 with transfer behavior disabled,
+`Context` also owns an empty-by-default stack-region pending-retire handoff
+batch with stack-entry clear, stack-exit retire, cancel restore, forced-clear
+cleanup, and source-signature participation. No runtime path moves entries into
+that batch yet, so the scaffold is behavior-neutral.
 an incomplete or bookkeeping-excluded source fails closed on
 `pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.

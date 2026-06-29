@@ -648,6 +648,11 @@ reports
 the owner row also emits explicit handoff API-present, candidate-available,
 behavior-enabled, and transfer flags, all keeping behavior disabled and
 `transfers_pending_retires=0`.
+`Context` now has an empty-by-default stack-region pending-retire handoff batch
+with stack-entry clear, stack-exit retire, cancel restore, forced-clear cleanup,
+and source-signature participation. No producer moves entries into that batch
+yet, so the scaffold is behavior-neutral and only prepares the future exact
+identity canary.
 when the source identity is incomplete, including bookkeeping-excluded
 count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;

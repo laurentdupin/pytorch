@@ -3490,6 +3490,7 @@ void Context::begin_stack_planned_recording() {
         stack_region_pending_retire_transfer_source_signature_mutex_);
     stack_region_pending_retire_transfer_source_signature_.clear();
   }
+  clear_stack_region_pending_retire_handoff_batch_locked();
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -3511,6 +3512,7 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       /*include_context_pending_retires=*/false,
       /*preserve_larger_source=*/!bind_stack_internal_source_at_stack_exit);
   retire_stack_internal_temp_retire_batch_locked(submission);
+  retire_stack_region_pending_retire_handoff_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
       2u, std::memory_order_release);
@@ -3550,6 +3552,7 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   snapshot_stack_region_pending_retire_transfer_source_locked(
       3u);
   restore_stack_internal_temp_retire_batch_to_pending_locked();
+  restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
       3u, std::memory_order_release);
@@ -3674,10 +3677,13 @@ void Context::take_external_recording_cleanup_resources(
 }
 
 void Context::clear_pending_retire_resources_locked() {
-  std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
-  std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
-  pending_retire_buffers_.clear();
-  pending_retire_images_.clear();
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    pending_retire_buffers_.clear();
+    pending_retire_images_.clear();
+  }
+  clear_stack_region_pending_retire_handoff_batch_locked();
   pending_retire_bytes_.store(0u, std::memory_order_relaxed);
 }
 
@@ -3686,6 +3692,13 @@ void Context::clear_stack_internal_temp_retire_batch_locked() {
       stack_internal_temp_retire_batch_mutex_);
   stack_internal_temp_retire_batch_buffers_.clear();
   stack_internal_temp_retire_batch_images_.clear();
+}
+
+void Context::clear_stack_region_pending_retire_handoff_batch_locked() {
+  std::lock_guard<std::mutex> handoff_lock(
+      stack_region_pending_retire_handoff_batch_mutex_);
+  stack_region_pending_retire_handoff_buffers_.clear();
+  stack_region_pending_retire_handoff_images_.clear();
 }
 
 void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
@@ -3730,6 +3743,24 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
     resource_count += stack_internal_temp_retire_batch_images_.size();
     for (const PendingRetireImage& pending :
          stack_internal_temp_retire_batch_images_) {
+      resource_bytes += pending.bytes;
+      stack_region_accumulate_pending_retire_allocation_signature(
+          allocation_signature_resources, pending);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> handoff_lock(
+        stack_region_pending_retire_handoff_batch_mutex_);
+    resource_count += stack_region_pending_retire_handoff_buffers_.size();
+    for (const PendingRetireBuffer& pending :
+         stack_region_pending_retire_handoff_buffers_) {
+      resource_bytes += pending.bytes;
+      stack_region_accumulate_pending_retire_allocation_signature(
+          allocation_signature_resources, pending);
+    }
+    resource_count += stack_region_pending_retire_handoff_images_.size();
+    for (const PendingRetireImage& pending :
+         stack_region_pending_retire_handoff_images_) {
       resource_bytes += pending.bytes;
       stack_region_accumulate_pending_retire_allocation_signature(
           allocation_signature_resources, pending);
@@ -3834,6 +3865,38 @@ void Context::restore_stack_internal_temp_retire_batch_to_pending_locked() {
   }
 }
 
+void Context::restore_stack_region_pending_retire_handoff_batch_to_pending_locked() {
+  std::vector<PendingRetireBuffer> handoff_buffers;
+  std::vector<PendingRetireImage> handoff_images;
+  {
+    std::lock_guard<std::mutex> handoff_lock(
+        stack_region_pending_retire_handoff_batch_mutex_);
+    if (
+        stack_region_pending_retire_handoff_buffers_.empty() &&
+        stack_region_pending_retire_handoff_images_.empty()) {
+      return;
+    }
+    handoff_buffers.swap(stack_region_pending_retire_handoff_buffers_);
+    handoff_images.swap(stack_region_pending_retire_handoff_images_);
+  }
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+    for (auto& pending : handoff_buffers) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+      pending_retire_buffers_.push_back(std::move(pending));
+    }
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    for (auto& pending : handoff_images) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+      pending_retire_images_.push_back(std::move(pending));
+    }
+  }
+}
+
 void Context::retire_stack_internal_temp_retire_batch_locked(
     const VulkanSubmission& submission) {
   if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
@@ -3887,6 +3950,64 @@ void Context::retire_stack_internal_temp_retire_batch_locked(
     });
   }
   stack_internal_temp_retire_batch_images_.clear();
+  if (batch_bytes > 0u) {
+    note_stack_internal_temp_retire_batch_submitted(batch_bytes);
+  }
+}
+
+void Context::retire_stack_region_pending_retire_handoff_batch_locked(
+    const VulkanSubmission& submission) {
+  if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
+    restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
+    return;
+  }
+  std::lock_guard<std::mutex> handoff_lock(
+      stack_region_pending_retire_handoff_batch_mutex_);
+  uint64_t batch_bytes = 0u;
+  for (PendingRetireBuffer& pending :
+       stack_region_pending_retire_handoff_buffers_) {
+    note_vulkan_retired_resource(
+        pending.kind,
+        pending.role,
+        pending.phase,
+        VulkanRetireCallSite::StackPlannedRecordingEnd,
+        pending.bytes,
+        /*queue_submit=*/true,
+        /*blocking_wait=*/false,
+        /*poll_only=*/false,
+        pending.stack_provenance);
+    batch_bytes += pending.bytes;
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [buffer = std::make_shared<VulkanBuffer>(
+             std::move(pending.buffer))]() {},
+    });
+  }
+  stack_region_pending_retire_handoff_buffers_.clear();
+  for (PendingRetireImage& pending :
+       stack_region_pending_retire_handoff_images_) {
+    note_vulkan_retired_resource(
+        pending.kind,
+        pending.role,
+        pending.phase,
+        VulkanRetireCallSite::StackPlannedRecordingEnd,
+        pending.bytes,
+        /*queue_submit=*/true,
+        /*blocking_wait=*/false,
+        /*poll_only=*/false,
+        pending.stack_provenance);
+    batch_bytes += pending.bytes;
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [image = std::make_shared<VulkanImage>(
+             std::move(pending.image))]() {},
+    });
+  }
+  stack_region_pending_retire_handoff_images_.clear();
   if (batch_bytes > 0u) {
     note_stack_internal_temp_retire_batch_submitted(batch_bytes);
   }
