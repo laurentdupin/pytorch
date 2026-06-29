@@ -82,8 +82,9 @@ prepared-command-buffer/external-recording substrate: stack entry acquires a
 persistent command buffer, stack dispatches record through
 `active_cmd_external`, and stack exit closes and submits that prepared command
 buffer. The default path remains context-owned. The canary is validated only on
-the focused two-block synthetic vision stack and still makes no broad DAv2
-performance claim.
+the focused two-block private-bridge synthetic vision stack, and the stack
+owner refuses the canary for larger/full DAv2-style stacks. It still makes no
+broad DAv2 performance claim.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

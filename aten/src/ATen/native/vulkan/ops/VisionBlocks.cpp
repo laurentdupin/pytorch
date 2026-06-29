@@ -1413,9 +1413,12 @@ bool stack_plan_ready_for_planned_recording(
 
 class VulkanStackCommandRecordingScope final {
  public:
-  explicit VulkanStackCommandRecordingScope(api::Context& context)
+  explicit VulkanStackCommandRecordingScope(
+      api::Context& context,
+      const bool allow_stack_owned_command_buffer_canary)
       : context_(context), active_(true) {
-    context_.begin_stack_planned_recording();
+    context_.begin_stack_planned_recording(
+        allow_stack_owned_command_buffer_canary);
     api::begin_stack_dispatch_dependency_recording_scope();
     vulkan_stack_planned_recording_counters()
         .recording_scope_begin_count.fetch_add(
@@ -8581,8 +8584,12 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
     planned_counters.planned_record_hit.fetch_add(
         1u,
         std::memory_order_relaxed);
+    const bool allow_stack_owned_command_buffer_canary =
+        private_device_consumer_bridge && context->blocks().size() <= 2u;
     planned_recording_scope =
-        std::make_unique<VulkanStackCommandRecordingScope>(*api::context());
+        std::make_unique<VulkanStackCommandRecordingScope>(
+            *api::context(),
+            allow_stack_owned_command_buffer_canary);
   } else {
     planned_counters.recording_scope_reject_count.fetch_add(
         1u,

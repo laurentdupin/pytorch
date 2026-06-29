@@ -577,7 +577,8 @@ class TORCH_API Context final {
   StackRegionPendingRetireTransferOwnerResult
   snapshot_stack_region_pending_retire_transfer_owner(
       const StackRegionPendingRetireTransferOwnerRequest& request) const;
-  void begin_stack_planned_recording();
+  void begin_stack_planned_recording(
+      bool allow_stack_owned_command_buffer_canary = true);
   StackPlannedRecordingStats end_stack_planned_recording_and_submit();
   StackPlannedRecordingStats cancel_stack_planned_recording();
   CommandBuffer acquire_persistent_command_buffer();

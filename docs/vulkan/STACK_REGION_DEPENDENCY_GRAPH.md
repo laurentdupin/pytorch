@@ -1169,9 +1169,11 @@ The opt-in
 uses the existing prepared-command-buffer external-recording path to create the
 first stack-entry-to-exit recording domain. Under that canary, stack dispatches
 emit `active_cmd_external` rows and stack exit submits the prepared command
-buffer. This is a focused canary only; it does not change the default path and
-does not convert the older current-topology submit-elision canary into an
-accepted optimization.
+buffer. This is a focused canary only; the stack owner currently limits it to
+small private-bridge stack scopes and keeps larger/full DAv2-style stacks on
+the context-owned path. It does not change the default path and does not
+convert the older current-topology submit-elision canary into an accepted
+optimization.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

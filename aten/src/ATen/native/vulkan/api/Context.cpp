@@ -3741,7 +3741,8 @@ void Context::flush_pending_cmds(VkFence fence_handle) {
   }
 }
 
-void Context::begin_stack_planned_recording() {
+void Context::begin_stack_planned_recording(
+    const bool allow_stack_owned_command_buffer_canary) {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   VK_CHECK_COND(
       !is_inside_owned_program_recording(),
@@ -3818,7 +3819,8 @@ void Context::begin_stack_planned_recording() {
   clear_stack_region_pending_retire_handoff_batch_locked();
   stack_region_owned_recording_retained_buffers_.clear();
   stack_region_owned_recording_retained_images_.clear();
-  if (stack_region_owned_command_buffer_canary_enabled()) {
+  if (allow_stack_owned_command_buffer_canary &&
+      stack_region_owned_command_buffer_canary_enabled()) {
     stack_region_owned_cmd_ = acquire_persistent_command_buffer();
     command_buffer_recording_id_ = next_command_buffer_recording_id_++;
     submit_count_ = 0u;
