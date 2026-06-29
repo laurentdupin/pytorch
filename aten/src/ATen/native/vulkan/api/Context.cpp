@@ -648,6 +648,8 @@ struct PendingRetireAllocationSignatureCoverage final {
   uint64_t transfer_required_bytes = 0u;
   uint64_t missing_count = 0u;
   uint64_t missing_bytes = 0u;
+  uint64_t missing_capture_sensitive_stack_activation_count = 0u;
+  uint64_t missing_capture_sensitive_stack_activation_bytes = 0u;
   uint64_t exact_intersection_count = 0u;
   uint64_t exact_intersection_bytes = 0u;
   uint64_t allocation_range_overlap_count = 0u;
@@ -659,6 +661,34 @@ struct PendingRetireAllocationSignatureCoverage final {
   std::string mismatch_axis =
       "pending_retire_transfer_source_identity_mismatch_unavailable";
 };
+
+bool stack_region_is_capture_sensitive_stack_activation_key(
+    const std::string& key) {
+  constexpr const char* kCaptureSensitiveStackActivation =
+      "capture_sensitive_stack_activation";
+  size_t pos = 0u;
+  for (int i = 0; i < 4; ++i) {
+    pos = key.find('#', pos);
+    if (pos == std::string::npos) {
+      return false;
+    }
+    ++pos;
+  }
+  return key.substr(pos) == kCaptureSensitiveStackActivation;
+}
+
+void stack_region_note_missing_pending_retire_identity(
+    PendingRetireAllocationSignatureCoverage& coverage,
+    const std::string& key,
+    const uint64_t count,
+    const uint64_t bytes) {
+  coverage.missing_count += count;
+  coverage.missing_bytes += bytes;
+  if (stack_region_is_capture_sensitive_stack_activation_key(key)) {
+    coverage.missing_capture_sensitive_stack_activation_count += count;
+    coverage.missing_capture_sensitive_stack_activation_bytes += bytes;
+  }
+}
 
 void stack_region_accumulate_pending_retire_allocation_signature(
     std::map<std::string, std::pair<uint64_t, uint64_t>>& resources,
@@ -848,15 +878,23 @@ stack_region_compare_pending_retire_source_identity(
       coverage.exact_intersection_bytes +=
           std::min(item.second.second, source_it->second.second);
     } else {
-      coverage.missing_count += item.second.first;
-      coverage.missing_bytes += item.second.second;
+      stack_region_note_missing_pending_retire_identity(
+          coverage, item.first, item.second.first, item.second.second);
       continue;
     }
     if (source_it->second.first < item.second.first) {
-      coverage.missing_count += item.second.first - source_it->second.first;
+      stack_region_note_missing_pending_retire_identity(
+          coverage,
+          item.first,
+          item.second.first - source_it->second.first,
+          0u);
     }
     if (source_it->second.second < item.second.second) {
-      coverage.missing_bytes += item.second.second - source_it->second.second;
+      stack_region_note_missing_pending_retire_identity(
+          coverage,
+          item.first,
+          0u,
+          item.second.second - source_it->second.second);
     }
   }
   for (const auto& item : graph_range_required) {
@@ -889,10 +927,21 @@ stack_region_compare_pending_retire_source_identity(
   } else if (any_match) {
     coverage.status = "pending_retire_transfer_source_identity_partial";
     coverage.mismatch_axis =
-        "partial_exact_identity_intersection";
+        coverage.missing_capture_sensitive_stack_activation_count ==
+            coverage.missing_count &&
+            coverage.missing_capture_sensitive_stack_activation_bytes ==
+                coverage.missing_bytes
+        ? "missing_capture_sensitive_stack_activation"
+        : "partial_exact_identity_intersection";
   } else if (coverage.allocation_range_overlap_count > 0u) {
     coverage.status = "pending_retire_transfer_source_identity_missing";
-    coverage.mismatch_axis = "resource_class_mismatch_same_allocation_range";
+    coverage.mismatch_axis =
+        coverage.missing_capture_sensitive_stack_activation_count ==
+            coverage.missing_count &&
+            coverage.missing_capture_sensitive_stack_activation_bytes ==
+                coverage.missing_bytes
+        ? "missing_capture_sensitive_stack_activation"
+        : "resource_class_mismatch_same_allocation_range";
   } else if (coverage.class_only_overlap_count > 0u) {
     coverage.status = "pending_retire_transfer_source_identity_missing";
     coverage.mismatch_axis =
@@ -2002,6 +2051,10 @@ Context::snapshot_stack_region_pending_retire_transfer(
       identity_coverage.class_only_overlap_count;
   result.source_identity_class_only_overlap_bytes =
       identity_coverage.class_only_overlap_bytes;
+  result.source_identity_missing_capture_sensitive_stack_activation_count =
+      identity_coverage.missing_capture_sensitive_stack_activation_count;
+  result.source_identity_missing_capture_sensitive_stack_activation_bytes =
+      identity_coverage.missing_capture_sensitive_stack_activation_bytes;
   result.region_exit_bound_missing_transfer_required_identity_count =
       identity_coverage.missing_count;
   result.region_exit_bound_missing_transfer_required_identity_bytes =

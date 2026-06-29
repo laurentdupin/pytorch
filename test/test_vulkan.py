@@ -25980,7 +25980,39 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 transfer_row[
                     "pending_retire_transfer_source_identity_mismatch_axis"
                 ],
-                "partial_exact_identity_intersection",
+                "missing_capture_sensitive_stack_activation",
+            )
+            self.assertGreater(
+                int(
+                    transfer_row[
+                        "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_count"
+                ],
+                transfer_row[
+                    "pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_count"
+                ],
+            )
+            self.assertGreater(
+                int(
+                    transfer_row[
+                        "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_bytes"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_bytes"
+                ],
+                transfer_row[
+                    "pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_bytes"
+                ],
             )
             self.assertIn(
                 transfer_row[
@@ -26087,7 +26119,39 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 pending_retire_row["source_identity_mismatch_axis"],
-                "partial_exact_identity_intersection",
+                "missing_capture_sensitive_stack_activation",
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "source_identity_missing_capture_sensitive_stack_activation_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                pending_retire_row[
+                    "source_identity_missing_capture_sensitive_stack_activation_count"
+                ],
+                pending_retire_row[
+                    "region_exit_bound_missing_transfer_required_identity_count"
+                ],
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "source_identity_missing_capture_sensitive_stack_activation_bytes"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                pending_retire_row[
+                    "source_identity_missing_capture_sensitive_stack_activation_bytes"
+                ],
+                pending_retire_row[
+                    "region_exit_bound_missing_transfer_required_identity_bytes"
+                ],
             )
             self.assertIn(
                 pending_retire_row[
@@ -26280,6 +26344,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 pending_retire_owner_row["source_identity_mismatch_axis"],
                 pending_retire_row["source_identity_mismatch_axis"],
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "source_identity_missing_capture_sensitive_stack_activation_count"
+                ],
+                pending_retire_row[
+                    "source_identity_missing_capture_sensitive_stack_activation_count"
+                ],
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "source_identity_missing_capture_sensitive_stack_activation_bytes"
+                ],
+                pending_retire_row[
+                    "source_identity_missing_capture_sensitive_stack_activation_bytes"
+                ],
             )
             self.assertEqual(
                 pending_retire_owner_row[

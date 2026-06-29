@@ -1374,6 +1374,10 @@ struct StackRegionPendingRetireTransferResult final {
   uint64_t source_identity_allocation_range_overlap_bytes = 0u;
   uint64_t source_identity_class_only_overlap_count = 0u;
   uint64_t source_identity_class_only_overlap_bytes = 0u;
+  uint64_t source_identity_missing_capture_sensitive_stack_activation_count =
+      0u;
+  uint64_t source_identity_missing_capture_sensitive_stack_activation_bytes =
+      0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
@@ -1478,6 +1482,10 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
   uint64_t source_identity_allocation_range_overlap_bytes = 0u;
   uint64_t source_identity_class_only_overlap_count = 0u;
   uint64_t source_identity_class_only_overlap_bytes = 0u;
+  uint64_t source_identity_missing_capture_sensitive_stack_activation_count =
+      0u;
+  uint64_t source_identity_missing_capture_sensitive_stack_activation_bytes =
+      0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
@@ -1536,6 +1544,10 @@ struct StackRegionPendingRetireTransferOwnerResult final {
   uint64_t source_identity_allocation_range_overlap_bytes = 0u;
   uint64_t source_identity_class_only_overlap_count = 0u;
   uint64_t source_identity_class_only_overlap_bytes = 0u;
+  uint64_t source_identity_missing_capture_sensitive_stack_activation_count =
+      0u;
+  uint64_t source_identity_missing_capture_sensitive_stack_activation_bytes =
+      0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;

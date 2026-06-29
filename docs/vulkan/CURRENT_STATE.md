@@ -662,6 +662,13 @@ synthetic bridge run transfers exact eligible entries but still reports partial
 identity coverage because one capture-sensitive activation remains unowned by
 the canary. Full pending-retire transfer ownership therefore remains fail-closed
 on the missing identity and does not authorize submit elision.
+The missing identity is surfaced as a typed blocker:
+`source_identity_missing_capture_sensitive_stack_activation_count/bytes` and
+`missing_capture_sensitive_stack_activation` distinguish it from a generic
+partial identity intersection. This remains a blocker, not an exclusion; a
+future change must either prove a separate capture/output owner for that
+activation or introduce a stricter capture-sensitive activation handoff
+contract.
 when the source identity is incomplete, including bookkeeping-excluded
 count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;

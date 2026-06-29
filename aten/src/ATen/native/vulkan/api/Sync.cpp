@@ -11845,6 +11845,14 @@ void append_stack_region_submit_epoch_ordering_json(
         .source_identity_class_only_overlap_bytes =
             pending_retire_transfer_result
                 .source_identity_class_only_overlap_bytes;
+    pending_retire_transfer_owner_request
+        .source_identity_missing_capture_sensitive_stack_activation_count =
+            pending_retire_transfer_result
+                .source_identity_missing_capture_sensitive_stack_activation_count;
+    pending_retire_transfer_owner_request
+        .source_identity_missing_capture_sensitive_stack_activation_bytes =
+            pending_retire_transfer_result
+                .source_identity_missing_capture_sensitive_stack_activation_bytes;
     pending_retire_transfer_owner_request.context_pending_resource_count =
         pending_retire_transfer_result.context_pending_resource_count;
     pending_retire_transfer_owner_request.context_pending_resource_bytes =
@@ -14490,6 +14498,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " source_identity_class_only_overlap_bytes="
         << pending_retire_transfer_result
                .source_identity_class_only_overlap_bytes
+        << " source_identity_missing_capture_sensitive_stack_activation_count="
+        << pending_retire_transfer_result
+               .source_identity_missing_capture_sensitive_stack_activation_count
+        << " source_identity_missing_capture_sensitive_stack_activation_bytes="
+        << pending_retire_transfer_result
+               .source_identity_missing_capture_sensitive_stack_activation_bytes
         << " graph_pending_allocation_signature="
         << pending_retire_transfer_result.graph_pending_allocation_signature
         << " graph_transfer_required_allocation_signature="
@@ -14731,6 +14745,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " source_identity_class_only_overlap_bytes="
         << pending_retire_transfer_owner_result
                .source_identity_class_only_overlap_bytes
+        << " source_identity_missing_capture_sensitive_stack_activation_count="
+        << pending_retire_transfer_owner_result
+               .source_identity_missing_capture_sensitive_stack_activation_count
+        << " source_identity_missing_capture_sensitive_stack_activation_bytes="
+        << pending_retire_transfer_owner_result
+               .source_identity_missing_capture_sensitive_stack_activation_bytes
         << " graph_pending_allocation_signature="
         << pending_retire_transfer_owner_result.graph_pending_allocation_signature
         << " graph_transfer_required_allocation_signature="
@@ -15045,6 +15065,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " pending_retire_transfer_source_identity_class_only_overlap_bytes="
         << pending_retire_transfer_result
                .source_identity_class_only_overlap_bytes
+        << " pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_count="
+        << pending_retire_transfer_result
+               .source_identity_missing_capture_sensitive_stack_activation_count
+        << " pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_bytes="
+        << pending_retire_transfer_result
+               .source_identity_missing_capture_sensitive_stack_activation_bytes
         << " pending_retire_transfer_graph_pending_allocation_signature="
         << pending_retire_transfer_result.graph_pending_allocation_signature
         << " pending_retire_transfer_graph_transfer_required_allocation_signature="
@@ -25369,6 +25395,10 @@ request_stack_region_pending_retire_transfer_owner(
       request.source_identity_class_only_overlap_count;
   result.source_identity_class_only_overlap_bytes =
       request.source_identity_class_only_overlap_bytes;
+  result.source_identity_missing_capture_sensitive_stack_activation_count =
+      request.source_identity_missing_capture_sensitive_stack_activation_count;
+  result.source_identity_missing_capture_sensitive_stack_activation_bytes =
+      request.source_identity_missing_capture_sensitive_stack_activation_bytes;
   result.context_pending_resource_count =
       request.context_pending_resource_count;
   result.context_pending_resource_bytes =

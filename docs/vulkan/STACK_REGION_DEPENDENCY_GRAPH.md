@@ -929,6 +929,13 @@ stack-exit submission timeline. The current synthetic bridge run demonstrates
 partial handoff: exact eligible entries move, but one capture-sensitive
 activation remains outside the canary, so full pending-retire transfer
 ownership stays fail-closed and submit elision remains unauthorized.
+That missing identity is now reported as
+`source_identity_missing_capture_sensitive_stack_activation_count/bytes` with
+`source_identity_mismatch_axis=missing_capture_sensitive_stack_activation`.
+The field is diagnostic and fail-closed: it does not exclude the activation
+from transfer-required accounting or make it handoff-eligible. The next
+behavior-changing step must choose an explicit capture/output owner or a
+stricter capture-sensitive activation handoff contract.
 an incomplete or bookkeeping-excluded source fails closed on
 `pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.
