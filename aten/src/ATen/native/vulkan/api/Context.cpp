@@ -114,7 +114,8 @@ bool stack_region_owned_command_buffer_canary_enabled() {
   }
   const std::string value(env);
   return value == "1" || value == "stack_entry_to_exit" ||
-      value == "segmented_stack_entry_to_exit";
+      value == "segmented_stack_entry_to_exit" ||
+      value == "segmented_stack_prefix_to_exit";
 }
 
 bool stack_region_pending_retire_transfer_owner_stack_internal_enabled() {

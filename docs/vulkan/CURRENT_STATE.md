@@ -99,6 +99,12 @@ each scope at its local stack-exit boundary. Stacks with an over-budget segment
 or too many segments still fail closed to the context-owned path. Exploratory
 full `vits_140` runs exposed stack-overflow risk for both unsegmented recording
 and four capture-aligned scopes, so DAv2 remains on the context-owned path.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_prefix_to_exit`
+is an opt-in mixed-topology canary for that gap. It records only the first two
+eligible private-bridge segments externally and leaves the remaining tail on the
+existing context-owned path. This is a partial recording experiment, not a
+full-stack DAv2 performance path. Selected external segments also fail closed
+when their planned dispatch count exceeds the current small-scope canary budget.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic

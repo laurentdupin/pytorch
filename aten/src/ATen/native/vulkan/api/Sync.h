@@ -2371,6 +2371,8 @@ TORCH_API void note_stack_region_segment_plan(
     const char* owned_command_buffer_mode,
     bool segmented_canary_requested,
     bool segmented_canary_selected,
+    uint64_t selected_segment_count,
+    const char* segment_plan_coverage,
     bool private_device_consumer_bridge,
     bool preserve_private_captures_in_plan,
     bool shape_plan_ready,
@@ -2388,8 +2390,10 @@ TORCH_API void note_stack_region_segment_plan(
     uint64_t segment_block_count,
     const std::string& segment_capture_indices,
     bool segment_has_capture_boundary,
+    bool segment_selected_for_recording,
     uint64_t segment_block_limit,
     uint64_t segment_scope_limit,
+    uint64_t segment_planned_dispatch_limit,
     const char* segment_plan_status,
     const char* segment_plan_fail_reason);
 TORCH_API bool stack_region_recording_domain_observation_enabled();

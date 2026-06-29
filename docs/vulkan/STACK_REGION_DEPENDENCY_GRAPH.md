@@ -1190,6 +1190,16 @@ four blocks or fewer, allows at most two scopes, then submits each scope at its
 local stack-exit. Over-budget or too-many-segment stacks stay on the
 context-owned path because unbounded and four-scope full-stack experiments have
 already shown stack-overflow/device-loss risk.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_prefix_to_exit`
+is a narrower behavior canary for too-many-segment stacks: when all candidate
+segments satisfy the per-segment block budget but exceed the two-scope budget,
+it records only the first two segments through stack-owned external recording
+and leaves the remaining tail on the existing context-owned path. Segment rows
+mark `segment_selected_for_recording`, and the summary reports
+`segment_plan_coverage=prefix`; this is not a full-stack recording proof. The
+selected external segments must also stay within the small planned-dispatch
+budget, so higher-dispatch real-model segments reject before external recording
+starts.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and

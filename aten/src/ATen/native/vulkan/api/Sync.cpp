@@ -2525,6 +2525,8 @@ void record_stack_region_segment_plan(
     const char* const owned_command_buffer_mode,
     const bool segmented_canary_requested,
     const bool segmented_canary_selected,
+    const uint64_t selected_segment_count,
+    const char* const segment_plan_coverage,
     const bool private_device_consumer_bridge,
     const bool preserve_private_captures_in_plan,
     const bool shape_plan_ready,
@@ -2542,8 +2544,10 @@ void record_stack_region_segment_plan(
     const uint64_t segment_block_count,
     const std::string& segment_capture_indices,
     const bool segment_has_capture_boundary,
+    const bool segment_selected_for_recording,
     const uint64_t segment_block_limit,
     const uint64_t segment_scope_limit,
+    const uint64_t segment_planned_dispatch_limit,
     const char* const segment_plan_status,
     const char* const segment_plan_fail_reason) {
   std::ostringstream key;
@@ -2559,6 +2563,11 @@ void record_stack_region_segment_plan(
       << " segmented_canary_requested="
       << (segmented_canary_requested ? 1 : 0)
       << " segmented_canary_selected=" << (segmented_canary_selected ? 1 : 0)
+      << " selected_segment_count=" << selected_segment_count
+      << " segment_plan_coverage="
+      << (segment_plan_coverage && segment_plan_coverage[0] != '\0'
+              ? segment_plan_coverage
+              : "none")
       << " private_device_consumer_bridge="
       << (private_device_consumer_bridge ? 1 : 0)
       << " preserve_private_captures_in_plan="
@@ -2569,8 +2578,10 @@ void record_stack_region_segment_plan(
       << (planned_dispatch_count_observed ? "observed" : "shape_plan_unavailable")
       << " total_planned_dispatch_count=" << total_planned_dispatch_count
       << " segment_planned_dispatch_count=" << segment_planned_dispatch_count
-      << " planned_dispatch_budget_enforced=0"
-      << " planned_dispatch_count_admission_predicate=0"
+      << " segment_planned_dispatch_limit="
+      << segment_planned_dispatch_limit
+      << " planned_dispatch_budget_enforced=1"
+      << " planned_dispatch_count_admission_predicate=1"
       << " block_count=" << block_count
       << " runtime_capture_indices="
       << stack_region_row_token(runtime_capture_indices)
@@ -2587,6 +2598,8 @@ void record_stack_region_segment_plan(
       << stack_region_row_token(segment_capture_indices)
       << " segment_has_capture_boundary="
       << (segment_has_capture_boundary ? 1 : 0)
+      << " segment_selected_for_recording="
+      << (segment_selected_for_recording ? 1 : 0)
       << " segment_private_capture_only="
       << (private_device_consumer_bridge ? 1 : 0)
       << " opens_stack_owned_recording_scope=0"
@@ -24577,6 +24590,8 @@ void note_stack_region_segment_plan(
     const char* const owned_command_buffer_mode,
     const bool segmented_canary_requested,
     const bool segmented_canary_selected,
+    const uint64_t selected_segment_count,
+    const char* const segment_plan_coverage,
     const bool private_device_consumer_bridge,
     const bool preserve_private_captures_in_plan,
     const bool shape_plan_ready,
@@ -24594,8 +24609,10 @@ void note_stack_region_segment_plan(
     const uint64_t segment_block_count,
     const std::string& segment_capture_indices,
     const bool segment_has_capture_boundary,
+    const bool segment_selected_for_recording,
     const uint64_t segment_block_limit,
     const uint64_t segment_scope_limit,
+    const uint64_t segment_planned_dispatch_limit,
     const char* const segment_plan_status,
     const char* const segment_plan_fail_reason) {
   record_stack_region_segment_plan(
@@ -24605,6 +24622,8 @@ void note_stack_region_segment_plan(
       owned_command_buffer_mode,
       segmented_canary_requested,
       segmented_canary_selected,
+      selected_segment_count,
+      segment_plan_coverage,
       private_device_consumer_bridge,
       preserve_private_captures_in_plan,
       shape_plan_ready,
@@ -24622,8 +24641,10 @@ void note_stack_region_segment_plan(
       segment_block_count,
       segment_capture_indices,
       segment_has_capture_boundary,
+      segment_selected_for_recording,
       segment_block_limit,
       segment_scope_limit,
+      segment_planned_dispatch_limit,
       segment_plan_status,
       segment_plan_fail_reason);
 }
