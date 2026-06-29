@@ -886,6 +886,15 @@ That makes repeated warm/timed stack runs distinguishable. The current
 stack-exit batch source is therefore instance-correct but still not
 identity-equivalent to the selected phase-submit pending graph set, so the row
 continues to report source-incomplete ownership rather than granting transfer.
+To make that blocker actionable, the transfer row also reports
+`source_identity_mismatch_axis`,
+`source_identity_exact_intersection_count/bytes`,
+`source_identity_allocation_range_overlap_count/bytes`, and
+`source_identity_class_only_overlap_count/bytes`. The current selected
+stack-exit batch path reports
+`source_identity_mismatch_same_class_different_allocation_set`: there is
+resource-class overlap, but no exact identity or allocation/range overlap with
+the selected phase-submit pending graph set.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

@@ -1368,6 +1368,12 @@ struct StackRegionPendingRetireTransferResult final {
   uint64_t graph_transfer_required_resource_bytes = 0u;
   uint64_t graph_transfer_required_identity_resource_count = 0u;
   uint64_t graph_transfer_required_identity_resource_bytes = 0u;
+  uint64_t source_identity_exact_intersection_count = 0u;
+  uint64_t source_identity_exact_intersection_bytes = 0u;
+  uint64_t source_identity_allocation_range_overlap_count = 0u;
+  uint64_t source_identity_allocation_range_overlap_bytes = 0u;
+  uint64_t source_identity_class_only_overlap_count = 0u;
+  uint64_t source_identity_class_only_overlap_bytes = 0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
@@ -1398,6 +1404,8 @@ struct StackRegionPendingRetireTransferResult final {
   std::string region_exit_bound_source_allocation_signature = "missing";
   std::string source_identity_match_status =
       "pending_retire_transfer_source_identity_unavailable";
+  std::string source_identity_mismatch_axis =
+      "pending_retire_transfer_source_identity_mismatch_unavailable";
   std::string current_owner_status =
       "pending_retires_still_context_owned";
   std::string requested_owner_status =
@@ -1449,6 +1457,12 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
   uint64_t graph_transfer_required_resource_bytes = 0u;
   uint64_t graph_transfer_required_identity_resource_count = 0u;
   uint64_t graph_transfer_required_identity_resource_bytes = 0u;
+  uint64_t source_identity_exact_intersection_count = 0u;
+  uint64_t source_identity_exact_intersection_bytes = 0u;
+  uint64_t source_identity_allocation_range_overlap_count = 0u;
+  uint64_t source_identity_allocation_range_overlap_bytes = 0u;
+  uint64_t source_identity_class_only_overlap_count = 0u;
+  uint64_t source_identity_class_only_overlap_bytes = 0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
@@ -1471,6 +1485,8 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
   std::string region_exit_bound_source_allocation_signature = "missing";
   std::string source_identity_match_status =
       "pending_retire_transfer_source_identity_unavailable";
+  std::string source_identity_mismatch_axis =
+      "pending_retire_transfer_source_identity_mismatch_unavailable";
 };
 
 struct StackRegionPendingRetireTransferOwnerResult final {
@@ -1489,6 +1505,12 @@ struct StackRegionPendingRetireTransferOwnerResult final {
   uint64_t graph_transfer_required_resource_bytes = 0u;
   uint64_t graph_transfer_required_identity_resource_count = 0u;
   uint64_t graph_transfer_required_identity_resource_bytes = 0u;
+  uint64_t source_identity_exact_intersection_count = 0u;
+  uint64_t source_identity_exact_intersection_bytes = 0u;
+  uint64_t source_identity_allocation_range_overlap_count = 0u;
+  uint64_t source_identity_allocation_range_overlap_bytes = 0u;
+  uint64_t source_identity_class_only_overlap_count = 0u;
+  uint64_t source_identity_class_only_overlap_bytes = 0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
@@ -1517,6 +1539,8 @@ struct StackRegionPendingRetireTransferOwnerResult final {
   std::string region_exit_bound_source_allocation_signature = "missing";
   std::string source_identity_match_status =
       "pending_retire_transfer_source_identity_unavailable";
+  std::string source_identity_mismatch_axis =
+      "pending_retire_transfer_source_identity_mismatch_unavailable";
   std::string current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   std::string requested_owner_status =

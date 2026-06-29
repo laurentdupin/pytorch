@@ -11821,6 +11821,30 @@ void append_stack_region_submit_epoch_ordering_json(
         .graph_transfer_required_identity_resource_bytes =
             pending_retire_transfer_result
                 .graph_transfer_required_identity_resource_bytes;
+    pending_retire_transfer_owner_request
+        .source_identity_exact_intersection_count =
+            pending_retire_transfer_result
+                .source_identity_exact_intersection_count;
+    pending_retire_transfer_owner_request
+        .source_identity_exact_intersection_bytes =
+            pending_retire_transfer_result
+                .source_identity_exact_intersection_bytes;
+    pending_retire_transfer_owner_request
+        .source_identity_allocation_range_overlap_count =
+            pending_retire_transfer_result
+                .source_identity_allocation_range_overlap_count;
+    pending_retire_transfer_owner_request
+        .source_identity_allocation_range_overlap_bytes =
+            pending_retire_transfer_result
+                .source_identity_allocation_range_overlap_bytes;
+    pending_retire_transfer_owner_request
+        .source_identity_class_only_overlap_count =
+            pending_retire_transfer_result
+                .source_identity_class_only_overlap_count;
+    pending_retire_transfer_owner_request
+        .source_identity_class_only_overlap_bytes =
+            pending_retire_transfer_result
+                .source_identity_class_only_overlap_bytes;
     pending_retire_transfer_owner_request.context_pending_resource_count =
         pending_retire_transfer_result.context_pending_resource_count;
     pending_retire_transfer_owner_request.context_pending_resource_bytes =
@@ -11875,6 +11899,8 @@ void append_stack_region_submit_epoch_ordering_json(
                 .region_exit_bound_source_allocation_signature;
     pending_retire_transfer_owner_request.source_identity_match_status =
         pending_retire_transfer_result.source_identity_match_status;
+    pending_retire_transfer_owner_request.source_identity_mismatch_axis =
+        pending_retire_transfer_result.source_identity_mismatch_axis;
     pending_retire_transfer_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
     const StackRegionPendingRetireTransferOwnerResult
@@ -14424,6 +14450,26 @@ void append_stack_region_submit_epoch_ordering_json(
                .source_coverage_after_bookkeeping_exclusion_status
         << " source_identity_match_status="
         << pending_retire_transfer_result.source_identity_match_status
+        << " source_identity_mismatch_axis="
+        << pending_retire_transfer_result.source_identity_mismatch_axis
+        << " source_identity_exact_intersection_count="
+        << pending_retire_transfer_result
+               .source_identity_exact_intersection_count
+        << " source_identity_exact_intersection_bytes="
+        << pending_retire_transfer_result
+               .source_identity_exact_intersection_bytes
+        << " source_identity_allocation_range_overlap_count="
+        << pending_retire_transfer_result
+               .source_identity_allocation_range_overlap_count
+        << " source_identity_allocation_range_overlap_bytes="
+        << pending_retire_transfer_result
+               .source_identity_allocation_range_overlap_bytes
+        << " source_identity_class_only_overlap_count="
+        << pending_retire_transfer_result
+               .source_identity_class_only_overlap_count
+        << " source_identity_class_only_overlap_bytes="
+        << pending_retire_transfer_result
+               .source_identity_class_only_overlap_bytes
         << " graph_pending_allocation_signature="
         << pending_retire_transfer_result.graph_pending_allocation_signature
         << " graph_transfer_required_allocation_signature="
@@ -14574,6 +14620,26 @@ void append_stack_region_submit_epoch_ordering_json(
                .source_coverage_after_bookkeeping_exclusion_status
         << " source_identity_match_status="
         << pending_retire_transfer_owner_result.source_identity_match_status
+        << " source_identity_mismatch_axis="
+        << pending_retire_transfer_owner_result.source_identity_mismatch_axis
+        << " source_identity_exact_intersection_count="
+        << pending_retire_transfer_owner_result
+               .source_identity_exact_intersection_count
+        << " source_identity_exact_intersection_bytes="
+        << pending_retire_transfer_owner_result
+               .source_identity_exact_intersection_bytes
+        << " source_identity_allocation_range_overlap_count="
+        << pending_retire_transfer_owner_result
+               .source_identity_allocation_range_overlap_count
+        << " source_identity_allocation_range_overlap_bytes="
+        << pending_retire_transfer_owner_result
+               .source_identity_allocation_range_overlap_bytes
+        << " source_identity_class_only_overlap_count="
+        << pending_retire_transfer_owner_result
+               .source_identity_class_only_overlap_count
+        << " source_identity_class_only_overlap_bytes="
+        << pending_retire_transfer_owner_result
+               .source_identity_class_only_overlap_bytes
         << " graph_pending_allocation_signature="
         << pending_retire_transfer_owner_result.graph_pending_allocation_signature
         << " graph_transfer_required_allocation_signature="
@@ -14839,6 +14905,26 @@ void append_stack_region_submit_epoch_ordering_json(
                .graph_transfer_required_identity_resource_bytes
         << " pending_retire_transfer_source_identity_match_status="
         << pending_retire_transfer_result.source_identity_match_status
+        << " pending_retire_transfer_source_identity_mismatch_axis="
+        << pending_retire_transfer_result.source_identity_mismatch_axis
+        << " pending_retire_transfer_source_identity_exact_intersection_count="
+        << pending_retire_transfer_result
+               .source_identity_exact_intersection_count
+        << " pending_retire_transfer_source_identity_exact_intersection_bytes="
+        << pending_retire_transfer_result
+               .source_identity_exact_intersection_bytes
+        << " pending_retire_transfer_source_identity_allocation_range_overlap_count="
+        << pending_retire_transfer_result
+               .source_identity_allocation_range_overlap_count
+        << " pending_retire_transfer_source_identity_allocation_range_overlap_bytes="
+        << pending_retire_transfer_result
+               .source_identity_allocation_range_overlap_bytes
+        << " pending_retire_transfer_source_identity_class_only_overlap_count="
+        << pending_retire_transfer_result
+               .source_identity_class_only_overlap_count
+        << " pending_retire_transfer_source_identity_class_only_overlap_bytes="
+        << pending_retire_transfer_result
+               .source_identity_class_only_overlap_bytes
         << " pending_retire_transfer_graph_pending_allocation_signature="
         << pending_retire_transfer_result.graph_pending_allocation_signature
         << " pending_retire_transfer_graph_transfer_required_allocation_signature="
@@ -25137,6 +25223,18 @@ request_stack_region_pending_retire_transfer_owner(
       request.graph_transfer_required_identity_resource_count;
   result.graph_transfer_required_identity_resource_bytes =
       request.graph_transfer_required_identity_resource_bytes;
+  result.source_identity_exact_intersection_count =
+      request.source_identity_exact_intersection_count;
+  result.source_identity_exact_intersection_bytes =
+      request.source_identity_exact_intersection_bytes;
+  result.source_identity_allocation_range_overlap_count =
+      request.source_identity_allocation_range_overlap_count;
+  result.source_identity_allocation_range_overlap_bytes =
+      request.source_identity_allocation_range_overlap_bytes;
+  result.source_identity_class_only_overlap_count =
+      request.source_identity_class_only_overlap_count;
+  result.source_identity_class_only_overlap_bytes =
+      request.source_identity_class_only_overlap_bytes;
   result.context_pending_resource_count =
       request.context_pending_resource_count;
   result.context_pending_resource_bytes =
@@ -25166,6 +25264,8 @@ request_stack_region_pending_retire_transfer_owner(
       request.region_exit_bound_source_allocation_signature;
   result.source_identity_match_status =
       request.source_identity_match_status;
+  result.source_identity_mismatch_axis =
+      request.source_identity_mismatch_axis;
   result.retire_timeline_owner_status = request.retire_timeline_owner_status;
   result.planned_release_submit_point_status =
       request.planned_release_submit_point_status;

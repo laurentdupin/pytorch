@@ -528,8 +528,16 @@ struct PendingRetireAllocationSignatureCoverage final {
   uint64_t transfer_required_bytes = 0u;
   uint64_t missing_count = 0u;
   uint64_t missing_bytes = 0u;
+  uint64_t exact_intersection_count = 0u;
+  uint64_t exact_intersection_bytes = 0u;
+  uint64_t allocation_range_overlap_count = 0u;
+  uint64_t allocation_range_overlap_bytes = 0u;
+  uint64_t class_only_overlap_count = 0u;
+  uint64_t class_only_overlap_bytes = 0u;
   std::string transfer_required_signature = "missing";
   std::string status = "pending_retire_transfer_source_identity_unavailable";
+  std::string mismatch_axis =
+      "pending_retire_transfer_source_identity_mismatch_unavailable";
 };
 
 void stack_region_accumulate_pending_retire_allocation_signature(
@@ -592,8 +600,9 @@ stack_region_compare_pending_retire_source_identity(
   PendingRetireAllocationSignatureCoverage coverage;
   if (
       graph_signature.empty() || graph_signature == "missing" ||
-      graph_signature == "none") {
+    graph_signature == "none") {
     coverage.status = "pending_retire_transfer_source_identity_missing_graph_signature";
+    coverage.mismatch_axis = "missing_graph_signature";
     return coverage;
   }
   std::string normalized_graph_signature = graph_signature;
@@ -603,6 +612,8 @@ stack_region_compare_pending_retire_source_identity(
       '|',
       ',');
   std::map<std::string, std::pair<uint64_t, uint64_t>> graph_required;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> graph_range_required;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> graph_class_required;
   std::istringstream graph_entries(normalized_graph_signature);
   std::string entry;
   uint64_t malformed_graph_entry_count = 0u;
@@ -629,6 +640,14 @@ stack_region_compare_pending_retire_source_identity(
     auto& value = graph_required[key];
     value.first += count;
     value.second += bytes;
+    auto& range_value =
+        graph_range_required[parts[0] + "#" + parts[1] + "#" + parts[2] +
+                             "#" + parts[3]];
+    range_value.first += count;
+    range_value.second += bytes;
+    auto& class_value = graph_class_required[resource_class];
+    class_value.first += count;
+    class_value.second += bytes;
     coverage.transfer_required_count += count;
     coverage.transfer_required_bytes += bytes;
   }
@@ -638,6 +657,9 @@ stack_region_compare_pending_retire_source_identity(
     coverage.status = malformed_graph_entry_count > 0u
         ? "pending_retire_transfer_source_identity_malformed_graph_signature"
         : "pending_retire_transfer_source_identity_no_transfer_required_entries";
+    coverage.mismatch_axis = malformed_graph_entry_count > 0u
+        ? "malformed_graph_signature"
+        : "no_transfer_required_entries";
     return coverage;
   }
   if (
@@ -646,6 +668,7 @@ stack_region_compare_pending_retire_source_identity(
     coverage.missing_count = coverage.transfer_required_count;
     coverage.missing_bytes = coverage.transfer_required_bytes;
     coverage.status = "pending_retire_transfer_source_identity_source_not_bound";
+    coverage.mismatch_axis = "source_not_bound";
     return coverage;
   }
   std::string normalized_source_signature = source_signature;
@@ -655,6 +678,8 @@ stack_region_compare_pending_retire_source_identity(
       '|',
       ',');
   std::map<std::string, std::pair<uint64_t, uint64_t>> source;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> source_range;
+  std::map<std::string, std::pair<uint64_t, uint64_t>> source_class;
   std::istringstream source_entries(normalized_source_signature);
   uint64_t malformed_source_entry_count = 0u;
   while (std::getline(source_entries, entry, ',')) {
@@ -672,8 +697,18 @@ stack_region_compare_pending_retire_source_identity(
         parts[0] + "#" + parts[1] + "#" + parts[2] + "#" + parts[3] +
         "#" + parts[4];
     auto& value = source[key];
-    value.first += stack_region_parse_u64_or(parts[5]);
-    value.second += stack_region_parse_u64_or(parts[6]);
+    const uint64_t count = stack_region_parse_u64_or(parts[5]);
+    const uint64_t bytes = stack_region_parse_u64_or(parts[6]);
+    value.first += count;
+    value.second += bytes;
+    auto& range_value =
+        source_range[parts[0] + "#" + parts[1] + "#" + parts[2] + "#" +
+                     parts[3]];
+    range_value.first += count;
+    range_value.second += bytes;
+    auto& class_value = source_class[parts[4]];
+    class_value.first += count;
+    class_value.second += bytes;
   }
   bool any_match = false;
   if (source.empty() && malformed_source_entry_count > 0u) {
@@ -681,16 +716,22 @@ stack_region_compare_pending_retire_source_identity(
     coverage.missing_bytes = coverage.transfer_required_bytes;
     coverage.status =
         "pending_retire_transfer_source_identity_malformed_source_signature";
+    coverage.mismatch_axis = "malformed_source_signature";
     return coverage;
   }
   for (const auto& item : graph_required) {
     const auto source_it = source.find(item.first);
-    if (source_it == source.end()) {
+    if (source_it != source.end()) {
+      any_match = true;
+      coverage.exact_intersection_count +=
+          std::min(item.second.first, source_it->second.first);
+      coverage.exact_intersection_bytes +=
+          std::min(item.second.second, source_it->second.second);
+    } else {
       coverage.missing_count += item.second.first;
       coverage.missing_bytes += item.second.second;
       continue;
     }
-    any_match = true;
     if (source_it->second.first < item.second.first) {
       coverage.missing_count += item.second.first - source_it->second.first;
     }
@@ -698,15 +739,47 @@ stack_region_compare_pending_retire_source_identity(
       coverage.missing_bytes += item.second.second - source_it->second.second;
     }
   }
+  for (const auto& item : graph_range_required) {
+    const auto source_it = source_range.find(item.first);
+    if (source_it == source_range.end()) {
+      continue;
+    }
+    coverage.allocation_range_overlap_count +=
+        std::min(item.second.first, source_it->second.first);
+    coverage.allocation_range_overlap_bytes +=
+        std::min(item.second.second, source_it->second.second);
+  }
+  for (const auto& item : graph_class_required) {
+    const auto source_it = source_class.find(item.first);
+    if (source_it == source_class.end()) {
+      continue;
+    }
+    coverage.class_only_overlap_count +=
+        std::min(item.second.first, source_it->second.first);
+    coverage.class_only_overlap_bytes +=
+        std::min(item.second.second, source_it->second.second);
+  }
   if (coverage.missing_count == 0u && coverage.missing_bytes == 0u) {
     coverage.status =
         source.size() == graph_required.size()
         ? "pending_retire_transfer_source_identity_exact"
         : "pending_retire_transfer_source_identity_required_entries_present_source_superset";
+    coverage.mismatch_axis =
+        "pending_retire_transfer_source_identity_no_mismatch";
   } else if (any_match) {
     coverage.status = "pending_retire_transfer_source_identity_partial";
+    coverage.mismatch_axis =
+        "partial_exact_identity_intersection";
+  } else if (coverage.allocation_range_overlap_count > 0u) {
+    coverage.status = "pending_retire_transfer_source_identity_missing";
+    coverage.mismatch_axis = "resource_class_mismatch_same_allocation_range";
+  } else if (coverage.class_only_overlap_count > 0u) {
+    coverage.status = "pending_retire_transfer_source_identity_missing";
+    coverage.mismatch_axis =
+        "source_identity_mismatch_same_class_different_allocation_set";
   } else {
     coverage.status = "pending_retire_transfer_source_identity_missing";
+    coverage.mismatch_axis = "source_identity_mismatch_no_useful_overlap";
   }
   return coverage;
 }
@@ -1778,11 +1851,24 @@ Context::snapshot_stack_region_pending_retire_transfer(
       identity_coverage.transfer_required_count;
   result.graph_transfer_required_identity_resource_bytes =
       identity_coverage.transfer_required_bytes;
+  result.source_identity_exact_intersection_count =
+      identity_coverage.exact_intersection_count;
+  result.source_identity_exact_intersection_bytes =
+      identity_coverage.exact_intersection_bytes;
+  result.source_identity_allocation_range_overlap_count =
+      identity_coverage.allocation_range_overlap_count;
+  result.source_identity_allocation_range_overlap_bytes =
+      identity_coverage.allocation_range_overlap_bytes;
+  result.source_identity_class_only_overlap_count =
+      identity_coverage.class_only_overlap_count;
+  result.source_identity_class_only_overlap_bytes =
+      identity_coverage.class_only_overlap_bytes;
   result.region_exit_bound_missing_transfer_required_identity_count =
       identity_coverage.missing_count;
   result.region_exit_bound_missing_transfer_required_identity_bytes =
       identity_coverage.missing_bytes;
   result.source_identity_match_status = identity_coverage.status;
+  result.source_identity_mismatch_axis = identity_coverage.mismatch_axis;
   result.region_exit_bound_missing_resource_count =
       request.graph_pending_resource_count >
           result.region_exit_bound_resource_count

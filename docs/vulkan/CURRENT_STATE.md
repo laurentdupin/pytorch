@@ -612,6 +612,15 @@ signature at report time. The current stack-exit batch source is still not
 identity-equivalent to the selected phase-submit pending graph set: the source
 id is instance-correct, but the allocation identities differ, so the owner stays
 blocked by source-incomplete accounting.
+The row also classifies that mismatch through `source_identity_mismatch_axis`
+and overlap counters for exact identity, same allocation/range, and same
+resource class. In the current selected stack-exit batch path, exact and
+allocation/range overlap are zero while resource-class overlap is nonzero, so
+the mismatch is reported as
+`source_identity_mismatch_same_class_different_allocation_set`. This
+distinguishes a real different-source-set blocker from malformed signatures or
+resource-class taxonomy drift; the current interpretation is that the stack-exit
+batch source is not the selected phase-submit pending graph set.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved

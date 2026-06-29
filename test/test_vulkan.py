@@ -21867,6 +21867,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_pending_retire_transfer_record,
             )
             self.assertIn(
+                "source_identity_mismatch_axis",
+                first_pending_retire_transfer_record,
+            )
+            self.assertIn(
                 "graph_transfer_required_allocation_signature",
                 first_pending_retire_transfer_record,
             )
@@ -21997,6 +22001,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_identity_malformed_graph_signature",
                     "pending_retire_transfer_source_identity_malformed_source_signature",
                 },
+            )
+            self.assertIn(
+                "source_identity_mismatch_axis",
+                first_pending_retire_transfer_owner_record,
             )
             self.assertEqual(
                 first_pending_retire_transfer_owner_record["owner_available"],
@@ -25923,6 +25931,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_identity_missing",
                 },
             )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_source_identity_mismatch_axis"
+                ],
+                "source_identity_mismatch_same_class_different_allocation_set",
+            )
             self.assertGreater(
                 int(
                     transfer_row[
@@ -26000,6 +26014,34 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "pending_retire_transfer_source_identity_missing",
                 },
+            )
+            self.assertEqual(
+                pending_retire_row["source_identity_mismatch_axis"],
+                "source_identity_mismatch_same_class_different_allocation_set",
+            )
+            self.assertEqual(
+                int(
+                    pending_retire_row[
+                        "source_identity_exact_intersection_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                int(
+                    pending_retire_row[
+                        "source_identity_allocation_range_overlap_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "source_identity_class_only_overlap_count"
+                    ]
+                ),
+                0,
             )
             self.assertGreater(
                 int(
@@ -26097,6 +26139,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 pending_retire_owner_row["source_identity_match_status"],
                 pending_retire_row["source_identity_match_status"],
+            )
+            self.assertEqual(
+                pending_retire_owner_row["source_identity_mismatch_axis"],
+                pending_retire_row["source_identity_mismatch_axis"],
             )
             self.assertEqual(
                 pending_retire_owner_row[
