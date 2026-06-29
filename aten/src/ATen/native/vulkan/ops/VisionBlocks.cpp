@@ -8878,10 +8878,22 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
   size_t segmented_stack_owned_command_buffer_segment_index = 0u;
   for (size_t block_idx = 0u; block_idx < context->blocks().size(); ++block_idx) {
     if (segmented_stack_owned_command_buffer_canary && !planned_recording_scope) {
+      const size_t segment_end =
+          segmented_stack_owned_command_buffer_plan.segment_ends.at(
+              segmented_stack_owned_command_buffer_segment_index);
       planned_recording_scope =
           std::make_unique<VulkanStackCommandRecordingScope>(
               *api::context(),
               /*allow_stack_owned_command_buffer_canary=*/true);
+      api::context()->set_external_recording_stack_segment_metadata(
+          segmented_stack_owned_command_buffer_plan.segment_ends.size(),
+          segmented_stack_owned_command_buffer_segment_index,
+          block_idx,
+          segment_end,
+          planned_segment_dispatch_count(
+              stack_shape_plan,
+              block_idx,
+              segment_end));
     }
     const auto& block_context = context->blocks()[block_idx];
     TORCH_CHECK(

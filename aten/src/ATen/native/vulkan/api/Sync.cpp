@@ -2464,6 +2464,12 @@ void record_stack_region_external_recording_cleanup_logical_boundary(
     const uint64_t pending_dispatch_count,
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
+    const bool segment_metadata_observed,
+    const uint64_t segment_count,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_planned_dispatch_count,
     const uint64_t resource_count,
     const uint64_t resource_bytes,
     const uint64_t allocation_identity_missing_count,
@@ -2477,6 +2483,13 @@ void record_stack_region_external_recording_cleanup_logical_boundary(
       << " recording_domain_mode=stack_region_owned_external_recording"
       << " command_buffer_owner_scope=stack_region_owned_command_buffer"
       << " region_owned_command_buffer_active=1"
+      << " segment_metadata_observed=" << (segment_metadata_observed ? 1 : 0)
+      << " segment_count=" << segment_count
+      << " segment_index=" << segment_index
+      << " segment_start_block=" << segment_start_block
+      << " segment_end_block=" << segment_end_block
+      << " segment_planned_dispatch_count="
+      << segment_planned_dispatch_count
       << " external_cleanup_resource_count=" << resource_count
       << " external_cleanup_resource_bytes=" << resource_bytes
       << " external_cleanup_allocation_identity_missing_count="
@@ -24525,6 +24538,12 @@ void note_stack_region_external_recording_cleanup_logical_boundary(
     const uint64_t pending_dispatch_count,
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
+    const bool segment_metadata_observed,
+    const uint64_t segment_count,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_planned_dispatch_count,
     const uint64_t resource_count,
     const uint64_t resource_bytes,
     const uint64_t allocation_identity_missing_count,
@@ -24538,6 +24557,12 @@ void note_stack_region_external_recording_cleanup_logical_boundary(
       pending_dispatch_count,
       phase,
       callsite,
+      segment_metadata_observed,
+      segment_count,
+      segment_index,
+      segment_start_block,
+      segment_end_block,
+      segment_planned_dispatch_count,
       resource_count,
       resource_bytes,
       allocation_identity_missing_count,

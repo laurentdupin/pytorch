@@ -592,6 +592,12 @@ class TORCH_API Context final {
       bool allow_stack_owned_command_buffer_canary = true);
   StackPlannedRecordingStats end_stack_planned_recording_and_submit();
   StackPlannedRecordingStats cancel_stack_planned_recording();
+  void set_external_recording_stack_segment_metadata(
+      uint64_t segment_count,
+      uint64_t segment_index,
+      uint64_t segment_start_block,
+      uint64_t segment_end_block,
+      uint64_t segment_planned_dispatch_count);
   CommandBuffer acquire_persistent_command_buffer();
   void submit_prepared_command_buffer(
       CommandBuffer&,

@@ -1201,6 +1201,12 @@ planned dispatch counts are reporting evidence only; rows explicitly mark that
 the count is not enforced and is not a segment-admission predicate. The row is
 behavior-neutral: it does not open scopes, change command-buffer topology,
 move pending retires, defer submits, or authorize submit elision.
+Stack-owned external cleanup logical-boundary rows now carry the same segment
+identity when the segmented canary opens a segment scope. The segment index,
+block range, and segment planned dispatch count make cleanup rows joinable to
+`StackRegionSegmentPlan.v0` without inferring from row order. These fields are
+metadata only; they do not transfer pending retires, enforce cleanup budgets, or
+authorize larger segment scopes.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

@@ -26879,6 +26879,29 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in segment_rows
                 )
             )
+            cleanup_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_logical_boundary_rows"
+                ]
+            ]
+            self.assertEqual(len(cleanup_rows), 2)
+            self.assertTrue(
+                all(row["segment_metadata_observed"] == "1" for row in cleanup_rows)
+            )
+            self.assertEqual(
+                {row["segment_index"] for row in cleanup_rows},
+                {"0", "1"},
+            )
+            self.assertTrue(
+                all(
+                    int(row["segment_planned_dispatch_count"]) > 0
+                    and int(row["external_cleanup_resource_count"]) > 0
+                    and int(row["external_cleanup_resource_bytes"]) > 0
+                    and row["external_cleanup_allocation_identity_missing_count"] == "0"
+                    for row in cleanup_rows
+                )
+            )
         finally:
             for key, value in previous.items():
                 if value is None:

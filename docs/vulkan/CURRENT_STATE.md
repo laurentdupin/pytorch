@@ -109,6 +109,11 @@ budget, and fail-closed reason such as
 `segment_scope_limit_exceeded`. They do not change command-buffer topology,
 open recording scopes by themselves, move cleanup resources, defer submits, or
 authorize submit elision.
+External recording cleanup logical-boundary rows are also stamped with segment
+identity when a segmented stack-owned scope is active, so cleanup resource
+counts and bytes can be joined to a segment without relying on row order. The
+stamp is metadata-only and does not make cleanup resource count a segment
+admission predicate.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

@@ -1267,6 +1267,12 @@ struct ExternalCommandRecordingState final {
   api::CommandBuffer* cmd{nullptr};
   std::vector<PendingRetireBuffer> buffers_to_keep_alive;
   std::vector<PendingRetireImage> images_to_keep_alive;
+  bool segment_metadata_observed{false};
+  uint64_t segment_count{0u};
+  uint64_t segment_index{0u};
+  uint64_t segment_start_block{0u};
+  uint64_t segment_end_block{0u};
+  uint64_t segment_planned_dispatch_count{0u};
 };
 
 thread_local ExternalCommandRecordingState g_external_command_recording_state{};
@@ -2351,6 +2357,12 @@ void Context::begin_external_command_recording(CommandBuffer& cmd) {
   g_external_command_recording_state.cmd = &cmd;
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
+  g_external_command_recording_state.segment_metadata_observed = false;
+  g_external_command_recording_state.segment_count = 0u;
+  g_external_command_recording_state.segment_index = 0u;
+  g_external_command_recording_state.segment_start_block = 0u;
+  g_external_command_recording_state.segment_end_block = 0u;
+  g_external_command_recording_state.segment_planned_dispatch_count = 0u;
 }
 
 void Context::end_external_command_recording() {
@@ -2358,6 +2370,7 @@ void Context::end_external_command_recording() {
       g_external_command_recording_state.cmd != nullptr,
       "Vulkan external command recording is not active");
   g_external_command_recording_state.cmd = nullptr;
+  g_external_command_recording_state.segment_metadata_observed = false;
 }
 
 void Context::capture_external_recording_buffer_cleanup(
@@ -2370,6 +2383,24 @@ void Context::capture_external_recording_image_cleanup(
     PendingRetireImage&& pending) {
   g_external_command_recording_state.images_to_keep_alive.emplace_back(
       std::move(pending));
+}
+
+void Context::set_external_recording_stack_segment_metadata(
+    const uint64_t segment_count,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_planned_dispatch_count) {
+  if (external_recording_cmd() == nullptr) {
+    return;
+  }
+  g_external_command_recording_state.segment_metadata_observed = true;
+  g_external_command_recording_state.segment_count = segment_count;
+  g_external_command_recording_state.segment_index = segment_index;
+  g_external_command_recording_state.segment_start_block = segment_start_block;
+  g_external_command_recording_state.segment_end_block = segment_end_block;
+  g_external_command_recording_state.segment_planned_dispatch_count =
+      segment_planned_dispatch_count;
 }
 
 uint32_t Context::gpu_profile_begin(
@@ -4190,6 +4221,12 @@ void Context::note_external_recording_cleanup_logical_boundary(
       pending_dispatch_count,
       phase,
       callsite,
+      g_external_command_recording_state.segment_metadata_observed,
+      g_external_command_recording_state.segment_count,
+      g_external_command_recording_state.segment_index,
+      g_external_command_recording_state.segment_start_block,
+      g_external_command_recording_state.segment_end_block,
+      g_external_command_recording_state.segment_planned_dispatch_count,
       resource_count,
       resource_bytes,
       allocation_identity_missing_count,
