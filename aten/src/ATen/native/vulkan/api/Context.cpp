@@ -601,6 +601,7 @@ template <typename PendingRetire>
 bool stack_region_pending_retire_handoff_candidate(
     const PendingRetire& pending,
     const VulkanRetireCallSite callsite,
+    const std::set<std::string>& target_keys,
     std::string* identity_key) {
   const bool qkv_would_batch =
       is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
@@ -616,11 +617,7 @@ bool stack_region_pending_retire_handoff_candidate(
   if (stack_region_pending_retire_bookkeeping_class(resource_class)) {
     return false;
   }
-  const std::string key =
-      stack_region_pending_retire_handoff_key(pending, resource_class);
-  if (key.empty()) {
-    return false;
-  }
+  const std::string allocation_label = pending_retire_allocation_label(pending);
   const bool formal_last_use_proof =
       stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
           pending.kind,
@@ -628,7 +625,7 @@ bool stack_region_pending_retire_handoff_candidate(
           resource_class,
           pending.stack_provenance,
           allocation_proof,
-          pending_retire_allocation_label(pending),
+          allocation_label,
           callsite);
   const bool safe =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class) ||
@@ -636,10 +633,45 @@ bool stack_region_pending_retire_handoff_candidate(
   const bool large_backing =
       stack_subresource_lifetime_dry_run_is_large_backing(
           pending.role, pending.bytes, pending.stack_provenance);
-  if (!safe || large_backing) {
+  if (large_backing) {
     return false;
   }
-  *identity_key = key;
+  const std::string key =
+      stack_region_pending_retire_handoff_key(pending, resource_class);
+  if (!key.empty() && safe && target_keys.find(key) != target_keys.end()) {
+    *identity_key = key;
+    return true;
+  }
+  constexpr const char* kCaptureSensitiveStackActivation =
+      "capture_sensitive_stack_activation";
+  const VulkanStackRetireProvenance& provenance = pending.stack_provenance;
+  const bool capture_sensitive_candidate =
+      pending.role == VulkanRetiredResourceRole::StackResidual2Output &&
+      provenance.defined && provenance.has_last_use_proof &&
+      provenance.lifetime ==
+          VulkanStackTensorLifetimeClass::BlockOutputForNextBlock &&
+      provenance.phase == VulkanVisionStackPhase::Residual2 &&
+      provenance.producer_role == pending.role && provenance.block_index >= 0 &&
+      provenance.expected_consumer_phase == VulkanVisionStackPhase::Norm1 &&
+      provenance.expected_consumer_block_index == provenance.block_index + 1 &&
+      provenance.final_consumer_before_stack_submit &&
+      !provenance.escapes_stack && !provenance.requested_intermediate &&
+      !provenance.final_output && !provenance.alias_or_view &&
+      !provenance.aliases_runtime_input &&
+      !provenance.aliases_runtime_output && provenance.direct_buffer &&
+      provenance.buffer_storage && !provenance.image_storage;
+  if (!capture_sensitive_candidate) {
+    return false;
+  }
+  const std::string capture_sensitive_key =
+      stack_region_pending_retire_handoff_key(
+          pending, kCaptureSensitiveStackActivation);
+  if (
+      capture_sensitive_key.empty() ||
+      target_keys.find(capture_sensitive_key) == target_keys.end()) {
+    return false;
+  }
+  *identity_key = capture_sensitive_key;
   return true;
 }
 
@@ -3940,10 +3972,7 @@ bool Context::transfer_pending_retires_to_stack_region_handoff_locked(
   const auto collect_key = [&](const auto& pending) {
     std::string key;
     if (!stack_region_pending_retire_handoff_candidate(
-            pending, callsite, &key)) {
-      return;
-    }
-    if (target_keys.find(key) == target_keys.end()) {
+            pending, callsite, target_keys, &key)) {
       return;
     }
     if (!candidate_keys.insert(std::move(key)).second) {
@@ -3978,7 +4007,7 @@ bool Context::transfer_pending_retires_to_stack_region_handoff_locked(
       std::string key;
       if (
           stack_region_pending_retire_handoff_candidate(
-              pending, callsite, &key) &&
+              pending, callsite, target_keys, &key) &&
           candidate_keys.find(key) != candidate_keys.end()) {
         if (pending.buffer.owns_memory()) {
           mark_vulkan_memory_residency_state(
@@ -4002,7 +4031,7 @@ bool Context::transfer_pending_retires_to_stack_region_handoff_locked(
       std::string key;
       if (
           stack_region_pending_retire_handoff_candidate(
-              pending, callsite, &key) &&
+              pending, callsite, target_keys, &key) &&
           candidate_keys.find(key) != candidate_keys.end()) {
         if (pending.image.owns_memory()) {
           mark_vulkan_memory_residency_state(

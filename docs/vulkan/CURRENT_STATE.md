@@ -658,18 +658,20 @@ matches from the live phase-boundary target signature into that batch. The
 phase-boundary submit is preserved, submit elision remains disabled, and stack
 exit retires the handoff batch only under the observed stack-exit submission
 timeline; cancel restores entries to normal pending-retire storage. The first
-synthetic bridge run transfers exact eligible entries but still reports partial
-identity coverage because one capture-sensitive activation remains unowned by
-the canary. Full pending-retire transfer ownership therefore remains fail-closed
-on the missing identity and does not authorize submit elision.
-The missing identity is surfaced as a typed blocker:
-`source_identity_missing_capture_sensitive_stack_activation_count/bytes` and
-`missing_capture_sensitive_stack_activation` distinguish it from a generic
-partial identity intersection. This remains a blocker, not an exclusion; a
-future change must either prove a separate capture/output owner for that
-activation or introduce a stricter capture-sensitive activation handoff
-contract.
-when the source identity is incomplete, including bookkeeping-excluded
+canary classified the remaining exact-identity gap as
+`source_identity_missing_capture_sensitive_stack_activation_count/bytes` with
+`source_identity_mismatch_axis=missing_capture_sensitive_stack_activation`.
+The follow-up canary moves that activation under the same opt-in, but only when
+exact
+allocation id/generation/byte-range/resource-class identity matches and the
+pending retire carries residual2 -> next-block norm1 provenance with no
+public/final/requested/alias/runtime-input/output escape. The row then reports
+`pending_retire_transfer_source_identity_required_entries_present_source_superset`,
+zero missing capture-sensitive identities, and
+`pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision`.
+Submit elision remains disabled; region-exit ownership now fails closed on the
+next owner layer, currently `retire_timeline_owner_behavior_disabled`.
+When the source identity is incomplete, including bookkeeping-excluded
 count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;
 and when the transfer plan is blocked, it propagates the plan blocker instead

@@ -25926,17 +25926,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
-                "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed",
+                "pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision",
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_top_blocker"],
-                "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled",
+                "none",
             )
             self.assertEqual(
                 transfer_row[
                     "pending_retire_transfer_owner_preserved_phase_submit_handoff_status"
                 ],
-                "pending_retire_transfer_preserved_phase_submit_handoff_available_behavior_disabled",
+                "pending_retire_transfer_preserved_phase_submit_handoff_transferred",
             )
             self.assertEqual(
                 transfer_row[
@@ -25954,35 +25954,35 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 transfer_row[
                     "pending_retire_transfer_owner_preserved_phase_submit_handoff_behavior_enabled"
                 ],
-                "0",
+                "1",
             )
             self.assertEqual(
                 transfer_row[
                     "pending_retire_transfer_owner_preserved_phase_submit_handoff_transfers_pending_retires"
                 ],
-                "0",
+                "1",
             )
             self.assertEqual(
                 transfer_row[
                     "pending_retire_transfer_owner_preserved_phase_submit_handoff_result_status"
                 ],
-                "pending_retire_transfer_preserved_phase_submit_handoff_api_present_behavior_disabled_fail_closed",
+                "pending_retire_transfer_preserved_phase_submit_handoff_transferred_no_submit_elision",
             )
             self.assertIn(
                 transfer_row[
                     "pending_retire_transfer_source_identity_match_status"
                 ],
                 {
-                    "pending_retire_transfer_source_identity_partial",
+                    "pending_retire_transfer_source_identity_required_entries_present_source_superset",
                 },
             )
             self.assertEqual(
                 transfer_row[
                     "pending_retire_transfer_source_identity_mismatch_axis"
                 ],
-                "missing_capture_sensitive_stack_activation",
+                "pending_retire_transfer_source_identity_no_mismatch",
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     transfer_row[
                         "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_count"
@@ -25994,11 +25994,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 transfer_row[
                     "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_count"
                 ],
-                transfer_row[
-                    "pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_count"
-                ],
+                "0",
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     transfer_row[
                         "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_bytes"
@@ -26010,9 +26008,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 transfer_row[
                     "pending_retire_transfer_source_identity_missing_capture_sensitive_stack_activation_bytes"
                 ],
-                transfer_row[
-                    "pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_bytes"
-                ],
+                "0",
             )
             self.assertIn(
                 transfer_row[
@@ -26035,7 +26031,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "0",
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     transfer_row[
                         "pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_count"
@@ -26114,14 +26110,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn(
                 pending_retire_row["source_identity_match_status"],
                 {
-                    "pending_retire_transfer_source_identity_partial",
+                    "pending_retire_transfer_source_identity_required_entries_present_source_superset",
                 },
             )
             self.assertEqual(
                 pending_retire_row["source_identity_mismatch_axis"],
-                "missing_capture_sensitive_stack_activation",
+                "pending_retire_transfer_source_identity_no_mismatch",
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     pending_retire_row[
                         "source_identity_missing_capture_sensitive_stack_activation_count"
@@ -26133,11 +26129,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 pending_retire_row[
                     "source_identity_missing_capture_sensitive_stack_activation_count"
                 ],
-                pending_retire_row[
-                    "region_exit_bound_missing_transfer_required_identity_count"
-                ],
+                "0",
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     pending_retire_row[
                         "source_identity_missing_capture_sensitive_stack_activation_bytes"
@@ -26149,9 +26143,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 pending_retire_row[
                     "source_identity_missing_capture_sensitive_stack_activation_bytes"
                 ],
-                pending_retire_row[
-                    "region_exit_bound_missing_transfer_required_identity_bytes"
-                ],
+                "0",
             )
             self.assertIn(
                 pending_retire_row[
@@ -26179,7 +26171,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 "0",
             )
-            self.assertEqual(
+            self.assertGreaterEqual(
                 int(
                     pending_retire_row[
                         "source_identity_exact_intersection_count"
@@ -26188,11 +26180,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 int(
                     pending_retire_row[
                         "graph_transfer_required_identity_resource_count"
-                    ]
-                )
-                - int(
-                    pending_retire_row[
-                        "region_exit_bound_missing_transfer_required_identity_count"
                     ]
                 ),
             )
@@ -26212,7 +26199,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ),
                 0,
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     pending_retire_row[
                         "region_exit_bound_missing_transfer_required_identity_count"
@@ -26220,7 +26207,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ),
                 0,
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     pending_retire_row[
                         "region_exit_bound_missing_transfer_required_identity_bytes"
@@ -26260,23 +26247,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "stack_region_pending_retire_transfer_owner_records"
                 ]
                 if row["fields"].get("owner_status")
-                == "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed"
+                == "pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision"
             ]
             self.assertTrue(pending_retire_owner_rows)
             pending_retire_owner_row = pending_retire_owner_rows[0]
             self.assertEqual(
                 pending_retire_owner_row["top_blocker"],
-                "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled",
+                "none",
             )
             self.assertEqual(
                 pending_retire_owner_row["implementation_status"],
-                "pending_retire_transfer_owner_preserved_phase_submit_handoff_behavior_disabled",
+                "pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred",
             )
             self.assertEqual(
                 pending_retire_owner_row[
                     "preserved_phase_submit_handoff_status"
                 ],
-                "pending_retire_transfer_preserved_phase_submit_handoff_available_behavior_disabled",
+                "pending_retire_transfer_preserved_phase_submit_handoff_transferred",
             )
             self.assertEqual(
                 pending_retire_owner_row[
@@ -26294,19 +26281,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 pending_retire_owner_row[
                     "preserved_phase_submit_handoff_behavior_enabled"
                 ],
-                "0",
+                "1",
             )
             self.assertEqual(
                 pending_retire_owner_row[
                     "preserved_phase_submit_handoff_transfers_pending_retires"
                 ],
-                "0",
+                "1",
             )
             self.assertEqual(
                 pending_retire_owner_row[
                     "preserved_phase_submit_handoff_result_status"
                 ],
-                "pending_retire_transfer_preserved_phase_submit_handoff_api_present_behavior_disabled_fail_closed",
+                "pending_retire_transfer_preserved_phase_submit_handoff_transferred_no_submit_elision",
             )
             self.assertEqual(
                 pending_retire_owner_row["bookkeeping_exclusion_status"],
@@ -26389,7 +26376,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "graph_transfer_required_identity_resource_count"
                 ],
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     pending_retire_owner_row[
                         "region_exit_bound_missing_transfer_required_identity_count"
@@ -26397,7 +26384,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ),
                 0,
             )
-            self.assertGreater(
+            self.assertEqual(
                 int(
                     pending_retire_owner_row[
                         "region_exit_bound_missing_transfer_required_identity_bytes"
@@ -26413,9 +26400,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "region_exit_bound_missing_transfer_required_identity_count"
                 ],
             )
-            self.assertEqual(pending_retire_owner_row["behavior_enabled"], "0")
+            self.assertEqual(pending_retire_owner_row["behavior_enabled"], "1")
             self.assertEqual(
-                pending_retire_owner_row["transfers_pending_retires"], "0"
+                pending_retire_owner_row["transfers_pending_retires"], "1"
             )
             self.assertEqual(
                 pending_retire_owner_row["authorizes_submit_elision"], "0"

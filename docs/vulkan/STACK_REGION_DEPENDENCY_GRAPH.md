@@ -925,18 +925,19 @@ canary moves only exact allocation id/generation/byte-range/resource-class
 matches from the live phase-boundary target signature into that batch. It
 preserves the phase-boundary submit, keeps submit elision disabled, restores the
 batch on stack cancel, and retires the batch at stack exit under the observed
-stack-exit submission timeline. The current synthetic bridge run demonstrates
-partial handoff: exact eligible entries move, but one capture-sensitive
-activation remains outside the canary, so full pending-retire transfer
-ownership stays fail-closed and submit elision remains unauthorized.
-That missing identity is now reported as
+stack-exit submission timeline. The first synthetic bridge run reported the
+remaining exact-identity gap as
 `source_identity_missing_capture_sensitive_stack_activation_count/bytes` with
 `source_identity_mismatch_axis=missing_capture_sensitive_stack_activation`.
-The field is diagnostic and fail-closed: it does not exclude the activation
-from transfer-required accounting or make it handoff-eligible. The next
-behavior-changing step must choose an explicit capture/output owner or a
-stricter capture-sensitive activation handoff contract.
-an incomplete or bookkeeping-excluded source fails closed on
+The follow-up canary moves that activation only when exact allocation
+id/generation/byte-range/resource-class identity matches and the pending retire
+carries residual2 -> next-block norm1 provenance with no
+public/final/requested/alias/runtime-input/output escape. The current row
+reports zero missing capture-sensitive identities and
+`pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision`.
+Submit elision remains disabled; the next fail-closed owner is the retire
+timeline owner.
+An incomplete or bookkeeping-excluded source fails closed on
 `pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.
 Exit-release ownership, region command-buffer ownership, and deferred-submit
