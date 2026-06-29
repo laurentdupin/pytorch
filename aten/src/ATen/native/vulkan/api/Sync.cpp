@@ -27810,10 +27810,25 @@ void note_vulkan_retire_drain(
   }
 }
 
+bool stack_region_batch_qkv_retires_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value == "1" || value == "qkv";
+}
+
 bool is_safe_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance) {
-  return std::string(stack_temp_retire_batch_reject_reason(provenance)) ==
-      "accepted";
+  if (
+      std::string(stack_temp_retire_batch_reject_reason(provenance)) ==
+      "accepted") {
+    return true;
+  }
+  return stack_region_batch_qkv_retires_enabled() &&
+      is_qkv_stack_temp_retire_batch_candidate(provenance);
 }
 
 bool is_qkv_stack_temp_retire_batch_candidate(
@@ -27835,7 +27850,9 @@ void note_stack_internal_temp_retire_batch_decision(
   counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
 
   const char* reason = stack_temp_retire_batch_reject_reason(provenance);
-  bool candidate = std::string(reason) == "accepted";
+  const bool qkv_candidate = stack_region_batch_qkv_retires_enabled() &&
+      is_qkv_stack_temp_retire_batch_candidate(provenance);
+  bool candidate = std::string(reason) == "accepted" || qkv_candidate;
   if (candidate) {
     counters.batch_candidate_count.fetch_add(1u, std::memory_order_relaxed);
     counters.batch_candidate_bytes.fetch_add(bytes, std::memory_order_relaxed);

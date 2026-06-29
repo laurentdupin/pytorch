@@ -851,6 +851,13 @@ disabled. Partial, superset, mixed, or missing stack-exit sources continue to
 fail closed; the current selected synthetic boundary reports a partial
 stack-exit source and therefore remains blocked by
 `pending_retire_transfer_source_incomplete`.
+`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` separately enables the
+already-classified QKV stack-temp retire-batch candidate class. With QKV
+batching plus stack-exit source binding, the current selected synthetic
+boundary covers the graph-pending bytes at stack exit, but still has partial
+resource-count coverage because metadata/uniform bookkeeping entries are not
+stack-internal retire-batch targets. The owner therefore remains fail-closed
+and behavior-disabled.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

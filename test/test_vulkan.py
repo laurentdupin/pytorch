@@ -25570,6 +25570,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_pending_retire_transfer_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
         )
+        previous_batch_qkv_retires = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
+        )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
@@ -25587,6 +25590,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
             "stack_internal_until_stack_exit"
         )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "1"
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
             torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
@@ -25878,8 +25882,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "pending_retire_transfer_source_coverage_partial",
             )
             self.assertGreater(
+                int(pending_retire_row["region_exit_bound_resource_count"]),
+                0,
+            )
+            self.assertGreater(
                 int(pending_retire_row["region_exit_bound_missing_resource_count"]),
                 0,
+            )
+            self.assertEqual(
+                int(pending_retire_row["region_exit_bound_missing_resource_bytes"]),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(pending_retire_row["region_exit_bound_resource_bytes"]),
+                int(pending_retire_row["graph_pending_resource_bytes"]),
             )
             pending_retire_owner_rows = [
                 row["fields"]
@@ -25971,6 +25987,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
                 ] = previous_pending_retire_transfer_owner
+            if previous_batch_qkv_retires is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
+                ] = previous_batch_qkv_retires
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 

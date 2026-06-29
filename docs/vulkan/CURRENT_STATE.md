@@ -572,6 +572,13 @@ submits and does not move resources. On the current selected synthetic
 `residual2@0 -> norm1@1` boundary, that mode reports only a partial
 stack-exit source, so the owner still fail-closes on
 `pending_retire_transfer_source_incomplete`.
+`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` expands the existing
+stack-internal batch predicate to the separately proven QKV stack-temp class.
+With both opt-ins enabled, the selected synthetic boundary's stack-exit source
+now covers the graph-pending bytes, but resource-count coverage remains partial
+because metadata/uniform bookkeeping entries are still deliberately excluded
+from stack-exit retire ownership. The owner remains fail-closed with
+`transfers_pending_retires=0` and `authorizes_submit_elision=0`.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
