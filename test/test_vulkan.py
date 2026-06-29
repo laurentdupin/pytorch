@@ -27267,6 +27267,52 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_owned_command_buffer_prefix_canary_repeats(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=4,
+            label_prefix="vision.synthetic.stack.owned_command_buffer_segment_prefix_repeat",
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1, 3],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        settings = {
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "segmented_stack_prefix_to_exit"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            for _ in range(6):
+                with torch.inference_mode():
+                    actual = (
+                        torch.ops.vulkan_prepack
+                        .run_vision_backbone_stack_private_capture_debug(
+                            x,
+                            stack_context,
+                            [1, 3],
+                            True,
+                        )
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                self.assertEqual(actual[0].cpu(), expected[0].cpu())
+                self.assertEqual(actual[1].cpu(), expected[1].cpu())
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
         self,
     ):
