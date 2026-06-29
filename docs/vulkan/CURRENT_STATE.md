@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-29 after opt-in preserved phase-submit pending-retire
-handoff canary work on top of 051283b.
+Last refreshed: 2026-06-29 after owner-complete single-recording submit-elision
+canary rejection.
 
 ## Repo State Summary
 
@@ -49,6 +49,18 @@ an explicit no-visibility-dependency proof. Current `StackRegionBarrierPlan.v0`
 records are still dry-run: they can expose planned stage/access and insertion
 point metadata, but they report missing live Vulkan-buffer binding rather than
 executable barrier readiness.
+
+The owner-complete single-recording canary was also rejected for the current
+execution topology. With stack-exit close-submit ownership, command-pool reset
+deferral, pending-retire handoff, retire-timeline transfer, and the explicit
+submit-elision env all enabled, the selected `residual2@0 -> norm1@1` phase
+submit could be skipped exactly once, but stress checks produced intermittent
+private-capture output corruption. The runtime now keeps that path fail-closed
+with `single_recording_current_topology_value_preservation_rejected`:
+ownership can be complete and explicitly authorized, but current-topology
+phase-submit deletion is not value-preserving. The next performance
+implementation should move to planned single-region recording instead of adding
+more local submit-elision proof fields.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

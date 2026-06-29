@@ -25718,7 +25718,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row["fields"]
                 for row in canary_rows
                 if row["fields"].get("guard_fail_reason")
-                == "region_exit_ownership_transfer_incomplete"
+                == "region_exit_close_submit_owner_authorizes_submit_elision_disabled"
             ]
             self.assertTrue(rejected_rows)
             row = rejected_rows[0]
@@ -25732,7 +25732,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 row["guard_fail_reason"],
-                "region_exit_ownership_transfer_incomplete",
+                "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
             )
             self.assertEqual(
                 row["single_recording_owner_status"],
@@ -25784,43 +25784,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn(
                 row["region_exit_ownership_transfer_status"],
                 {
-                    "region_exit_ownership_transfer_blocked_by_close_submit_owner",
-                    "region_exit_ownership_transfer_blocked_by_command_pool_reset_deferral_owner",
-                    "region_exit_ownership_transfer_blocked_by_pending_retire_transfer_owner",
-                    "region_exit_ownership_transfer_blocked_by_retire_timeline_owner",
+                    "region_exit_ownership_transfer_complete_fail_closed",
                 },
             )
             self.assertIn(
                 row["region_exit_ownership_transfer_top_blocker"],
                 {
-                    "region_exit_ownership_transfer_behavior_disabled",
                     "region_exit_ownership_transfer_authorization_disabled",
-                    "region_exit_close_submit_owner_authorizes_submit_elision_disabled",
-                    "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
-                    "command_pool_reset_deferral_owner_behavior_disabled",
-                    "pending_retire_transfer_owner_behavior_disabled",
-                    "retire_timeline_owner_behavior_disabled",
-                    "command_pool_reset_deferral_owner_not_region_owned",
-                    "pending_retire_transfer_owner_not_region_owned",
-                    "retire_timeline_owner_not_region_owned",
                 },
             )
             self.assertIn(
                 row["region_exit_ownership_transfer_accounting_joined"],
                 {"0", "1"},
             )
-            self.assertEqual(row["region_exit_ownership_transfer_complete"], "0")
+            self.assertEqual(row["region_exit_ownership_transfer_complete"], "1")
             self.assertEqual(
                 row["region_exit_ownership_transfer_authorizes_submit_elision"],
                 "0",
             )
             self.assertEqual(
-                row["region_exit_close_submit_owner_ownership_complete"], "0"
+                row["region_exit_close_submit_owner_ownership_complete"], "1"
             )
-            self.assertEqual(row["reset_deferral_owner_ownership_complete"], "0")
-            self.assertEqual(row["retire_timeline_owner_ownership_complete"], "0")
+            self.assertEqual(row["reset_deferral_owner_ownership_complete"], "1")
+            self.assertEqual(row["retire_timeline_owner_ownership_complete"], "1")
             self.assertEqual(
-                row["pending_retire_transfer_owner_ownership_complete"], "0"
+                row["pending_retire_transfer_owner_ownership_complete"], "1"
             )
             self.assertEqual(row["single_recording_canary_enabled"], "0")
             self.assertEqual(row["final_use_false"], "0")
@@ -26432,6 +26420,222 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "region_exit_close_submit_owner_handoff_blocked_preserved_phase_submit_batch_context_owned",
             )
             self.assertEqual(transfer_row["submit_elision_enabled"], "0")
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if previous_canary is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+                    previous_canary
+                )
+            if previous_submit_canary is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
+                )
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
+                    previous_submit_canary
+                )
+            if previous_single_recording_canary is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
+                ] = previous_single_recording_canary
+            if previous_reset_deferral_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
+                ] = previous_reset_deferral_owner
+            if previous_close_submit_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
+                ] = previous_close_submit_owner
+            if previous_retire_timeline_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER",
+                    None,
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"
+                ] = previous_retire_timeline_owner
+            if previous_pending_retire_transfer_owner is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
+                    None,
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
+                ] = previous_pending_retire_transfer_owner
+            if previous_batch_qkv_retires is None:
+                os.environ.pop(
+                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None
+                )
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
+                ] = previous_batch_qkv_retires
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
+    def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.submit_elision_rejected",
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        graph_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_stack_region_submit_elision_rejected_test.json",
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        previous_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
+        )
+        previous_submit_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
+        )
+        previous_single_recording_canary = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
+        )
+        previous_reset_deferral_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
+        )
+        previous_close_submit_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
+        )
+        previous_retire_timeline_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"
+        )
+        previous_pending_retire_transfer_owner = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
+        )
+        previous_batch_qkv_retires = os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
+            "non_capture_residual2_norm1_block1"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
+            "non_capture_residual2_norm1_block1"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"] = (
+            "non_capture_residual2_norm1_block1"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"] = (
+            "context_retained_release_point"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"] = (
+            "stack_exit_close_submit"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"] = (
+            "stack_exit_close_submit"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
+            "preserved_phase_submit_handoff"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "1"
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                warmup = (
+                    torch.ops.vulkan_prepack
+                    .run_vision_backbone_stack_private_capture_debug(
+                        x,
+                        stack_context,
+                        [1],
+                        True,
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
+                actual = (
+                    torch.ops.vulkan_prepack
+                    .run_vision_backbone_stack_private_capture_debug(
+                        x,
+                        stack_context,
+                        [1],
+                        True,
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertEqual(warmup[0].cpu(), expected[0].cpu())
+            self.assertEqual(actual[0].cpu(), expected[0].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            self.assertFalse(graph["summary"]["single_recording_canary_enabled"])
+            self.assertEqual(
+                graph["summary"]["single_recording_canary_submits_removed"],
+                0,
+            )
+            self.assertEqual(
+                graph["summary"][
+                    "single_recording_canary_submits_removed_outside_selected_boundary"
+                ],
+                0,
+            )
+            canary_rows = graph["stack_region_single_recording_canary_rows"]
+            rejected_rows = [
+                row["fields"]
+                for row in canary_rows
+                if row["fields"].get("guard_fail_reason")
+                == "single_recording_current_topology_value_preservation_rejected"
+            ]
+            self.assertTrue(rejected_rows)
+            row = rejected_rows[0]
+            self.assertEqual(row["authorizes_submit_elision"], "1")
+            self.assertEqual(
+                row["region_exit_ownership_transfer_authorizes_submit_elision"],
+                "1",
+            )
+            self.assertEqual(
+                row["region_exit_ownership_transfer_status"],
+                "region_exit_ownership_transfer_complete_authorized_canary",
+            )
+            self.assertEqual(row["region_exit_ownership_transfer_top_blocker"], "none")
+            self.assertEqual(row["region_exit_ownership_transfer_complete"], "1")
+            self.assertEqual(
+                row["region_exit_close_submit_owner_ownership_complete"], "1"
+            )
+            self.assertEqual(row["reset_deferral_owner_ownership_complete"], "1")
+            self.assertEqual(row["retire_timeline_owner_ownership_complete"], "1")
+            self.assertEqual(
+                row["pending_retire_transfer_owner_ownership_complete"], "1"
+            )
+            self.assertEqual(row["submit_elision_enabled"], "0")
+            self.assertEqual(row["deferred_submit_enabled"], "0")
+            self.assertEqual(row["selected_submits_removed"], "0")
+            self.assertEqual(row["submits_removed_outside_selected_boundary"], "0")
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)

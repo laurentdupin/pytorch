@@ -1104,20 +1104,24 @@ stack-exit release point surfaces into one behavior-neutral transfer row for
 the selected stack-region instance and phase boundary. The row can report
 joined accounting when all required component surfaces are present, and it now
 computes ownership completion separately from accounting. Current rows still
-report `ownership_transfer_complete=0`, `submit_elision_enabled=0`,
-`deferred_submit_enabled=0`, `authorizes_submit_elision=0`, and
-`phase_boundary_submits_preserved=1`. Preserved phase-submit batches are not
-completed region close/submit ownership, while the stack-exit runtime-point
-owner can complete only that close-submit component. Missing or incomplete
-components remain explicit blockers. This gives a future region-exit owner a
-single handoff surface without treating component proof completion as
-permission to remove or defer a submit.
+report `submit_elision_enabled=0`, `deferred_submit_enabled=0`, and
+`phase_boundary_submits_preserved=1` by default. With all explicit owner
+canaries enabled, the aggregate transfer can reach
+`ownership_transfer_complete=1` while still failing closed on authorization.
+That completed transfer is a prerequisite for experiments, not permission to
+remove or defer a submit.
 The existing `StackRegionSingleRecordingCanary.v0` guard consumes the same
 component lifecycle state and records the aggregate transfer status on canary
-rows. The guard remains fail-closed: after the earlier proof and barrier gates,
-it stops at `region_exit_ownership_transfer_incomplete` unless a future
-implementation marks the aggregate transfer complete and authorizes submit
-elision.
+rows. The guard remains fail-closed by default at
+`region_exit_close_submit_owner_authorizes_submit_elision_disabled`. Enabling
+the explicit submit-elision canary can make the row report
+`region_exit_ownership_transfer_complete_authorized_canary`, but the current
+topology is still blocked by
+`single_recording_current_topology_value_preservation_rejected`: skipping the
+selected phase-boundary submit after the fact was observed to corrupt
+private-capture outputs intermittently. Future performance work should build a
+planned single-region recording path rather than adding more local proof fields
+to this submit-deletion path.
 The opt-in
 `PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER=context_retained_release_point`
 canary advances only this owner surface when the proof is complete:

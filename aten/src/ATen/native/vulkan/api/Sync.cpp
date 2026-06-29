@@ -51,6 +51,12 @@ const char* stack_region_submit_elision_canary_target();
 bool stack_region_submit_elision_canary_target_selected(const char* target);
 const char* stack_region_single_recording_canary_target();
 bool stack_region_single_recording_canary_target_selected(const char* target);
+const char* stack_region_reset_deferral_owner_target();
+bool stack_region_reset_deferral_owner_behavior_enabled();
+const char* stack_region_close_submit_owner_target();
+bool stack_region_close_submit_owner_behavior_enabled();
+const char* stack_region_retire_timeline_owner_target();
+bool stack_region_retire_timeline_owner_behavior_enabled();
 std::string non_capture_residual2_to_norm1_boundary_id(
     int64_t producer_block,
     int64_t consumer_block);
@@ -1928,6 +1934,11 @@ stack_region_single_recording_ownership_transfer_canary_state(
     const uint32_t pending_retire_transfer_owner_state,
     const bool region_close_submit_owner_behavior_enabled) {
   StackRegionExitOwnershipTransferCanaryState state;
+  const bool stack_exit_close_submit_owner_requested =
+      stack_region_close_submit_owner_behavior_enabled &&
+      stack_region_close_submit_owner_target() != nullptr &&
+      std::string(stack_region_close_submit_owner_target()) ==
+          "stack_exit_close_submit";
   const bool close_submit_accounting_joined =
       preserved_phase_submit_batch_scope_observed &&
       region_close_submit_owner_behavior_enabled &&
@@ -1947,10 +1958,18 @@ stack_region_single_recording_ownership_transfer_canary_state(
       stack_region_single_recording_close_submit_owner_available(
           region_close_submit_owner_id,
           region_close_submit_owner_state,
-          region_close_submit_owner_behavior_enabled);
-  state.reset_deferral_ownership_complete = false;
-  state.retire_timeline_ownership_complete = false;
-  state.pending_retire_transfer_ownership_complete = false;
+          region_close_submit_owner_behavior_enabled) ||
+      (stack_exit_close_submit_owner_requested &&
+       region_close_submit_owner_id != 0u && region_close_submit_owner_state == 1u);
+  state.reset_deferral_ownership_complete =
+      stack_region_reset_deferral_owner_behavior_enabled() &&
+      reset_deferral_owner_id != 0u && reset_deferral_owner_state == 1u;
+  state.retire_timeline_ownership_complete =
+      stack_region_retire_timeline_owner_behavior_enabled() &&
+      retire_timeline_owner_id != 0u && retire_timeline_owner_state == 1u;
+  state.pending_retire_transfer_ownership_complete =
+      pending_retire_transfer_owner_id != 0u &&
+      pending_retire_transfer_owner_state == 4u;
   state.ownership_transfer_complete =
       state.close_submit_ownership_complete &&
       state.reset_deferral_ownership_complete &&
@@ -2085,6 +2104,17 @@ std::string stack_region_single_recording_canary_key(
           pending_retire_transfer_owner_id,
           pending_retire_transfer_owner_state,
           region_close_submit_owner_behavior_enabled);
+  const bool region_exit_ownership_transfer_authorizes_submit_elision =
+      ownership_transfer_state.ownership_transfer_complete &&
+      region_close_submit_owner_authorizes_submit_elision;
+  const char* const ownership_transfer_status =
+      region_exit_ownership_transfer_authorizes_submit_elision
+      ? "region_exit_ownership_transfer_complete_authorized_canary"
+      : ownership_transfer_state.status;
+  const char* const ownership_transfer_top_blocker =
+      region_exit_ownership_transfer_authorizes_submit_elision
+      ? "none"
+      : ownership_transfer_state.top_blocker;
   const uint64_t pending_dispatch_last_position =
       g_stack_dispatch_dependency_position;
   const bool live_pending_dispatch_range_available =
@@ -2208,14 +2238,15 @@ std::string stack_region_single_recording_canary_key(
              region_close_submit_owner_state)
       << " region_exit_close_submit_owner_availability_source=ContextStackRegionCloseSubmitOwnerState.v0"
       << " region_exit_ownership_transfer_status="
-      << ownership_transfer_state.status
+      << ownership_transfer_status
       << " region_exit_ownership_transfer_top_blocker="
-      << ownership_transfer_state.top_blocker
+      << ownership_transfer_top_blocker
       << " region_exit_ownership_transfer_accounting_joined="
       << (ownership_transfer_state.accounting_joined ? 1 : 0)
       << " region_exit_ownership_transfer_complete="
       << (ownership_transfer_state.ownership_transfer_complete ? 1 : 0)
-      << " region_exit_ownership_transfer_authorizes_submit_elision=0"
+      << " region_exit_ownership_transfer_authorizes_submit_elision="
+      << (region_exit_ownership_transfer_authorizes_submit_elision ? 1 : 0)
       << " region_exit_close_submit_owner_ownership_complete="
       << (ownership_transfer_state.close_submit_ownership_complete ? 1 : 0)
       << " reset_deferral_owner_ownership_complete="
@@ -2309,10 +2340,11 @@ std::string stack_region_single_recording_canary_key(
           ? 1
           : 0)
       << " single_recording_canary_enabled=" << (submit_removed ? 1 : 0)
-      << " submit_elision_enabled=0"
-      << " deferred_submit_enabled=0"
+      << " submit_elision_enabled=" << (submit_removed ? 1 : 0)
+      << " deferred_submit_enabled=" << (submit_removed ? 1 : 0)
       << " new_queue_submit_created=0"
-      << " authorizes_submit_elision=0"
+      << " authorizes_submit_elision="
+      << (region_close_submit_owner_authorizes_submit_elision ? 1 : 0)
       << " selected_phase_submit_deferred_to_stack_exit="
       << (submit_removed ? 1 : 0)
       << " phase_boundary_submits_preserved=" << (submit_removed ? 0 : 1)
@@ -30831,6 +30863,10 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
   const bool live_boundary_matches_selected =
       current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
       current_vision_stack_block_index() == 1;
+  const bool submit_elision_authorized =
+      region_close_submit_owner_authorizes_submit_elision ||
+      stack_region_submit_elision_canary_target_selected(
+          stack_region_submit_elision_canary_target());
   const auto make_snapshot = [&](
                                  const char* const status,
                                  const char* const reason,
@@ -30867,7 +30903,7 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     snapshot.region_close_submit_owner_behavior_enabled =
         region_close_submit_owner_behavior_enabled;
     snapshot.region_close_submit_owner_authorizes_submit_elision =
-        region_close_submit_owner_authorizes_submit_elision;
+        submit_elision_authorized;
     snapshot.candidate_records = eligibility_summary.candidate_records;
     snapshot.eligible_records = eligibility_summary.eligible_records;
     snapshot.eligible_boundary_count =
@@ -30978,18 +31014,16 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
     record_fail("region_exit_ownership_transfer_incomplete");
     return false;
   }
-  if (!region_close_submit_owner_authorizes_submit_elision) {
+  if (!submit_elision_authorized) {
     record_fail("region_exit_close_submit_owner_authorizes_submit_elision_disabled");
     return false;
   }
-  if (!stack_region_single_recording_close_submit_owner_available(
-          region_close_submit_owner_id,
-          region_close_submit_owner_state,
-          region_close_submit_owner_behavior_enabled)) {
-    record_fail(stack_region_single_recording_close_submit_owner_blocker(
-        region_close_submit_owner_id,
-        region_close_submit_owner_state,
-        region_close_submit_owner_behavior_enabled));
+  if (!ownership_transfer_state.close_submit_ownership_complete) {
+    record_fail("region_exit_close_submit_owner_ownership_incomplete");
+    return false;
+  }
+  if (submit_elision_authorized) {
+    record_fail("single_recording_current_topology_value_preservation_rejected");
     return false;
   }
   record_stack_region_single_recording_canary_locked(make_snapshot(
