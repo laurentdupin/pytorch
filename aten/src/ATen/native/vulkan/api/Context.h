@@ -229,8 +229,8 @@ class TORCH_API Context final {
   bool stack_planned_recording_owned_by_current_thread() const;
   DescriptorPool& active_descriptor_pool();
   CommandBuffer& active_cmd();
-  void capture_external_recording_buffer_cleanup(VulkanBuffer&&);
-  void capture_external_recording_image_cleanup(VulkanImage&&);
+  void capture_external_recording_buffer_cleanup(PendingRetireBuffer&&);
+  void capture_external_recording_image_cleanup(PendingRetireImage&&);
   void begin_external_command_recording(CommandBuffer&);
   void end_external_command_recording();
   uint32_t gpu_profile_begin(
@@ -349,10 +349,6 @@ class TORCH_API Context final {
       VulkanSubmitPhase phase = current_submit_phase(),
       VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown,
       VulkanStackRetireProvenance stack_provenance = {}) {
-    if (external_recording_cmd()) {
-      capture_external_recording_buffer_cleanup(std::move(buffer));
-      return;
-    }
     const uint64_t bytes = buffer.owns_memory()
         ? static_cast<uint64_t>(buffer.allocated_size())
         : 0u;
@@ -381,6 +377,10 @@ class TORCH_API Context final {
         callsite,
         bytes,
         std::move(stack_provenance)};
+    if (external_recording_cmd()) {
+      capture_external_recording_buffer_cleanup(std::move(pending));
+      return;
+    }
     const bool batch_candidate =
         is_safe_stack_temp_retire_batch_candidate(pending.stack_provenance);
     const bool stack_recording_active =
@@ -423,10 +423,6 @@ class TORCH_API Context final {
       VulkanSubmitPhase phase = current_submit_phase(),
       VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown,
       VulkanStackRetireProvenance stack_provenance = {}) {
-    if (external_recording_cmd()) {
-      capture_external_recording_image_cleanup(std::move(image));
-      return;
-    }
     const uint64_t bytes = image.owns_memory()
         ? static_cast<uint64_t>(image.allocated_size())
         : 0u;
@@ -455,6 +451,10 @@ class TORCH_API Context final {
         callsite,
         bytes,
         std::move(stack_provenance)};
+    if (external_recording_cmd()) {
+      capture_external_recording_image_cleanup(std::move(pending));
+      return;
+    }
     const bool batch_candidate =
         is_safe_stack_temp_retire_batch_candidate(pending.stack_provenance);
     const bool stack_recording_active =

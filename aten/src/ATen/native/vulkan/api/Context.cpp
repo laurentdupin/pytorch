@@ -1265,8 +1265,8 @@ void append_gpu_timestamp_log_line(const std::string& line) {
 
 struct ExternalCommandRecordingState final {
   api::CommandBuffer* cmd{nullptr};
-  std::vector<VulkanBuffer> buffers_to_keep_alive;
-  std::vector<VulkanImage> images_to_keep_alive;
+  std::vector<PendingRetireBuffer> buffers_to_keep_alive;
+  std::vector<PendingRetireImage> images_to_keep_alive;
 };
 
 thread_local ExternalCommandRecordingState g_external_command_recording_state{};
@@ -2360,14 +2360,16 @@ void Context::end_external_command_recording() {
   g_external_command_recording_state.cmd = nullptr;
 }
 
-void Context::capture_external_recording_buffer_cleanup(VulkanBuffer&& buffer) {
+void Context::capture_external_recording_buffer_cleanup(
+    PendingRetireBuffer&& pending) {
   g_external_command_recording_state.buffers_to_keep_alive.emplace_back(
-      std::move(buffer));
+      std::move(pending));
 }
 
-void Context::capture_external_recording_image_cleanup(VulkanImage&& image) {
+void Context::capture_external_recording_image_cleanup(
+    PendingRetireImage&& pending) {
   g_external_command_recording_state.images_to_keep_alive.emplace_back(
-      std::move(image));
+      std::move(pending));
 }
 
 uint32_t Context::gpu_profile_begin(
@@ -4099,8 +4101,20 @@ void Context::submit_prepared_command_buffer(
 void Context::take_external_recording_cleanup_resources(
     std::vector<VulkanBuffer>& buffers,
     std::vector<VulkanImage>& images) {
-  buffers = std::move(g_external_command_recording_state.buffers_to_keep_alive);
-  images = std::move(g_external_command_recording_state.images_to_keep_alive);
+  buffers.clear();
+  buffers.reserve(
+      g_external_command_recording_state.buffers_to_keep_alive.size());
+  for (auto& pending :
+       g_external_command_recording_state.buffers_to_keep_alive) {
+    buffers.emplace_back(std::move(pending.buffer));
+  }
+  images.clear();
+  images.reserve(
+      g_external_command_recording_state.images_to_keep_alive.size());
+  for (auto& pending :
+       g_external_command_recording_state.images_to_keep_alive) {
+    images.emplace_back(std::move(pending.image));
+  }
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
 }
