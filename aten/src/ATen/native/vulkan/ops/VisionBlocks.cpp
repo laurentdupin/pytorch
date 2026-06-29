@@ -1411,6 +1411,15 @@ bool stack_plan_ready_for_planned_recording(
       !has_explicit_runtime_capture_label();
 }
 
+bool stack_owned_command_buffer_segmented_canary_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  return std::string(env) == "segmented_stack_entry_to_exit";
+}
+
 class VulkanStackCommandRecordingScope final {
  public:
   explicit VulkanStackCommandRecordingScope(
@@ -8579,17 +8588,25 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
             build_stack_planned_dispatch_positions(*stack_shape_plan));
   }
   std::unique_ptr<VulkanStackCommandRecordingScope> planned_recording_scope;
+  const bool segmented_stack_owned_command_buffer_canary =
+      stack_shape_plan && stack_plan_ready_for_planned_recording(*stack_shape_plan) &&
+      private_device_consumer_bridge &&
+      stack_owned_command_buffer_segmented_canary_enabled() &&
+      context->blocks().size() > 2u && context->blocks().size() <= 4u &&
+      capture_indices_vec.size() <= 2u;
   if (stack_shape_plan &&
       stack_plan_ready_for_planned_recording(*stack_shape_plan)) {
     planned_counters.planned_record_hit.fetch_add(
         1u,
         std::memory_order_relaxed);
-    const bool allow_stack_owned_command_buffer_canary =
-        private_device_consumer_bridge && context->blocks().size() <= 2u;
-    planned_recording_scope =
-        std::make_unique<VulkanStackCommandRecordingScope>(
-            *api::context(),
-            allow_stack_owned_command_buffer_canary);
+    if (!segmented_stack_owned_command_buffer_canary) {
+      const bool allow_stack_owned_command_buffer_canary =
+          private_device_consumer_bridge && context->blocks().size() <= 2u;
+      planned_recording_scope =
+          std::make_unique<VulkanStackCommandRecordingScope>(
+              *api::context(),
+              allow_stack_owned_command_buffer_canary);
+    }
   } else {
     planned_counters.recording_scope_reject_count.fetch_add(
         1u,
@@ -8608,7 +8625,15 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
 
   Tensor current = input_arg;
   std::vector<Tensor> outputs(capture_indices_vec.size());
+  constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 2u;
   for (size_t block_idx = 0u; block_idx < context->blocks().size(); ++block_idx) {
+    if (segmented_stack_owned_command_buffer_canary &&
+        block_idx % kSegmentedOwnedCommandBufferBlockLimit == 0u) {
+      planned_recording_scope =
+          std::make_unique<VulkanStackCommandRecordingScope>(
+              *api::context(),
+              /*allow_stack_owned_command_buffer_canary=*/true);
+    }
     const auto& block_context = context->blocks()[block_idx];
     TORCH_CHECK(
         static_cast<bool>(block_context),
@@ -8669,6 +8694,11 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
                            : "vision_stack_private_device_capture",
             {input_arg});
       }
+    }
+    if (segmented_stack_owned_command_buffer_canary &&
+        ((block_idx + 1u) % kSegmentedOwnedCommandBufferBlockLimit == 0u ||
+         block_idx + 1u == context->blocks().size())) {
+      planned_recording_scope.reset();
     }
   }
   planned_recording_scope.reset();
