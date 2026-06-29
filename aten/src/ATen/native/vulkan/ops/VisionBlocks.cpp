@@ -1607,6 +1607,58 @@ bool selected_segment_dispatch_budget_exceeded(
   return false;
 }
 
+StackOwnedCommandBufferSegmentPlan
+stack_dispatch_budget_candidate_segment_plan(
+    const size_t block_count,
+    const VulkanVisionStackShapePlan* const plan) {
+  StackOwnedCommandBufferSegmentPlan candidate;
+  candidate.coverage = "candidate_only";
+  candidate.status = "dispatch_budget_candidate_behavior_neutral";
+  candidate.fail_reason = "dispatch_budget_candidate_not_exposed";
+  if (!plan || block_count == 0u) {
+    candidate.status = "dispatch_budget_candidate_unavailable";
+    candidate.fail_reason = "stack_shape_plan_not_ready";
+    return candidate;
+  }
+
+  bool has_overbudget_single_block = false;
+  uint64_t segment_dispatch_count = 0u;
+  for (size_t block_idx = 0u; block_idx < block_count; ++block_idx) {
+    const uint64_t block_dispatch_count =
+        planned_segment_dispatch_count(plan, block_idx, block_idx);
+    if (block_dispatch_count > kSegmentedOwnedCommandBufferDispatchLimit) {
+      if (segment_dispatch_count > 0u) {
+        candidate.segment_ends.push_back(block_idx - 1u);
+      }
+      candidate.segment_ends.push_back(block_idx);
+      segment_dispatch_count = 0u;
+      has_overbudget_single_block = true;
+      continue;
+    }
+    if (
+        segment_dispatch_count > 0u &&
+        segment_dispatch_count + block_dispatch_count >
+            kSegmentedOwnedCommandBufferDispatchLimit) {
+      candidate.segment_ends.push_back(block_idx - 1u);
+      segment_dispatch_count = 0u;
+    }
+    segment_dispatch_count += block_dispatch_count;
+  }
+  if (segment_dispatch_count > 0u) {
+    candidate.segment_ends.push_back(block_count - 1u);
+  }
+  if (candidate.segment_ends.empty()) {
+    candidate.status = "dispatch_budget_candidate_unavailable";
+    candidate.fail_reason = "no_dispatch_budget_candidate_segments";
+    return candidate;
+  }
+  if (has_overbudget_single_block) {
+    candidate.status = "dispatch_budget_candidate_behavior_neutral";
+    candidate.fail_reason = "single_block_dispatch_limit_exceeded_candidate";
+  }
+  return candidate;
+}
+
 class VulkanStackCommandRecordingScope final {
  public:
   explicit VulkanStackCommandRecordingScope(
@@ -8920,6 +8972,97 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
           segmented_stack_owned_command_buffer_plan.status,
           segmented_stack_owned_command_buffer_plan.fail_reason);
       segment_start = segment_end + 1u;
+    }
+    const StackOwnedCommandBufferSegmentPlan dispatch_budget_candidate_plan =
+        stack_dispatch_budget_candidate_segment_plan(
+            context->blocks().size(), stack_shape_plan);
+    const std::string dispatch_budget_candidate_ends_signature =
+        format_segment_plan_ends(dispatch_budget_candidate_plan.segment_ends);
+    api::note_stack_region_segment_plan(
+        "dispatch_budget_candidate_summary",
+        0u,
+        0u,
+        "dispatch_budget_candidate_only",
+        false,
+        false,
+        0u,
+        dispatch_budget_candidate_plan.coverage,
+        private_device_consumer_bridge,
+        preserve_private_captures_in_plan,
+        stack_shape_plan &&
+            stack_plan_ready_for_planned_recording(*stack_shape_plan),
+        stack_planned_dispatch_count_observed,
+        stack_planned_dispatch_count,
+        0u,
+        context->blocks().size(),
+        runtime_capture_indices_signature,
+        plan_capture_indices_signature,
+        dispatch_budget_candidate_plan.segment_ends.size(),
+        dispatch_budget_candidate_ends_signature,
+        0u,
+        0u,
+        0u,
+        0u,
+        "none",
+        false,
+        false,
+        kSegmentedOwnedCommandBufferBlockLimit,
+        kSegmentedOwnedCommandBufferScopeLimit,
+        kSegmentedOwnedCommandBufferDispatchLimit,
+        dispatch_budget_candidate_plan.status,
+        dispatch_budget_candidate_plan.fail_reason);
+    size_t candidate_segment_start = 0u;
+    for (size_t candidate_segment_index = 0u;
+         candidate_segment_index <
+         dispatch_budget_candidate_plan.segment_ends.size();
+         ++candidate_segment_index) {
+      const size_t candidate_segment_end =
+          dispatch_budget_candidate_plan.segment_ends[candidate_segment_index];
+      std::vector<int64_t> segment_capture_indices;
+      for (const int64_t capture_idx : capture_indices_vec) {
+        if (
+            capture_idx >= static_cast<int64_t>(candidate_segment_start) &&
+            capture_idx <= static_cast<int64_t>(candidate_segment_end)) {
+          segment_capture_indices.push_back(capture_idx);
+        }
+      }
+      api::note_stack_region_segment_plan(
+          "dispatch_budget_candidate_segment",
+          0u,
+          0u,
+          "dispatch_budget_candidate_only",
+          false,
+          false,
+          0u,
+          dispatch_budget_candidate_plan.coverage,
+          private_device_consumer_bridge,
+          preserve_private_captures_in_plan,
+          stack_shape_plan &&
+              stack_plan_ready_for_planned_recording(*stack_shape_plan),
+          stack_planned_dispatch_count_observed,
+          stack_planned_dispatch_count,
+          planned_segment_dispatch_count(
+              stack_shape_plan,
+              candidate_segment_start,
+              candidate_segment_end),
+          context->blocks().size(),
+          runtime_capture_indices_signature,
+          plan_capture_indices_signature,
+          dispatch_budget_candidate_plan.segment_ends.size(),
+          dispatch_budget_candidate_ends_signature,
+          candidate_segment_index,
+          candidate_segment_start,
+          candidate_segment_end,
+          candidate_segment_end + 1u - candidate_segment_start,
+          format_segment_plan_indices(segment_capture_indices),
+          !segment_capture_indices.empty(),
+          false,
+          kSegmentedOwnedCommandBufferBlockLimit,
+          kSegmentedOwnedCommandBufferScopeLimit,
+          kSegmentedOwnedCommandBufferDispatchLimit,
+          dispatch_budget_candidate_plan.status,
+          dispatch_budget_candidate_plan.fail_reason);
+      candidate_segment_start = candidate_segment_end + 1u;
     }
   }
   if (stack_shape_plan &&

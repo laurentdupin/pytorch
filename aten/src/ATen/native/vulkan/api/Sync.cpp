@@ -2605,10 +2605,14 @@ void record_stack_region_segment_plan(
     const uint64_t segment_planned_dispatch_limit,
     const char* const segment_plan_status,
     const char* const segment_plan_fail_reason) {
+  const std::string row_kind_string =
+      row_kind && row_kind[0] != '\0' ? row_kind : "summary";
+  const bool dispatch_budget_candidate_only =
+      row_kind_string.find("dispatch_budget_candidate") == 0u;
   std::ostringstream key;
   key << "stack_region_segment_plan=1"
       << " schema=StackRegionSegmentPlan.v0"
-      << " row_kind=" << (row_kind && row_kind[0] != '\0' ? row_kind : "summary")
+      << " row_kind=" << row_kind_string
       << " region_id=" << region_id
       << " region_state=" << region_state
       << " owned_command_buffer_mode="
@@ -2635,8 +2639,12 @@ void record_stack_region_segment_plan(
       << " segment_planned_dispatch_count=" << segment_planned_dispatch_count
       << " segment_planned_dispatch_limit="
       << segment_planned_dispatch_limit
-      << " planned_dispatch_budget_enforced=1"
-      << " planned_dispatch_count_admission_predicate=1"
+      << " planned_dispatch_budget_enforced="
+      << (dispatch_budget_candidate_only ? 0 : 1)
+      << " planned_dispatch_count_admission_predicate="
+      << (dispatch_budget_candidate_only ? 0 : 1)
+      << " planned_dispatch_candidate_only="
+      << (dispatch_budget_candidate_only ? 1 : 0)
       << " block_count=" << block_count
       << " runtime_capture_indices="
       << stack_region_row_token(runtime_capture_indices)

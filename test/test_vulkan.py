@@ -27285,6 +27285,44 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in segment_rows
                 )
             )
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionSegmentPlan.v0"
+                    and row["row_kind"] == "dispatch_budget_candidate_summary"
+                    and row["owned_command_buffer_mode"]
+                    == "dispatch_budget_candidate_only"
+                    and row["segment_plan_coverage"] == "candidate_only"
+                    and row["segmented_canary_requested"] == "0"
+                    and row["segmented_canary_selected"] == "0"
+                    and row["selected_segment_count"] == "0"
+                    and row["segment_plan_status"]
+                    == "dispatch_budget_candidate_behavior_neutral"
+                    and row["segment_plan_fail_reason"]
+                    == "dispatch_budget_candidate_not_exposed"
+                    and row["planned_dispatch_candidate_only"] == "1"
+                    and row["planned_dispatch_budget_enforced"] == "0"
+                    and row["planned_dispatch_count_admission_predicate"] == "0"
+                    for row in segment_plan_rows
+                )
+            )
+            candidate_segment_rows = [
+                row
+                for row in segment_plan_rows
+                if row["row_kind"] == "dispatch_budget_candidate_segment"
+            ]
+            self.assertGreater(len(candidate_segment_rows), 0)
+            self.assertTrue(
+                all(
+                    row["owned_command_buffer_mode"]
+                    == "dispatch_budget_candidate_only"
+                    and row["segment_selected_for_recording"] == "0"
+                    and row["planned_dispatch_candidate_only"] == "1"
+                    and row["planned_dispatch_budget_enforced"] == "0"
+                    and row["planned_dispatch_count_admission_predicate"] == "0"
+                    and int(row["segment_planned_dispatch_count"]) <= 24
+                    for row in candidate_segment_rows
+                )
+            )
             cleanup_rows = graph[
                 "stack_region_external_recording_cleanup_logical_boundary_rows"
             ]

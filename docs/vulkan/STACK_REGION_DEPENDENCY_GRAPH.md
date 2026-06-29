@@ -1205,6 +1205,13 @@ that selected smaller planned-dispatch segments avoided the single-forward
 stack-overflow case but still overflowed under repeated real `vits_140`
 inference, so future segment planners must include repeat-stability proof before
 being retained.
+The graph may still emit `dispatch_budget_candidate_summary` and
+`dispatch_budget_candidate_segment` rows. These rows are evidence only: they
+derive hypothetical block-boundary segments from the same planned-dispatch
+budget while reporting `owned_command_buffer_mode=dispatch_budget_candidate_only`,
+`segment_selected_for_recording=0`, and
+`planned_dispatch_count_admission_predicate=0`. They do not reopen the rejected
+dispatch-derived prefix recording mode.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and
