@@ -27267,6 +27267,143 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_owned_command_buffer_dispatch_prefix_canary_segments_stack(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=6,
+            label_prefix=(
+                "vision.synthetic.stack.owned_command_buffer_dispatch_prefix"
+            ),
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [2, 5],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        graph_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_stack_region_owned_command_buffer_dispatch_prefix_test.json",
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+        settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": graph_path,
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "segmented_stack_dispatch_prefix_to_exit"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                actual = (
+                    torch.ops.vulkan_prepack
+                    .run_vision_backbone_stack_private_capture_debug(
+                        x,
+                        stack_context,
+                        [2, 5],
+                        True,
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
+
+            self.assertEqual(actual[0].cpu(), expected[0].cpu())
+            self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            recording_domain_rows = [
+                row["fields"]
+                for row in graph["stack_region_recording_domain_rows"]
+            ]
+            self.assertTrue(
+                any(row["event"] == "active_cmd_external" for row in recording_domain_rows)
+            )
+            self.assertTrue(
+                any(row["event"] == "active_cmd_context" for row in recording_domain_rows)
+            )
+            self.assertEqual(
+                graph["summary"]["single_recording_canary_submits_removed"],
+                0,
+            )
+            segment_plan_rows = [
+                row["fields"] for row in graph["stack_region_segment_plan_rows"]
+            ]
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionSegmentPlan.v0"
+                    and row["row_kind"] == "summary"
+                    and row["owned_command_buffer_mode"]
+                    == "segmented_stack_dispatch_prefix_to_exit"
+                    and row["segmented_canary_requested"] == "1"
+                    and row["segmented_canary_selected"] == "1"
+                    and row["selected_segment_count"] == "2"
+                    and row["segment_plan_coverage"] == "prefix"
+                    and row["block_count"] == "6"
+                    and row["segment_count"] == "3"
+                    and row["segment_ends"] == "1_3_5"
+                    and row["segment_planned_dispatch_limit"] == "24"
+                    and row["planned_dispatch_budget_enforced"] == "1"
+                    and row["planned_dispatch_count_admission_predicate"] == "1"
+                    and row["segment_plan_status"]
+                    == "segment_dispatch_budget_prefix_plan_available_behavior_canary"
+                    and row["segment_plan_fail_reason"]
+                    == "segment_scope_limit_exceeded_dispatch_prefix_selected"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    for row in segment_plan_rows
+                )
+            )
+            segment_rows = [
+                row for row in segment_plan_rows if row["row_kind"] == "segment"
+            ]
+            self.assertEqual(len(segment_rows), 3)
+            sorted_segment_rows = sorted(
+                segment_rows,
+                key=lambda row: int(row["segment_index"]),
+            )
+            self.assertEqual(
+                [row["segment_selected_for_recording"] for row in sorted_segment_rows],
+                ["1", "1", "0"],
+            )
+            self.assertEqual(
+                [row["segment_capture_indices"] for row in sorted_segment_rows],
+                ["none", "2", "5"],
+            )
+            self.assertTrue(
+                all(
+                    int(row["segment_planned_dispatch_count"]) <= 24
+                    for row in sorted_segment_rows
+                )
+            )
+            cleanup_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_logical_boundary_rows"
+                ]
+            ]
+            self.assertGreaterEqual(len(cleanup_rows), 2)
+            self.assertEqual(
+                {row["segment_index"] for row in cleanup_rows},
+                {"0", "1"},
+            )
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
         self,
     ):
