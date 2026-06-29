@@ -1356,6 +1356,7 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       command_buffer_recording_id_{0u},
       next_command_buffer_recording_id_{1u},
       stack_planned_recording_active_{false},
+      stack_region_recording_domain_observation_active_{false},
       stack_planned_recording_owner_{},
       stack_planned_recording_stats_{},
       stack_region_single_recording_plan_id_{0u},
@@ -2283,7 +2284,8 @@ DescriptorPool& Context::active_descriptor_pool() {
 CommandBuffer& Context::active_cmd() {
   if (CommandBuffer* const external_cmd = external_recording_cmd()) {
     if (stack_planned_recording_active_.load(std::memory_order_acquire) &&
-        stack_region_recording_domain_observation_enabled()) {
+        stack_region_recording_domain_observation_active_.load(
+            std::memory_order_acquire)) {
       const uint64_t submit_epoch =
           current_stream().last_submitted_value.load(std::memory_order_relaxed);
       note_stack_region_recording_domain(
@@ -2302,7 +2304,8 @@ CommandBuffer& Context::active_cmd() {
     return *external_cmd;
   }
   if (stack_planned_recording_active_.load(std::memory_order_acquire) &&
-      stack_region_recording_domain_observation_enabled()) {
+      stack_region_recording_domain_observation_active_.load(
+          std::memory_order_acquire)) {
     const uint64_t submit_epoch =
         current_stream().last_submitted_value.load(std::memory_order_relaxed);
     note_stack_region_recording_domain(
@@ -3770,6 +3773,9 @@ void Context::begin_stack_planned_recording() {
     stack_region_pending_retire_transfer_source_signature_.clear();
   }
   clear_stack_region_pending_retire_handoff_batch_locked();
+  stack_region_recording_domain_observation_active_.store(
+      stack_region_recording_domain_observation_enabled(),
+      std::memory_order_release);
   stack_planned_recording_active_.store(true, std::memory_order_release);
   note_stack_region_recording_domain(
       "stack_entry_begin",
@@ -3806,6 +3812,8 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
           !pending_retire_handoff_at_stack_exit);
   retire_stack_internal_temp_retire_batch_locked(submission);
   retire_stack_region_pending_retire_handoff_batch_locked(submission);
+  stack_region_recording_domain_observation_active_.store(
+      false, std::memory_order_release);
   stack_planned_recording_active_.store(false, std::memory_order_release);
   stack_region_single_recording_plan_state_.store(
       2u, std::memory_order_release);
@@ -3855,6 +3863,8 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       3u, std::memory_order_release);
   stack_region_single_recording_owner_state_.store(
       3u, std::memory_order_release);
+  stack_region_recording_domain_observation_active_.store(
+      false, std::memory_order_release);
   stack_region_command_buffer_batch_lease_state_.store(
       3u, std::memory_order_release);
   const uint32_t close_submit_owner_state =

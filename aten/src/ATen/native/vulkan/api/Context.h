@@ -141,6 +141,7 @@ class TORCH_API Context final {
   uint64_t command_buffer_recording_id_;
   uint64_t next_command_buffer_recording_id_;
   std::atomic<bool> stack_planned_recording_active_;
+  std::atomic<bool> stack_region_recording_domain_observation_active_;
   std::thread::id stack_planned_recording_owner_;
   StackPlannedRecordingStats stack_planned_recording_stats_;
   std::atomic<uint64_t> stack_region_single_recording_plan_id_;
