@@ -642,9 +642,10 @@ still keeps `behavior_enabled=0`, `transfers_pending_retires=0`, and
 complete, the row fail-closes on
 `pending_retire_transfer_owner_behavior_disabled`; when the source is
 available only at the preserved phase submit, it fails closed on
-`pending_retire_transfer_source_preserved_phase_submit_owned`; when the source
-identity is incomplete, including bookkeeping-excluded count/byte coverage
-without per-entry source identity, it fails closed on
+`pending_retire_transfer_preserved_phase_submit_handoff_missing` and reports
+`pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed`;
+when the source identity is incomplete, including bookkeeping-excluded
+count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;
 and when the transfer plan is blocked, it propagates the plan blocker instead
 of hiding it behind close-submit ownership.

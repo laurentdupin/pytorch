@@ -21488,6 +21488,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
                     "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
@@ -21500,6 +21501,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retire_transfer_owner_behavior_disabled",
+                    "pending_retire_transfer_preserved_phase_submit_handoff_missing",
                     "pending_retire_transfer_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
                     "retire_timeline_owner_behavior_disabled",
@@ -21930,6 +21932,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
                     "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
@@ -21941,6 +21944,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "pending_retire_transfer_owner_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
+                    "pending_retire_transfer_preserved_phase_submit_handoff_missing",
                     "pending_retire_transfer_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
                     "retire_timeline_owner_behavior_disabled",
@@ -21956,6 +21960,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retire_transfer_owner_region_handoff_behavior_disabled",
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_unimplemented",
                     "pending_retire_transfer_owner_source_incomplete_behavior_disabled",
                     "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled",
@@ -25921,7 +25926,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
-                "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
+                "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed",
+            )
+            self.assertEqual(
+                transfer_row["pending_retire_transfer_owner_top_blocker"],
+                "pending_retire_transfer_preserved_phase_submit_handoff_missing",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_status"
+                ],
+                "pending_retire_transfer_preserved_phase_submit_handoff_candidate_context_owned_not_transferred",
             )
             self.assertIn(
                 transfer_row[
@@ -26146,13 +26161,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "stack_region_pending_retire_transfer_owner_records"
                 ]
                 if row["fields"].get("owner_status")
-                == "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed"
+                == "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed"
             ]
             self.assertTrue(pending_retire_owner_rows)
             pending_retire_owner_row = pending_retire_owner_rows[0]
             self.assertEqual(
                 pending_retire_owner_row["top_blocker"],
-                "pending_retire_transfer_source_incomplete",
+                "pending_retire_transfer_preserved_phase_submit_handoff_missing",
+            )
+            self.assertEqual(
+                pending_retire_owner_row["implementation_status"],
+                "pending_retire_transfer_owner_preserved_phase_submit_handoff_unimplemented",
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_handoff_status"
+                ],
+                "pending_retire_transfer_preserved_phase_submit_handoff_candidate_context_owned_not_transferred",
             )
             self.assertEqual(
                 pending_retire_owner_row["bookkeeping_exclusion_status"],
@@ -26190,6 +26215,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 pending_retire_owner_row["source_identity_mismatch_axis"],
                 pending_retire_row["source_identity_mismatch_axis"],
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_source_identity_match_status"
+                ],
+                pending_retire_row[
+                    "preserved_phase_submit_source_identity_match_status"
+                ],
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_source_status"
+                ],
+                pending_retire_row["preserved_phase_submit_source_status"],
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_missing_transfer_required_identity_count"
+                ],
+                "0",
             )
             self.assertEqual(
                 pending_retire_owner_row[

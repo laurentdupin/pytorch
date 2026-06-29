@@ -11873,6 +11873,14 @@ void append_stack_region_submit_epoch_ordering_json(
         .region_exit_bound_missing_transfer_required_identity_bytes =
             pending_retire_transfer_result
                 .region_exit_bound_missing_transfer_required_identity_bytes;
+    pending_retire_transfer_owner_request
+        .preserved_phase_submit_missing_transfer_required_identity_count =
+            pending_retire_transfer_result
+                .preserved_phase_submit_missing_transfer_required_identity_count;
+    pending_retire_transfer_owner_request
+        .preserved_phase_submit_missing_transfer_required_identity_bytes =
+            pending_retire_transfer_result
+                .preserved_phase_submit_missing_transfer_required_identity_bytes;
     pending_retire_transfer_owner_request.owner_required =
         phase_submit_execution_flush_dependency_observed;
     pending_retire_transfer_owner_request.transfer_plan_available =
@@ -11901,6 +11909,18 @@ void append_stack_region_submit_epoch_ordering_json(
         pending_retire_transfer_result.source_identity_match_status;
     pending_retire_transfer_owner_request.source_identity_mismatch_axis =
         pending_retire_transfer_result.source_identity_mismatch_axis;
+    pending_retire_transfer_owner_request
+        .preserved_phase_submit_source_status =
+            pending_retire_transfer_result
+                .preserved_phase_submit_source_status;
+    pending_retire_transfer_owner_request
+        .preserved_phase_submit_source_identity_match_status =
+            pending_retire_transfer_result
+                .preserved_phase_submit_source_identity_match_status;
+    pending_retire_transfer_owner_request
+        .preserved_phase_submit_source_identity_mismatch_axis =
+            pending_retire_transfer_result
+                .preserved_phase_submit_source_identity_mismatch_axis;
     pending_retire_transfer_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
     const StackRegionPendingRetireTransferOwnerResult
@@ -14649,6 +14669,24 @@ void append_stack_region_submit_epoch_ordering_json(
         << pending_retire_transfer_owner_result.source_identity_match_status
         << " source_identity_mismatch_axis="
         << pending_retire_transfer_owner_result.source_identity_mismatch_axis
+        << " preserved_phase_submit_source_identity_match_status="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_source_identity_match_status
+        << " preserved_phase_submit_source_status="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_source_status
+        << " preserved_phase_submit_source_identity_mismatch_axis="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_source_identity_mismatch_axis
+        << " preserved_phase_submit_handoff_status="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_handoff_status
+        << " preserved_phase_submit_missing_transfer_required_identity_count="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_missing_transfer_required_identity_count
+        << " preserved_phase_submit_missing_transfer_required_identity_bytes="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_missing_transfer_required_identity_bytes
         << " source_identity_exact_intersection_count="
         << pending_retire_transfer_owner_result
                .source_identity_exact_intersection_count
@@ -14900,6 +14938,9 @@ void append_stack_region_submit_epoch_ordering_json(
         << pending_retire_transfer_owner_result.owner_status
         << " pending_retire_transfer_owner_top_blocker="
         << pending_retire_transfer_owner_result.top_blocker
+        << " pending_retire_transfer_owner_preserved_phase_submit_handoff_status="
+        << pending_retire_transfer_owner_result
+               .preserved_phase_submit_handoff_status
         << " pending_retire_transfer_accounting_joined="
         << (pending_retire_accounting_joined ? "1" : "0")
         << " pending_retire_transfer_source_match_status="
@@ -25292,6 +25333,10 @@ request_stack_region_pending_retire_transfer_owner(
       request.region_exit_bound_missing_transfer_required_identity_count;
   result.region_exit_bound_missing_transfer_required_identity_bytes =
       request.region_exit_bound_missing_transfer_required_identity_bytes;
+  result.preserved_phase_submit_missing_transfer_required_identity_count =
+      request.preserved_phase_submit_missing_transfer_required_identity_count;
+  result.preserved_phase_submit_missing_transfer_required_identity_bytes =
+      request.preserved_phase_submit_missing_transfer_required_identity_bytes;
   result.source_match_status = request.source_match_status;
   result.bookkeeping_exclusion_status =
       request.bookkeeping_exclusion_status;
@@ -25307,6 +25352,12 @@ request_stack_region_pending_retire_transfer_owner(
       request.source_identity_match_status;
   result.source_identity_mismatch_axis =
       request.source_identity_mismatch_axis;
+  result.preserved_phase_submit_source_status =
+      request.preserved_phase_submit_source_status;
+  result.preserved_phase_submit_source_identity_match_status =
+      request.preserved_phase_submit_source_identity_match_status;
+  result.preserved_phase_submit_source_identity_mismatch_axis =
+      request.preserved_phase_submit_source_identity_mismatch_axis;
   result.retire_timeline_owner_status = request.retire_timeline_owner_status;
   result.planned_release_submit_point_status =
       request.planned_release_submit_point_status;
@@ -25379,6 +25430,15 @@ request_stack_region_pending_retire_transfer_owner(
           "pending_retire_transfer_source_identity_exact" ||
       request.source_identity_match_status ==
           "pending_retire_transfer_source_identity_required_entries_present_source_superset";
+  const bool preserved_phase_submit_identity_available =
+      request.preserved_phase_submit_source_identity_match_status ==
+          "pending_retire_transfer_source_identity_exact" ||
+      request.preserved_phase_submit_source_identity_match_status ==
+          "pending_retire_transfer_source_identity_required_entries_present_source_superset";
+  const bool preserved_phase_submit_handoff_candidate =
+      preserved_phase_submit_identity_available &&
+      request.preserved_phase_submit_source_status ==
+          "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred";
   const bool source_available =
       raw_source_available && source_identity_available;
   const bool source_identity_incomplete =
@@ -25397,27 +25457,39 @@ request_stack_region_pending_retire_transfer_owner(
       "pending_retire_transfer_owner_result_accounting_available_behavior_disabled";
   result.owner_status = source_available
       ? "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed"
-      : (source_preserved_phase_submit
-             ? "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed"
-             : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed");
+      : (preserved_phase_submit_handoff_candidate
+             ? "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed"
+             : (source_preserved_phase_submit
+                    ? "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed"
+                    : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed"));
   result.top_blocker = source_available
       ? "pending_retire_transfer_owner_behavior_disabled"
-      : (source_preserved_phase_submit
-             ? "pending_retire_transfer_source_preserved_phase_submit_owned"
-             : (source_identity_incomplete
-                    ? "pending_retire_transfer_source_identity_incomplete"
-                    : "pending_retire_transfer_source_incomplete"));
+      : (preserved_phase_submit_handoff_candidate
+             ? "pending_retire_transfer_preserved_phase_submit_handoff_missing"
+             : (source_preserved_phase_submit
+                    ? "pending_retire_transfer_source_preserved_phase_submit_owned"
+                    : (source_identity_incomplete
+                           ? "pending_retire_transfer_source_identity_incomplete"
+                           : "pending_retire_transfer_source_incomplete")));
   result.implementation_status = source_available
       ? "pending_retire_transfer_owner_region_handoff_behavior_disabled"
-      : (source_preserved_phase_submit
-             ? "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled"
-             : (source_identity_incomplete
-                    ? "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled"
-                    : "pending_retire_transfer_owner_source_incomplete_behavior_disabled"));
-  result.current_owner_status =
-      "pending_retires_still_context_or_preserved_submit_owned";
-  result.requested_owner_status =
-      "region_pending_retires_owner_recorded_behavior_disabled";
+      : (preserved_phase_submit_handoff_candidate
+             ? "pending_retire_transfer_owner_preserved_phase_submit_handoff_unimplemented"
+             : (source_preserved_phase_submit
+                    ? "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled"
+                    : (source_identity_incomplete
+                           ? "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled"
+                           : "pending_retire_transfer_owner_source_incomplete_behavior_disabled")));
+  result.preserved_phase_submit_handoff_status =
+      preserved_phase_submit_handoff_candidate
+      ? "pending_retire_transfer_preserved_phase_submit_handoff_candidate_context_owned_not_transferred"
+      : "pending_retire_transfer_preserved_phase_submit_handoff_unavailable";
+  result.current_owner_status = preserved_phase_submit_handoff_candidate
+      ? "pending_retires_still_preserved_phase_submit_owned"
+      : "pending_retires_still_context_or_preserved_submit_owned";
+  result.requested_owner_status = preserved_phase_submit_handoff_candidate
+      ? "region_pending_retires_owner_waiting_for_preserved_phase_submit_handoff"
+      : "region_pending_retires_owner_recorded_behavior_disabled";
   return result;
 }
 

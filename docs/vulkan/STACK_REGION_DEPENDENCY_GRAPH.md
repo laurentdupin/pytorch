@@ -914,8 +914,9 @@ only. All rows keep `behavior_enabled=0`, `transfers_pending_retires=0`, and
 `authorizes_submit_elision=0`. A complete source therefore fails closed on
 `pending_retire_transfer_owner_behavior_disabled`, a source available only at
 the preserved phase submit fails closed on
-`pending_retire_transfer_source_preserved_phase_submit_owned`, an incomplete
-or bookkeeping-excluded source fails closed on
+`pending_retire_transfer_preserved_phase_submit_handoff_missing` with
+`pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed`,
+an incomplete or bookkeeping-excluded source fails closed on
 `pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.
 Exit-release ownership, region command-buffer ownership, and deferred-submit

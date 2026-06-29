@@ -1486,6 +1486,10 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
   uint64_t region_exit_bound_missing_transfer_required_resource_bytes = 0u;
   uint64_t region_exit_bound_missing_transfer_required_identity_count = 0u;
   uint64_t region_exit_bound_missing_transfer_required_identity_bytes = 0u;
+  uint64_t preserved_phase_submit_missing_transfer_required_identity_count =
+      0u;
+  uint64_t preserved_phase_submit_missing_transfer_required_identity_bytes =
+      0u;
   bool owner_required = true;
   bool transfer_plan_available = false;
   bool transfer_behavior_enabled = false;
@@ -1501,6 +1505,12 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
   std::string source_identity_match_status =
       "pending_retire_transfer_source_identity_unavailable";
   std::string source_identity_mismatch_axis =
+      "pending_retire_transfer_source_identity_mismatch_unavailable";
+  std::string preserved_phase_submit_source_status =
+      "pending_retire_transfer_source_not_bound";
+  std::string preserved_phase_submit_source_identity_match_status =
+      "pending_retire_transfer_source_identity_unavailable";
+  std::string preserved_phase_submit_source_identity_mismatch_axis =
       "pending_retire_transfer_source_identity_mismatch_unavailable";
 };
 
@@ -1534,6 +1544,10 @@ struct StackRegionPendingRetireTransferOwnerResult final {
   uint64_t region_exit_bound_missing_transfer_required_resource_bytes = 0u;
   uint64_t region_exit_bound_missing_transfer_required_identity_count = 0u;
   uint64_t region_exit_bound_missing_transfer_required_identity_bytes = 0u;
+  uint64_t preserved_phase_submit_missing_transfer_required_identity_count =
+      0u;
+  uint64_t preserved_phase_submit_missing_transfer_required_identity_bytes =
+      0u;
   uint64_t lifecycle_id = 0u;
   uint32_t lifecycle_state = 0u;
   std::string result_status =
@@ -1556,6 +1570,14 @@ struct StackRegionPendingRetireTransferOwnerResult final {
       "pending_retire_transfer_source_identity_unavailable";
   std::string source_identity_mismatch_axis =
       "pending_retire_transfer_source_identity_mismatch_unavailable";
+  std::string preserved_phase_submit_source_status =
+      "pending_retire_transfer_source_not_bound";
+  std::string preserved_phase_submit_source_identity_match_status =
+      "pending_retire_transfer_source_identity_unavailable";
+  std::string preserved_phase_submit_source_identity_mismatch_axis =
+      "pending_retire_transfer_source_identity_mismatch_unavailable";
+  std::string preserved_phase_submit_handoff_status =
+      "pending_retire_transfer_owner_preserved_phase_submit_handoff_unavailable";
   std::string current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   std::string requested_owner_status =
