@@ -25654,7 +25654,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "stack_exit_close_submit"
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
-            "stack_internal_until_stack_exit"
+            "preserved_phase_submit_handoff"
         )
         os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "1"
         try:
@@ -25973,14 +25973,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_identity_match_status"
                 ],
                 {
-                    "pending_retire_transfer_source_identity_missing",
+                    "pending_retire_transfer_source_identity_partial",
                 },
             )
             self.assertEqual(
                 transfer_row[
                     "pending_retire_transfer_source_identity_mismatch_axis"
                 ],
-                "source_identity_mismatch_same_class_different_allocation_set",
+                "partial_exact_identity_intersection",
             )
             self.assertIn(
                 transfer_row[
@@ -26017,18 +26017,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "stack_region_pending_retire_transfer_records"
                 ]
                 if row["fields"].get("source_match_status")
-                == "pending_retire_transfer_source_partially_bound_to_region_exit_submit"
+                == "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit"
             ]
             self.assertTrue(pending_retire_rows)
             pending_retire_row = pending_retire_rows[0]
-            self.assertEqual(pending_retire_row["region_exit_bound_source_state"], "2")
+            self.assertEqual(pending_retire_row["transfer_behavior_enabled"], "1")
+            self.assertEqual(pending_retire_row["transfers_pending_retires"], "1")
+            self.assertEqual(pending_retire_row["authorizes_submit_elision"], "0")
+            self.assertEqual(pending_retire_row["phase_boundary_submits_preserved"], "1")
+            self.assertEqual(pending_retire_row["region_exit_bound_source_state"], "5")
             self.assertEqual(
                 pending_retire_row["region_exit_bound_source_id"],
                 pending_retire_row["stack_region_instance_id"],
             )
             self.assertEqual(
                 pending_retire_row["region_exit_bound_source_status"],
-                "pending_retire_transfer_source_bound_to_region_exit_submit_context_owned_not_transferred",
+                "pending_retire_transfer_source_bound_to_preserved_phase_submit_region_handoff_transferred",
             )
             self.assertEqual(
                 pending_retire_row["region_exit_bound_source_coverage_status"],
@@ -26078,12 +26082,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn(
                 pending_retire_row["source_identity_match_status"],
                 {
-                    "pending_retire_transfer_source_identity_missing",
+                    "pending_retire_transfer_source_identity_partial",
                 },
             )
             self.assertEqual(
                 pending_retire_row["source_identity_mismatch_axis"],
-                "source_identity_mismatch_same_class_different_allocation_set",
+                "partial_exact_identity_intersection",
             )
             self.assertIn(
                 pending_retire_row[
@@ -26117,20 +26121,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         "source_identity_exact_intersection_count"
                     ]
                 ),
-                0,
-            )
-            self.assertEqual(
                 int(
                     pending_retire_row[
-                        "source_identity_allocation_range_overlap_count"
+                        "graph_transfer_required_identity_resource_count"
+                    ]
+                )
+                - int(
+                    pending_retire_row[
+                        "region_exit_bound_missing_transfer_required_identity_count"
                     ]
                 ),
-                0,
             )
             self.assertGreater(
                 int(
                     pending_retire_row[
-                        "source_identity_class_only_overlap_count"
+                        "source_identity_allocation_range_overlap_count"
                     ]
                 ),
                 0,

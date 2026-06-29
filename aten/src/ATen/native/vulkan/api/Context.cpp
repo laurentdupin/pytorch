@@ -115,6 +115,15 @@ bool stack_region_pending_retire_transfer_owner_stack_internal_enabled() {
   return std::string(env) == "stack_internal_until_stack_exit";
 }
 
+bool stack_region_pending_retire_transfer_owner_preserved_phase_handoff_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  return std::string(env) == "preserved_phase_submit_handoff";
+}
+
 const char* stack_region_single_recording_plan_state_name(
     const uint32_t state) {
   switch (state) {
@@ -258,6 +267,12 @@ const char* stack_region_pending_retire_transfer_owner_state_name(
       return "pending_retire_transfer_owner_finalized_submit_context_owned_not_transferred";
     case 3u:
       return "pending_retire_transfer_owner_finalized_cancel_context_owned_not_transferred";
+    case 4u:
+      return "pending_retire_transfer_owner_candidate_active_preserved_phase_submit_handoff";
+    case 5u:
+      return "pending_retire_transfer_owner_finalized_submit_preserved_phase_submit_handoff";
+    case 6u:
+      return "pending_retire_transfer_owner_finalized_cancel_preserved_phase_submit_handoff";
     default:
       return "pending_retire_transfer_owner_not_started";
   }
@@ -274,6 +289,10 @@ const char* stack_region_pending_retire_transfer_source_state_name(
       return "pending_retire_transfer_source_finalized_cancel_context_owned_not_transferred";
     case 4u:
       return "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred";
+    case 5u:
+      return "pending_retire_transfer_source_bound_to_preserved_phase_submit_region_handoff_transferred";
+    case 6u:
+      return "pending_retire_transfer_source_bound_to_region_exit_submit_region_handoff_transferred";
     default:
       return "pending_retire_transfer_source_not_bound";
   }
@@ -521,6 +540,107 @@ bool stack_region_pending_retire_bookkeeping_class(
   return resource_class == "metadata_uniform" ||
       resource_class == "layernorm_internal_stat_buffer" ||
       resource_class == "layernorm_stat_buffer";
+}
+
+template <typename PendingRetire>
+std::string stack_region_pending_retire_handoff_key(
+    const PendingRetire& pending,
+    const char* const resource_class) {
+  const VulkanStackRawResourceAllocationProof allocation_proof =
+      stack_raw_allocation_proof(pending);
+  if (
+      !allocation_proof.has_generation ||
+      !allocation_proof.has_byte_range ||
+      allocation_proof.byte_range == 0u || resource_class == nullptr ||
+      *resource_class == '\0') {
+    return "";
+  }
+  std::ostringstream key;
+  key << allocation_proof.allocation_id << "#"
+      << allocation_proof.allocation_generation << "#"
+      << allocation_proof.byte_offset << "#" << allocation_proof.byte_range
+      << "#" << resource_class;
+  return key.str();
+}
+
+std::set<std::string> stack_region_pending_retire_handoff_target_keys(
+    const std::string& allocation_signature) {
+  std::set<std::string> target_keys;
+  if (
+      allocation_signature.empty() || allocation_signature == "missing" ||
+      allocation_signature == "none") {
+    return target_keys;
+  }
+  std::string normalized_signature = allocation_signature;
+  std::replace(
+      normalized_signature.begin(), normalized_signature.end(), '|', ',');
+  std::istringstream entries(normalized_signature);
+  std::string entry;
+  while (std::getline(entries, entry, ',')) {
+    std::vector<std::string> parts;
+    std::istringstream part_stream(entry);
+    std::string part;
+    while (std::getline(part_stream, part, '#')) {
+      parts.emplace_back(part);
+    }
+    if (parts.size() != 7u) {
+      continue;
+    }
+    const std::string& resource_class = parts[4];
+    if (stack_region_pending_retire_bookkeeping_class(resource_class)) {
+      continue;
+    }
+    target_keys.insert(
+        parts[0] + "#" + parts[1] + "#" + parts[2] + "#" + parts[3] +
+        "#" + resource_class);
+  }
+  return target_keys;
+}
+
+template <typename PendingRetire>
+bool stack_region_pending_retire_handoff_candidate(
+    const PendingRetire& pending,
+    const VulkanRetireCallSite callsite,
+    std::string* identity_key) {
+  const bool qkv_would_batch =
+      is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+  const VulkanStackRawResourceAllocationProof allocation_proof =
+      stack_raw_allocation_proof(pending);
+  const char* const resource_class =
+      stack_subresource_lifetime_dry_run_resource_class(
+          pending.kind,
+          pending.role,
+          pending.stack_provenance,
+          qkv_would_batch,
+          allocation_proof);
+  if (stack_region_pending_retire_bookkeeping_class(resource_class)) {
+    return false;
+  }
+  const std::string key =
+      stack_region_pending_retire_handoff_key(pending, resource_class);
+  if (key.empty()) {
+    return false;
+  }
+  const bool formal_last_use_proof =
+      stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
+          pending.kind,
+          pending.role,
+          resource_class,
+          pending.stack_provenance,
+          allocation_proof,
+          pending_retire_allocation_label(pending),
+          callsite);
+  const bool safe =
+      stack_subresource_lifetime_dry_run_resource_is_safe(resource_class) ||
+      formal_last_use_proof;
+  const bool large_backing =
+      stack_subresource_lifetime_dry_run_is_large_backing(
+          pending.role, pending.bytes, pending.stack_provenance);
+  if (!safe || large_backing) {
+    return false;
+  }
+  *identity_key = key;
+  return true;
 }
 
 struct PendingRetireAllocationSignatureCoverage final {
@@ -2003,7 +2123,9 @@ Context::snapshot_stack_region_pending_retire_transfer(
           "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
       graph_and_bound_source_match &&
       result.region_exit_bound_resource_count > 0u) {
-    result.source_match_status = result.region_exit_bound_source_state == 4u
+    result.source_match_status =
+        result.region_exit_bound_source_state == 4u ||
+            result.region_exit_bound_source_state == 5u
         ? "pending_retire_transfer_source_complete_at_preserved_phase_submit"
         : "pending_retire_transfer_source_bound_to_region_exit_submit";
   } else if (
@@ -2015,7 +2137,9 @@ Context::snapshot_stack_region_pending_retire_transfer(
             request.graph_pending_resource_count &&
         result.region_exit_bound_resource_bytes >=
             request.graph_pending_resource_bytes;
-    if (result.region_exit_bound_source_state == 4u) {
+    if (
+        result.region_exit_bound_source_state == 4u ||
+        result.region_exit_bound_source_state == 5u) {
       result.source_match_status = bound_source_superset
           ? "pending_retire_transfer_source_superset_at_preserved_phase_submit"
           : "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit";
@@ -2024,6 +2148,25 @@ Context::snapshot_stack_region_pending_retire_transfer(
           ? "pending_retire_transfer_source_superset_at_region_exit_submit"
           : "pending_retire_transfer_source_partially_bound_to_region_exit_submit";
     }
+  }
+  const bool preserved_phase_handoff_transferred =
+      stack_region_pending_retire_transfer_owner_preserved_phase_handoff_enabled() &&
+      (result.region_exit_bound_source_state == 5u ||
+       result.region_exit_bound_source_state == 6u) &&
+      result.region_exit_bound_resource_count > 0u;
+  if (preserved_phase_handoff_transferred) {
+    result.transfer_plan_available = true;
+    result.transfer_behavior_enabled = true;
+    result.transfers_pending_retires = true;
+    result.result_status =
+        "pending_retire_transfer_plan_available_preserved_phase_submit_handoff_transferred";
+    result.transfer_status =
+        "pending_retire_transfer_preserved_phase_submit_handoff_transferred";
+    result.top_blocker = "none";
+    result.current_owner_status =
+        "pending_retires_transferred_to_preserved_phase_submit_handoff";
+    result.requested_owner_status =
+        "region_pending_retires_owner_preserved_phase_submit_handoff_transferred";
   }
   return result;
 }
@@ -3136,11 +3279,17 @@ VulkanSubmission Context::submit_cmd_to_gpu(
         inspect_pending_resource(pending);
       }
     }
+    if (record_phase_boundary_dry_run) {
+      dry_run_allocation_signature =
+          stack_region_format_allocation_signature(dry_run_allocation_ranges);
+    }
     if (record_phase_boundary_dry_run && pending_resource_count > 0u) {
       snapshot_stack_region_pending_retire_transfer_source_locked(
           4u,
           /*include_context_pending_retires=*/true,
           /*preserve_larger_source=*/true);
+      transfer_pending_retires_to_stack_region_handoff_locked(
+          callsite, dry_run_allocation_signature);
     }
     if (
         record_phase_boundary_dry_run &&
@@ -3169,16 +3318,6 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       }
       dry_run_signature = dry_run_signature_stream.str();
       dry_run_blocker_signature = dry_run_blocker_signature_stream.str();
-      std::ostringstream dry_run_allocation_signature_stream;
-      for (const auto& entry : dry_run_allocation_ranges) {
-        if (dry_run_allocation_signature_stream.tellp() > 0) {
-          dry_run_allocation_signature_stream << ",";
-        }
-        dry_run_allocation_signature_stream << entry.first << "#"
-                                            << entry.second.first << "#"
-                                            << entry.second.second;
-      }
-      dry_run_allocation_signature = dry_run_allocation_signature_stream.str();
       std::ostringstream dry_run_raw_provenance_signature_stream;
       for (const auto& entry : dry_run_raw_provenance) {
         if (dry_run_raw_provenance_signature_stream.tellp() > 0) {
@@ -3507,10 +3646,14 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   const bool bind_stack_internal_source_at_stack_exit =
       stack_region_pending_retire_transfer_owner_stack_internal_enabled() &&
       stack_region_close_submit_owner_stack_exit_enabled();
+  const bool pending_retire_handoff_at_stack_exit =
+      has_stack_region_pending_retire_handoff_batch_locked();
   snapshot_stack_region_pending_retire_transfer_source_locked(
-      2u,
+      pending_retire_handoff_at_stack_exit ? 6u : 2u,
       /*include_context_pending_retires=*/false,
-      /*preserve_larger_source=*/!bind_stack_internal_source_at_stack_exit);
+      /*preserve_larger_source=*/
+      !bind_stack_internal_source_at_stack_exit &&
+          !pending_retire_handoff_at_stack_exit);
   retire_stack_internal_temp_retire_batch_locked(submission);
   retire_stack_region_pending_retire_handoff_batch_locked(submission);
   stack_planned_recording_active_.store(false, std::memory_order_release);
@@ -3536,8 +3679,12 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       2u, std::memory_order_release);
   stack_region_retire_timeline_owner_state_.store(
       2u, std::memory_order_release);
+  const uint32_t pending_retire_transfer_owner_state =
+      stack_region_pending_retire_transfer_owner_state_.load(
+          std::memory_order_acquire);
   stack_region_pending_retire_transfer_owner_state_.store(
-      2u, std::memory_order_release);
+      pending_retire_transfer_owner_state == 4u ? 5u : 2u,
+      std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   return stats;
@@ -3576,8 +3723,12 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       3u, std::memory_order_release);
   stack_region_retire_timeline_owner_state_.store(
       3u, std::memory_order_release);
+  const uint32_t pending_retire_transfer_owner_state =
+      stack_region_pending_retire_transfer_owner_state_.load(
+          std::memory_order_acquire);
   stack_region_pending_retire_transfer_owner_state_.store(
-      3u, std::memory_order_release);
+      pending_retire_transfer_owner_state == 4u ? 6u : 3u,
+      std::memory_order_release);
   stack_planned_recording_owner_ = std::thread::id{};
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
   submit_cmd_to_gpu(VK_NULL_HANDLE, false, VulkanSubmitOrigin::PostStackFlush);
@@ -3699,6 +3850,141 @@ void Context::clear_stack_region_pending_retire_handoff_batch_locked() {
       stack_region_pending_retire_handoff_batch_mutex_);
   stack_region_pending_retire_handoff_buffers_.clear();
   stack_region_pending_retire_handoff_images_.clear();
+}
+
+bool Context::has_stack_region_pending_retire_handoff_batch_locked() {
+  std::lock_guard<std::mutex> handoff_lock(
+      stack_region_pending_retire_handoff_batch_mutex_);
+  return !stack_region_pending_retire_handoff_buffers_.empty() ||
+      !stack_region_pending_retire_handoff_images_.empty();
+}
+
+bool Context::transfer_pending_retires_to_stack_region_handoff_locked(
+    const VulkanRetireCallSite callsite,
+    const std::string& target_allocation_signature) {
+  if (!stack_region_pending_retire_transfer_owner_preserved_phase_handoff_enabled()) {
+    return false;
+  }
+  if (
+      current_submit_phase() != VulkanSubmitPhase::StackOwner ||
+      (callsite != VulkanRetireCallSite::StackOwnerPhaseBoundary &&
+       callsite != VulkanRetireCallSite::StackOwnerNorm1 &&
+       callsite != VulkanRetireCallSite::StackOwnerNorm2) ||
+      !is_stack_planned_recording_active() ||
+      !stack_planned_recording_owned_by_current_thread()) {
+    return false;
+  }
+
+  const std::set<std::string> target_keys =
+      stack_region_pending_retire_handoff_target_keys(
+          target_allocation_signature);
+  if (target_keys.empty()) {
+    return false;
+  }
+
+  std::set<std::string> candidate_keys;
+  bool duplicate_identity = false;
+  const auto collect_key = [&](const auto& pending) {
+    std::string key;
+    if (!stack_region_pending_retire_handoff_candidate(
+            pending, callsite, &key)) {
+      return;
+    }
+    if (target_keys.find(key) == target_keys.end()) {
+      return;
+    }
+    if (!candidate_keys.insert(std::move(key)).second) {
+      duplicate_identity = true;
+    }
+  };
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(
+        pending_retire_buffers_mutex_);
+    for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
+      collect_key(pending);
+    }
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    for (const PendingRetireImage& pending : pending_retire_images_) {
+      collect_key(pending);
+    }
+  }
+  if (duplicate_identity || candidate_keys.empty()) {
+    return false;
+  }
+
+  std::vector<PendingRetireBuffer> moved_buffers;
+  std::vector<PendingRetireImage> moved_images;
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(
+        pending_retire_buffers_mutex_);
+    std::vector<PendingRetireBuffer> remaining_buffers;
+    remaining_buffers.reserve(pending_retire_buffers_.size());
+    for (PendingRetireBuffer& pending : pending_retire_buffers_) {
+      std::string key;
+      if (
+          stack_region_pending_retire_handoff_candidate(
+              pending, callsite, &key) &&
+          candidate_keys.find(key) != candidate_keys.end()) {
+        if (pending.buffer.owns_memory()) {
+          mark_vulkan_memory_residency_state(
+              pending.buffer.allocation_id(),
+              "stack_region_pending_retire_handoff");
+          pending_retire_bytes_.fetch_sub(
+              pending.bytes, std::memory_order_relaxed);
+        }
+        moved_buffers.push_back(std::move(pending));
+      } else {
+        remaining_buffers.push_back(std::move(pending));
+      }
+    }
+    pending_retire_buffers_.swap(remaining_buffers);
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    std::vector<PendingRetireImage> remaining_images;
+    remaining_images.reserve(pending_retire_images_.size());
+    for (PendingRetireImage& pending : pending_retire_images_) {
+      std::string key;
+      if (
+          stack_region_pending_retire_handoff_candidate(
+              pending, callsite, &key) &&
+          candidate_keys.find(key) != candidate_keys.end()) {
+        if (pending.image.owns_memory()) {
+          mark_vulkan_memory_residency_state(
+              pending.image.allocation_id(),
+              "stack_region_pending_retire_handoff");
+          pending_retire_bytes_.fetch_sub(
+              pending.bytes, std::memory_order_relaxed);
+        }
+        moved_images.push_back(std::move(pending));
+      } else {
+        remaining_images.push_back(std::move(pending));
+      }
+    }
+    pending_retire_images_.swap(remaining_images);
+  }
+  if (moved_buffers.empty() && moved_images.empty()) {
+    return false;
+  }
+  {
+    std::lock_guard<std::mutex> handoff_lock(
+        stack_region_pending_retire_handoff_batch_mutex_);
+    for (auto& pending : moved_buffers) {
+      stack_region_pending_retire_handoff_buffers_.push_back(std::move(pending));
+    }
+    for (auto& pending : moved_images) {
+      stack_region_pending_retire_handoff_images_.push_back(std::move(pending));
+    }
+  }
+  stack_region_pending_retire_transfer_owner_state_.store(
+      4u, std::memory_order_release);
+  snapshot_stack_region_pending_retire_transfer_source_locked(
+      5u,
+      /*include_context_pending_retires=*/false,
+      /*preserve_larger_source=*/false);
+  return true;
 }
 
 void Context::snapshot_stack_region_pending_retire_transfer_source_locked(

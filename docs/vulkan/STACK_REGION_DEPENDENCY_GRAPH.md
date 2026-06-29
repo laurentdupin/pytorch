@@ -900,29 +900,35 @@ same stack-region instance. That comparison can prove the graph pending set is
 present at the preserved phase-submit source while the stack-exit batch source
 is a different allocation set. The preserved source fields include source id,
 state, status, resource count/bytes, allocation signature, identity status, and
-missing identity counts. This is still a handoff candidate only: the preserved
-phase-submit path remains `context_owned_not_transferred`, and no
+missing identity counts. By default this is still a handoff candidate only:
+the preserved phase-submit path remains `context_owned_not_transferred`, and no
 pending-retire transfer or submit elision is authorized.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner
-decision. The current implementation is still behavior-neutral: it can expose
-an accounting surface and the concrete source that would need to move, but it
-keeps transfer behavior disabled. Generic rows keep `owner_available=0`; rows
-with a concrete source match can expose `owner_available=1` for accounting
-only. All rows keep `behavior_enabled=0`, `transfers_pending_retires=0`, and
-`authorizes_submit_elision=0`. A complete source therefore fails closed on
+decision. Generic rows keep `owner_available=0`; rows with a concrete source
+match can expose `owner_available=1` for accounting only. Without an opt-in
+handoff canary, rows keep `behavior_enabled=0`,
+`transfers_pending_retires=0`, and `authorizes_submit_elision=0`. A complete
+source therefore fails closed on
 `pending_retire_transfer_owner_behavior_disabled`, a source available only at
 the preserved phase submit fails closed on
 `pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled`
 with
 `pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed`,
-and it emits explicit handoff API-present/candidate/behavior/transfer fields
-with transfer behavior disabled,
+and it emits explicit handoff API-present/candidate/behavior/transfer fields.
 `Context` also owns an empty-by-default stack-region pending-retire handoff
 batch with stack-entry clear, stack-exit retire, cancel restore, forced-clear
-cleanup, and source-signature participation. No runtime path moves entries into
-that batch yet, so the scaffold is behavior-neutral.
+cleanup, and source-signature participation. The opt-in
+`PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER=preserved_phase_submit_handoff`
+canary moves only exact allocation id/generation/byte-range/resource-class
+matches from the live phase-boundary target signature into that batch. It
+preserves the phase-boundary submit, keeps submit elision disabled, restores the
+batch on stack cancel, and retires the batch at stack exit under the observed
+stack-exit submission timeline. The current synthetic bridge run demonstrates
+partial handoff: exact eligible entries move, but one capture-sensitive
+activation remains outside the canary, so full pending-retire transfer
+ownership stays fail-closed and submit elision remains unauthorized.
 an incomplete or bookkeeping-excluded source fails closed on
 `pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.

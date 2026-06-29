@@ -209,6 +209,10 @@ class TORCH_API Context final {
       const VulkanSubmission& submission);
   void retire_stack_region_pending_retire_handoff_batch_locked(
       const VulkanSubmission& submission);
+  bool transfer_pending_retires_to_stack_region_handoff_locked(
+      VulkanRetireCallSite callsite,
+      const std::string& target_allocation_signature);
+  bool has_stack_region_pending_retire_handoff_batch_locked();
   void snapshot_stack_region_pending_retire_transfer_source_locked(
       uint32_t state,
       bool include_context_pending_retires = false,

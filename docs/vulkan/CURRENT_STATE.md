@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-29 after pending-retire transfer source-identity
-diagnostics on top of 2b3f254.
+Last refreshed: 2026-06-29 after opt-in preserved phase-submit pending-retire
+handoff canary work on top of 051283b.
 
 ## Repo State Summary
 
@@ -650,9 +650,18 @@ behavior-enabled, and transfer flags, all keeping behavior disabled and
 `transfers_pending_retires=0`.
 `Context` now has an empty-by-default stack-region pending-retire handoff batch
 with stack-entry clear, stack-exit retire, cancel restore, forced-clear cleanup,
-and source-signature participation. No producer moves entries into that batch
-yet, so the scaffold is behavior-neutral and only prepares the future exact
-identity canary.
+and source-signature participation. By default no producer moves entries into
+that batch. The opt-in
+`PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER=preserved_phase_submit_handoff`
+canary moves only exact allocation id/generation/byte-range/resource-class
+matches from the live phase-boundary target signature into that batch. The
+phase-boundary submit is preserved, submit elision remains disabled, and stack
+exit retires the handoff batch only under the observed stack-exit submission
+timeline; cancel restores entries to normal pending-retire storage. The first
+synthetic bridge run transfers exact eligible entries but still reports partial
+identity coverage because one capture-sensitive activation remains unowned by
+the canary. Full pending-retire transfer ownership therefore remains fail-closed
+on the missing identity and does not authorize submit elision.
 when the source identity is incomplete, including bookkeeping-excluded
 count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;

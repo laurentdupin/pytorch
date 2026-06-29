@@ -25491,6 +25491,14 @@ request_stack_region_pending_retire_transfer_owner(
       preserved_phase_submit_identity_available &&
       request.preserved_phase_submit_source_status ==
           "pending_retire_transfer_source_bound_to_preserved_phase_submit_context_owned_not_transferred";
+  const bool preserved_phase_submit_handoff_transferred =
+      request.transfer_behavior_enabled && request.transfers_pending_retires &&
+      (request.region_exit_bound_source_allocation_signature != "missing" &&
+       request.region_exit_bound_source_allocation_signature != "none") &&
+      (request.source_identity_match_status ==
+           "pending_retire_transfer_source_identity_exact" ||
+       request.source_identity_match_status ==
+           "pending_retire_transfer_source_identity_required_entries_present_source_superset");
   const bool source_available =
       raw_source_available && source_identity_available;
   const bool source_identity_incomplete =
@@ -25501,20 +25509,26 @@ request_stack_region_pending_retire_transfer_owner(
       request.source_match_status ==
           "pending_retire_transfer_source_superset_at_preserved_phase_submit";
   result.owner_surface_available = true;
-  result.owner_available = source_available;
-  result.behavior_enabled = false;
-  result.transfers_pending_retires = false;
+  result.owner_available = source_available ||
+      preserved_phase_submit_handoff_transferred;
+  result.behavior_enabled = preserved_phase_submit_handoff_transferred;
+  result.transfers_pending_retires = preserved_phase_submit_handoff_transferred;
   result.authorizes_submit_elision = false;
-  result.result_status =
-      "pending_retire_transfer_owner_result_accounting_available_behavior_disabled";
-  result.owner_status = source_available
+  result.result_status = preserved_phase_submit_handoff_transferred
+      ? "pending_retire_transfer_owner_result_preserved_phase_submit_handoff_transferred_no_submit_elision"
+      : "pending_retire_transfer_owner_result_accounting_available_behavior_disabled";
+  result.owner_status = preserved_phase_submit_handoff_transferred
+      ? "pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred_no_submit_elision"
+      : (source_available
       ? "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed"
       : (preserved_phase_submit_handoff_candidate
              ? "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed"
              : (source_preserved_phase_submit
                     ? "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed"
-                    : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed"));
-  result.top_blocker = source_available
+                    : "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed")));
+  result.top_blocker = preserved_phase_submit_handoff_transferred
+      ? "none"
+      : (source_available
       ? "pending_retire_transfer_owner_behavior_disabled"
       : (preserved_phase_submit_handoff_candidate
              ? "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled"
@@ -25522,8 +25536,10 @@ request_stack_region_pending_retire_transfer_owner(
                     ? "pending_retire_transfer_source_preserved_phase_submit_owned"
                     : (source_identity_incomplete
                            ? "pending_retire_transfer_source_identity_incomplete"
-                           : "pending_retire_transfer_source_incomplete")));
-  result.implementation_status = source_available
+                           : "pending_retire_transfer_source_incomplete"))));
+  result.implementation_status = preserved_phase_submit_handoff_transferred
+      ? "pending_retire_transfer_owner_preserved_phase_submit_handoff_transferred"
+      : (source_available
       ? "pending_retire_transfer_owner_region_handoff_behavior_disabled"
       : (preserved_phase_submit_handoff_candidate
              ? "pending_retire_transfer_owner_preserved_phase_submit_handoff_behavior_disabled"
@@ -25531,30 +25547,43 @@ request_stack_region_pending_retire_transfer_owner(
                     ? "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled"
                     : (source_identity_incomplete
                            ? "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled"
-                           : "pending_retire_transfer_owner_source_incomplete_behavior_disabled")));
+                           : "pending_retire_transfer_owner_source_incomplete_behavior_disabled"))));
   result.preserved_phase_submit_handoff_status =
-      preserved_phase_submit_handoff_candidate
+      preserved_phase_submit_handoff_transferred
+      ? "pending_retire_transfer_preserved_phase_submit_handoff_transferred"
+      : (preserved_phase_submit_handoff_candidate
       ? "pending_retire_transfer_preserved_phase_submit_handoff_available_behavior_disabled"
-      : "pending_retire_transfer_preserved_phase_submit_handoff_unavailable";
+      : "pending_retire_transfer_preserved_phase_submit_handoff_unavailable");
   result.preserved_phase_submit_handoff_candidate_available =
-      preserved_phase_submit_handoff_candidate;
+      preserved_phase_submit_handoff_candidate ||
+      preserved_phase_submit_handoff_transferred;
   result.preserved_phase_submit_handoff_api_present = true;
-  result.preserved_phase_submit_handoff_behavior_enabled = false;
-  result.preserved_phase_submit_handoff_transfers_pending_retires = false;
+  result.preserved_phase_submit_handoff_behavior_enabled =
+      preserved_phase_submit_handoff_transferred;
+  result.preserved_phase_submit_handoff_transfers_pending_retires =
+      preserved_phase_submit_handoff_transferred;
   result.preserved_phase_submit_handoff_result_status =
-      preserved_phase_submit_handoff_candidate
+      preserved_phase_submit_handoff_transferred
+      ? "pending_retire_transfer_preserved_phase_submit_handoff_transferred_no_submit_elision"
+      : (preserved_phase_submit_handoff_candidate
       ? "pending_retire_transfer_preserved_phase_submit_handoff_api_present_behavior_disabled_fail_closed"
-      : "pending_retire_transfer_preserved_phase_submit_handoff_result_unavailable";
+      : "pending_retire_transfer_preserved_phase_submit_handoff_result_unavailable");
   result.preserved_phase_submit_handoff_top_blocker =
-      preserved_phase_submit_handoff_candidate
+      preserved_phase_submit_handoff_transferred
+      ? "none"
+      : (preserved_phase_submit_handoff_candidate
       ? "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled"
-      : "pending_retire_transfer_preserved_phase_submit_handoff_unavailable";
-  result.current_owner_status = preserved_phase_submit_handoff_candidate
+      : "pending_retire_transfer_preserved_phase_submit_handoff_unavailable");
+  result.current_owner_status = preserved_phase_submit_handoff_transferred
+      ? "pending_retires_transferred_to_preserved_phase_submit_handoff"
+      : (preserved_phase_submit_handoff_candidate
       ? "pending_retires_still_preserved_phase_submit_owned"
-      : "pending_retires_still_context_or_preserved_submit_owned";
-  result.requested_owner_status = preserved_phase_submit_handoff_candidate
+      : "pending_retires_still_context_or_preserved_submit_owned");
+  result.requested_owner_status = preserved_phase_submit_handoff_transferred
+      ? "region_pending_retires_owner_preserved_phase_submit_handoff_transferred"
+      : (preserved_phase_submit_handoff_candidate
       ? "region_pending_retires_owner_recorded_preserved_phase_submit_handoff_behavior_disabled"
-      : "region_pending_retires_owner_recorded_behavior_disabled";
+      : "region_pending_retires_owner_recorded_behavior_disabled");
   return result;
 }
 
