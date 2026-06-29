@@ -11,6 +11,7 @@
 #include <sstream>
 #include <set>
 #include <unordered_map>
+#include <vector>
 
 #ifndef VULKAN_DESCRIPTOR_POOL_SIZE
 #define VULKAN_DESCRIPTOR_POOL_SIZE 1024u
@@ -498,6 +499,216 @@ std::string stack_region_diagnostic_token(const std::string& value) {
     }
   }
   return token.empty() ? "none" : token;
+}
+
+uint64_t stack_region_parse_u64_or(
+    const std::string& value,
+    const uint64_t fallback = 0u) {
+  if (value.empty()) {
+    return fallback;
+  }
+  try {
+    size_t parsed = 0u;
+    const uint64_t result = std::stoull(value, &parsed);
+    return parsed == value.size() ? result : fallback;
+  } catch (...) {
+    return fallback;
+  }
+}
+
+bool stack_region_pending_retire_bookkeeping_class(
+    const std::string& resource_class) {
+  return resource_class == "metadata_uniform" ||
+      resource_class == "layernorm_internal_stat_buffer" ||
+      resource_class == "layernorm_stat_buffer";
+}
+
+struct PendingRetireAllocationSignatureCoverage final {
+  uint64_t transfer_required_count = 0u;
+  uint64_t transfer_required_bytes = 0u;
+  uint64_t missing_count = 0u;
+  uint64_t missing_bytes = 0u;
+  std::string transfer_required_signature = "missing";
+  std::string status = "pending_retire_transfer_source_identity_unavailable";
+};
+
+void stack_region_accumulate_pending_retire_allocation_signature(
+    std::map<std::string, std::pair<uint64_t, uint64_t>>& resources,
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const char* const resource_class,
+    const uint64_t bytes) {
+  if (!allocation_proof.has_generation || !allocation_proof.has_byte_range) {
+    return;
+  }
+  std::ostringstream key;
+  key << allocation_proof.allocation_id << "#"
+      << allocation_proof.allocation_generation << "#"
+      << allocation_proof.byte_offset << "#" << allocation_proof.byte_range
+      << "#" << (resource_class ? resource_class : "unknown");
+  auto& value = resources[key.str()];
+  value.first += 1u;
+  value.second += bytes;
+}
+
+template <typename PendingRetire>
+void stack_region_accumulate_pending_retire_allocation_signature(
+    std::map<std::string, std::pair<uint64_t, uint64_t>>& resources,
+    const PendingRetire& pending) {
+  const bool qkv_would_batch =
+      is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
+  const VulkanStackRawResourceAllocationProof allocation_proof =
+      stack_raw_allocation_proof(pending);
+  const char* const resource_class =
+      stack_subresource_lifetime_dry_run_resource_class(
+          pending.kind,
+          pending.role,
+          pending.stack_provenance,
+          qkv_would_batch,
+          allocation_proof);
+  stack_region_accumulate_pending_retire_allocation_signature(
+      resources, allocation_proof, resource_class, pending.bytes);
+}
+
+std::string stack_region_format_allocation_signature(
+    const std::map<std::string, std::pair<uint64_t, uint64_t>>& resources) {
+  if (resources.empty()) {
+    return "none";
+  }
+  std::ostringstream signature;
+  for (const auto& entry : resources) {
+    if (signature.tellp() > 0) {
+      signature << ",";
+    }
+    signature << entry.first << "#" << entry.second.first << "#"
+              << entry.second.second;
+  }
+  return signature.str();
+}
+
+PendingRetireAllocationSignatureCoverage
+stack_region_compare_pending_retire_source_identity(
+    const std::string& graph_signature,
+    const std::string& source_signature) {
+  PendingRetireAllocationSignatureCoverage coverage;
+  if (
+      graph_signature.empty() || graph_signature == "missing" ||
+      graph_signature == "none") {
+    coverage.status = "pending_retire_transfer_source_identity_missing_graph_signature";
+    return coverage;
+  }
+  std::string normalized_graph_signature = graph_signature;
+  std::replace(
+      normalized_graph_signature.begin(),
+      normalized_graph_signature.end(),
+      '|',
+      ',');
+  std::map<std::string, std::pair<uint64_t, uint64_t>> graph_required;
+  std::istringstream graph_entries(normalized_graph_signature);
+  std::string entry;
+  uint64_t malformed_graph_entry_count = 0u;
+  while (std::getline(graph_entries, entry, ',')) {
+    std::vector<std::string> parts;
+    std::istringstream part_stream(entry);
+    std::string part;
+    while (std::getline(part_stream, part, '#')) {
+      parts.emplace_back(part);
+    }
+    if (parts.size() != 7u) {
+      ++malformed_graph_entry_count;
+      continue;
+    }
+    const std::string& resource_class = parts[4];
+    if (stack_region_pending_retire_bookkeeping_class(resource_class)) {
+      continue;
+    }
+    const std::string key =
+        parts[0] + "#" + parts[1] + "#" + parts[2] + "#" + parts[3] +
+        "#" + resource_class;
+    const uint64_t count = stack_region_parse_u64_or(parts[5]);
+    const uint64_t bytes = stack_region_parse_u64_or(parts[6]);
+    auto& value = graph_required[key];
+    value.first += count;
+    value.second += bytes;
+    coverage.transfer_required_count += count;
+    coverage.transfer_required_bytes += bytes;
+  }
+  coverage.transfer_required_signature =
+      stack_region_format_allocation_signature(graph_required);
+  if (graph_required.empty()) {
+    coverage.status = malformed_graph_entry_count > 0u
+        ? "pending_retire_transfer_source_identity_malformed_graph_signature"
+        : "pending_retire_transfer_source_identity_no_transfer_required_entries";
+    return coverage;
+  }
+  if (
+      source_signature.empty() || source_signature == "missing" ||
+      source_signature == "none") {
+    coverage.missing_count = coverage.transfer_required_count;
+    coverage.missing_bytes = coverage.transfer_required_bytes;
+    coverage.status = "pending_retire_transfer_source_identity_source_not_bound";
+    return coverage;
+  }
+  std::string normalized_source_signature = source_signature;
+  std::replace(
+      normalized_source_signature.begin(),
+      normalized_source_signature.end(),
+      '|',
+      ',');
+  std::map<std::string, std::pair<uint64_t, uint64_t>> source;
+  std::istringstream source_entries(normalized_source_signature);
+  uint64_t malformed_source_entry_count = 0u;
+  while (std::getline(source_entries, entry, ',')) {
+    std::vector<std::string> parts;
+    std::istringstream part_stream(entry);
+    std::string part;
+    while (std::getline(part_stream, part, '#')) {
+      parts.emplace_back(part);
+    }
+    if (parts.size() != 7u) {
+      ++malformed_source_entry_count;
+      continue;
+    }
+    const std::string key =
+        parts[0] + "#" + parts[1] + "#" + parts[2] + "#" + parts[3] +
+        "#" + parts[4];
+    auto& value = source[key];
+    value.first += stack_region_parse_u64_or(parts[5]);
+    value.second += stack_region_parse_u64_or(parts[6]);
+  }
+  bool any_match = false;
+  if (source.empty() && malformed_source_entry_count > 0u) {
+    coverage.missing_count = coverage.transfer_required_count;
+    coverage.missing_bytes = coverage.transfer_required_bytes;
+    coverage.status =
+        "pending_retire_transfer_source_identity_malformed_source_signature";
+    return coverage;
+  }
+  for (const auto& item : graph_required) {
+    const auto source_it = source.find(item.first);
+    if (source_it == source.end()) {
+      coverage.missing_count += item.second.first;
+      coverage.missing_bytes += item.second.second;
+      continue;
+    }
+    any_match = true;
+    if (source_it->second.first < item.second.first) {
+      coverage.missing_count += item.second.first - source_it->second.first;
+    }
+    if (source_it->second.second < item.second.second) {
+      coverage.missing_bytes += item.second.second - source_it->second.second;
+    }
+  }
+  if (coverage.missing_count == 0u && coverage.missing_bytes == 0u) {
+    coverage.status =
+        source.size() == graph_required.size()
+        ? "pending_retire_transfer_source_identity_exact"
+        : "pending_retire_transfer_source_identity_required_entries_present_source_superset";
+  } else if (any_match) {
+    coverage.status = "pending_retire_transfer_source_identity_partial";
+  } else {
+    coverage.status = "pending_retire_transfer_source_identity_missing";
+  }
+  return coverage;
 }
 
 bool stack_region_raw_provenance_diagnostic_class(
@@ -1528,6 +1739,33 @@ Context::snapshot_stack_region_pending_retire_transfer(
   result.region_exit_bound_source_status =
       stack_region_pending_retire_transfer_source_state_name(
           bound_source_state);
+  {
+    std::lock_guard<std::mutex> signature_lock(
+        stack_region_pending_retire_transfer_source_signature_mutex_);
+    result.region_exit_bound_source_allocation_signature =
+        stack_region_pending_retire_transfer_source_signature_.empty()
+        ? "missing"
+        : stack_region_pending_retire_transfer_source_signature_;
+  }
+  const PendingRetireAllocationSignatureCoverage identity_coverage =
+      stack_region_compare_pending_retire_source_identity(
+          request.graph_pending_allocation_signature,
+          result.region_exit_bound_source_allocation_signature);
+  result.graph_pending_allocation_signature =
+      request.graph_pending_allocation_signature.empty()
+      ? "missing"
+      : request.graph_pending_allocation_signature;
+  result.graph_transfer_required_allocation_signature =
+      identity_coverage.transfer_required_signature;
+  result.graph_transfer_required_identity_resource_count =
+      identity_coverage.transfer_required_count;
+  result.graph_transfer_required_identity_resource_bytes =
+      identity_coverage.transfer_required_bytes;
+  result.region_exit_bound_missing_transfer_required_identity_count =
+      identity_coverage.missing_count;
+  result.region_exit_bound_missing_transfer_required_identity_bytes =
+      identity_coverage.missing_bytes;
+  result.source_identity_match_status = identity_coverage.status;
   result.region_exit_bound_missing_resource_count =
       request.graph_pending_resource_count >
           result.region_exit_bound_resource_count
@@ -3108,6 +3346,11 @@ void Context::begin_stack_planned_recording() {
       0u, std::memory_order_release);
   stack_region_pending_retire_transfer_source_state_.store(
       1u, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> signature_lock(
+        stack_region_pending_retire_transfer_source_signature_mutex_);
+    stack_region_pending_retire_transfer_source_signature_.clear();
+  }
   stack_planned_recording_active_.store(true, std::memory_order_release);
 }
 
@@ -3312,6 +3555,8 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
     const bool preserve_larger_source) {
   uint64_t resource_count = 0u;
   uint64_t resource_bytes = 0u;
+  std::map<std::string, std::pair<uint64_t, uint64_t>>
+      allocation_signature_resources;
   if (include_context_pending_retires) {
     {
       std::lock_guard<std::mutex> bufferlist_lock(
@@ -3319,6 +3564,8 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
       resource_count += pending_retire_buffers_.size();
       for (const PendingRetireBuffer& pending : pending_retire_buffers_) {
         resource_bytes += pending.bytes;
+        stack_region_accumulate_pending_retire_allocation_signature(
+            allocation_signature_resources, pending);
       }
     }
     {
@@ -3326,6 +3573,8 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
       resource_count += pending_retire_images_.size();
       for (const PendingRetireImage& pending : pending_retire_images_) {
         resource_bytes += pending.bytes;
+        stack_region_accumulate_pending_retire_allocation_signature(
+            allocation_signature_resources, pending);
       }
     }
   }
@@ -3336,13 +3585,19 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
     for (const PendingRetireBuffer& pending :
          stack_internal_temp_retire_batch_buffers_) {
       resource_bytes += pending.bytes;
+      stack_region_accumulate_pending_retire_allocation_signature(
+          allocation_signature_resources, pending);
     }
     resource_count += stack_internal_temp_retire_batch_images_.size();
     for (const PendingRetireImage& pending :
          stack_internal_temp_retire_batch_images_) {
       resource_bytes += pending.bytes;
+      stack_region_accumulate_pending_retire_allocation_signature(
+          allocation_signature_resources, pending);
     }
   }
+  const std::string allocation_signature =
+      stack_region_format_allocation_signature(allocation_signature_resources);
   if (preserve_larger_source) {
     const uint64_t existing_count =
         stack_region_pending_retire_transfer_source_count_.load(
@@ -3353,9 +3608,16 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
     const uint32_t existing_state =
         stack_region_pending_retire_transfer_source_state_.load(
             std::memory_order_acquire);
+    std::string existing_signature;
+    {
+      std::lock_guard<std::mutex> signature_lock(
+          stack_region_pending_retire_transfer_source_signature_mutex_);
+      existing_signature = stack_region_pending_retire_transfer_source_signature_;
+    }
     if (
         existing_state != 0u && existing_count >= resource_count &&
-        existing_bytes >= resource_bytes) {
+        existing_bytes >= resource_bytes && !existing_signature.empty() &&
+        existing_signature != "missing" && existing_signature != "none") {
       return;
     }
   }
@@ -3365,6 +3627,12 @@ void Context::snapshot_stack_region_pending_retire_transfer_source_locked(
       resource_bytes, std::memory_order_release);
   stack_region_pending_retire_transfer_source_state_.store(
       state, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> signature_lock(
+        stack_region_pending_retire_transfer_source_signature_mutex_);
+    stack_region_pending_retire_transfer_source_signature_ =
+        allocation_signature;
+  }
 }
 
 void Context::restore_stack_internal_temp_retire_batch_to_pending_locked() {

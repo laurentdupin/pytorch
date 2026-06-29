@@ -865,6 +865,21 @@ transfer-required counts. This filtered coverage is an accounting diagnostic,
 not source identity. The main `source_match_status` remains the raw source
 match, and the owner remains fail-closed unless a concrete source match is
 proven without relying on bookkeeping-excluded count/byte coverage.
+The graph now also exports a pending allocation signature for source-identity
+diagnostics. `StackRegionBoundarySubmitPlan.v0` includes
+`pending_allocation_signature` entries keyed by allocation id, generation, byte
+range, resource class, count, and bytes. The pending-retire transfer plan
+filters the graph signature to transfer-required non-bookkeeping entries and
+compares it with the source signature bound at region exit. It reports the
+result as `source_identity_match_status` plus
+`graph_transfer_required_allocation_signature`,
+`region_exit_bound_source_allocation_signature`, and missing transfer-required
+identity count/byte fields. Malformed signatures are explicit fail-closed
+identity statuses, not silently ignored transfer sets. This does not replace
+the raw `source_match_status`: identity coverage is observable, but the owner
+requires exact or source-superset identity coverage before source availability
+can be reported, and no pending-retire entries move until an explicit
+ownership implementation consumes that proof.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner

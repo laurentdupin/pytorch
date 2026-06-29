@@ -1346,6 +1346,7 @@ struct StackRegionPendingRetireTransferRequest final {
   uint64_t graph_pending_resource_bytes = 0u;
   uint64_t graph_bookkeeping_excluded_resource_count = 0u;
   uint64_t graph_bookkeeping_excluded_resource_bytes = 0u;
+  std::string graph_pending_allocation_signature = "missing";
   bool transfer_required = true;
   bool transfer_accounting_available = false;
   bool retire_timeline_owner_available = false;
@@ -1365,6 +1366,8 @@ struct StackRegionPendingRetireTransferResult final {
   uint64_t graph_bookkeeping_excluded_resource_bytes = 0u;
   uint64_t graph_transfer_required_resource_count = 0u;
   uint64_t graph_transfer_required_resource_bytes = 0u;
+  uint64_t graph_transfer_required_identity_resource_count = 0u;
+  uint64_t graph_transfer_required_identity_resource_bytes = 0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
@@ -1377,6 +1380,8 @@ struct StackRegionPendingRetireTransferResult final {
   uint64_t region_exit_bound_missing_resource_bytes = 0u;
   uint64_t region_exit_bound_missing_transfer_required_resource_count = 0u;
   uint64_t region_exit_bound_missing_transfer_required_resource_bytes = 0u;
+  uint64_t region_exit_bound_missing_transfer_required_identity_count = 0u;
+  uint64_t region_exit_bound_missing_transfer_required_identity_bytes = 0u;
   std::string result_status =
       "pending_retire_transfer_plan_result_unavailable";
   std::string transfer_status =
@@ -1388,6 +1393,11 @@ struct StackRegionPendingRetireTransferResult final {
       "pending_retire_transfer_bookkeeping_exclusion_unavailable";
   std::string source_coverage_after_bookkeeping_exclusion_status =
       "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_unavailable";
+  std::string graph_pending_allocation_signature = "missing";
+  std::string graph_transfer_required_allocation_signature = "missing";
+  std::string region_exit_bound_source_allocation_signature = "missing";
+  std::string source_identity_match_status =
+      "pending_retire_transfer_source_identity_unavailable";
   std::string current_owner_status =
       "pending_retires_still_context_owned";
   std::string requested_owner_status =
@@ -1437,12 +1447,16 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
   uint64_t graph_bookkeeping_excluded_resource_bytes = 0u;
   uint64_t graph_transfer_required_resource_count = 0u;
   uint64_t graph_transfer_required_resource_bytes = 0u;
+  uint64_t graph_transfer_required_identity_resource_count = 0u;
+  uint64_t graph_transfer_required_identity_resource_bytes = 0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
   uint64_t stack_internal_batch_resource_bytes = 0u;
   uint64_t region_exit_bound_missing_transfer_required_resource_count = 0u;
   uint64_t region_exit_bound_missing_transfer_required_resource_bytes = 0u;
+  uint64_t region_exit_bound_missing_transfer_required_identity_count = 0u;
+  uint64_t region_exit_bound_missing_transfer_required_identity_bytes = 0u;
   bool owner_required = true;
   bool transfer_plan_available = false;
   bool transfer_behavior_enabled = false;
@@ -1452,6 +1466,11 @@ struct StackRegionPendingRetireTransferOwnerRequest final {
       "pending_retire_transfer_bookkeeping_exclusion_unavailable";
   std::string source_coverage_after_bookkeeping_exclusion_status =
       "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_unavailable";
+  std::string graph_pending_allocation_signature = "missing";
+  std::string graph_transfer_required_allocation_signature = "missing";
+  std::string region_exit_bound_source_allocation_signature = "missing";
+  std::string source_identity_match_status =
+      "pending_retire_transfer_source_identity_unavailable";
 };
 
 struct StackRegionPendingRetireTransferOwnerResult final {
@@ -1468,12 +1487,16 @@ struct StackRegionPendingRetireTransferOwnerResult final {
   uint64_t graph_bookkeeping_excluded_resource_bytes = 0u;
   uint64_t graph_transfer_required_resource_count = 0u;
   uint64_t graph_transfer_required_resource_bytes = 0u;
+  uint64_t graph_transfer_required_identity_resource_count = 0u;
+  uint64_t graph_transfer_required_identity_resource_bytes = 0u;
   uint64_t context_pending_resource_count = 0u;
   uint64_t context_pending_resource_bytes = 0u;
   uint64_t stack_internal_batch_resource_count = 0u;
   uint64_t stack_internal_batch_resource_bytes = 0u;
   uint64_t region_exit_bound_missing_transfer_required_resource_count = 0u;
   uint64_t region_exit_bound_missing_transfer_required_resource_bytes = 0u;
+  uint64_t region_exit_bound_missing_transfer_required_identity_count = 0u;
+  uint64_t region_exit_bound_missing_transfer_required_identity_bytes = 0u;
   uint64_t lifecycle_id = 0u;
   uint32_t lifecycle_state = 0u;
   std::string result_status =
@@ -1489,6 +1512,11 @@ struct StackRegionPendingRetireTransferOwnerResult final {
       "pending_retire_transfer_bookkeeping_exclusion_unavailable";
   std::string source_coverage_after_bookkeeping_exclusion_status =
       "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_unavailable";
+  std::string graph_pending_allocation_signature = "missing";
+  std::string graph_transfer_required_allocation_signature = "missing";
+  std::string region_exit_bound_source_allocation_signature = "missing";
+  std::string source_identity_match_status =
+      "pending_retire_transfer_source_identity_unavailable";
   std::string current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   std::string requested_owner_status =

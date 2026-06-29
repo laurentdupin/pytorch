@@ -9280,6 +9280,7 @@ void append_stack_region_submit_epoch_ordering_json(
     std::string actual_descriptor_update_generation_tokens = "missing";
     std::string pending_dispatch_identities = "missing";
     std::string pending_dispatch_position_ranges = "missing";
+    std::string pending_allocation_signature = "missing";
     uint64_t retire_side_effect_count = 0u;
     uint64_t retire_side_effect_bytes = 0u;
     uint64_t retire_entry_proven_safe_count = 0u;
@@ -10021,6 +10022,9 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.pending_dispatch_position_ranges,
         field_or(fields, "pending_dispatch_position_first", "missing") + "-" +
             field_or(fields, "pending_dispatch_position_last", "missing"));
+    append_unique_string(
+        proof.pending_allocation_signature,
+        field_or(fields, "pending_allocation_signature", "missing"));
     if (field_or(fields, "pending_dispatch_position_range_available", "0") == "1") {
       proof.pending_dispatch_position_range_available_records += count;
     }
@@ -11744,6 +11748,8 @@ void append_stack_region_submit_epoch_ordering_json(
     pending_retire_transfer_request
         .graph_bookkeeping_excluded_resource_bytes =
             proof.known_harmless_metadata_or_bookkeeping_bytes;
+    pending_retire_transfer_request.graph_pending_allocation_signature =
+        proof.pending_allocation_signature;
     pending_retire_transfer_request.transfer_required =
         phase_submit_execution_flush_dependency_observed;
     pending_retire_transfer_request.transfer_accounting_available =
@@ -11807,6 +11813,14 @@ void append_stack_region_submit_epoch_ordering_json(
         .graph_transfer_required_resource_bytes =
             pending_retire_transfer_result
                 .graph_transfer_required_resource_bytes;
+    pending_retire_transfer_owner_request
+        .graph_transfer_required_identity_resource_count =
+            pending_retire_transfer_result
+                .graph_transfer_required_identity_resource_count;
+    pending_retire_transfer_owner_request
+        .graph_transfer_required_identity_resource_bytes =
+            pending_retire_transfer_result
+                .graph_transfer_required_identity_resource_bytes;
     pending_retire_transfer_owner_request.context_pending_resource_count =
         pending_retire_transfer_result.context_pending_resource_count;
     pending_retire_transfer_owner_request.context_pending_resource_bytes =
@@ -11827,6 +11841,14 @@ void append_stack_region_submit_epoch_ordering_json(
         .region_exit_bound_missing_transfer_required_resource_bytes =
             pending_retire_transfer_result
                 .region_exit_bound_missing_transfer_required_resource_bytes;
+    pending_retire_transfer_owner_request
+        .region_exit_bound_missing_transfer_required_identity_count =
+            pending_retire_transfer_result
+                .region_exit_bound_missing_transfer_required_identity_count;
+    pending_retire_transfer_owner_request
+        .region_exit_bound_missing_transfer_required_identity_bytes =
+            pending_retire_transfer_result
+                .region_exit_bound_missing_transfer_required_identity_bytes;
     pending_retire_transfer_owner_request.owner_required =
         phase_submit_execution_flush_dependency_observed;
     pending_retire_transfer_owner_request.transfer_plan_available =
@@ -11841,6 +11863,18 @@ void append_stack_region_submit_epoch_ordering_json(
         .source_coverage_after_bookkeeping_exclusion_status =
             pending_retire_transfer_result
                 .source_coverage_after_bookkeeping_exclusion_status;
+    pending_retire_transfer_owner_request.graph_pending_allocation_signature =
+        pending_retire_transfer_result.graph_pending_allocation_signature;
+    pending_retire_transfer_owner_request
+        .graph_transfer_required_allocation_signature =
+            pending_retire_transfer_result
+                .graph_transfer_required_allocation_signature;
+    pending_retire_transfer_owner_request
+        .region_exit_bound_source_allocation_signature =
+            pending_retire_transfer_result
+                .region_exit_bound_source_allocation_signature;
+    pending_retire_transfer_owner_request.source_identity_match_status =
+        pending_retire_transfer_result.source_identity_match_status;
     pending_retire_transfer_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
     const StackRegionPendingRetireTransferOwnerResult
@@ -12129,6 +12163,8 @@ void append_stack_region_submit_epoch_ordering_json(
         << proof.pending_dispatch_position_range_complete_records
         << " pending_resource_count=" << proof.pending_resource_count
         << " pending_resource_bytes=" << proof.pending_resource_bytes
+        << " pending_allocation_signature="
+        << proof.pending_allocation_signature
         << " descriptor_update_side_effect_count="
         << proof.descriptor_update_side_effect_count
         << " descriptor_bookkeeping_equivalence_status="
@@ -14375,11 +14411,27 @@ void append_stack_region_submit_epoch_ordering_json(
         << " graph_transfer_required_resource_bytes="
         << pending_retire_transfer_result
                .graph_transfer_required_resource_bytes
+        << " graph_transfer_required_identity_resource_count="
+        << pending_retire_transfer_result
+               .graph_transfer_required_identity_resource_count
+        << " graph_transfer_required_identity_resource_bytes="
+        << pending_retire_transfer_result
+               .graph_transfer_required_identity_resource_bytes
         << " bookkeeping_exclusion_status="
         << pending_retire_transfer_result.bookkeeping_exclusion_status
         << " source_coverage_after_bookkeeping_exclusion_status="
         << pending_retire_transfer_result
                .source_coverage_after_bookkeeping_exclusion_status
+        << " source_identity_match_status="
+        << pending_retire_transfer_result.source_identity_match_status
+        << " graph_pending_allocation_signature="
+        << pending_retire_transfer_result.graph_pending_allocation_signature
+        << " graph_transfer_required_allocation_signature="
+        << pending_retire_transfer_result
+               .graph_transfer_required_allocation_signature
+        << " region_exit_bound_source_allocation_signature="
+        << pending_retire_transfer_result
+               .region_exit_bound_source_allocation_signature
         << " context_pending_resource_count="
         << pending_retire_transfer_result.context_pending_resource_count
         << " context_pending_resource_bytes="
@@ -14410,6 +14462,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_bound_missing_transfer_required_resource_bytes="
         << pending_retire_transfer_result
                .region_exit_bound_missing_transfer_required_resource_bytes
+        << " region_exit_bound_missing_transfer_required_identity_count="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_identity_count
+        << " region_exit_bound_missing_transfer_required_identity_bytes="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_identity_bytes
         << " region_exit_bound_source_coverage_status="
         << pending_retire_transfer_result
                .region_exit_bound_source_coverage_status
@@ -14503,11 +14561,27 @@ void append_stack_region_submit_epoch_ordering_json(
         << " graph_transfer_required_resource_bytes="
         << pending_retire_transfer_owner_result
                .graph_transfer_required_resource_bytes
+        << " graph_transfer_required_identity_resource_count="
+        << pending_retire_transfer_owner_result
+               .graph_transfer_required_identity_resource_count
+        << " graph_transfer_required_identity_resource_bytes="
+        << pending_retire_transfer_owner_result
+               .graph_transfer_required_identity_resource_bytes
         << " bookkeeping_exclusion_status="
         << pending_retire_transfer_owner_result.bookkeeping_exclusion_status
         << " source_coverage_after_bookkeeping_exclusion_status="
         << pending_retire_transfer_owner_result
                .source_coverage_after_bookkeeping_exclusion_status
+        << " source_identity_match_status="
+        << pending_retire_transfer_owner_result.source_identity_match_status
+        << " graph_pending_allocation_signature="
+        << pending_retire_transfer_owner_result.graph_pending_allocation_signature
+        << " graph_transfer_required_allocation_signature="
+        << pending_retire_transfer_owner_result
+               .graph_transfer_required_allocation_signature
+        << " region_exit_bound_source_allocation_signature="
+        << pending_retire_transfer_owner_result
+               .region_exit_bound_source_allocation_signature
         << " context_pending_resource_count="
         << pending_retire_transfer_owner_result.context_pending_resource_count
         << " context_pending_resource_bytes="
@@ -14524,6 +14598,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_bound_missing_transfer_required_resource_bytes="
         << pending_retire_transfer_owner_result
                .region_exit_bound_missing_transfer_required_resource_bytes
+        << " region_exit_bound_missing_transfer_required_identity_count="
+        << pending_retire_transfer_owner_result
+               .region_exit_bound_missing_transfer_required_identity_count
+        << " region_exit_bound_missing_transfer_required_identity_bytes="
+        << pending_retire_transfer_owner_result
+               .region_exit_bound_missing_transfer_required_identity_bytes
         << " transfer_plan_available="
         << (pending_retire_transfer_owner_request.transfer_plan_available ? "1"
                                                                          : "0")
@@ -14751,12 +14831,34 @@ void append_stack_region_submit_epoch_ordering_json(
         << " pending_retire_transfer_graph_transfer_required_resource_bytes="
         << pending_retire_transfer_result
                .graph_transfer_required_resource_bytes
+        << " pending_retire_transfer_graph_transfer_required_identity_resource_count="
+        << pending_retire_transfer_result
+               .graph_transfer_required_identity_resource_count
+        << " pending_retire_transfer_graph_transfer_required_identity_resource_bytes="
+        << pending_retire_transfer_result
+               .graph_transfer_required_identity_resource_bytes
+        << " pending_retire_transfer_source_identity_match_status="
+        << pending_retire_transfer_result.source_identity_match_status
+        << " pending_retire_transfer_graph_pending_allocation_signature="
+        << pending_retire_transfer_result.graph_pending_allocation_signature
+        << " pending_retire_transfer_graph_transfer_required_allocation_signature="
+        << pending_retire_transfer_result
+               .graph_transfer_required_allocation_signature
+        << " pending_retire_transfer_region_exit_bound_source_allocation_signature="
+        << pending_retire_transfer_result
+               .region_exit_bound_source_allocation_signature
         << " pending_retire_transfer_region_exit_bound_missing_transfer_required_resource_count="
         << pending_retire_transfer_result
                .region_exit_bound_missing_transfer_required_resource_count
         << " pending_retire_transfer_region_exit_bound_missing_transfer_required_resource_bytes="
         << pending_retire_transfer_result
                .region_exit_bound_missing_transfer_required_resource_bytes
+        << " pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_count="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_identity_count
+        << " pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_bytes="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_identity_bytes
         << " retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
         << " retire_timeline_owner_key=" << retire_timeline_owner_key
         << " retire_timeline_owner_status="
@@ -16378,6 +16480,9 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.known_harmless_metadata_or_bookkeeping_count;
     boundary_proof.known_harmless_metadata_or_bookkeeping_bytes +=
         proof.known_harmless_metadata_or_bookkeeping_bytes;
+    append_unique_string(
+        boundary_proof.pending_allocation_signature,
+        proof.pending_allocation_signature);
     boundary_proof.descriptor_update_side_effect_count +=
         proof.descriptor_update_side_effect_count;
     boundary_proof.retire_side_effect_count += proof.retire_side_effect_count;
@@ -16524,6 +16629,9 @@ void append_stack_region_submit_epoch_ordering_json(
           proof.known_harmless_metadata_or_bookkeeping_count;
       instance_proof.known_harmless_metadata_or_bookkeeping_bytes +=
           proof.known_harmless_metadata_or_bookkeeping_bytes;
+      append_unique_string(
+          instance_proof.pending_allocation_signature,
+          proof.pending_allocation_signature);
       instance_proof.descriptor_update_side_effect_count +=
           proof.descriptor_update_side_effect_count;
       instance_proof.retire_side_effect_count +=
@@ -24903,6 +25011,10 @@ evaluate_stack_region_pending_retire_transfer_plan(
       request.graph_bookkeeping_excluded_resource_count;
   result.graph_bookkeeping_excluded_resource_bytes =
       request.graph_bookkeeping_excluded_resource_bytes;
+  result.graph_pending_allocation_signature =
+      request.graph_pending_allocation_signature.empty()
+      ? "missing"
+      : request.graph_pending_allocation_signature;
   result.graph_transfer_required_resource_count =
       request.graph_pending_resource_count >
           request.graph_bookkeeping_excluded_resource_count
@@ -25021,6 +25133,10 @@ request_stack_region_pending_retire_transfer_owner(
       request.graph_transfer_required_resource_count;
   result.graph_transfer_required_resource_bytes =
       request.graph_transfer_required_resource_bytes;
+  result.graph_transfer_required_identity_resource_count =
+      request.graph_transfer_required_identity_resource_count;
+  result.graph_transfer_required_identity_resource_bytes =
+      request.graph_transfer_required_identity_resource_bytes;
   result.context_pending_resource_count =
       request.context_pending_resource_count;
   result.context_pending_resource_bytes =
@@ -25033,11 +25149,23 @@ request_stack_region_pending_retire_transfer_owner(
       request.region_exit_bound_missing_transfer_required_resource_count;
   result.region_exit_bound_missing_transfer_required_resource_bytes =
       request.region_exit_bound_missing_transfer_required_resource_bytes;
+  result.region_exit_bound_missing_transfer_required_identity_count =
+      request.region_exit_bound_missing_transfer_required_identity_count;
+  result.region_exit_bound_missing_transfer_required_identity_bytes =
+      request.region_exit_bound_missing_transfer_required_identity_bytes;
   result.source_match_status = request.source_match_status;
   result.bookkeeping_exclusion_status =
       request.bookkeeping_exclusion_status;
   result.source_coverage_after_bookkeeping_exclusion_status =
       request.source_coverage_after_bookkeeping_exclusion_status;
+  result.graph_pending_allocation_signature =
+      request.graph_pending_allocation_signature;
+  result.graph_transfer_required_allocation_signature =
+      request.graph_transfer_required_allocation_signature;
+  result.region_exit_bound_source_allocation_signature =
+      request.region_exit_bound_source_allocation_signature;
+  result.source_identity_match_status =
+      request.source_identity_match_status;
   result.retire_timeline_owner_status = request.retire_timeline_owner_status;
   result.planned_release_submit_point_status =
       request.planned_release_submit_point_status;
@@ -25098,13 +25226,22 @@ request_stack_region_pending_retire_transfer_owner(
         "region_pending_retires_owner_waiting_for_transfer_plan";
     return result;
   }
-  const bool source_available =
+  const bool raw_source_available =
       request.source_match_status ==
           "pending_retire_transfer_source_matches_context_pending_retire" ||
       request.source_match_status ==
           "pending_retire_transfer_source_matches_stack_internal_batch" ||
       request.source_match_status ==
           "pending_retire_transfer_source_bound_to_region_exit_submit";
+  const bool source_identity_available =
+      request.source_identity_match_status ==
+          "pending_retire_transfer_source_identity_exact" ||
+      request.source_identity_match_status ==
+          "pending_retire_transfer_source_identity_required_entries_present_source_superset";
+  const bool source_available =
+      raw_source_available && source_identity_available;
+  const bool source_identity_incomplete =
+      raw_source_available && !source_identity_available;
   const bool source_preserved_phase_submit =
       request.source_match_status ==
           "pending_retire_transfer_source_complete_at_preserved_phase_submit" ||
@@ -25126,12 +25263,16 @@ request_stack_region_pending_retire_transfer_owner(
       ? "pending_retire_transfer_owner_behavior_disabled"
       : (source_preserved_phase_submit
              ? "pending_retire_transfer_source_preserved_phase_submit_owned"
-             : "pending_retire_transfer_source_incomplete");
+             : (source_identity_incomplete
+                    ? "pending_retire_transfer_source_identity_incomplete"
+                    : "pending_retire_transfer_source_incomplete"));
   result.implementation_status = source_available
       ? "pending_retire_transfer_owner_region_handoff_behavior_disabled"
       : (source_preserved_phase_submit
              ? "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled"
-             : "pending_retire_transfer_owner_source_incomplete_behavior_disabled");
+             : (source_identity_incomplete
+                    ? "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled"
+                    : "pending_retire_transfer_owner_source_incomplete_behavior_disabled"));
   result.current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   result.requested_owner_status =
@@ -29909,6 +30050,8 @@ void note_stack_region_boundary_submit_plan(
       << (resource_signature.empty() ? "none" : resource_signature)
       << " pending_write_resource_classes="
       << (resource_signature.empty() ? "none" : resource_signature)
+      << " pending_allocation_signature="
+      << (allocation_signature.empty() ? "none" : allocation_signature)
       << " covered_by_barrier_count="
       << barrier_coverage.covered_count
       << " covered_by_barrier_bytes="

@@ -21846,6 +21846,34 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_coverage_mismatch",
                 },
             )
+            self.assertIn(
+                first_pending_retire_transfer_record[
+                    "source_identity_match_status"
+                ],
+                {
+                    "pending_retire_transfer_source_identity_missing_graph_signature",
+                    "pending_retire_transfer_source_identity_no_transfer_required_entries",
+                    "pending_retire_transfer_source_identity_source_not_bound",
+                    "pending_retire_transfer_source_identity_exact",
+                    "pending_retire_transfer_source_identity_required_entries_present_source_superset",
+                    "pending_retire_transfer_source_identity_partial",
+                    "pending_retire_transfer_source_identity_missing",
+                    "pending_retire_transfer_source_identity_malformed_graph_signature",
+                    "pending_retire_transfer_source_identity_malformed_source_signature",
+                },
+            )
+            self.assertIn(
+                "graph_pending_allocation_signature",
+                first_pending_retire_transfer_record,
+            )
+            self.assertIn(
+                "graph_transfer_required_allocation_signature",
+                first_pending_retire_transfer_record,
+            )
+            self.assertIn(
+                "region_exit_bound_source_allocation_signature",
+                first_pending_retire_transfer_record,
+            )
             self.assertEqual(
                 first_pending_retire_transfer_record[
                     "transfer_behavior_enabled"
@@ -21914,6 +21942,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "retire_timeline_owner_behavior_disabled",
                     "retire_timeline_owner_blocked_by_migration_proof",
                     "host_fence_public_final_readback_blocker",
+                    "pending_retire_transfer_source_identity_incomplete",
                     "none",
                 },
             )
@@ -21924,6 +21953,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "pending_retire_transfer_owner_region_handoff_behavior_disabled",
                     "pending_retire_transfer_owner_source_incomplete_behavior_disabled",
+                    "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_implementation_blocked_by_host_fence_public_readback",
@@ -21950,6 +21980,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_waiting_for_migration_accounting",
                     "pending_retire_transfer_source_blocked_by_output_boundary",
                     "pending_retire_transfer_source_not_required",
+                },
+            )
+            self.assertIn(
+                first_pending_retire_transfer_owner_record[
+                    "source_identity_match_status"
+                ],
+                {
+                    "pending_retire_transfer_source_identity_missing_graph_signature",
+                    "pending_retire_transfer_source_identity_no_transfer_required_entries",
+                    "pending_retire_transfer_source_identity_source_not_bound",
+                    "pending_retire_transfer_source_identity_exact",
+                    "pending_retire_transfer_source_identity_required_entries_present_source_superset",
+                    "pending_retire_transfer_source_identity_partial",
+                    "pending_retire_transfer_source_identity_missing",
+                    "pending_retire_transfer_source_identity_malformed_graph_signature",
+                    "pending_retire_transfer_source_identity_malformed_source_signature",
                 },
             )
             self.assertEqual(
@@ -25869,6 +25915,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 transfer_row["pending_retire_transfer_owner_status"],
                 "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
             )
+            self.assertIn(
+                transfer_row[
+                    "pending_retire_transfer_source_identity_match_status"
+                ],
+                {
+                    "pending_retire_transfer_source_identity_missing",
+                },
+            )
+            self.assertGreater(
+                int(
+                    transfer_row[
+                        "pending_retire_transfer_region_exit_bound_missing_transfer_required_identity_count"
+                    ]
+                ),
+                0,
+            )
             pending_retire_rows = [
                 row["fields"]
                 for row in submit_level_proof[
@@ -25929,6 +25991,46 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ),
                 0,
             )
+            self.assertIn(
+                pending_retire_row["source_identity_match_status"],
+                {
+                    "pending_retire_transfer_source_identity_missing",
+                },
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "graph_transfer_required_identity_resource_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "region_exit_bound_missing_transfer_required_identity_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "region_exit_bound_missing_transfer_required_identity_bytes"
+                    ]
+                ),
+                0,
+            )
+            self.assertNotEqual(
+                pending_retire_row["graph_transfer_required_allocation_signature"],
+                "missing",
+            )
+            self.assertNotEqual(
+                pending_retire_row[
+                    "region_exit_bound_source_allocation_signature"
+                ],
+                "missing",
+            )
             self.assertGreater(
                 int(pending_retire_row["region_exit_bound_resource_count"]),
                 0,
@@ -25987,6 +26089,42 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     ]
                 ),
                 0,
+            )
+            self.assertEqual(
+                pending_retire_owner_row["source_identity_match_status"],
+                pending_retire_row["source_identity_match_status"],
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "graph_transfer_required_identity_resource_count"
+                ],
+                pending_retire_row[
+                    "graph_transfer_required_identity_resource_count"
+                ],
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_owner_row[
+                        "region_exit_bound_missing_transfer_required_identity_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_owner_row[
+                        "region_exit_bound_missing_transfer_required_identity_bytes"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "region_exit_bound_missing_transfer_required_identity_count"
+                ],
+                pending_retire_row[
+                    "region_exit_bound_missing_transfer_required_identity_count"
+                ],
             )
             self.assertEqual(pending_retire_owner_row["behavior_enabled"], "0")
             self.assertEqual(

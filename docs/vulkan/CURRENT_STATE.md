@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 after opt-in pending-retire stack-exit source
-binding, QKV retire-batch diagnostics, and bookkeeping-exclusion accounting.
+Last refreshed: 2026-06-29 after pending-retire transfer source-identity
+diagnostics on top of 2b3f254.
 
 ## Repo State Summary
 
@@ -586,6 +586,25 @@ not treat a count/byte superset after bookkeeping exclusion as transferable
 source identity. The owner remains fail-closed with
 `transfers_pending_retires=0` and `authorizes_submit_elision=0` until per-entry
 source ownership is proven.
+The transfer-plan row now also carries per-entry allocation identity for this
+source check. `StackRegionBoundarySubmitPlan.v0` publishes a
+`pending_allocation_signature` for graph pending resources, and
+`StackRegionPendingRetireTransferPlan.v0` compares the transfer-required
+non-bookkeeping entries against the source bound at region exit by
+allocation id, generation, byte range, resource class, count, and bytes. The
+result is reported through
+`graph_transfer_required_identity_resource_count/bytes`,
+`graph_transfer_required_allocation_signature`,
+`region_exit_bound_source_allocation_signature`,
+`region_exit_bound_missing_transfer_required_identity_count/bytes`, and
+`source_identity_match_status`. Malformed graph or source signatures are
+reported as explicit source-identity failures rather than being treated as
+empty transfer sets. This remains diagnostics only: exact or superset identity
+coverage does not change `source_match_status` and does not authorize
+pending-retire transfer or submit elision. Conversely, the pending-retire owner
+surface now requires exact or source-superset identity coverage before it can
+report source availability; count/byte coverage without per-entry identity
+stays fail-closed as source-incomplete accounting.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
