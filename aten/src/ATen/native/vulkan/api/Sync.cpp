@@ -584,6 +584,10 @@ struct StackRegionRecordingDomainValue final {
   uint64_t count = 0u;
 };
 
+struct StackRegionExternalRecordingCleanupLogicalBoundaryValue final {
+  uint64_t count = 0u;
+};
+
 struct StackRawResourceProducerRegistrationValue final {
   uint64_t count = 0u;
   uint64_t byte_range = 0u;
@@ -695,6 +699,17 @@ stack_region_exit_submit_runtime_point_rows() {
 std::map<std::string, StackRegionRecordingDomainValue>&
 stack_region_recording_domain_rows() {
   static std::map<std::string, StackRegionRecordingDomainValue> rows;
+  return rows;
+}
+
+std::map<
+    std::string,
+    StackRegionExternalRecordingCleanupLogicalBoundaryValue>&
+stack_region_external_recording_cleanup_logical_boundary_rows() {
+  static std::map<
+      std::string,
+      StackRegionExternalRecordingCleanupLogicalBoundaryValue>
+      rows;
   return rows;
 }
 
@@ -2429,6 +2444,55 @@ void record_stack_region_recording_domain(
       << " submit_elision_enabled=0 deferred_submit_enabled=0";
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_region_recording_domain_rows()[key.str()].count += 1u;
+}
+
+void record_stack_region_external_recording_cleanup_logical_boundary(
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t pending_dispatch_count,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t resource_count,
+    const uint64_t resource_bytes,
+    const uint64_t allocation_identity_missing_count,
+    const uint64_t stack_provenance_defined_count,
+    const std::string& allocation_signature) {
+  std::ostringstream key;
+  key << "stack_region_external_recording_cleanup_logical_boundary=1"
+      << " schema=StackRegionExternalRecordingCleanupLogicalBoundary.v0"
+      << " region_id=" << region_id
+      << " region_state=" << region_state
+      << " recording_domain_mode=stack_region_owned_external_recording"
+      << " command_buffer_owner_scope=stack_region_owned_command_buffer"
+      << " region_owned_command_buffer_active=1"
+      << " external_cleanup_resource_count=" << resource_count
+      << " external_cleanup_resource_bytes=" << resource_bytes
+      << " external_cleanup_allocation_identity_missing_count="
+      << allocation_identity_missing_count
+      << " external_cleanup_stack_provenance_defined_count="
+      << stack_provenance_defined_count
+      << " external_cleanup_allocation_signature="
+      << stack_region_row_token(allocation_signature)
+      << " command_buffer_recording_id=" << command_buffer_recording_id
+      << " submit_epoch_before=" << submit_epoch_before
+      << " pending_dispatch_count=" << pending_dispatch_count
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " behavior_neutral=1 default_behavior_unchanged=1"
+      << " metadata_only=1"
+      << " transfer_behavior_enabled=0"
+      << " transfers_pending_retires=0"
+      << " pending_retire_handoff_moved_count=0"
+      << " submit_elision_enabled=0"
+      << " deferred_submit_enabled=0"
+      << " phase_boundary_submit_calls_preserved=1"
+      << " phase_boundary_queue_submits_preserved=0"
+      << " top_blocker=external_recording_cleanup_metadata_observed_transfer_unimplemented";
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_region_external_recording_cleanup_logical_boundary_rows()[key.str()]
+      .count += 1u;
 }
 
 const StackDispatchDependencyDispatchValue* find_stack_dispatch_observation(
@@ -23703,10 +23767,18 @@ void split_stack_graph_rows(
     std::vector<std::string>& single_recording_canary_rows,
     std::vector<std::string>& exit_submit_runtime_point_rows,
     std::vector<std::string>& recording_domain_rows,
+    std::vector<std::string>& external_recording_cleanup_logical_boundary_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
     if (row.find("stack_region_recording_domain=1") != std::string::npos) {
       recording_domain_rows.emplace_back(row);
+      continue;
+    }
+    if (
+        row.find(
+            "stack_region_external_recording_cleanup_logical_boundary=1") !=
+        std::string::npos) {
+      external_recording_cleanup_logical_boundary_rows.emplace_back(row);
       continue;
     }
     if (
@@ -23818,6 +23890,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> single_recording_canary_rows;
   std::vector<std::string> exit_submit_runtime_point_rows;
   std::vector<std::string> recording_domain_rows;
+  std::vector<std::string> external_recording_cleanup_logical_boundary_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
       dispatch_dependency_rows,
@@ -23836,6 +23909,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       single_recording_canary_rows,
       exit_submit_runtime_point_rows,
       recording_domain_rows,
+      external_recording_cleanup_logical_boundary_rows,
       raw_resource_producer_rows);
 
   std::vector<std::string> resource_nodes;
@@ -24049,6 +24123,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_external_recording_cleanup_logical_boundary_rows",
+      external_recording_cleanup_logical_boundary_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "raw_resource_producer_rows",
       raw_resource_producer_rows.size(),
       summary_first);
@@ -24190,6 +24269,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
+      "stack_region_external_recording_cleanup_logical_boundary_rows",
+      external_recording_cleanup_logical_boundary_rows,
+      "stack_region_external_recording_cleanup_logical_boundary",
+      first);
+  append_graph_array(
+      out,
       "stack_region_exit_submit_runtime_point_rows",
       exit_submit_runtime_point_rows,
       "stack_region_exit_submit_runtime_point",
@@ -24309,6 +24394,34 @@ void note_stack_region_recording_domain(
       phase,
       callsite,
       region_owned_command_buffer_active);
+}
+
+void note_stack_region_external_recording_cleanup_logical_boundary(
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t pending_dispatch_count,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t resource_count,
+    const uint64_t resource_bytes,
+    const uint64_t allocation_identity_missing_count,
+    const uint64_t stack_provenance_defined_count,
+    const std::string& allocation_signature) {
+  record_stack_region_external_recording_cleanup_logical_boundary(
+      region_id,
+      region_state,
+      command_buffer_recording_id,
+      submit_epoch_before,
+      pending_dispatch_count,
+      phase,
+      callsite,
+      resource_count,
+      resource_bytes,
+      allocation_identity_missing_count,
+      stack_provenance_defined_count,
+      allocation_signature);
 }
 
 bool stack_region_recording_domain_observation_enabled() {
@@ -32226,6 +32339,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_single_recording_canary_rows().size() +
       stack_region_exit_submit_runtime_point_rows().size() +
       stack_region_recording_domain_rows().size() +
+      stack_region_external_recording_cleanup_logical_boundary_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
     std::ostringstream row;
@@ -32401,6 +32515,12 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
   }
+  for (const auto& item :
+       stack_region_external_recording_cleanup_logical_boundary_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_raw_resource_producer_registration_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count
@@ -32437,6 +32557,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_single_recording_canary_rows().clear();
   stack_region_exit_submit_runtime_point_rows().clear();
   stack_region_recording_domain_rows().clear();
+  stack_region_external_recording_cleanup_logical_boundary_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
 }

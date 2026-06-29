@@ -3265,9 +3265,20 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       5u * 1024u * 1024u;
   constexpr uint64_t kStackActivationPhaseBoundaryLifetimeScopeBudgetBytes =
       kStackSubresourceLifetimeDryRunScopeBudgetBytes;
+  const VulkanSubmitPhase phase = current_submit_phase();
+  const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
+  if (origin == VulkanSubmitOrigin::ExplicitSynchronize) {
+    note_external_recording_cleanup_logical_boundary(
+        phase,
+        callsite,
+        command_buffer_recording_id,
+        submit_epoch_before,
+        stack_region_owned_command_buffer_active_.load(
+            std::memory_order_acquire)
+            ? stack_region_owned_recording_dispatch_count_
+            : pending_dispatch_count);
+  }
   if (had_cmd && origin == VulkanSubmitOrigin::ExplicitSynchronize) {
-    const VulkanSubmitPhase phase = current_submit_phase();
-    const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
     uint64_t pending_resource_count = 0u;
     const uint64_t pending_bytes = pending_retire_bytes();
     uint64_t dry_run_safe_candidate_count = 0u;
@@ -4117,6 +4128,73 @@ void Context::take_external_recording_cleanup_resources(
   }
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
+}
+
+void Context::note_external_recording_cleanup_logical_boundary(
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t pending_dispatch_count) {
+  if (
+      !stack_region_recording_domain_observation_active_.load(
+          std::memory_order_acquire) ||
+      external_recording_cmd() == nullptr ||
+      phase != VulkanSubmitPhase::StackOwner ||
+      (callsite != VulkanRetireCallSite::StackOwnerPhaseBoundary &&
+       callsite != VulkanRetireCallSite::StackOwnerNorm1 &&
+       callsite != VulkanRetireCallSite::StackOwnerNorm2) ||
+      !stack_region_owned_command_buffer_active_.load(
+          std::memory_order_acquire)) {
+    return;
+  }
+
+  uint64_t resource_count = 0u;
+  uint64_t resource_bytes = 0u;
+  uint64_t allocation_identity_missing_count = 0u;
+  uint64_t stack_provenance_defined_count = 0u;
+  std::map<std::string, std::pair<uint64_t, uint64_t>>
+      allocation_signature_resources;
+  const auto inspect_pending = [&](const auto& pending) {
+    resource_count += 1u;
+    resource_bytes += pending.bytes;
+    if (pending.stack_provenance.defined) {
+      stack_provenance_defined_count += 1u;
+    }
+    const VulkanStackRawResourceAllocationProof allocation_proof =
+        stack_raw_allocation_proof(pending);
+    if (!allocation_proof.has_generation || !allocation_proof.has_byte_range) {
+      allocation_identity_missing_count += 1u;
+    }
+    stack_region_accumulate_pending_retire_allocation_signature(
+        allocation_signature_resources, pending);
+  };
+  for (const PendingRetireBuffer& pending :
+       g_external_command_recording_state.buffers_to_keep_alive) {
+    inspect_pending(pending);
+  }
+  for (const PendingRetireImage& pending :
+       g_external_command_recording_state.images_to_keep_alive) {
+    inspect_pending(pending);
+  }
+  if (resource_count == 0u) {
+    return;
+  }
+
+  note_stack_region_external_recording_cleanup_logical_boundary(
+      stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
+      stack_region_single_recording_owner_state_.load(
+          std::memory_order_acquire),
+      command_buffer_recording_id,
+      submit_epoch_before,
+      pending_dispatch_count,
+      phase,
+      callsite,
+      resource_count,
+      resource_bytes,
+      allocation_identity_missing_count,
+      stack_provenance_defined_count,
+      stack_region_format_allocation_signature(allocation_signature_resources));
 }
 
 void Context::clear_pending_retire_resources_locked() {

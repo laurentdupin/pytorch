@@ -231,6 +231,12 @@ class TORCH_API Context final {
   CommandBuffer& active_cmd();
   void capture_external_recording_buffer_cleanup(PendingRetireBuffer&&);
   void capture_external_recording_image_cleanup(PendingRetireImage&&);
+  void note_external_recording_cleanup_logical_boundary(
+      VulkanSubmitPhase phase,
+      VulkanRetireCallSite callsite,
+      uint64_t command_buffer_recording_id,
+      uint64_t submit_epoch_before,
+      uint64_t pending_dispatch_count);
   void begin_external_command_recording(CommandBuffer&);
   void end_external_command_recording();
   uint32_t gpu_profile_begin(

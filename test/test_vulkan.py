@@ -26603,6 +26603,41 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 graph["summary"]["single_recording_canary_submits_removed"],
                 0,
             )
+            self.assertGreater(
+                graph["summary"][
+                    "stack_region_external_recording_cleanup_logical_boundary_rows"
+                ],
+                0,
+            )
+            external_cleanup_boundary_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_logical_boundary_rows"
+                ]
+            ]
+            self.assertTrue(
+                any(
+                    row["schema"]
+                    == "StackRegionExternalRecordingCleanupLogicalBoundary.v0"
+                    and row["behavior_neutral"] == "1"
+                    and row["metadata_only"] == "1"
+                    and row["transfer_behavior_enabled"] == "0"
+                    and row["transfers_pending_retires"] == "0"
+                    and row["pending_retire_handoff_moved_count"] == "0"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    and row["recording_domain_mode"]
+                    == "stack_region_owned_external_recording"
+                    and int(row["external_cleanup_resource_count"]) > 0
+                    and int(row["external_cleanup_resource_bytes"]) > 0
+                    and row["external_cleanup_allocation_signature"] != "none"
+                    and row[
+                        "external_cleanup_allocation_identity_missing_count"
+                    ]
+                    == "0"
+                    for row in external_cleanup_boundary_rows
+                )
+            )
         finally:
             for key, value in previous.items():
                 if value is None:
