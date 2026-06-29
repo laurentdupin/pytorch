@@ -1578,6 +1578,14 @@ struct StackRegionPendingRetireTransferOwnerResult final {
       "pending_retire_transfer_source_identity_mismatch_unavailable";
   std::string preserved_phase_submit_handoff_status =
       "pending_retire_transfer_owner_preserved_phase_submit_handoff_unavailable";
+  bool preserved_phase_submit_handoff_candidate_available = false;
+  bool preserved_phase_submit_handoff_api_present = true;
+  bool preserved_phase_submit_handoff_behavior_enabled = false;
+  bool preserved_phase_submit_handoff_transfers_pending_retires = false;
+  std::string preserved_phase_submit_handoff_result_status =
+      "pending_retire_transfer_preserved_phase_submit_handoff_result_unavailable";
+  std::string preserved_phase_submit_handoff_top_blocker =
+      "pending_retire_transfer_preserved_phase_submit_handoff_unavailable";
   std::string current_owner_status =
       "pending_retires_still_context_or_preserved_submit_owned";
   std::string requested_owner_status =

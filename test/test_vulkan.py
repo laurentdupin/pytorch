@@ -21488,7 +21488,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
                     "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
-                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed",
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
@@ -21501,7 +21501,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retire_transfer_owner_behavior_disabled",
-                    "pending_retire_transfer_preserved_phase_submit_handoff_missing",
+                    "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled",
                     "pending_retire_transfer_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
                     "retire_timeline_owner_behavior_disabled",
@@ -21932,7 +21932,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
                     "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
-                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed",
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
@@ -21944,7 +21944,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 {
                     "pending_retire_transfer_owner_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
-                    "pending_retire_transfer_preserved_phase_submit_handoff_missing",
+                    "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled",
                     "pending_retire_transfer_behavior_disabled",
                     "pending_retire_transfer_owner_unavailable",
                     "retire_timeline_owner_behavior_disabled",
@@ -21960,7 +21960,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ],
                 {
                     "pending_retire_transfer_owner_region_handoff_behavior_disabled",
-                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_unimplemented",
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_behavior_disabled",
                     "pending_retire_transfer_owner_source_incomplete_behavior_disabled",
                     "pending_retire_transfer_owner_source_identity_incomplete_behavior_disabled",
                     "pending_retire_transfer_owner_source_preserved_phase_submit_behavior_disabled",
@@ -25926,17 +25926,47 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_status"],
-                "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed",
+                "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed",
             )
             self.assertEqual(
                 transfer_row["pending_retire_transfer_owner_top_blocker"],
-                "pending_retire_transfer_preserved_phase_submit_handoff_missing",
+                "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled",
             )
             self.assertEqual(
                 transfer_row[
                     "pending_retire_transfer_owner_preserved_phase_submit_handoff_status"
                 ],
-                "pending_retire_transfer_preserved_phase_submit_handoff_candidate_context_owned_not_transferred",
+                "pending_retire_transfer_preserved_phase_submit_handoff_available_behavior_disabled",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_available"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_api_present"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_behavior_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_transfers_pending_retires"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                transfer_row[
+                    "pending_retire_transfer_owner_preserved_phase_submit_handoff_result_status"
+                ],
+                "pending_retire_transfer_preserved_phase_submit_handoff_api_present_behavior_disabled_fail_closed",
             )
             self.assertIn(
                 transfer_row[
@@ -26161,23 +26191,53 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "stack_region_pending_retire_transfer_owner_records"
                 ]
                 if row["fields"].get("owner_status")
-                == "pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed"
+                == "pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed"
             ]
             self.assertTrue(pending_retire_owner_rows)
             pending_retire_owner_row = pending_retire_owner_rows[0]
             self.assertEqual(
                 pending_retire_owner_row["top_blocker"],
-                "pending_retire_transfer_preserved_phase_submit_handoff_missing",
+                "pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled",
             )
             self.assertEqual(
                 pending_retire_owner_row["implementation_status"],
-                "pending_retire_transfer_owner_preserved_phase_submit_handoff_unimplemented",
+                "pending_retire_transfer_owner_preserved_phase_submit_handoff_behavior_disabled",
             )
             self.assertEqual(
                 pending_retire_owner_row[
                     "preserved_phase_submit_handoff_status"
                 ],
-                "pending_retire_transfer_preserved_phase_submit_handoff_candidate_context_owned_not_transferred",
+                "pending_retire_transfer_preserved_phase_submit_handoff_available_behavior_disabled",
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_handoff_candidate_available"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_handoff_api_present"
+                ],
+                "1",
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_handoff_behavior_enabled"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_handoff_transfers_pending_retires"
+                ],
+                "0",
+            )
+            self.assertEqual(
+                pending_retire_owner_row[
+                    "preserved_phase_submit_handoff_result_status"
+                ],
+                "pending_retire_transfer_preserved_phase_submit_handoff_api_present_behavior_disabled_fail_closed",
             )
             self.assertEqual(
                 pending_retire_owner_row["bookkeeping_exclusion_status"],

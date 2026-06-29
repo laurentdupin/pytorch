@@ -642,8 +642,12 @@ still keeps `behavior_enabled=0`, `transfers_pending_retires=0`, and
 complete, the row fail-closes on
 `pending_retire_transfer_owner_behavior_disabled`; when the source is
 available only at the preserved phase submit, it fails closed on
-`pending_retire_transfer_preserved_phase_submit_handoff_missing` and reports
-`pending_retire_transfer_owner_preserved_phase_submit_handoff_candidate_fail_closed`;
+`pending_retire_transfer_preserved_phase_submit_handoff_behavior_disabled` and
+reports
+`pending_retire_transfer_owner_preserved_phase_submit_handoff_available_behavior_disabled_fail_closed`;
+the owner row also emits explicit handoff API-present, candidate-available,
+behavior-enabled, and transfer flags, all keeping behavior disabled and
+`transfers_pending_retires=0`.
 when the source identity is incomplete, including bookkeeping-excluded
 count/byte coverage without per-entry source identity, it fails closed on
 `pending_retire_transfer_source_incomplete`;
