@@ -855,9 +855,16 @@ stack-exit source and therefore remains blocked by
 already-classified QKV stack-temp retire-batch candidate class. With QKV
 batching plus stack-exit source binding, the current selected synthetic
 boundary covers the graph-pending bytes at stack exit, but still has partial
-resource-count coverage because metadata/uniform bookkeeping entries are not
-stack-internal retire-batch targets. The owner therefore remains fail-closed
-and behavior-disabled.
+raw resource-count coverage because metadata/uniform bookkeeping entries are
+not stack-internal retire-batch targets. The transfer-plan row now exposes
+those typed graph bookkeeping entries as
+`graph_bookkeeping_excluded_resource_count/bytes`, derives
+`graph_transfer_required_resource_count/bytes`, and emits
+`source_coverage_after_bookkeeping_exclusion_status` plus filtered missing
+transfer-required counts. This filtered coverage is an accounting diagnostic,
+not source identity. The main `source_match_status` remains the raw source
+match, and the owner remains fail-closed unless a concrete source match is
+proven without relying on bookkeeping-excluded count/byte coverage.
 `StackRegionPendingRetireTransferOwner.v0` is the corresponding owner handoff
 surface. It consumes the transfer-plan status, source match, retire-timeline
 owner status, and planned release submit point, then emits a separate owner
@@ -870,7 +877,8 @@ only. All rows keep `behavior_enabled=0`, `transfers_pending_retires=0`, and
 `pending_retire_transfer_owner_behavior_disabled`, a source available only at
 the preserved phase submit fails closed on
 `pending_retire_transfer_source_preserved_phase_submit_owned`, an incomplete
-source fails closed on `pending_retire_transfer_source_incomplete`, and a
+or bookkeeping-excluded source fails closed on
+`pending_retire_transfer_source_incomplete`, and a
 blocked plan propagates the transfer-plan blocker.
 Exit-release ownership, region command-buffer ownership, and deferred-submit
 runtime-hook plan rows now consume this owner status as a separate

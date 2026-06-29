@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-28 at local HEAD `101582395438` plus opt-in
-pending-retire source binding for stack-exit diagnostics.
+Last refreshed: 2026-06-28 after opt-in pending-retire stack-exit source
+binding, QKV retire-batch diagnostics, and bookkeeping-exclusion accounting.
 
 ## Repo State Summary
 
@@ -575,10 +575,17 @@ stack-exit source, so the owner still fail-closes on
 `PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` expands the existing
 stack-internal batch predicate to the separately proven QKV stack-temp class.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
-now covers the graph-pending bytes, but resource-count coverage remains partial
-because metadata/uniform bookkeeping entries are still deliberately excluded
-from stack-exit retire ownership. The owner remains fail-closed with
-`transfers_pending_retires=0` and `authorizes_submit_elision=0`.
+now covers the graph-pending bytes, but raw resource-count coverage remains
+partial because metadata/uniform bookkeeping entries are not stack-internal
+retire-batch targets. The transfer-plan row reports those typed graph entries
+separately through `graph_bookkeeping_excluded_resource_count/bytes`, derives
+`graph_transfer_required_resource_count/bytes`, and records
+`source_coverage_after_bookkeeping_exclusion_status`. This is accounting only:
+the main `source_match_status` remains the raw source match, and the owner does
+not treat a count/byte superset after bookkeeping exclusion as transferable
+source identity. The owner remains fail-closed with
+`transfers_pending_retires=0` and `authorizes_submit_elision=0` until per-entry
+source ownership is proven.
 `StackRegionPendingRetireTransferOwner.v0` now consumes that transfer-plan row
 and records the region-owner handoff decision that would be required before a
 future close/submit owner can take retire entries away from the preserved
@@ -592,7 +599,9 @@ complete, the row fail-closes on
 `pending_retire_transfer_owner_behavior_disabled`; when the source is
 available only at the preserved phase submit, it fails closed on
 `pending_retire_transfer_source_preserved_phase_submit_owned`; when the source
-is incomplete, it fails closed on `pending_retire_transfer_source_incomplete`;
+identity is incomplete, including bookkeeping-excluded count/byte coverage
+without per-entry source identity, it fails closed on
+`pending_retire_transfer_source_incomplete`;
 and when the transfer plan is blocked, it propagates the plan blocker instead
 of hiding it behind close-submit ownership.
 That owner handoff status is now threaded into

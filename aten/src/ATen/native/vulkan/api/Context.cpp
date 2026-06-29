@@ -1545,9 +1545,32 @@ Context::snapshot_stack_region_pending_retire_transfer(
           result.region_exit_bound_resource_count &&
       request.graph_pending_resource_bytes ==
           result.region_exit_bound_resource_bytes;
+  const bool transfer_required_and_bound_source_match =
+      result.graph_transfer_required_resource_count ==
+          result.region_exit_bound_resource_count &&
+      result.graph_transfer_required_resource_bytes ==
+          result.region_exit_bound_resource_bytes;
+  const bool transfer_required_bound_source_superset =
+      result.graph_transfer_required_resource_count > 0u &&
+      result.region_exit_bound_resource_count >=
+          result.graph_transfer_required_resource_count &&
+      result.region_exit_bound_resource_bytes >=
+          result.graph_transfer_required_resource_bytes;
   const bool bound_source_present =
       result.region_exit_bound_resource_count > 0u ||
       result.region_exit_bound_resource_bytes > 0u;
+  result.region_exit_bound_missing_transfer_required_resource_count =
+      result.graph_transfer_required_resource_count >
+          result.region_exit_bound_resource_count
+      ? result.graph_transfer_required_resource_count -
+          result.region_exit_bound_resource_count
+      : 0u;
+  result.region_exit_bound_missing_transfer_required_resource_bytes =
+      result.graph_transfer_required_resource_bytes >
+          result.region_exit_bound_resource_bytes
+      ? result.graph_transfer_required_resource_bytes -
+          result.region_exit_bound_resource_bytes
+      : 0u;
   if (
       result.source_match_status ==
       "pending_retire_transfer_source_not_required") {
@@ -1577,6 +1600,28 @@ Context::snapshot_stack_region_pending_retire_transfer(
     result.region_exit_bound_source_coverage_status =
         "pending_retire_transfer_source_coverage_mismatch";
   }
+  if (
+      result.source_match_status ==
+      "pending_retire_transfer_source_not_required") {
+    result.source_coverage_after_bookkeeping_exclusion_status =
+        "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_not_required";
+  } else if (result.graph_bookkeeping_excluded_resource_count == 0u &&
+             result.graph_bookkeeping_excluded_resource_bytes == 0u) {
+    result.source_coverage_after_bookkeeping_exclusion_status =
+        "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_not_applied";
+  } else if (!bound_source_present) {
+    result.source_coverage_after_bookkeeping_exclusion_status =
+        "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_not_bound";
+  } else if (transfer_required_and_bound_source_match) {
+    result.source_coverage_after_bookkeeping_exclusion_status =
+        "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_complete";
+  } else if (transfer_required_bound_source_superset) {
+    result.source_coverage_after_bookkeeping_exclusion_status =
+        "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_superset";
+  } else {
+    result.source_coverage_after_bookkeeping_exclusion_status =
+        "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_incomplete";
+  }
   if (result.source_match_status ==
           "pending_retire_transfer_source_already_consumed_by_preserved_submit" &&
       graph_and_bound_source_match &&
@@ -1593,13 +1638,15 @@ Context::snapshot_stack_region_pending_retire_transfer(
             request.graph_pending_resource_count &&
         result.region_exit_bound_resource_bytes >=
             request.graph_pending_resource_bytes;
-    result.source_match_status = bound_source_state == 4u
-        ? (bound_source_superset
-               ? "pending_retire_transfer_source_superset_at_preserved_phase_submit"
-               : "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit")
-        : (bound_source_superset
-               ? "pending_retire_transfer_source_superset_at_region_exit_submit"
-               : "pending_retire_transfer_source_partially_bound_to_region_exit_submit");
+    if (bound_source_state == 4u) {
+      result.source_match_status = bound_source_superset
+          ? "pending_retire_transfer_source_superset_at_preserved_phase_submit"
+          : "pending_retire_transfer_source_partially_bound_to_preserved_phase_submit";
+    } else {
+      result.source_match_status = bound_source_superset
+          ? "pending_retire_transfer_source_superset_at_region_exit_submit"
+          : "pending_retire_transfer_source_partially_bound_to_region_exit_submit";
+    }
   }
   return result;
 }

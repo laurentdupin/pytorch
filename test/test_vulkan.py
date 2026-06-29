@@ -21808,6 +21808,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_already_consumed_by_preserved_submit",
                     "pending_retire_transfer_source_bound_to_region_exit_submit",
                     "pending_retire_transfer_source_partially_bound_to_region_exit_submit",
+                    "pending_retire_transfer_source_matches_region_exit_submit_after_bookkeeping_exclusion",
+                    "pending_retire_transfer_source_superset_at_region_exit_submit_after_bookkeeping_exclusion",
                     "pending_retire_transfer_source_complete_at_preserved_phase_submit",
                     "pending_retire_transfer_source_superset_at_preserved_phase_submit",
                     "pending_retire_transfer_source_superset_at_region_exit_submit",
@@ -21894,6 +21896,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 first_pending_retire_transfer_owner_record["owner_status"],
                 {
                     "pending_retire_transfer_owner_accounting_available_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_accounting_available_source_incomplete_fail_closed",
+                    "pending_retire_transfer_owner_available_source_behavior_disabled_fail_closed",
+                    "pending_retire_transfer_owner_source_preserved_phase_submit_fail_closed",
                     "pending_retire_transfer_owner_blocked_by_transfer_plan",
                     "pending_retire_transfer_owner_blocked_by_host_fence_public_readback",
                     "pending_retire_transfer_owner_not_required",
@@ -21935,6 +21940,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "pending_retire_transfer_source_already_consumed_by_preserved_submit",
                     "pending_retire_transfer_source_bound_to_region_exit_submit",
                     "pending_retire_transfer_source_partially_bound_to_region_exit_submit",
+                    "pending_retire_transfer_source_matches_region_exit_submit_after_bookkeeping_exclusion",
+                    "pending_retire_transfer_source_superset_at_region_exit_submit_after_bookkeeping_exclusion",
                     "pending_retire_transfer_source_complete_at_preserved_phase_submit",
                     "pending_retire_transfer_source_superset_at_preserved_phase_submit",
                     "pending_retire_transfer_source_superset_at_region_exit_submit",
@@ -25881,6 +25888,47 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 pending_retire_row["region_exit_bound_source_coverage_status"],
                 "pending_retire_transfer_source_coverage_partial",
             )
+            self.assertEqual(
+                pending_retire_row["bookkeeping_exclusion_status"],
+                "pending_retire_transfer_bookkeeping_exclusion_applied",
+            )
+            self.assertIn(
+                pending_retire_row[
+                    "source_coverage_after_bookkeeping_exclusion_status"
+                ],
+                {
+                    "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_complete",
+                    "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_superset",
+                },
+            )
+            self.assertGreater(
+                int(
+                    pending_retire_row[
+                        "graph_bookkeeping_excluded_resource_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertGreater(
+                int(pending_retire_row["graph_transfer_required_resource_count"]),
+                0,
+            )
+            self.assertEqual(
+                int(
+                    pending_retire_row[
+                        "region_exit_bound_missing_transfer_required_resource_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                int(
+                    pending_retire_row[
+                        "region_exit_bound_missing_transfer_required_resource_bytes"
+                    ]
+                ),
+                0,
+            )
             self.assertGreater(
                 int(pending_retire_row["region_exit_bound_resource_count"]),
                 0,
@@ -25910,6 +25958,35 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(
                 pending_retire_owner_row["top_blocker"],
                 "pending_retire_transfer_source_incomplete",
+            )
+            self.assertEqual(
+                pending_retire_owner_row["bookkeeping_exclusion_status"],
+                "pending_retire_transfer_bookkeeping_exclusion_applied",
+            )
+            self.assertIn(
+                pending_retire_owner_row[
+                    "source_coverage_after_bookkeeping_exclusion_status"
+                ],
+                {
+                    "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_complete",
+                    "pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_superset",
+                },
+            )
+            self.assertEqual(
+                int(
+                    pending_retire_owner_row[
+                        "region_exit_bound_missing_transfer_required_resource_count"
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                int(
+                    pending_retire_owner_row[
+                        "region_exit_bound_missing_transfer_required_resource_bytes"
+                    ]
+                ),
+                0,
             )
             self.assertEqual(pending_retire_owner_row["behavior_enabled"], "0")
             self.assertEqual(

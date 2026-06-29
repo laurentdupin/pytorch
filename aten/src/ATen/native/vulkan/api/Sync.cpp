@@ -9271,6 +9271,8 @@ void append_stack_region_submit_epoch_ordering_json(
     uint64_t pending_dispatch_count = 0u;
     uint64_t pending_resource_count = 0u;
     uint64_t pending_resource_bytes = 0u;
+    uint64_t known_harmless_metadata_or_bookkeeping_count = 0u;
+    uint64_t known_harmless_metadata_or_bookkeeping_bytes = 0u;
     uint64_t descriptor_update_side_effect_count = 0u;
     uint64_t actual_descriptor_update_generation_records = 0u;
     uint64_t actual_descriptor_update_write_count = 0u;
@@ -9873,6 +9875,12 @@ void append_stack_region_submit_epoch_ordering_json(
     proof.pending_dispatch_count += pending_dispatch_count;
     proof.pending_resource_count += pending_resource_count;
     proof.pending_resource_bytes += pending_resource_bytes;
+    proof.known_harmless_metadata_or_bookkeeping_count +=
+        parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_count") *
+        count;
+    proof.known_harmless_metadata_or_bookkeeping_bytes +=
+        parsed_u64(fields, "known_harmless_metadata_or_bookkeeping_bytes") *
+        count;
     proof.descriptor_update_side_effect_count +=
         parsed_u64(fields, "descriptor_update_side_effect_count") * count;
     const uint64_t actual_descriptor_update_records =
@@ -11730,6 +11738,12 @@ void append_stack_region_submit_epoch_ordering_json(
         proof.pending_resource_count;
     pending_retire_transfer_request.graph_pending_resource_bytes =
         proof.pending_resource_bytes;
+    pending_retire_transfer_request
+        .graph_bookkeeping_excluded_resource_count =
+            proof.known_harmless_metadata_or_bookkeeping_count;
+    pending_retire_transfer_request
+        .graph_bookkeeping_excluded_resource_bytes =
+            proof.known_harmless_metadata_or_bookkeeping_bytes;
     pending_retire_transfer_request.transfer_required =
         phase_submit_execution_flush_dependency_observed;
     pending_retire_transfer_request.transfer_accounting_available =
@@ -11777,6 +11791,22 @@ void append_stack_region_submit_epoch_ordering_json(
         pending_retire_transfer_result.graph_pending_resource_count;
     pending_retire_transfer_owner_request.graph_pending_resource_bytes =
         pending_retire_transfer_result.graph_pending_resource_bytes;
+    pending_retire_transfer_owner_request
+        .graph_bookkeeping_excluded_resource_count =
+            pending_retire_transfer_result
+                .graph_bookkeeping_excluded_resource_count;
+    pending_retire_transfer_owner_request
+        .graph_bookkeeping_excluded_resource_bytes =
+            pending_retire_transfer_result
+                .graph_bookkeeping_excluded_resource_bytes;
+    pending_retire_transfer_owner_request
+        .graph_transfer_required_resource_count =
+            pending_retire_transfer_result
+                .graph_transfer_required_resource_count;
+    pending_retire_transfer_owner_request
+        .graph_transfer_required_resource_bytes =
+            pending_retire_transfer_result
+                .graph_transfer_required_resource_bytes;
     pending_retire_transfer_owner_request.context_pending_resource_count =
         pending_retire_transfer_result.context_pending_resource_count;
     pending_retire_transfer_owner_request.context_pending_resource_bytes =
@@ -11789,6 +11819,14 @@ void append_stack_region_submit_epoch_ordering_json(
         .stack_internal_batch_resource_bytes =
             pending_retire_transfer_result
                 .stack_internal_batch_resource_bytes;
+    pending_retire_transfer_owner_request
+        .region_exit_bound_missing_transfer_required_resource_count =
+            pending_retire_transfer_result
+                .region_exit_bound_missing_transfer_required_resource_count;
+    pending_retire_transfer_owner_request
+        .region_exit_bound_missing_transfer_required_resource_bytes =
+            pending_retire_transfer_result
+                .region_exit_bound_missing_transfer_required_resource_bytes;
     pending_retire_transfer_owner_request.owner_required =
         phase_submit_execution_flush_dependency_observed;
     pending_retire_transfer_owner_request.transfer_plan_available =
@@ -11797,6 +11835,12 @@ void append_stack_region_submit_epoch_ordering_json(
         pending_retire_transfer_result.transfer_behavior_enabled;
     pending_retire_transfer_owner_request.transfers_pending_retires =
         pending_retire_transfer_result.transfers_pending_retires;
+    pending_retire_transfer_owner_request.bookkeeping_exclusion_status =
+        pending_retire_transfer_result.bookkeeping_exclusion_status;
+    pending_retire_transfer_owner_request
+        .source_coverage_after_bookkeeping_exclusion_status =
+            pending_retire_transfer_result
+                .source_coverage_after_bookkeeping_exclusion_status;
     pending_retire_transfer_owner_request.public_final_host_readback_boundary =
         release_output_boundary_blocker;
     const StackRegionPendingRetireTransferOwnerResult
@@ -14319,6 +14363,23 @@ void append_stack_region_submit_epoch_ordering_json(
         << pending_retire_transfer_result.graph_pending_resource_count
         << " graph_pending_resource_bytes="
         << pending_retire_transfer_result.graph_pending_resource_bytes
+        << " graph_bookkeeping_excluded_resource_count="
+        << pending_retire_transfer_result
+               .graph_bookkeeping_excluded_resource_count
+        << " graph_bookkeeping_excluded_resource_bytes="
+        << pending_retire_transfer_result
+               .graph_bookkeeping_excluded_resource_bytes
+        << " graph_transfer_required_resource_count="
+        << pending_retire_transfer_result
+               .graph_transfer_required_resource_count
+        << " graph_transfer_required_resource_bytes="
+        << pending_retire_transfer_result
+               .graph_transfer_required_resource_bytes
+        << " bookkeeping_exclusion_status="
+        << pending_retire_transfer_result.bookkeeping_exclusion_status
+        << " source_coverage_after_bookkeeping_exclusion_status="
+        << pending_retire_transfer_result
+               .source_coverage_after_bookkeeping_exclusion_status
         << " context_pending_resource_count="
         << pending_retire_transfer_result.context_pending_resource_count
         << " context_pending_resource_bytes="
@@ -14343,6 +14404,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " region_exit_bound_missing_resource_bytes="
         << pending_retire_transfer_result
                .region_exit_bound_missing_resource_bytes
+        << " region_exit_bound_missing_transfer_required_resource_count="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_resource_count
+        << " region_exit_bound_missing_transfer_required_resource_bytes="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_resource_bytes
         << " region_exit_bound_source_coverage_status="
         << pending_retire_transfer_result
                .region_exit_bound_source_coverage_status
@@ -14424,6 +14491,23 @@ void append_stack_region_submit_epoch_ordering_json(
         << pending_retire_transfer_owner_result.graph_pending_resource_count
         << " graph_pending_resource_bytes="
         << pending_retire_transfer_owner_result.graph_pending_resource_bytes
+        << " graph_bookkeeping_excluded_resource_count="
+        << pending_retire_transfer_owner_result
+               .graph_bookkeeping_excluded_resource_count
+        << " graph_bookkeeping_excluded_resource_bytes="
+        << pending_retire_transfer_owner_result
+               .graph_bookkeeping_excluded_resource_bytes
+        << " graph_transfer_required_resource_count="
+        << pending_retire_transfer_owner_result
+               .graph_transfer_required_resource_count
+        << " graph_transfer_required_resource_bytes="
+        << pending_retire_transfer_owner_result
+               .graph_transfer_required_resource_bytes
+        << " bookkeeping_exclusion_status="
+        << pending_retire_transfer_owner_result.bookkeeping_exclusion_status
+        << " source_coverage_after_bookkeeping_exclusion_status="
+        << pending_retire_transfer_owner_result
+               .source_coverage_after_bookkeeping_exclusion_status
         << " context_pending_resource_count="
         << pending_retire_transfer_owner_result.context_pending_resource_count
         << " context_pending_resource_bytes="
@@ -14434,6 +14518,12 @@ void append_stack_region_submit_epoch_ordering_json(
         << " stack_internal_batch_resource_bytes="
         << pending_retire_transfer_owner_result
                .stack_internal_batch_resource_bytes
+        << " region_exit_bound_missing_transfer_required_resource_count="
+        << pending_retire_transfer_owner_result
+               .region_exit_bound_missing_transfer_required_resource_count
+        << " region_exit_bound_missing_transfer_required_resource_bytes="
+        << pending_retire_transfer_owner_result
+               .region_exit_bound_missing_transfer_required_resource_bytes
         << " transfer_plan_available="
         << (pending_retire_transfer_owner_request.transfer_plan_available ? "1"
                                                                          : "0")
@@ -14644,6 +14734,29 @@ void append_stack_region_submit_epoch_ordering_json(
         << " pending_retire_transfer_source_coverage_status="
         << pending_retire_transfer_result
                .region_exit_bound_source_coverage_status
+        << " pending_retire_transfer_bookkeeping_exclusion_status="
+        << pending_retire_transfer_result.bookkeeping_exclusion_status
+        << " pending_retire_transfer_source_coverage_after_bookkeeping_exclusion_status="
+        << pending_retire_transfer_result
+               .source_coverage_after_bookkeeping_exclusion_status
+        << " pending_retire_transfer_graph_bookkeeping_excluded_resource_count="
+        << pending_retire_transfer_result
+               .graph_bookkeeping_excluded_resource_count
+        << " pending_retire_transfer_graph_bookkeeping_excluded_resource_bytes="
+        << pending_retire_transfer_result
+               .graph_bookkeeping_excluded_resource_bytes
+        << " pending_retire_transfer_graph_transfer_required_resource_count="
+        << pending_retire_transfer_result
+               .graph_transfer_required_resource_count
+        << " pending_retire_transfer_graph_transfer_required_resource_bytes="
+        << pending_retire_transfer_result
+               .graph_transfer_required_resource_bytes
+        << " pending_retire_transfer_region_exit_bound_missing_transfer_required_resource_count="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_resource_count
+        << " pending_retire_transfer_region_exit_bound_missing_transfer_required_resource_bytes="
+        << pending_retire_transfer_result
+               .region_exit_bound_missing_transfer_required_resource_bytes
         << " retire_timeline_owner=StackRegionRetireTimelineOwner.v0"
         << " retire_timeline_owner_key=" << retire_timeline_owner_key
         << " retire_timeline_owner_status="
@@ -16261,6 +16374,10 @@ void append_stack_region_submit_epoch_ordering_json(
     boundary_proof.pending_dispatch_count += proof.pending_dispatch_count;
     boundary_proof.pending_resource_count += proof.pending_resource_count;
     boundary_proof.pending_resource_bytes += proof.pending_resource_bytes;
+    boundary_proof.known_harmless_metadata_or_bookkeeping_count +=
+        proof.known_harmless_metadata_or_bookkeeping_count;
+    boundary_proof.known_harmless_metadata_or_bookkeeping_bytes +=
+        proof.known_harmless_metadata_or_bookkeeping_bytes;
     boundary_proof.descriptor_update_side_effect_count +=
         proof.descriptor_update_side_effect_count;
     boundary_proof.retire_side_effect_count += proof.retire_side_effect_count;
@@ -16403,6 +16520,10 @@ void append_stack_region_submit_epoch_ordering_json(
       instance_proof.pending_dispatch_count += proof.pending_dispatch_count;
       instance_proof.pending_resource_count += proof.pending_resource_count;
       instance_proof.pending_resource_bytes += proof.pending_resource_bytes;
+      instance_proof.known_harmless_metadata_or_bookkeeping_count +=
+          proof.known_harmless_metadata_or_bookkeeping_count;
+      instance_proof.known_harmless_metadata_or_bookkeeping_bytes +=
+          proof.known_harmless_metadata_or_bookkeeping_bytes;
       instance_proof.descriptor_update_side_effect_count +=
           proof.descriptor_update_side_effect_count;
       instance_proof.retire_side_effect_count +=
@@ -24778,6 +24899,27 @@ evaluate_stack_region_pending_retire_transfer_plan(
   StackRegionPendingRetireTransferResult result;
   result.graph_pending_resource_count = request.graph_pending_resource_count;
   result.graph_pending_resource_bytes = request.graph_pending_resource_bytes;
+  result.graph_bookkeeping_excluded_resource_count =
+      request.graph_bookkeeping_excluded_resource_count;
+  result.graph_bookkeeping_excluded_resource_bytes =
+      request.graph_bookkeeping_excluded_resource_bytes;
+  result.graph_transfer_required_resource_count =
+      request.graph_pending_resource_count >
+          request.graph_bookkeeping_excluded_resource_count
+      ? request.graph_pending_resource_count -
+          request.graph_bookkeeping_excluded_resource_count
+      : 0u;
+  result.graph_transfer_required_resource_bytes =
+      request.graph_pending_resource_bytes >
+          request.graph_bookkeeping_excluded_resource_bytes
+      ? request.graph_pending_resource_bytes -
+          request.graph_bookkeeping_excluded_resource_bytes
+      : 0u;
+  result.bookkeeping_exclusion_status =
+      request.graph_bookkeeping_excluded_resource_count > 0u ||
+          request.graph_bookkeeping_excluded_resource_bytes > 0u
+      ? "pending_retire_transfer_bookkeeping_exclusion_applied"
+      : "pending_retire_transfer_bookkeeping_exclusion_not_required";
   result.context_pending_resource_count = context_pending_resource_count;
   result.context_pending_resource_bytes = context_pending_resource_bytes;
   result.stack_internal_batch_resource_count =
@@ -24871,6 +25013,14 @@ request_stack_region_pending_retire_transfer_owner(
   StackRegionPendingRetireTransferOwnerResult result;
   result.graph_pending_resource_count = request.graph_pending_resource_count;
   result.graph_pending_resource_bytes = request.graph_pending_resource_bytes;
+  result.graph_bookkeeping_excluded_resource_count =
+      request.graph_bookkeeping_excluded_resource_count;
+  result.graph_bookkeeping_excluded_resource_bytes =
+      request.graph_bookkeeping_excluded_resource_bytes;
+  result.graph_transfer_required_resource_count =
+      request.graph_transfer_required_resource_count;
+  result.graph_transfer_required_resource_bytes =
+      request.graph_transfer_required_resource_bytes;
   result.context_pending_resource_count =
       request.context_pending_resource_count;
   result.context_pending_resource_bytes =
@@ -24879,7 +25029,15 @@ request_stack_region_pending_retire_transfer_owner(
       request.stack_internal_batch_resource_count;
   result.stack_internal_batch_resource_bytes =
       request.stack_internal_batch_resource_bytes;
+  result.region_exit_bound_missing_transfer_required_resource_count =
+      request.region_exit_bound_missing_transfer_required_resource_count;
+  result.region_exit_bound_missing_transfer_required_resource_bytes =
+      request.region_exit_bound_missing_transfer_required_resource_bytes;
   result.source_match_status = request.source_match_status;
+  result.bookkeeping_exclusion_status =
+      request.bookkeeping_exclusion_status;
+  result.source_coverage_after_bookkeeping_exclusion_status =
+      request.source_coverage_after_bookkeeping_exclusion_status;
   result.retire_timeline_owner_status = request.retire_timeline_owner_status;
   result.planned_release_submit_point_status =
       request.planned_release_submit_point_status;
