@@ -88,6 +88,9 @@ broad DAv2 performance claim.
 Recording-domain rows distinguish this canary with
 `phase_boundary_queue_submits_preserved=0`: logical phase-boundary calls remain,
 but queue submit ownership is deferred to stack exit.
+The canary reports recorded work with a separate stack-owned dispatch counter
+rather than `submit_count_`, keeping the normal context phase-boundary submit
+logic untouched.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

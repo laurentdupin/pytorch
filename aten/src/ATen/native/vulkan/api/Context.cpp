@@ -1371,6 +1371,7 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_region_owned_command_buffer_active_{false},
       stack_planned_recording_owner_{},
       stack_planned_recording_stats_{},
+      stack_region_owned_recording_dispatch_count_{0u},
       stack_region_owned_recording_retained_buffers_{},
       stack_region_owned_recording_retained_images_{},
       stack_region_single_recording_plan_id_{0u},
@@ -2311,7 +2312,10 @@ CommandBuffer& Context::active_cmd() {
           command_buffer_recording_id_,
           submit_epoch,
           submit_epoch,
-          submit_count_,
+          stack_region_owned_command_buffer_active_.load(
+              std::memory_order_acquire)
+              ? stack_region_owned_recording_dispatch_count_
+              : submit_count_,
           VulkanSubmitPhase::StackOwner,
           VulkanRetireCallSite::Unknown,
           stack_region_owned_command_buffer_active_.load(
@@ -3690,7 +3694,7 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
   const uint64_t command_buffer_recording_id = command_buffer_recording_id_;
   const uint64_t submit_epoch_before =
       current_stream().last_submitted_value.load(std::memory_order_relaxed);
-  const uint64_t pending_dispatch_count = submit_count_;
+  const uint64_t context_pending_dispatch_count = submit_count_;
   const bool stack_exit_close_submit_owner_enabled =
       stack_region_close_submit_owner_stack_exit_enabled();
   if (stack_exit_close_submit_owner_enabled &&
@@ -3701,6 +3705,9 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
   }
   const bool stack_region_owned_close_submit =
       stack_region_owned_command_buffer_active_.load(std::memory_order_acquire);
+  const uint64_t pending_dispatch_count = stack_region_owned_close_submit
+      ? stack_region_owned_recording_dispatch_count_
+      : context_pending_dispatch_count;
   VulkanSubmission submission{};
   if (stack_region_owned_close_submit) {
     end_external_command_recording();
@@ -3723,6 +3730,7 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
         stack_region_owned_recording_retained_images_);
     stack_region_owned_command_buffer_active_.store(
         false, std::memory_order_release);
+    stack_region_owned_recording_dispatch_count_ = 0u;
     submit_count_ = 0u;
     command_buffer_recording_id_ = 0u;
   } else {
@@ -3852,6 +3860,7 @@ void Context::begin_stack_planned_recording(
   clear_stack_region_pending_retire_handoff_batch_locked();
   stack_region_owned_recording_retained_buffers_.clear();
   stack_region_owned_recording_retained_images_.clear();
+  stack_region_owned_recording_dispatch_count_ = 0u;
   if (allow_stack_owned_command_buffer_canary &&
       stack_region_owned_command_buffer_canary_enabled()) {
     stack_region_owned_cmd_ = acquire_persistent_command_buffer();
@@ -3960,6 +3969,7 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
     stack_region_owned_recording_retained_images_.clear();
     stack_region_owned_command_buffer_active_.store(
         false, std::memory_order_release);
+    stack_region_owned_recording_dispatch_count_ = 0u;
     submit_count_ = 0u;
     command_buffer_recording_id_ = 0u;
   }

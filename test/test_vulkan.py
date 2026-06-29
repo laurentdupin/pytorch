@@ -26592,6 +26592,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(
                 any(row["event"] == "stack_exit_submit" for row in recording_domain_rows)
             )
+            self.assertTrue(
+                any(
+                    row["event"] == "stack_exit_submit"
+                    and int(row["pending_dispatch_count"]) > 0
+                    for row in recording_domain_rows
+                )
+            )
             self.assertEqual(
                 graph["summary"]["single_recording_canary_submits_removed"],
                 0,

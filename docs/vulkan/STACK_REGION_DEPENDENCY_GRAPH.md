@@ -1180,6 +1180,9 @@ optimization.
 `phase_boundary_queue_submits_preserved=0` for the owned canary to show that
 logical phase-boundary call sites remain while queue submit ownership moves to
 the stack-exit prepared command buffer.
+The canary uses a separate stack-owned recording dispatch counter for graph
+rows. It does not reuse the context `submit_count_`, so diagnostics can report
+recorded work without accidentally re-enabling context phase-boundary submits.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in
