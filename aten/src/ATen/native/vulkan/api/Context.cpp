@@ -2282,7 +2282,40 @@ DescriptorPool& Context::active_descriptor_pool() {
 
 CommandBuffer& Context::active_cmd() {
   if (CommandBuffer* const external_cmd = external_recording_cmd()) {
+    if (stack_planned_recording_active_.load(std::memory_order_acquire) &&
+        stack_region_recording_domain_observation_enabled()) {
+      const uint64_t submit_epoch =
+          current_stream().last_submitted_value.load(std::memory_order_relaxed);
+      note_stack_region_recording_domain(
+          "active_cmd_external",
+          stack_region_single_recording_owner_id_.load(
+              std::memory_order_acquire),
+          stack_region_single_recording_owner_state_.load(
+              std::memory_order_acquire),
+          command_buffer_recording_id_,
+          submit_epoch,
+          submit_epoch,
+          submit_count_,
+          VulkanSubmitPhase::StackOwner,
+          VulkanRetireCallSite::Unknown);
+    }
     return *external_cmd;
+  }
+  if (stack_planned_recording_active_.load(std::memory_order_acquire) &&
+      stack_region_recording_domain_observation_enabled()) {
+    const uint64_t submit_epoch =
+        current_stream().last_submitted_value.load(std::memory_order_relaxed);
+    note_stack_region_recording_domain(
+        "active_cmd_context",
+        stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
+        stack_region_single_recording_owner_state_.load(
+            std::memory_order_acquire),
+        command_buffer_recording_id_,
+        submit_epoch,
+        submit_epoch,
+        submit_count_,
+        VulkanSubmitPhase::StackOwner,
+        VulkanRetireCallSite::Unknown);
   }
   return cmd_;
 }

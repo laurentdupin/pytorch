@@ -26613,6 +26613,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(
                 any(row["event"] == "stack_exit_submit" for row in recording_domain_rows)
             )
+            self.assertTrue(
+                any(row["event"] == "active_cmd_context" for row in recording_domain_rows)
+            )
             for domain_row in recording_domain_rows:
                 self.assertEqual(
                     domain_row["recording_domain_mode"],

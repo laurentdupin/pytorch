@@ -24295,6 +24295,12 @@ void note_stack_region_recording_domain(
       callsite);
 }
 
+bool stack_region_recording_domain_observation_enabled() {
+  return stack_region_dependency_graph_path() != nullptr ||
+      stack_region_single_recording_canary_target_selected(
+             stack_region_single_recording_canary_target());
+}
+
 StackRegionCommandBufferRequestResult request_stack_region_command_buffer(
     const StackRegionCommandBufferRequest& request) {
   StackRegionCommandBufferRequestResult result;

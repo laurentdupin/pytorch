@@ -71,7 +71,10 @@ stack exit emit rows in `context_phase_submit_compat` mode with
 explicit: the current context-owned command-buffer path consumes phase-submit
 command-buffer epochs before stack exit, so future performance work needs a
 real region-owned command-buffer recording domain rather than another local
-submit-deletion guard.
+submit-deletion guard. When stack graph diagnostics are enabled, `active_cmd()`
+also records `active_cmd_context` rows during stack planned recording to show
+that dispatch recording still uses the context command buffer rather than a
+region-owned command buffer.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

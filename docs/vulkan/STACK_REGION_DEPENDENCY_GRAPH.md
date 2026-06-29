@@ -1158,7 +1158,12 @@ and do not authorize submit elision; they document that the current topology
 still consumes context-owned command-buffer epochs at phase boundaries before a
 planned region-exit submit. The next behavior-bearing architecture must provide
 a real region-owned command-buffer recording domain before a single-recording
-path can replace the preserved phase submits.
+path can replace the preserved phase submits. With stack graph diagnostics
+enabled, the same schema also records `active_cmd_context` observations from
+`Context::active_cmd()` during stack planned recording. Those rows prove that
+dispatch recording is still routed through the context-owned command buffer;
+they are intentionally gated diagnostics and do not create a region-owned
+recording scope.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in
