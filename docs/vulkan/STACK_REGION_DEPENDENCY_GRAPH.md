@@ -1200,12 +1200,6 @@ mark `segment_selected_for_recording`, and the summary reports
 selected external segments must also stay within the small planned-dispatch
 budget, so higher-dispatch real-model segments reject before external recording
 starts.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_prefix_to_exit`
-is a separate opt-in canary that derives the selected prefix from the planned
-dispatch budget first, not from capture-aligned segment ends. It still selects
-at most two stack-owned external scopes, leaves the remaining tail on the
-context-owned path, reports `segment_plan_coverage=prefix` when only a prefix is
-selected, and keeps submit elision and deferred submit disabled.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and

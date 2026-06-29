@@ -105,11 +105,6 @@ eligible private-bridge segments externally and leaves the remaining tail on the
 existing context-owned path. This is a partial recording experiment, not a
 full-stack DAv2 performance path. Selected external segments also fail closed
 when their planned dispatch count exceeds the current small-scope canary budget.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_prefix_to_exit`
-is a narrower follow-up canary that derives prefix segments from the same
-planned-dispatch budget instead of requiring capture-aligned segment ends. It
-still records at most two external scopes, leaves the tail context-owned, and
-keeps submit elision disabled.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
