@@ -1531,6 +1531,29 @@ std::optional<std::vector<size_t>> stack_owned_command_buffer_segment_ends(
   return plan.segment_ends;
 }
 
+uint64_t planned_stack_dispatch_count(
+    const VulkanVisionStackShapePlan* const plan) {
+  return plan ? static_cast<uint64_t>(plan->steps.size()) : 0u;
+}
+
+uint64_t planned_segment_dispatch_count(
+    const VulkanVisionStackShapePlan* const plan,
+    const size_t segment_start_block,
+    const size_t segment_end_block) {
+  if (!plan || segment_end_block < segment_start_block) {
+    return 0u;
+  }
+  uint64_t count = 0u;
+  for (const VulkanStackPlanStep& step : plan->steps) {
+    if (
+        step.block_index >= static_cast<int64_t>(segment_start_block) &&
+        step.block_index <= static_cast<int64_t>(segment_end_block)) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 class VulkanStackCommandRecordingScope final {
  public:
   explicit VulkanStackCommandRecordingScope(
@@ -8735,6 +8758,10 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       segmented_stack_owned_command_buffer_plan.fail_reason ==
           std::string("none");
   if (api::stack_region_recording_domain_observation_enabled()) {
+    const bool stack_planned_dispatch_count_observed =
+        stack_shape_plan != nullptr;
+    const uint64_t stack_planned_dispatch_count =
+        planned_stack_dispatch_count(stack_shape_plan);
     const std::string segment_ends_signature =
         format_segment_plan_ends(
             segmented_stack_owned_command_buffer_plan.segment_ends);
@@ -8749,6 +8776,9 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         preserve_private_captures_in_plan,
         stack_shape_plan &&
             stack_plan_ready_for_planned_recording(*stack_shape_plan),
+        stack_planned_dispatch_count_observed,
+        stack_planned_dispatch_count,
+        0u,
         context->blocks().size(),
         runtime_capture_indices_signature,
         plan_capture_indices_signature,
@@ -8790,6 +8820,12 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
           preserve_private_captures_in_plan,
           stack_shape_plan &&
               stack_plan_ready_for_planned_recording(*stack_shape_plan),
+          stack_planned_dispatch_count_observed,
+          stack_planned_dispatch_count,
+          planned_segment_dispatch_count(
+              stack_shape_plan,
+              segment_start,
+              segment_end),
           context->blocks().size(),
           runtime_capture_indices_signature,
           plan_capture_indices_signature,

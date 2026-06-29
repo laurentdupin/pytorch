@@ -26822,6 +26822,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["segmented_canary_selected"] == "1"
                     and row["private_device_consumer_bridge"] == "1"
                     and row["block_count"] == "4"
+                    and row["planned_dispatch_count_source"]
+                    == "VulkanVisionStackShapePlan.steps"
+                    and row["planned_dispatch_count_status"] == "observed"
+                    and row["planned_dispatch_budget_enforced"] == "0"
+                    and row["planned_dispatch_count_admission_predicate"] == "0"
+                    and int(row["total_planned_dispatch_count"]) > 0
+                    and int(row["segment_planned_dispatch_count"]) == 0
                     and row["runtime_capture_indices"] == "1_3"
                     and row["plan_capture_indices"] == "1_3"
                     and row["segment_block_limit"] == "4"
@@ -26838,6 +26845,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 row for row in segment_plan_rows if row["row_kind"] == "segment"
             ]
             self.assertEqual(len(segment_rows), 2)
+            segment_dispatch_counts = [
+                int(row["segment_planned_dispatch_count"]) for row in segment_rows
+            ]
+            self.assertTrue(all(count > 0 for count in segment_dispatch_counts))
+            self.assertTrue(
+                any(
+                    row["row_kind"] == "summary"
+                    and int(row["total_planned_dispatch_count"])
+                    == sum(segment_dispatch_counts)
+                    for row in segment_plan_rows
+                )
+            )
             self.assertTrue(
                 any(
                     row["segment_index"] == "0"
@@ -26956,6 +26975,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["segmented_canary_selected"] == "0"
                     and row["private_device_consumer_bridge"] == "1"
                     and row["block_count"] == "6"
+                    and row["planned_dispatch_count_source"]
+                    == "VulkanVisionStackShapePlan.steps"
+                    and row["planned_dispatch_count_status"] == "observed"
+                    and row["planned_dispatch_budget_enforced"] == "0"
+                    and row["planned_dispatch_count_admission_predicate"] == "0"
+                    and int(row["total_planned_dispatch_count"]) > 0
+                    and int(row["segment_planned_dispatch_count"]) == 0
                     and row["runtime_capture_indices"] == "1_3_5"
                     and row["plan_capture_indices"] == "1_3_5"
                     and row["segment_block_limit"] == "4"

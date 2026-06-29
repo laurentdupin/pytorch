@@ -1194,8 +1194,11 @@ already shown stack-overflow/device-loss risk.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and
 budgets: private bridge state, runtime capture indices, plan-capture indices,
-block count, segment ends, the four-block segment limit, the two-scope limit,
-and fail-closed reasons such as `segment_scope_limit_exceeded`. The row is
+block count, segment ends, total and per-segment planned dispatch counts from
+the existing stack shape plan, the four-block segment limit, the two-scope
+limit, and fail-closed reasons such as `segment_scope_limit_exceeded`. The
+planned dispatch counts are reporting evidence only; rows explicitly mark that
+the count is not enforced and is not a segment-admission predicate. The row is
 behavior-neutral: it does not open scopes, change command-buffer topology,
 move pending retires, defer submits, or authorize submit elision.
 

@@ -2515,6 +2515,9 @@ void record_stack_region_segment_plan(
     const bool private_device_consumer_bridge,
     const bool preserve_private_captures_in_plan,
     const bool shape_plan_ready,
+    const bool planned_dispatch_count_observed,
+    const uint64_t total_planned_dispatch_count,
+    const uint64_t segment_planned_dispatch_count,
     const uint64_t block_count,
     const std::string& runtime_capture_indices,
     const std::string& plan_capture_indices,
@@ -2548,6 +2551,13 @@ void record_stack_region_segment_plan(
       << " preserve_private_captures_in_plan="
       << (preserve_private_captures_in_plan ? 1 : 0)
       << " shape_plan_ready=" << (shape_plan_ready ? 1 : 0)
+      << " planned_dispatch_count_source=VulkanVisionStackShapePlan.steps"
+      << " planned_dispatch_count_status="
+      << (planned_dispatch_count_observed ? "observed" : "shape_plan_unavailable")
+      << " total_planned_dispatch_count=" << total_planned_dispatch_count
+      << " segment_planned_dispatch_count=" << segment_planned_dispatch_count
+      << " planned_dispatch_budget_enforced=0"
+      << " planned_dispatch_count_admission_predicate=0"
       << " block_count=" << block_count
       << " runtime_capture_indices="
       << stack_region_row_token(runtime_capture_indices)
@@ -24545,6 +24555,9 @@ void note_stack_region_segment_plan(
     const bool private_device_consumer_bridge,
     const bool preserve_private_captures_in_plan,
     const bool shape_plan_ready,
+    const bool planned_dispatch_count_observed,
+    const uint64_t total_planned_dispatch_count,
+    const uint64_t segment_planned_dispatch_count,
     const uint64_t block_count,
     const std::string& runtime_capture_indices,
     const std::string& plan_capture_indices,
@@ -24570,6 +24583,9 @@ void note_stack_region_segment_plan(
       private_device_consumer_bridge,
       preserve_private_captures_in_plan,
       shape_plan_ready,
+      planned_dispatch_count_observed,
+      total_planned_dispatch_count,
+      segment_planned_dispatch_count,
       block_count,
       runtime_capture_indices,
       plan_capture_indices,

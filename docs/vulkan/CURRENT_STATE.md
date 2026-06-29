@@ -103,8 +103,9 @@ and four capture-aligned scopes, so DAv2 remains on the context-owned path.
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
 inputs and budgets only: private-bridge policy, runtime capture indices,
-plan-capture indices, block count, segment ends, four-block segment budget,
-two-scope budget, and fail-closed reason such as
+plan-capture indices, block count, segment ends, total and per-segment planned
+dispatch counts from the stack shape plan, four-block segment budget, two-scope
+budget, and fail-closed reason such as
 `segment_scope_limit_exceeded`. They do not change command-buffer topology,
 open recording scopes by themselves, move cleanup resources, defer submits, or
 authorize submit elision.
