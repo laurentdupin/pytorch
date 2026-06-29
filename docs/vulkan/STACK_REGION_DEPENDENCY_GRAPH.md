@@ -1200,6 +1200,11 @@ mark `segment_selected_for_recording`, and the summary reports
 selected external segments must also stay within the small planned-dispatch
 budget, so higher-dispatch real-model segments reject before external recording
 starts.
+Dispatch-derived prefix segmentation is intentionally not exposed. A prototype
+that selected smaller planned-dispatch segments avoided the single-forward
+stack-overflow case but still overflowed under repeated real `vits_140`
+inference, so future segment planners must include repeat-stability proof before
+being retained.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and

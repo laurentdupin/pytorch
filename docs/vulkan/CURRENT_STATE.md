@@ -105,6 +105,10 @@ eligible private-bridge segments externally and leaves the remaining tail on the
 existing context-owned path. This is a partial recording experiment, not a
 full-stack DAv2 performance path. Selected external segments also fail closed
 when their planned dispatch count exceeds the current small-scope canary budget.
+Do not derive smaller dispatch-budget prefix segments for real DAv2 yet:
+experiments with dispatch-derived prefix scopes completed one forward but hit
+stack overflow under repeated `vits_140` inference. Any future replacement must
+prove repeat stability before being left available, even behind an opt-in flag.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
