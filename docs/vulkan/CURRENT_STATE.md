@@ -34,9 +34,11 @@ checked-in performance evidence manifest and can summarize this per-run
 segment-plan field from benchmark artifacts before a diagnostic sweep is
 rerun.
 A focused `vits_182` wide4 graph-catalog run now records that bridge sanity
-and `StackRegionSegmentPlan.v0` evidence pass for the next DAv2 input size;
-the run is cataloged as shape/topology stability evidence only because graph
-diagnostics make its wall-clock timing unusable as a latency claim.
+and `StackRegionSegmentPlan.v0` evidence pass for the next DAv2 input size.
+A separate no-graph three-repeat timing run measured about 74.8 ms mean /
+76.1 ms median / 78.3 ms p95 for device-resident forward with bridge sanity
+passing at max_abs `2.507120370864868e-06`. This is opt-in canary evidence,
+not a production default.
 
 ## DAv2 Stack Region Policy Lock
 

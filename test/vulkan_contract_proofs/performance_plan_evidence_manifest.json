@@ -162,7 +162,7 @@
         "variant": "vits",
         "input": "182x280"
       },
-      "device_notes": "RX 9070 single-repeat graph-catalog run; timing is not meaningful because stack graph diagnostics were enabled.",
+      "device_notes": "RX 9070 evidence. The graph-catalog artifact records segment-plan rows; the separate three-repeat timing artifact was run with stack graph diagnostics disabled.",
       "contract_or_topology_scope": [
         "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
         "StackRegionSegmentPlan.v0",
@@ -188,17 +188,22 @@
         "segment_plan_max_segment_dispatch_count": 42
       },
       "timing_ms": {
-        "device_resident_mean": null,
-        "repeat_count": 1,
-        "timing_claim": "none_graph_diagnostics_enabled"
+        "device_resident_mean": 74.755,
+        "device_resident_median": 76.148,
+        "device_resident_p95": 78.339,
+        "with_readback_mean": 77.505,
+        "end_to_end_mean": 101.073,
+        "repeat_count": 3,
+        "timing_claim": "valid_no_graph_diagnostics"
       },
       "artifacts": [
         "agent_space/dav2_vits182_wide4_catalog_1repeat.json",
-        "agent_space/dav2_vits182_wide4_catalog_graph.json"
+        "agent_space/dav2_vits182_wide4_catalog_graph.json",
+        "agent_space/dav2_vits182_wide4_timing_3repeat.json"
       ],
-      "decision": "Catalog as shape-stability evidence for the existing wide4 canary. Do not use this graph-diagnostic run as a latency result.",
+      "decision": "Catalog as shape-stability and timing evidence for the existing wide4 canary on the next DAv2 input size. Keep it opt-in; this is not a production default.",
       "revisit_conditions": [
-        "Run a repeat-count timing pass without stack graph diagnostics before making a vits_182 performance claim.",
+        "Run a longer repeat-count pass before using this row as a stable regression threshold.",
         "Keep this canary opt-in until multi-row and multi-GPU stability is recorded.",
         "Revisit if the StackRegionSegmentPlan.v0 row schema or wide4 dispatch budget changes."
       ]

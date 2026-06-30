@@ -1983,6 +1983,13 @@ class TestVulkanGovernance(TestCase):
             "segmented_stack_wide4_to_exit",
         )
 
+        empty_summary = benchmark.build_vulkan_stack_region_segment_plan_summary({})
+        self.assertFalse(empty_summary["available"])
+        self.assertEqual(
+            empty_summary["unavailable_reason"],
+            "stack_region_segment_plan_rows_not_recorded",
+        )
+
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
         self.assertEqual(summary["specs"], 33)

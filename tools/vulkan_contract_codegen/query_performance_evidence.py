@@ -107,6 +107,7 @@ def summarize_artifact_segment_plan(path: Path) -> dict[str, Any]:
         "observed_row_count",
         "accepted_row_count",
         "rejected_row_count",
+        "unavailable_reason",
         "status_counts",
         "fail_reason_counts",
         "owned_command_buffer_mode_counts",
@@ -178,7 +179,10 @@ def format_text_result(result: dict[str, Any]) -> str:
     for plan in artifact_plans:
         lines.append(f"- {plan['path']}")
         if not plan.get("available"):
-            lines.append(f"  unavailable: {plan.get('reason', 'unknown')}")
+            lines.append(
+                "  unavailable: "
+                f"{plan.get('unavailable_reason', plan.get('reason', 'unknown'))}"
+            )
             continue
         for key in (
             "row_count",

@@ -1352,6 +1352,9 @@ def build_vulkan_stack_region_segment_plan_summary(
         "contract_name": "StackRegionSegmentPlan.v0",
         "source_counter": "stack_dispatch_dependency_dry_run_snapshot",
         "available": bool(rows),
+        "unavailable_reason": None
+        if rows
+        else "stack_region_segment_plan_rows_not_recorded",
         "phase_source": "total",
         "behavior_changed": False,
         "row_count": len(rows),
