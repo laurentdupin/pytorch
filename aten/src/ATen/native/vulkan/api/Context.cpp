@@ -2383,6 +2383,20 @@ void Context::end_external_command_recording() {
   g_external_command_recording_state.segment_metadata_observed = false;
 }
 
+void Context::flush_persistent_external_recording_pools_if_idle() {
+  if (
+      external_recording_cmd() ||
+      stack_region_owned_command_buffer_active_.load(std::memory_order_acquire)) {
+    return;
+  }
+  persistent_command_pool_.flush();
+  persistent_descriptor_pool_.flush();
+  stack_region_external_command_buffer_acquire_count_ = 0u;
+  stack_region_external_descriptor_set_count_ = 0u;
+  stack_region_external_command_buffer_acquire_at_begin_ = 0u;
+  stack_region_external_descriptor_set_count_at_begin_ = 0u;
+}
+
 void Context::capture_external_recording_buffer_cleanup(
     PendingRetireBuffer&& pending) {
   g_external_command_recording_state.buffers_to_keep_alive.emplace_back(
@@ -2646,6 +2660,7 @@ void Context::synchronize_device() {
   retire_queue_.drain(device_);
   command_pool_.flush();
   descriptor_pool_.flush();
+  flush_persistent_external_recording_pools_if_idle();
   if (cmd_) {
     cmd_.invalidate();
   }
@@ -4814,6 +4829,7 @@ void Context::retire_after_fence_wait() {
   if (flush_pools) {
     command_pool_.flush();
     descriptor_pool_.flush();
+    flush_persistent_external_recording_pools_if_idle();
   }
   if (cmd_) {
     cmd_.invalidate();
@@ -4847,6 +4863,7 @@ void Context::flush_after_fence_wait() {
 
   command_pool_.flush();
   descriptor_pool_.flush();
+  flush_persistent_external_recording_pools_if_idle();
 
   if (cmd_) {
     cmd_.invalidate();

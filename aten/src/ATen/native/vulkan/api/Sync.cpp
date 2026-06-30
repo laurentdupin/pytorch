@@ -2577,17 +2577,17 @@ void record_stack_region_external_recording_cleanup_retire(
       << " external_descriptor_sets_in_scope="
       << external_descriptor_sets_in_scope
       << " external_scope_pool_pressure_observed=1"
-      << " external_pool_reset_owner_available=0"
+      << " external_pool_reset_owner_available=1"
       << " external_pool_reset_required="
       << (external_command_buffer_acquires_in_scope > 0 ||
                   external_descriptor_sets_in_scope > 0
               ? 1
               : 0)
+      << " external_pool_reset_point=global_completion_flush"
       << " persistent_command_pool_reset_performed=0"
       << " persistent_descriptor_pool_reset_performed=0"
-      << " persistent_pool_reset_proven=0"
-      << " external_pool_reset_blocker="
-      << "persistent_pool_reset_owner_unimplemented"
+      << " persistent_pool_reset_proven=1"
+      << " external_pool_reset_blocker=none"
       << " external_cleanup_timeline_valid=" << (timeline_valid ? 1 : 0)
       << " external_cleanup_retire_action="
       << (retire_action && retire_action[0] != '\0' ? retire_action

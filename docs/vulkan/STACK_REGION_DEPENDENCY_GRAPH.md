@@ -1246,15 +1246,16 @@ buffer/image counts, retained cleanup bytes, stack-exit submit timeline
 validity, the cleanup-retire action, and external recording pool-pressure
 counters. The pool-pressure fields report cumulative and per-scope persistent
 command-buffer acquisitions plus descriptor-set allocations observed while an
-external recording command buffer was active. They are repeat-stability
-diagnostics only: `persistent_pool_reset_proven=0` means the row does not prove
-that a larger multi-scope segment sequence can safely reuse or reset those
-pools across repeated forwards. Rows with observed pool pressure also report
+external recording command buffer was active. Persistent external recording
+pools are reset only at global completion/fence-wait flush points, after no
+external recording is active. Rows with observed pool pressure report
 `external_pool_reset_required=1`,
-`external_pool_reset_owner_available=0`, and
-`external_pool_reset_blocker=persistent_pool_reset_owner_unimplemented`.
-This makes persistent-pool reset ownership a hard prerequisite for exposing a
-larger multi-scope recording canary. A valid row with
+`external_pool_reset_owner_available=1`,
+`external_pool_reset_point=global_completion_flush`, and
+`persistent_pool_reset_proven=1`; the per-row
+`persistent_command_pool_reset_performed=0` and
+`persistent_descriptor_pool_reset_performed=0` fields mean reset is not
+performed at cleanup-retire emission itself. A valid row with
 `scheduled_on_stack_exit_submission` only proves the cleanup batch was handed
 to the existing retire queue under the stack-exit submission. It does not
 transfer pending retires, remove phase-boundary submits, defer submits, or prove

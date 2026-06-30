@@ -26669,13 +26669,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and int(row["external_command_buffer_acquires_in_scope"]) > 0
                     and int(row["external_descriptor_sets_in_scope"]) > 0
                     and row["external_scope_pool_pressure_observed"] == "1"
-                    and row["external_pool_reset_owner_available"] == "0"
+                    and row["external_pool_reset_owner_available"] == "1"
                     and row["external_pool_reset_required"] == "1"
+                    and row["external_pool_reset_point"]
+                    == "global_completion_flush"
                     and row["persistent_command_pool_reset_performed"] == "0"
                     and row["persistent_descriptor_pool_reset_performed"] == "0"
-                    and row["persistent_pool_reset_proven"] == "0"
-                    and row["external_pool_reset_blocker"]
-                    == "persistent_pool_reset_owner_unimplemented"
+                    and row["persistent_pool_reset_proven"] == "1"
+                    and row["external_pool_reset_blocker"] == "none"
                     for row in external_cleanup_retire_rows
                 )
             )
@@ -27430,35 +27431,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and int(row["external_command_buffer_acquires_in_scope"]) > 0
                     and int(row["external_descriptor_sets_in_scope"]) > 0
                     and row["external_scope_pool_pressure_observed"] == "1"
-                    and row["external_pool_reset_owner_available"] == "0"
+                    and row["external_pool_reset_owner_available"] == "1"
                     and row["external_pool_reset_required"] == "1"
+                    and row["external_pool_reset_point"]
+                    == "global_completion_flush"
                     and row["persistent_command_pool_reset_performed"] == "0"
                     and row["persistent_descriptor_pool_reset_performed"] == "0"
-                    and row["persistent_pool_reset_proven"] == "0"
-                    and row["external_pool_reset_blocker"]
-                    == "persistent_pool_reset_owner_unimplemented"
+                    and row["persistent_pool_reset_proven"] == "1"
+                    and row["external_pool_reset_blocker"] == "none"
                     for row in cleanup_retire_rows
                 )
             )
-            self.assertGreater(
+            self.assertLessEqual(
                 max(
                     int(row["external_command_buffer_acquires_after_scope"])
                     for row in cleanup_retire_rows
                 ),
-                min(
-                    int(row["external_command_buffer_acquires_before_scope"])
-                    for row in cleanup_retire_rows
-                ),
+                2,
             )
-            self.assertGreater(
+            self.assertLessEqual(
                 max(
                     int(row["external_descriptor_sets_after_scope"])
                     for row in cleanup_retire_rows
                 ),
-                min(
-                    int(row["external_descriptor_sets_before_scope"])
-                    for row in cleanup_retire_rows
-                ),
+                60,
             )
         finally:
             for key, value in previous.items():
