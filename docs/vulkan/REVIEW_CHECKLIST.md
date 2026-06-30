@@ -108,6 +108,11 @@ Use this checklist for Vulkan backend changes.
 - No `.ci/docker` edits unless rebuilding Docker images is intentional.
 - Documentation updates match the code behavior and do not claim unvalidated
   model readiness.
+- Vulkan performance candidates consult and update
+  `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` when
+  accepting a fix, adding a canary, rejecting a slower route, or blocking an
+  unsafe/correctness-failed topology. Do not repeat a rejected candidate unless
+  its recorded revisit conditions are met.
 - Rerun the real-model matrix after default backend behavior changes or before
   claiming or raising model gates. Pure docs, spec-helper, or fixture-only
   changes do not require a matrix refresh unless they reveal stale gate claims.

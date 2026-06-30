@@ -8,6 +8,13 @@ The Vulkan backend planning direction is now repo-local in `docs/vulkan`.
 Ignored `agent_space` artifacts remain evidence inputs, not production
 dependencies.
 
+`docs/vulkan/PERFORMANCE_EVIDENCE.md` and
+`test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` now hold
+the checked-in performance-plan evidence ledger. This is separate from accepted
+shape rows: it records accepted fixes, opt-in canaries, slower-but-correct
+plan candidates, correctness-blocked paths, and unsafe topologies so later
+agents do not repeat the same diagnostics as if they were new work.
+
 ## DAv2 Stack Region Policy Lock
 
 The unsafe sub-50 ms DAv2 `vits_140` path is rejected. Retire-time or

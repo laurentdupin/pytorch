@@ -139,3 +139,18 @@ Do not treat a clean manifest update as proof that a behavior change is safe.
 Behavior changes still need the contract-specific runtime parity, fallback,
 readback, copy, and adjacent-negative validation required by the Vulkan
 planning docs.
+
+## Performance Plan Evidence
+
+Shape admission manifests intentionally do not record every performance
+candidate. Correct-but-slower routes, unsafe recording topologies, and opt-in
+canaries live in
+`test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` and are
+described in `docs/vulkan/PERFORMANCE_EVIDENCE.md`.
+
+Use that manifest before retrying a shader workgroup, region-recording topology,
+fusion path, replay shortcut, or other execution-plan candidate. A
+`rejected_slower` entry does not make the route illegal: it only says the
+recorded device/input/topology did not justify promoting that plan. A future
+autotune or device-keyed plan cache may revisit it only under the entry's
+`revisit_conditions`.

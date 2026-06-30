@@ -1750,6 +1750,54 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("validated proof manifest", result.stdout)
 
+    def test_vulkan_performance_plan_evidence_manifest_schema(self):
+        path = os.path.join(
+            REPO_ROOT,
+            "test",
+            "vulkan_contract_proofs",
+            "performance_plan_evidence_manifest.json",
+        )
+        with open(path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+
+        self.assertEqual(
+            manifest.get("schema"),
+            "VulkanPerformancePlanEvidenceManifest.v0",
+        )
+        allowed_statuses = set(manifest.get("status_values", ()))
+        self.assertTrue(allowed_statuses)
+        entries = manifest.get("entries", [])
+        self.assertGreater(len(entries), 0)
+
+        seen_ids = set()
+        required_fields = (
+            "id",
+            "status",
+            "head",
+            "model_provenance",
+            "device_notes",
+            "contract_or_topology_scope",
+            "candidate",
+            "correctness",
+            "counters",
+            "timing_ms",
+            "artifacts",
+            "decision",
+            "revisit_conditions",
+        )
+        for entry in entries:
+            for field in required_fields:
+                self.assertIn(field, entry)
+            self.assertNotIn(entry["id"], seen_ids)
+            seen_ids.add(entry["id"])
+            self.assertIn(entry["status"], allowed_statuses)
+            self.assertIsInstance(entry["contract_or_topology_scope"], list)
+            self.assertGreater(len(entry["contract_or_topology_scope"]), 0)
+            self.assertIsInstance(entry["artifacts"], list)
+            self.assertGreater(len(entry["artifacts"]), 0)
+            self.assertIsInstance(entry["revisit_conditions"], list)
+            self.assertGreater(len(entry["revisit_conditions"]), 0)
+
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
         self.assertEqual(summary["specs"], 33)

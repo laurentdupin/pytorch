@@ -1,0 +1,310 @@
+{
+  "schema": "VulkanPerformancePlanEvidenceManifest.v0",
+  "last_updated": "2026-06-30",
+  "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
+  "status_values": [
+    "accepted_default_fix",
+    "accepted_canary",
+    "rejected_slower",
+    "correctness_blocked",
+    "unsafe_blocked",
+    "proposed_unstarted"
+  ],
+  "entries": [
+    {
+      "id": "dav2_vits140_stream_sync_external_pool_reset_2026_06_30",
+      "status": "accepted_default_fix",
+      "head": "49f93e81e81",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 evidence row; behavior is generic stream-sync cleanup, not a GPU dispatch predicate.",
+      "contract_or_topology_scope": [
+        "Vulkan stream synchronize split",
+        "persistent external-recording pool lifecycle",
+        "StackRegionOwnedCommandBuffer canaries"
+      ],
+      "candidate": "Reset idle persistent external-recording command and descriptor pools after successful stream synchronize.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.6391277313232422e-06,
+        "tests": [
+          "TestVulkanEagerRuntime.test_vulkan_prepack_synchronize_uses_stream_sync_without_failure",
+          "TestVulkanEagerRuntime.test_vulkan_stack_region_owned_command_buffer_wide4_canary"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true
+      },
+      "timing_ms": {
+        "device_resident_mean": 67.775,
+        "device_resident_median": 67.015,
+        "device_resident_p95": 71.817,
+        "with_readback_mean": 70.415,
+        "end_to_end_mean": 85.564,
+        "repeat_count": 10
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_3repeat_stream_sync_pool_reset.json",
+        "agent_space/dav2_vits140_wide4_10repeat_stream_sync_pool_reset.json"
+      ],
+      "decision": "Keep the stream-sync cleanup fix. It removes the repeated-run stack-overflow failure without broad Context::flush() recovery.",
+      "revisit_conditions": [
+        "If persistent external-recording pool ownership changes.",
+        "If stream synchronization stops being the public benchmark boundary.",
+        "If another GPU shows idle-pool reset causes correctness or lifetime regressions."
+      ]
+    },
+    {
+      "id": "dav2_vits140_segmented_stack_wide4_bridge_canary_2026_06_30",
+      "status": "accepted_canary",
+      "head": "49f93e81e81",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 canary measurement; not a production default and not a model-name route.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Use segmented stack-owned external recording for the wide4 bridge canary after stream-sync pool cleanup.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.6391277313232422e-06,
+        "tests": [
+          "TestVulkanEagerRuntime.test_vulkan_stack_region_owned_command_buffer_wide4_canary"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true
+      },
+      "timing_ms": {
+        "device_resident_mean": 67.775,
+        "device_resident_median": 67.015,
+        "device_resident_p95": 71.817,
+        "repeat_count": 10
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_10repeat_stream_sync_pool_reset.json"
+      ],
+      "decision": "Keep as an opt-in canary and current best measured bridge lane. Do not promote without multi-GPU and multi-row stability.",
+      "revisit_conditions": [
+        "After multi-scope ownership proof is repeat-stable.",
+        "After DAv2 vits_182 and non-DAv2 corpus rows show no stack overflow, device loss, or capture drift.",
+        "After contract/graph counters show no hidden fallback, readback, or extra copy regression."
+      ]
+    },
+    {
+      "id": "conv3x3_s1p1_workgroup_16x8_dav2_vits140_2026_06_30",
+      "status": "rejected_slower",
+      "head": "49f93e81e81",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 measurement; result may become an autotune candidate on other devices.",
+      "contract_or_topology_scope": [
+        "conv2d_buffer_float_3x3_s1p1",
+        "VulkanConvPlanCandidate"
+      ],
+      "candidate": "Change Kernel3x3Stride1Pad1 workgroup from 8x8x1 to 16x8x1.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "TestVulkanEagerRuntime.test_repeated_accuracy_conv_upsample_and_pointwise_matrix"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true
+      },
+      "timing_ms": {
+        "baseline_device_resident_mean": 67.775,
+        "candidate_device_resident_mean": 68.883,
+        "candidate_device_resident_median": 67.861,
+        "candidate_device_resident_p95": 74.623,
+        "repeat_count": 10
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_conv3x3_s1p1_16x8_10repeat_after_pool_reset.json"
+      ],
+      "decision": "Do not make 16x8 the static default for this shader on the RX 9070 vits_140 lane.",
+      "revisit_conditions": [
+        "Only revisit under a device/driver-keyed VulkanConvPlan autotune experiment.",
+        "Only revisit if the 3x3 shader implementation changes enough to invalidate this workgroup comparison.",
+        "Do not rerun as another static default proposal for the same shader and device evidence."
+      ]
+    },
+    {
+      "id": "decoder_tail_relu_via_conv_clamp_dav2_vits140_2026_06_30",
+      "status": "rejected_slower",
+      "head": "49f93e81e81",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 measurement.",
+      "contract_or_topology_scope": [
+        "DPT decoder tail conv/relu transition",
+        "Conv2dContext clamp path"
+      ],
+      "candidate": "Fuse decoder-tail ReLU into the existing conv context clamp path.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "TestVulkanEagerRuntime.test_depth_anything_v2_style_dpt_decoder",
+          "TestVulkanEagerRuntime.test_vulkan_depth_anything_style_dpt_decoder_compiled_session"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true
+      },
+      "timing_ms": {
+        "baseline_device_resident_mean": 67.775,
+        "candidate_device_resident_mean": 72.002,
+        "candidate_device_resident_median": 71.442,
+        "candidate_device_resident_p95": 79.070,
+        "repeat_count": 10
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_decoder_tail_relu_fused_10repeat.json"
+      ],
+      "decision": "Keep the separate decoder-tail ReLU/clamp path for this lane; the conv-clamp fusion is correct but slower.",
+      "revisit_conditions": [
+        "Only revisit if Conv2dContext clamp execution changes.",
+        "Only revisit if a transition-contract budget shows the separate ReLU path introduces a new copy, readback, or submit cost.",
+        "Do not repeat as a local decoder-tail fusion for the same baseline."
+      ]
+    },
+    {
+      "id": "depth_anything_v2_head_fusion_shader_correctness_blocked",
+      "status": "correctness_blocked",
+      "head": "49f93e81e81",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "all",
+        "input": "decoder shapes"
+      },
+      "device_notes": "Not device-specific; blocked before performance measurement.",
+      "contract_or_topology_scope": [
+        "Depth Anything V2 fused head candidate",
+        "DPT decoder/head region fusion"
+      ],
+      "candidate": "Enable the existing fused Depth Anything V2 head shader path.",
+      "correctness": {
+        "status": "blocked",
+        "reason": "The fused head path is explicitly disabled because it is not numerically aligned with the reference DPT head across supported decoder shapes."
+      },
+      "counters": {
+        "cpu_fallback": null,
+        "sync_readback": null,
+        "performance_valid": false
+      },
+      "timing_ms": {
+        "candidate_device_resident_mean": null
+      },
+      "artifacts": [
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
+      ],
+      "decision": "Do not enable or benchmark this path until a correctness matrix proves it.",
+      "revisit_conditions": [
+        "Add CPU, generic Vulkan, and fused-head parity for representative vits/vitb/vitl decoder shapes.",
+        "Include non-square lower-bound resize rows and align_corners=True coverage.",
+        "Only then create a region-fusion performance entry."
+      ]
+    },
+    {
+      "id": "depth_anything_compiled_session_bridge_replay_dav2_vits140",
+      "status": "unsafe_blocked",
+      "head": "49f93e81e81",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 scratch run; uses existing compiled-session/replay bridge guards.",
+      "contract_or_topology_scope": [
+        "DepthAnythingCompiledBackboneGuard",
+        "ReplayHangRisk",
+        "compiled-session bridge scratch path"
+      ],
+      "candidate": "Force the DAv2 benchmark through the compiled-session/replay bridge shortcut.",
+      "correctness": {
+        "status": "unsafe",
+        "reason": "Scratch run exited with Windows stack overflow -1073741571 before a valid timing result."
+      },
+      "counters": {
+        "cpu_fallback": null,
+        "sync_readback": null,
+        "performance_valid": false
+      },
+      "timing_ms": {
+        "candidate_device_resident_mean": null
+      },
+      "artifacts": [
+        "agent_space/dav2_compiled_bridge_scratch_op_hit.log",
+        "agent_space/dav2_compiled_bridge_scratch_graph.log",
+        "agent_space/dav2_compiled_bridge_scratch_runtime.log"
+      ],
+      "decision": "Keep the compiled-session/replay bridge guard. Do not use this as a DAv2 shortcut.",
+      "revisit_conditions": [
+        "Only revisit after replay/compiled-session ownership has a non-recursive planned region implementation.",
+        "Require a stack-overflow-free repeated vits_140 run before considering timings.",
+        "Require guard metadata to prove no replay-hit recursion or unsafe fallback path."
+      ]
+    },
+    {
+      "id": "current_topology_single_boundary_submit_elision_rejected",
+      "status": "unsafe_blocked",
+      "head": "aa8bcfd",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "Architecture-level result; model row was evidence provenance.",
+      "contract_or_topology_scope": [
+        "stack boundary value-preservation v0",
+        "current-topology phase-submit elision",
+        "residual2@0_to_norm1@1 selected boundary"
+      ],
+      "candidate": "Delete one current-topology phase-boundary submit after barrier and ownership proof accepted.",
+      "correctness": {
+        "status": "unsafe",
+        "reason": "Stress testing exposed intermittent private-capture corruption even when ownership and barrier proof looked complete."
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": false
+      },
+      "timing_ms": {
+        "candidate_device_resident_mean": null
+      },
+      "artifacts": [
+        "docs/vulkan/STACK_REGION_DEPENDENCY_GRAPH.md",
+        "docs/vulkan/STACK_REGION_COMMAND_OWNERSHIP.md"
+      ],
+      "decision": "Do not pursue current-topology submit deletion. Move to planned region-owned or segmented recording instead.",
+      "revisit_conditions": [
+        "Only revisit if the current topology is replaced by a region-owned command-buffer domain.",
+        "Require value-preservation proof plus stress parity across repeated private-capture outputs.",
+        "Do not revive retire-time or local lifetime-only phase-submit coalescing."
+      ]
+    }
+  ]
+}
