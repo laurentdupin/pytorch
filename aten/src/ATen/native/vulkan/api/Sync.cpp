@@ -45,6 +45,7 @@ std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
 
 void maybe_write_stack_region_dependency_graph_dump();
 const char* stack_region_dependency_graph_path();
+bool stack_region_dependency_graph_summary_only();
 const char* stack_region_barrier_only_canary_target();
 bool stack_region_barrier_only_canary_target_selected(const char* target);
 const char* stack_region_submit_elision_canary_target();
@@ -2948,6 +2949,15 @@ std::string format_sizes(const std::vector<int64_t>& values) {
 const char* stack_region_dependency_graph_path() {
   const char* env = std::getenv("PYTORCH_VULKAN_STACK_DEP_GRAPH");
   return (env && *env) ? env : nullptr;
+}
+
+bool stack_region_dependency_graph_summary_only() {
+  const char* env = std::getenv("PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string mode(env);
+  return mode == "summary" || mode == "summary_only";
 }
 
 const char* stack_region_barrier_only_canary_target() {
@@ -24182,6 +24192,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   const auto consumer_registration_summaries =
       build_stack_output_device_consumer_registration_summaries(
           consumer_registration_rows);
+  const bool summary_only = stack_region_dependency_graph_summary_only();
 
   uint64_t fully_proven_edge_records = 0u;
   uint64_t total_dependency_records = 0u;
@@ -24226,6 +24237,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   append_json_bool(out, "behavior_neutral", true, first);
   append_json_string(
       out, "env_var", "PYTORCH_VULKAN_STACK_DEP_GRAPH", first);
+  append_json_string(
+      out,
+      "graph_dump_mode",
+      summary_only ? "summary_only" : "full",
+      first);
   append_json_comma(out, first);
   out << "\"region\":{";
   bool region_first = true;
@@ -24455,6 +24471,112 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         out, item.first.c_str(), item.second, boundary_reject_first);
   }
   out << "}";
+
+  if (summary_only) {
+    append_json_string_array(
+        out,
+        "summary_only_omitted_arrays",
+        {"dispatch_nodes",
+         "pre_dispatch_insertion_point_nodes",
+         "live_vulkan_buffer_binding_nodes",
+         "live_vulkan_image_binding_nodes",
+         "descriptor_set_update_generation_rows",
+         "dependency_edges",
+         "capture_edges",
+         "resource_nodes",
+         "allocation_nodes",
+         "phase_boundary_nodes",
+         "raw_resource_producer_nodes",
+         "region_lifetime_rows",
+         "derived_barrier_and_boundary_proof_sections"},
+        first);
+    append_graph_array(
+        out,
+        "stack_region_boundary_submit_plan_live_rows",
+        boundary_submit_plan_rows,
+        "stack_region_boundary_submit_plan",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_barrier_only_canary_live_rows",
+        barrier_only_canary_rows,
+        "stack_region_barrier_only_canary",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_pre_dispatch_proof_table_rows",
+        pre_dispatch_proof_rows,
+        "stack_region_pre_dispatch_proof",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_boundary_optimization_plan_rows",
+        boundary_optimization_plan_rows,
+        "stack_region_boundary_optimization_plan",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_submit_elision_canary_rows",
+        submit_elision_canary_rows,
+        "stack_region_submit_elision_canary",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_single_recording_canary_rows",
+        single_recording_canary_rows,
+        "stack_region_single_recording_canary",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_recording_domain_rows",
+        recording_domain_rows,
+        "stack_region_recording_domain",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_external_recording_cleanup_logical_boundary_rows",
+        external_recording_cleanup_logical_boundary_rows,
+        "stack_region_external_recording_cleanup_logical_boundary",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_external_recording_cleanup_retire_rows",
+        external_recording_cleanup_retire_rows,
+        "stack_region_external_recording_cleanup_retire",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_segment_plan_rows",
+        segment_plan_rows,
+        "stack_region_segment_plan",
+        first);
+    append_graph_array(
+        out,
+        "stack_region_exit_submit_runtime_point_rows",
+        exit_submit_runtime_point_rows,
+        "stack_region_exit_submit_runtime_point",
+        first);
+    append_graph_array(
+        out,
+        "stack_output_device_consumer_registrations",
+        consumer_registration_rows,
+        "stack_output_device_consumer_registration",
+        first);
+    append_json_string_array(
+        out,
+        "unproven_or_missing_metadata_fields",
+        {"region_id",
+         "stack_context_id",
+         "bridge_session_id",
+         "complete_boundary_dependency_set",
+         "capture_output_boundary_value_preservation",
+         "capture_output_downstream_consumer_registration_in_graph",
+         "consumer_dispatch_for_capture_edges_when_not_recorded",
+         "boundary_specific_required_edge_set"},
+        first);
+    out << "}\n";
+    return;
+  }
 
   append_graph_array(out, "dispatch_nodes", dispatch_nodes, "dispatch", first);
   append_graph_array(

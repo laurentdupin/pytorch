@@ -1225,6 +1225,14 @@ more than the current two-scope canary budget, it fails closed with
 blocker is not confused with a request to raise the scope-count constant. A
 larger dispatch-budget sequence needs a repeat-stable multi-scope ownership
 contract before it can become a behavior canary.
+Repeated model-level runs may set
+`PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE=summary_only` with
+`PYTORCH_VULKAN_STACK_DEP_GRAPH`. Summary-only dumps keep the root summary and
+the low-volume ownership rows needed for segment readiness, recording-domain,
+cleanup-boundary, cleanup-retire, canary, and consumer-registration checks.
+They omit the full dispatch/resource/live-binding arrays and derived full-graph
+proof sections. This is only a graph-output mode; it does not change
+recording, submit, cleanup, retire, segment selection, or canary admission.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and

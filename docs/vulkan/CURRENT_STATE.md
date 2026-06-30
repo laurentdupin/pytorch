@@ -114,6 +114,14 @@ It selects the first two dispatch-budget candidate segments, leaves the
 remaining tail on the context-owned path, and keeps submit elision disabled.
 It is not a full-stack DAv2 performance path; the six-segment candidate
 sequence remains blocked on repeat-stable multi-scope ownership proof.
+Repeated model-level graph dumps can now opt into
+`PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE=summary_only`. This keeps the root
+summary plus segment-plan, recording-domain, cleanup-boundary, cleanup-retire,
+and related ownership rows, while omitting the heavy dispatch/resource/live
+binding arrays. The mode is diagnostic-only: it does not change recording,
+submit, cleanup, retire, or segment-admission behavior. It exists because
+repeated `vits_140` bridge graph dumps can otherwise grow into hundreds of MB
+before producing timing results.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
