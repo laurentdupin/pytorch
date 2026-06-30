@@ -1,0 +1,113 @@
+{
+  "schema": "VulkanStackRegionSegmentPlanManifest.v0",
+  "last_updated": "2026-07-01",
+  "purpose": "Governance-only manifest for bounded StackRegionSegmentPlan.v0 canary rowsets proven by benchmark evidence. This is not a production route table.",
+  "plans": [
+    {
+      "id": "dav2_vits_wide4_stack_region_segment_plan_v0_2026_07_01",
+      "status": "accepted_canary",
+      "contract_name": "StackRegionSegmentPlan.v0",
+      "mode": "segmented_stack_wide4_to_exit",
+      "admission_kind": "finite_resolution_rowset",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "inputs": [
+          "140x210",
+          "182x280",
+          "280x420",
+          "420x630",
+          "560x840",
+          "700x1050"
+        ]
+      },
+      "required_benchmark_flags": {
+        "vulkan_stack_output_device_bridge": true,
+        "PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING": "planned_recording",
+        "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF": "stack_scope_retire_handoff",
+        "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": "segmented_stack_wide4_to_exit"
+      },
+      "segment_bounds": {
+        "selected_segment_dispatch_limit": 48,
+        "candidate_dispatch_limit": 24,
+        "max_observed_segment_dispatch_count": 42,
+        "accepted_segment_plan_row_count_per_graph_run": 20,
+        "rejected_segment_plan_row_count_per_graph_run": 36
+      },
+      "shared_segment_plan_counts": {
+        "owned_command_buffer_mode_counts": {
+          "dispatch_budget_candidate_only": 35,
+          "segmented_stack_wide4_to_exit": 21
+        },
+        "status_counts": {
+          "dispatch_budget_candidate_rejected_behavior_neutral": 35,
+          "segment_plan_rejected_behavior_neutral": 1,
+          "wide4_segment_plan_available_behavior_canary": 20
+        },
+        "fail_reason_counts": {
+          "dispatch_budget_candidate_scope_limit_exceeded": 35,
+          "none": 20,
+          "segmentation_requires_private_device_consumer_bridge": 1
+        }
+      },
+      "timing_ms_by_input": {
+        "140x210": {
+          "device_resident_mean": 67.775,
+          "repeat_count": 10
+        },
+        "182x280": {
+          "device_resident_mean": 74.755,
+          "repeat_count": 3
+        },
+        "280x420": {
+          "device_resident_mean": 91.891,
+          "repeat_count": 3
+        },
+        "420x630": {
+          "device_resident_mean": 127.65,
+          "repeat_count": 3
+        },
+        "560x840": {
+          "device_resident_mean": 316.74,
+          "repeat_count": 3
+        },
+        "700x1050": {
+          "device_resident_mean": 446.834,
+          "repeat_count": 3
+        }
+      },
+      "correctness": {
+        "status": "passed",
+        "max_abs_range": [
+          1.6391277313232422e-06,
+          1.52587890625e-05
+        ],
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true
+      },
+      "performance_evidence_ids": [
+        "dav2_vits140_segmented_stack_wide4_bridge_canary_2026_06_30",
+        "dav2_vits182_segmented_stack_wide4_bridge_catalog_2026_07_01",
+        "dav2_vits280_segmented_stack_wide4_bridge_catalog_2026_07_01",
+        "dav2_vits420_segmented_stack_wide4_bridge_catalog_2026_07_01",
+        "dav2_vits560_segmented_stack_wide4_bridge_catalog_2026_07_01",
+        "dav2_vits700_segmented_stack_wide4_bridge_catalog_2026_07_01",
+        "dav2_vits_segmented_stack_wide4_resolution_rowset_2026_07_01"
+      ],
+      "decision": "Use as the current finite DAv2 vits wide4 StackRegionSegmentPlan canary rowset only.",
+      "non_goals": [
+        "not a production default",
+        "not a DAv2-named backend route",
+        "not evidence for vitb or vitl",
+        "not evidence for Lotus, PaddleOCR, HY-MT, or Gemma",
+        "not a ShapeEnvelope expansion"
+      ],
+      "revisit_conditions": [
+        "Repeat the rowset with longer timing samples before turning it into a regression threshold.",
+        "Add separate rowset evidence before broadening beyond DAv2 vits.",
+        "Revalidate if StackRegionSegmentPlan.v0 rows, stack-scope retire handoff, or decoder bridge recording semantics change."
+      ]
+    }
+  ]
+}

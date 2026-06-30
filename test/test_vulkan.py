@@ -1831,6 +1831,152 @@ class TestVulkanGovernance(TestCase):
             self.assertIsInstance(entry["revisit_conditions"], list)
             self.assertGreater(len(entry["revisit_conditions"]), 0)
 
+    def test_vulkan_stack_region_segment_plan_manifest_schema(self):
+        manifest_path = os.path.join(
+            REPO_ROOT,
+            "test",
+            "vulkan_contract_proofs",
+            "stack_region_segment_plan_manifest.json",
+        )
+        evidence_path = os.path.join(
+            REPO_ROOT,
+            "test",
+            "vulkan_contract_proofs",
+            "performance_plan_evidence_manifest.json",
+        )
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        with open(evidence_path, encoding="utf-8") as handle:
+            evidence_manifest = json.load(handle)
+
+        self.assertEqual(
+            manifest.get("schema"),
+            "VulkanStackRegionSegmentPlanManifest.v0",
+        )
+        self.assertIn("not a production route table", manifest.get("purpose", ""))
+
+        evidence_entries = {
+            entry["id"]: entry for entry in evidence_manifest.get("entries", [])
+        }
+        plans = manifest.get("plans", [])
+        self.assertGreater(len(plans), 0)
+
+        seen_ids = set()
+        seen_rowsets = set()
+        evidence_id_rowsets = {}
+        required_fields = (
+            "id",
+            "status",
+            "contract_name",
+            "mode",
+            "admission_kind",
+            "model_provenance",
+            "required_benchmark_flags",
+            "segment_bounds",
+            "shared_segment_plan_counts",
+            "timing_ms_by_input",
+            "correctness",
+            "performance_evidence_ids",
+            "decision",
+            "non_goals",
+            "revisit_conditions",
+        )
+        for plan in plans:
+            for field in required_fields:
+                self.assertIn(field, plan)
+
+            plan_id = plan["id"]
+            self.assertNotIn(plan_id, seen_ids)
+            seen_ids.add(plan_id)
+            self.assertEqual(plan["status"], "accepted_canary")
+            self.assertEqual(plan["contract_name"], "StackRegionSegmentPlan.v0")
+            self.assertEqual(plan["admission_kind"], "finite_resolution_rowset")
+
+            provenance = plan["model_provenance"]
+            self.assertIn("model", provenance)
+            self.assertIn("variant", provenance)
+            self.assertIn("inputs", provenance)
+            self.assertIsInstance(provenance["inputs"], list)
+            self.assertGreater(len(provenance["inputs"]), 0)
+
+            rowset_key = (
+                provenance["model"],
+                provenance["variant"],
+                plan["mode"],
+            )
+            self.assertNotIn(rowset_key, seen_rowsets)
+            seen_rowsets.add(rowset_key)
+
+            flags = plan["required_benchmark_flags"]
+            self.assertEqual(
+                flags.get("PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER"),
+                plan["mode"],
+            )
+            self.assertEqual(
+                flags.get("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"),
+                "stack_scope_retire_handoff",
+            )
+
+            timing_inputs = set(plan["timing_ms_by_input"])
+            self.assertEqual(timing_inputs, set(provenance["inputs"]))
+            for timing in plan["timing_ms_by_input"].values():
+                self.assertGreater(timing["device_resident_mean"], 0.0)
+                self.assertGreater(timing["repeat_count"], 0)
+
+            bounds = plan["segment_bounds"]
+            self.assertGreater(bounds["selected_segment_dispatch_limit"], 0)
+            self.assertLessEqual(
+                bounds["max_observed_segment_dispatch_count"],
+                bounds["selected_segment_dispatch_limit"],
+            )
+            self.assertGreater(
+                bounds["accepted_segment_plan_row_count_per_graph_run"], 0
+            )
+
+            correctness = plan["correctness"]
+            self.assertEqual(correctness["status"], "passed")
+            self.assertEqual(correctness["cpu_fallback"], 0)
+            self.assertEqual(correctness["sync_readback"], 0)
+            self.assertTrue(correctness["performance_valid"])
+
+            non_goals = " ".join(plan["non_goals"])
+            if provenance["variant"] == "vits":
+                self.assertIn("not evidence for vitb or vitl", non_goals)
+
+            for evidence_id in plan["performance_evidence_ids"]:
+                self.assertIn(evidence_id, evidence_entries)
+                previous_rowset = evidence_id_rowsets.setdefault(
+                    evidence_id,
+                    rowset_key,
+                )
+                self.assertEqual(previous_rowset, rowset_key)
+
+                evidence_provenance = evidence_entries[evidence_id][
+                    "model_provenance"
+                ]
+                self.assertEqual(evidence_provenance["model"], provenance["model"])
+                self.assertEqual(
+                    evidence_provenance["variant"],
+                    provenance["variant"],
+                )
+                evidence_input = evidence_provenance["input"]
+                if evidence_input.startswith("finite rowset"):
+                    for input_size in provenance["inputs"]:
+                        self.assertIn(input_size, evidence_input)
+                else:
+                    self.assertIn(evidence_input, provenance["inputs"])
+
+            rowset_evidence = evidence_entries[plan["performance_evidence_ids"][-1]]
+            self.assertEqual(rowset_evidence["status"], "accepted_canary")
+            self.assertEqual(
+                rowset_evidence["model_provenance"]["variant"],
+                provenance["variant"],
+            )
+            self.assertIn(
+                "finite rowset",
+                rowset_evidence["model_provenance"]["input"],
+            )
+
     def test_vulkan_performance_plan_evidence_query_cli(self):
         result = subprocess.run(
             [

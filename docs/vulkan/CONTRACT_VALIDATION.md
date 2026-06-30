@@ -147,6 +147,10 @@ candidate. Correct-but-slower routes, unsafe recording topologies, and opt-in
 canaries live in
 `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` and are
 described in `docs/vulkan/PERFORMANCE_EVIDENCE.md`.
+Finite `StackRegionSegmentPlan.v0` canary rowsets are summarized separately in
+`test/vulkan_contract_proofs/stack_region_segment_plan_manifest.json` so a
+group of proven benchmark rows has a durable boundary without becoming a
+production dispatch table.
 
 Use that manifest before retrying a shader workgroup, region-recording topology,
 fusion path, replay shortcut, or other execution-plan candidate. A
@@ -159,3 +163,7 @@ For Depth Anything V2 segmented stack-owned recording runs, first inspect the
 benchmark artifact's `vulkan_stack_region_segment_plan` field. It is the
 per-run catalog for `StackRegionSegmentPlan.v0` rows and should be promoted to
 the performance evidence manifest whenever it changes a durable decision.
+When the same segment plan is proven across a finite rowset, add or update a
+rowset in `stack_region_segment_plan_manifest.json`. Keep variants separate:
+`vits` evidence does not admit `vitb` or `vitl`, and non-DAv2 corpus evidence
+needs its own rowset.

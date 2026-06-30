@@ -60,6 +60,11 @@ The six `vits` rows are now grouped in the performance evidence manifest as a
 finite wide4 canary rowset. This is review memory for the current DAv2 vits
 performance lane, not a ShapeEnvelope expansion, a production dispatch table,
 or evidence for `vitb`, `vitl`, Lotus, PaddleOCR, HY-MT, or Gemma.
+`test/vulkan_contract_proofs/stack_region_segment_plan_manifest.json` records
+that finite rowset as a `StackRegionSegmentPlan.v0` governance boundary and
+links it back to the per-row performance evidence ids. Future `vitb` or `vitl`
+segment-plan work must add separate rowsets rather than widening the `vits`
+rowset by inference.
 
 ## DAv2 Stack Region Policy Lock
 

@@ -15,6 +15,11 @@ what was the decision?
 
 The machine-readable ledger is
 `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json`.
+Bounded segmented stack-region rowsets are additionally summarized in
+`test/vulkan_contract_proofs/stack_region_segment_plan_manifest.json`. That
+manifest records which finite model/input rowsets have proven a
+`StackRegionSegmentPlan.v0` canary and links back to the per-row evidence
+entries. It is review memory only, not a production route table.
 
 Depth Anything V2 benchmark artifacts also include
 `vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
@@ -55,6 +60,10 @@ For segmented stack-owned recording, also inspect the benchmark artifact's
 already cataloged as accepted, slower, rejected, or unsafe for the same
 model/input/device/topology, update the existing evidence entry instead of
 rerunning the same diagnostic sweep.
+If a whole finite rowset has been proven, update
+`stack_region_segment_plan_manifest.json` rather than relying on the individual
+artifact list. Do not broaden a rowset across model variants: `vits`, `vitb`,
+and `vitl` need separate rowset entries and separate evidence ids.
 
 Use the query helper before launching long-running diagnostics:
 
@@ -128,7 +137,9 @@ The initial catalog records the current `vits_140` performance lane:
 - a finite DAv2 `vits` wide4 rowset summary now groups the six measured input
   sizes as one opt-in canary evidence family; it must not be broadened to
   `vitb`, `vitl`, other models, or default behavior without separate rowset
-  evidence;
+  evidence. The rowset is also recorded in
+  `stack_region_segment_plan_manifest.json` so future agents can find the
+  accepted canary boundary without repeating the graph cataloging work;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
