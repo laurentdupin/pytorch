@@ -1006,6 +1006,89 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
     return counters
 
 
+def _compact_vulkan_snapshot_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _compact_vulkan_snapshot_value(nested)
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        if len(value) <= 64 and not any(
+            isinstance(row, (dict, list, str)) for row in value
+        ):
+            return value
+        if len(value) <= 64 and all(isinstance(row, dict) for row in value):
+            return [_compact_vulkan_snapshot_value(row) for row in value]
+        row_kind_counts: dict[str, int] = {}
+        field_counts: dict[str, dict[str, int]] = {}
+        for row in value:
+            if not isinstance(row, str):
+                row_kind = type(row).__name__
+                fields: dict[str, str] = {}
+            else:
+                fields = _parse_vulkan_snapshot_fields(row)
+                row_kind = row.split(" ", 1)[0] if row else "empty"
+            row_kind_counts[row_kind] = row_kind_counts.get(row_kind, 0) + 1
+            for field_name in (
+                "role",
+                "reason",
+                "callsite",
+                "phase",
+                "stack_phase",
+                "safety",
+                "submit_origin",
+                "origin",
+                "event",
+                "row_kind",
+                "schema",
+                "segment_plan_status",
+                "segment_plan_fail_reason",
+                "external_cleanup_retire_action",
+                "external_pool_reset_blocker",
+            ):
+                field_value = fields.get(field_name)
+                if field_value is None:
+                    continue
+                counts = field_counts.setdefault(field_name, {})
+                counts[field_value] = counts.get(field_value, 0) + 1
+        def compact_sample(row: Any) -> Any:
+            if not isinstance(row, str):
+                return row
+            if len(row) <= 240:
+                return row
+            return row[:240] + "...<truncated>"
+
+        return {
+            "row_count": len(value),
+            "row_kind_counts": row_kind_counts,
+            "field_counts": {
+                field_name: dict(
+                    sorted(
+                        counts.items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )[:20]
+                )
+                for field_name, counts in field_counts.items()
+            },
+            "sample_rows": [compact_sample(row) for row in value[:12]],
+            "truncated": len(value) > 12,
+        }
+    return value
+
+
+def compact_vulkan_debug_counters(
+    debug_counters: dict[str, Any],
+    mode: str,
+) -> dict[str, Any]:
+    if mode == "full":
+        return debug_counters
+
+    compact: dict[str, Any] = {"snapshot_mode": mode}
+    for name, value in debug_counters.items():
+        compact[name] = _compact_vulkan_snapshot_value(value)
+    return compact
+
+
 def forward_sync_mode(device_kind: str) -> str:
     if device_kind == "directml":
         return "directml_single_scalar_readback"
@@ -1870,8 +1953,21 @@ def run() -> None:
         help="Avoid full output readback in timed iterations. Vulkan uses explicit sync; DirectML uses single-scalar readback.",
     )
     parser.add_argument(
+        "--single-image-only",
+        action="store_true",
+        help=(
+            "Measure only the selected single-image input and skip full-corpus "
+            "setup prewarm plus corpus timing."
+        ),
+    )
+    parser.add_argument(
         "--out",
         help="Path to write JSON results. Defaults to the first available comparison directory.",
+    )
+    parser.add_argument(
+        "--no-print-json",
+        action="store_true",
+        help="Write the JSON result file without echoing it to stdout.",
     )
     parser.add_argument(
         "--vulkan-model-probe",
@@ -1892,6 +1988,16 @@ def run() -> None:
             "Generic probe option: skip benchmark owner/region programs so "
             "TorchDispatch can observe underlying ATen ops. Normal runtime and "
             "probe runs without this flag keep owner programs enabled."
+        ),
+    )
+    parser.add_argument(
+        "--vulkan-debug-snapshot-mode",
+        choices=["full", "compact"],
+        default="full",
+        help=(
+            "Control Vulkan debug-counter snapshots stored in the result JSON. "
+            "The compact mode preserves scalar counters and replaces large row "
+            "snapshots with counts, histograms, and samples."
         ),
     )
     parser.add_argument(
@@ -2078,22 +2184,25 @@ def run() -> None:
         )
     if device_kind == "vulkan":
         prewarm_vulkan_dav2_patch_and_positional_setup(torch, model, image_tensor)
-        for corpus_image_path in image_paths:
-            corpus_image = cv2.imread(str(corpus_image_path))
-            if corpus_image is None:
-                raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
-            with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
-                corpus_tensor, _ = prepare_image_on_device(
+        if not args.single_image_only:
+            for corpus_image_path in image_paths:
+                corpus_image = cv2.imread(str(corpus_image_path))
+                if corpus_image is None:
+                    raise RuntimeError(
+                        f"Failed to load corpus image: {corpus_image_path}"
+                    )
+                with vulkan_submit_phase(torch, SUBMIT_PHASE_MODEL_SETUP):
+                    corpus_tensor, _ = prepare_image_on_device(
+                        model,
+                        corpus_image,
+                        args.input_size,
+                        device,
+                    )
+                prewarm_vulkan_dav2_patch_and_positional_setup(
+                    torch,
                     model,
-                    corpus_image,
-                    args.input_size,
-                    device,
+                    corpus_tensor,
                 )
-            prewarm_vulkan_dav2_patch_and_positional_setup(
-                torch,
-                model,
-                corpus_tensor,
-            )
     if vulkan_phase_tracker is not None:
         vulkan_phase_tracker.mark("setup")
     legacy_forward_output_mode = (
@@ -2241,30 +2350,14 @@ def run() -> None:
 
         corpus_with_readback_durations: list[float] = []
         legacy_corpus_durations: list[float] = []
-        with inference_context(torch, device_kind):
-            for corpus_image_path in image_paths:
-                corpus_image = cv2.imread(str(corpus_image_path))
-                if corpus_image is None:
-                    raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
-                start = time.perf_counter()
-                with vulkan_timed_region(torch):
-                    _ = infer_image_on_device(
-                        model,
-                        corpus_image,
-                        args.input_size,
-                        device,
-                        torch,
-                        F,
-                        device_kind,
-                        OUTPUT_MODE_READBACK,
-                    )
-                corpus_with_readback_durations.append(time.perf_counter() - start)
-
-            if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+        if not args.single_image_only:
+            with inference_context(torch, device_kind):
                 for corpus_image_path in image_paths:
                     corpus_image = cv2.imread(str(corpus_image_path))
                     if corpus_image is None:
-                        raise RuntimeError(f"Failed to load corpus image: {corpus_image_path}")
+                        raise RuntimeError(
+                            f"Failed to load corpus image: {corpus_image_path}"
+                        )
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
                         _ = infer_image_on_device(
@@ -2275,9 +2368,30 @@ def run() -> None:
                             torch,
                             F,
                             device_kind,
-                            legacy_forward_output_mode,
+                            OUTPUT_MODE_READBACK,
                         )
-                    legacy_corpus_durations.append(time.perf_counter() - start)
+                    corpus_with_readback_durations.append(time.perf_counter() - start)
+
+                if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+                    for corpus_image_path in image_paths:
+                        corpus_image = cv2.imread(str(corpus_image_path))
+                        if corpus_image is None:
+                            raise RuntimeError(
+                                f"Failed to load corpus image: {corpus_image_path}"
+                            )
+                        start = time.perf_counter()
+                        with vulkan_timed_region(torch):
+                            _ = infer_image_on_device(
+                                model,
+                                corpus_image,
+                                args.input_size,
+                                device,
+                                torch,
+                                F,
+                                device_kind,
+                                legacy_forward_output_mode,
+                            )
+                        legacy_corpus_durations.append(time.perf_counter() - start)
         if vulkan_phase_tracker is not None:
             vulkan_phase_tracker.mark("timed_corpus")
     finally:
@@ -2334,6 +2448,15 @@ def run() -> None:
         invalid_reasons.append("vulkan_model_probe_enabled")
     if bridge_sanity_failed:
         invalid_reasons.append("vulkan_stack_output_device_bridge_sanity_failed")
+    result_debug_counters = compact_vulkan_debug_counters(
+        debug_counters,
+        args.vulkan_debug_snapshot_mode,
+    )
+    result_phase_counters = (
+        phase_counters
+        if args.vulkan_debug_snapshot_mode == "full"
+        else _compact_vulkan_snapshot_value(phase_counters)
+    )
 
     result = {
         "benchmark_name": "benchmark_depth_anything",
@@ -2353,11 +2476,14 @@ def run() -> None:
         "warmup": args.warmup,
         "repeats": args.repeats,
         "image_count": len(image_paths),
+        "single_image_only": bool(args.single_image_only),
+        "timed_corpus_image_count": 0 if args.single_image_only else len(image_paths),
         "torch_version": torch.__version__,
         "torch_vulkan_available": bool(
             getattr(torch, "is_vulkan_available", lambda: False)()
         ),
         "skip_output_copy": bool(args.skip_output_copy),
+        "vulkan_debug_snapshot_mode": args.vulkan_debug_snapshot_mode,
         "vulkan_model_probe_disable_owner_programs": bool(disable_owner_programs),
         "vulkan_dav2_block_owner": vulkan_block_owner,
         "vulkan_stack_output_device_bridge": failure_context.get(
@@ -2367,8 +2493,8 @@ def run() -> None:
         "stack_output_device_consumer_registrations": failure_context.get(
             "stack_output_device_consumer_registrations",
         ),
-        "vulkan_debug_counters": debug_counters,
-        "vulkan_phase_counters": phase_counters,
+        "vulkan_debug_counters": result_debug_counters,
+        "vulkan_phase_counters": result_phase_counters,
         "vulkan_stack_output_device_bridge_dry_run": bridge_dry_run,
         "vulkan_stack_owner_planned_dependency_dry_run": (
             planned_dependency_dry_run
@@ -2430,7 +2556,8 @@ def run() -> None:
 
     out_path = output_path_from_args(args)
     write_json(out_path, result)
-    print(out_path.read_text(encoding="utf-8"))
+    if not args.no_print_json:
+        print(out_path.read_text(encoding="utf-8"))
     sys.excepthook = original_excepthook
 
 
