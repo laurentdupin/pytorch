@@ -132,11 +132,19 @@ performance measurements from paying for diagnostic row construction.
 `normal_cmd_submit_frequency` submits that occur while the submit phase is
 `stack_owner`. It records the region id/state, command-buffer recording id,
 submit epoch, pending dispatch count, planned-recording ownership state,
-external region-owned command-buffer state, and fail-closed blocker. The row is
-behavior-neutral: it preserves the frequency submit and does not authorize
-submit elision. Its purpose is to decide whether the next canary should target
-frequency-submit suppression under planned stack ownership or a coverage gap
-where dispatches escaped planned recording.
+external region-owned command-buffer state, recent Vulkan op label, allocation
+label, and fail-closed blocker. The row is behavior-neutral: it preserves the
+frequency submit and does not authorize submit elision. Its purpose is to decide
+whether the next canary should target frequency-submit suppression under planned
+stack ownership, a bridge/decoder segment, or a coverage gap where dispatches
+escaped planned recording.
+`PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is the
+first opt-in bridge/decoder-segment canary using that evidence. It opens a
+normal planned-recording scope around the private post-stack layernorm and
+decoder-preprocess bridge island, closes it before the bridge returns, and
+therefore batches that island through the existing planned-region close submit.
+It does not use the external stack-owned command-buffer path, delete current
+topology submits, broaden admission, or change default behavior.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic

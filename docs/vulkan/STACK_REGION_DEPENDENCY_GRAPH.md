@@ -1245,9 +1245,12 @@ The graph also includes `StackOwnerFrequencySubmitPlan.v0` rows under
 dump is requested. They record whether planned stack recording was active and
 owned by the current thread, whether an external region-owned command buffer
 was active, the command-buffer recording id, submit epoch, pending dispatch
-count, and a fail-closed blocker. They do not suppress the submit. The next
-behavior canary must use these rows to distinguish a true frequency-submit
-suppression candidate from a planned-recording coverage gap.
+count, the recent Vulkan op label, the current allocation label, and a
+fail-closed blocker. They do not suppress the submit. The next behavior canary
+must use these rows to distinguish a true frequency-submit suppression
+candidate from a planned-recording coverage gap, and to decide whether the
+uncovered work belongs to a stack segment, decoder bridge segment, or teardown
+ownership path.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and
@@ -1260,6 +1263,15 @@ external segments; over-budget selected segments fail closed before external
 recording starts. The row itself remains behavior-neutral: it does not open
 scopes, change command-buffer topology, move pending retires, defer submits, or
 authorize submit elision.
+`PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
+private-bridge canary for the post-stack decoder-preprocess island exposed by
+`StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope
+after the stack capture owner returns and closes it before the bridge returns,
+so decoder bridge dispatches use the existing close-submit owner instead of
+normal command-submit frequency flushes. It is opt-in only, does not use the
+external stack-owned command-buffer path, does not remove any already recorded
+submit, does not run under explicit runtime-capture labels, and does not
+broaden shape, transition, or kernel admission.
 Stack-owned external cleanup logical-boundary rows now carry the same segment
 identity when the segmented canary opens a segment scope. The segment index,
 block range, and segment planned dispatch count make cleanup rows joinable to

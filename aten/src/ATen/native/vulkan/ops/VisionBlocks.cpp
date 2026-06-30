@@ -1443,6 +1443,16 @@ bool stack_owned_command_buffer_segmented_canary_enabled() {
       "none";
 }
 
+bool stack_decoder_bridge_planned_recording_canary_enabled() {
+  const char* const env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string mode(env);
+  return mode == "planned_recording" || mode == "1";
+}
+
 constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 4u;
 constexpr size_t kSegmentedOwnedCommandBufferScopeLimit = 2u;
 constexpr uint64_t kSegmentedOwnedCommandBufferDispatchLimit = 24u;
@@ -11716,6 +11726,16 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
   TORCH_CHECK(
       captured.size() == 4u,
       "Vision stack capture decoder bridge expected four captured tensors");
+  std::unique_ptr<VulkanStackCommandRecordingScope>
+      decoder_bridge_recording_scope;
+  if (
+      stack_decoder_bridge_planned_recording_canary_enabled() &&
+      !has_explicit_runtime_capture_label()) {
+    decoder_bridge_recording_scope =
+        std::make_unique<VulkanStackCommandRecordingScope>(
+            *api::context(),
+            /*allow_stack_owned_command_buffer_canary=*/false);
+  }
   for (Tensor& tensor : captured) {
     tensor = run_layernorm_context(tensor, normalized_shape, norm_context);
   }
@@ -11743,6 +11763,7 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       output_size,
       decoder_context,
       /*private_decoder_intermediates=*/true);
+  decoder_bridge_recording_scope.reset();
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge");
   Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);

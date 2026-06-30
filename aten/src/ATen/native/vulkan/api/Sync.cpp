@@ -2534,6 +2534,13 @@ void record_stack_owner_frequency_submit_plan(
       << " callsite=" << retire_call_site_name(callsite)
       << " stack_phase=" << vision_stack_phase_name(current_vision_stack_phase())
       << " stack_block=" << current_vision_stack_block_index()
+      << " recent_op_label="
+      << stack_region_row_token(
+             recent_op_label().empty() ? "none" : recent_op_label())
+      << " allocation_label="
+      << stack_region_row_token(
+             current_allocation_label().empty() ? "none"
+                                                : current_allocation_label())
       << " region_id=" << region_id
       << " region_state=" << region_state
       << " command_buffer_recording_id=" << command_buffer_recording_id

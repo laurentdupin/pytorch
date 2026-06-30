@@ -19763,6 +19763,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("phase_boundary_nodes", graph)
             self.assertIn("stack_output_device_consumer_registrations", graph)
             self.assertIn("stack_owner_frequency_submit_plan_rows", graph)
+            for row in graph["stack_owner_frequency_submit_plan_rows"]:
+                fields = row.get("fields", {})
+                self.assertIn("recent_op_label", fields)
+                self.assertIn("allocation_label", fields)
             self.assertIn("stack_region_boundary_submit_plan", graph)
             submit_plan = graph["stack_region_boundary_submit_plan"]
             self.assertEqual(
