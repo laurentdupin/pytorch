@@ -169,7 +169,10 @@ when a stack-owner recording scope ends. The v0 schema is
   records allocation id/generation/range, storage offset, shape, consumer input
   slot, and public/host/readback blockers. The row is behavior-neutral:
   `transfers_pending_retires=0`, `submit_elision_enabled=0`, and no decoder
-  route or shape admission changes are made.
+  route or shape admission changes are made. A second row with the same schema
+  is emitted at bridge exit after decoder preprocessing has consumed the views
+  and the decoder bridge recording scope has closed; it records the future
+  release point without releasing resources.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records

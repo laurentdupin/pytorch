@@ -37537,6 +37537,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in private_handoffs
                 )
             )
+            self.assertTrue(
+                any(
+                    row["fields"].get("handoff_status")
+                    == (
+                        "private_bridge_capture_decoder_consumer_"
+                        "completed_behavior_neutral"
+                    )
+                    and row["fields"].get(
+                        "decoder_consumer_completed_before_bridge_exit"
+                    )
+                    == "1"
+                    and row["fields"].get(
+                        "decoder_bridge_recording_scope_closed_before_release"
+                    )
+                    == "1"
+                    and row["fields"].get("transfers_pending_retires") == "0"
+                    and row["fields"].get("submit_elision_enabled") == "0"
+                    for row in private_handoffs
+                )
+            )
             capture_contract = graph["capture_output_boundary_contract"]
             self.assertGreaterEqual(
                 capture_contract["consumer_registration_records"], 0

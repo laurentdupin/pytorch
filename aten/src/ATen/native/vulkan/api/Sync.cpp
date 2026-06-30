@@ -33248,6 +33248,10 @@ void note_private_bridge_capture_handoff(
       << (record.host_visible_access_before_consumption ? 1 : 0)
       << " host_readback_before_consumption="
       << (record.host_readback_before_consumption ? 1 : 0)
+      << " decoder_consumer_completed_before_bridge_exit="
+      << (record.decoder_consumer_completed_before_bridge_exit ? 1 : 0)
+      << " decoder_bridge_recording_scope_closed_before_release="
+      << (record.decoder_bridge_recording_scope_closed_before_release ? 1 : 0)
       << " handoff_status=" << record.handoff_status;
   {
     std::lock_guard<std::mutex> guard(stack_aggregate_mutex());

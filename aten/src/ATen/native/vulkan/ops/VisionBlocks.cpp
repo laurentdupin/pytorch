@@ -12168,10 +12168,16 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       strip_special_tokens(captured[2]),
       strip_special_tokens(captured[3]),
   }};
+  std::array<BridgeTensorIdentity, 4u> decoder_input_identities;
   for (const auto capture_slot : c10::irange(decoder_inputs.size())) {
-    const int64_t capture_index = capture_indices[capture_slot];
-    const BridgeTensorIdentity decoder_input_identity =
+    decoder_input_identities[capture_slot] =
         bridge_tensor_identity(decoder_inputs[capture_slot]);
+  }
+  const auto make_bridge_handoff_record =
+      [&](const size_t capture_slot,
+          const char* const bridge_stage)
+      -> api::VulkanPrivateBridgeCaptureHandoffRecord {
+    const int64_t capture_index = capture_indices[capture_slot];
     api::VulkanPrivateBridgeCaptureHandoffRecord handoff;
     handoff.capture_slot = static_cast<int64_t>(capture_slot);
     handoff.captured_block_index = capture_index;
@@ -12180,8 +12186,7 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     handoff.stack_context_id = planned_region_context.stack_context_id;
     handoff.stack_session_id = planned_region_context.bridge_session_id;
     handoff.stack_plan_id = planned_region_context.stack_plan_id;
-    handoff.bridge_stage =
-        "raw_capture_to_layernorm_to_strip_to_decoder_preprocess";
+    handoff.bridge_stage = bridge_stage;
     handoff.downstream_consumer_id =
         "vision_stack_output_bridge.decoder_preprocess_head";
     handoff.downstream_consumer_context = "VisionDecoderPreprocessHeadContext";
@@ -12190,7 +12195,8 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
         handoff, raw_capture_identities[capture_slot]);
     copy_bridge_identity_to_normalized_capture(
         handoff, normalized_capture_identities[capture_slot]);
-    copy_bridge_identity_to_decoder_input(handoff, decoder_input_identity);
+    copy_bridge_identity_to_decoder_input(
+        handoff, decoder_input_identities[capture_slot]);
     handoff.normalized_same_allocation_as_raw_capture =
         handoff.normalized_allocation_id != 0u &&
         handoff.normalized_allocation_id == handoff.raw_capture_allocation_id &&
@@ -12205,6 +12211,13 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     handoff.host_visible_boundary_before_consumption = false;
     handoff.host_visible_access_before_consumption = false;
     handoff.host_readback_before_consumption = false;
+    return handoff;
+  };
+  for (const auto capture_slot : c10::irange(decoder_inputs.size())) {
+    api::VulkanPrivateBridgeCaptureHandoffRecord handoff =
+        make_bridge_handoff_record(
+            capture_slot,
+            "raw_capture_to_layernorm_to_strip_to_decoder_preprocess");
     api::note_private_bridge_capture_handoff(handoff);
   }
   Tensor output = run_vision_decoder_preprocess_head_context_impl(
@@ -12218,6 +12231,16 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
       decoder_context,
       /*private_decoder_intermediates=*/true);
   decoder_bridge_recording_scope.reset();
+  for (const auto capture_slot : c10::irange(decoder_inputs.size())) {
+    api::VulkanPrivateBridgeCaptureHandoffRecord handoff =
+        make_bridge_handoff_record(
+            capture_slot, "decoder_preprocess_consumed_before_bridge_exit");
+    handoff.decoder_consumer_completed_before_bridge_exit = true;
+    handoff.decoder_bridge_recording_scope_closed_before_release = true;
+    handoff.handoff_status =
+        "private_bridge_capture_decoder_consumer_completed_behavior_neutral";
+    api::note_private_bridge_capture_handoff(handoff);
+  }
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge");
   Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);

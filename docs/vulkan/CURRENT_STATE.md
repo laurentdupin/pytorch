@@ -863,6 +863,12 @@ storage offset, shape, consumer slot, and public/host/readback blockers, while
 recording `transfers_pending_retires=0` and `submit_elision_enabled=0`. This
 distinguishes requested private bridge captures from stack-internal temps and
 sets up a future decoder-consumer ownership canary without changing execution.
+The same schema emits a second bridge-exit row after decoder preprocessing has
+consumed the prefix-stripped views and the decoder bridge recording scope has
+closed; that row records
+`decoder_consumer_completed_before_bridge_exit=1` and
+`decoder_bridge_recording_scope_closed_before_release=1`, but still does not
+release, retire, defer, or submit anything.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
 now covers the graph-pending bytes, but raw resource-count coverage remains
 partial because metadata/uniform bookkeeping entries are not stack-internal

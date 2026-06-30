@@ -411,6 +411,8 @@ struct VulkanPrivateBridgeCaptureHandoffRecord final {
   bool host_visible_boundary_before_consumption = true;
   bool host_visible_access_before_consumption = true;
   bool host_readback_before_consumption = true;
+  bool decoder_consumer_completed_before_bridge_exit = false;
+  bool decoder_bridge_recording_scope_closed_before_release = false;
   std::string handoff_status =
       "private_bridge_capture_handoff_observed_behavior_neutral";
 };
