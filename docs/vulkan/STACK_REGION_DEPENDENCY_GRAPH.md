@@ -1293,6 +1293,11 @@ into a single context-owned planned-recording scope through stack exit. It is
 intended to measure candidate-tail close-submit overhead while keeping external
 recording bounded to three selected segments. It does not transfer pending
 retires, defer submits, or enable submit elision.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix4_tail_to_exit`
+extends that exact canary to four selected dispatch-budget prefix segments.
+It is intentionally not a general multi-scope owner: the external scopes remain
+bounded by the same block and dispatch budgets, the unselected tail remains
+context-owned, and the mode is still opt-in with submit elision disabled.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope

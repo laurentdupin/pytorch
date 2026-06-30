@@ -205,6 +205,11 @@ keeps the same three external prefix segments but records the remaining
 unselected tail as one context-owned planned scope to stack exit. This tests
 whether the tail can avoid extra candidate-boundary close submits without
 increasing external recording scope or changing submit-elision policy.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix4_tail_to_exit`
+is a higher-risk exact canary that selects four dispatch-budget prefix segments
+and keeps the same coalesced context-owned tail. It exists only to probe the
+next bounded external-recording scope; it is still opt-in, keeps submit elision
+disabled, and must be judged by bridge sanity plus submit/retire counters.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The
