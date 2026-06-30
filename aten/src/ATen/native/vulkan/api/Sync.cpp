@@ -26940,6 +26940,8 @@ std::array<VulkanRetireCallSiteCounter, 27>& retire_call_site_counters() {
 }
 
 bool is_stack_temp_role(VulkanRetiredResourceRole role);
+bool is_layernorm_stat_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance);
 
 const char* stack_temp_retire_batch_reject_reason(
     const VulkanStackRetireProvenance& provenance) {
@@ -29450,6 +29452,17 @@ bool stack_region_batch_qkv_retires_enabled() {
       contract_value == "stack_scope_retire_handoff";
 }
 
+bool stack_scope_retire_handoff_enabled() {
+  const char* contract_env =
+      std::getenv("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF");
+  if (contract_env == nullptr || *contract_env == '\0') {
+    return false;
+  }
+  const std::string contract_value(contract_env);
+  return contract_value == "1" ||
+      contract_value == "stack_scope_retire_handoff";
+}
+
 bool is_safe_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance) {
   if (
@@ -29457,13 +29470,23 @@ bool is_safe_stack_temp_retire_batch_candidate(
       "accepted") {
     return true;
   }
-  return stack_region_batch_qkv_retires_enabled() &&
-      is_qkv_stack_temp_retire_batch_candidate(provenance);
+  return (
+      stack_region_batch_qkv_retires_enabled() &&
+      is_qkv_stack_temp_retire_batch_candidate(provenance)) ||
+      (stack_scope_retire_handoff_enabled() &&
+       is_layernorm_stat_stack_temp_retire_batch_candidate(provenance));
 }
 
 bool is_qkv_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance) {
   return provenance.producer_role == VulkanRetiredResourceRole::StackQkvOutput &&
+      has_proven_internal_stack_temp_lifetime(provenance);
+}
+
+bool is_layernorm_stat_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance) {
+  return is_layernorm_internal_stat_buffer(
+             provenance.producer_role, provenance) &&
       has_proven_internal_stack_temp_lifetime(provenance);
 }
 
@@ -29480,9 +29503,14 @@ void note_stack_internal_temp_retire_batch_decision(
   counters.total_attempts.fetch_add(1u, std::memory_order_relaxed);
 
   const char* reason = stack_temp_retire_batch_reject_reason(provenance);
-  const bool qkv_candidate = stack_region_batch_qkv_retires_enabled() &&
+  const bool qkv_candidate =
+      stack_region_batch_qkv_retires_enabled() &&
       is_qkv_stack_temp_retire_batch_candidate(provenance);
-  bool candidate = std::string(reason) == "accepted" || qkv_candidate;
+  const bool scope_handoff_candidate =
+      stack_scope_retire_handoff_enabled() &&
+      is_layernorm_stat_stack_temp_retire_batch_candidate(provenance);
+  bool candidate = std::string(reason) == "accepted" ||
+      qkv_candidate || scope_handoff_candidate;
   if (candidate) {
     counters.batch_candidate_count.fetch_add(1u, std::memory_order_relaxed);
     counters.batch_candidate_bytes.fetch_add(bytes, std::memory_order_relaxed);

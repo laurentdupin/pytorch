@@ -19543,7 +19543,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         self.assertTrue(
             any(
-                "reason=missing_proof" in row
+                (
+                    "reason=missing_proof" in row
+                    or "resource_class=unscoped_raw_buffer_no_stack_proof" in row
+                    or "resource_class=layernorm_buffer_width_unscoped_cleanup"
+                    in row
+                )
                 and "provenance_source=" in row
                 and "provenance_loss_reason=" in row
                 and "resource_class=" in row
@@ -19608,6 +19613,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertTrue(
             any(
                 "resource=1" in row
+                and "class=layernorm_internal_stat_buffer" in row
+                and "formal_last_use_proof=1" in row
+                and "safe_candidate=1" in row
+                and "shape=[" in row
+                and ",1]" in row
+                for row in dry_run
+            )
+        )
+        self.assertTrue(
+            any(
+                "resource=1" in row
                 and "formal_last_use_proof=1" in row
                 and "safe_candidate=1" in row
                 for row in dry_run
@@ -19628,7 +19644,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertTrue(
             any(
                 "safety=unsafe_unknown_consumer" in row
-                and "stack_provenance=1" in row
+                and "stack_provenance=0" in row
                 for row in safety
             )
         )
@@ -19693,8 +19709,94 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in batch
             )
         )
+        self.assertTrue(
+            any(
+                (
+                    "role=stack_norm1_output" in row
+                    or "role=stack_norm2_output" in row
+                )
+                and "decision=accepted" in row
+                and "last_use_proof=1" in row
+                and "internal_non_escaping=1" in row
+                and "requested_intermediate=0" in row
+                and "final_output=0" in row
+                and "alias_or_view=0" in row
+                and "runtime_alias=0" in row
+                and "shape=[" in row
+                and ",1]" in row
+                for row in batch
+            )
+        )
+        self.assertFalse(
+            any(
+                "class=layernorm_buffer_width_unscoped_cleanup" in row
+                and "decision=accepted" in row
+                for row in batch
+            )
+        )
+        self.assertFalse(
+            any(
+                "role=stack_internal_temp" in row
+                and "decision=accepted" in row
+                for row in batch
+            )
+        )
         self.assertEqual(blocker_counters[qkv_hypothetical_count], 0)
         self.assertEqual(blocker_counters[qkv_hypothetical_bytes], 0)
+
+    def test_vulkan_legacy_qkv_retire_env_keeps_layernorm_stats_guarded(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        previous_rows = os.environ.get("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS")
+        previous_contract = os.environ.pop(
+            "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF", None
+        )
+        previous_qkv = os.environ.get("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES")
+        os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = "1"
+        os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "qkv"
+        try:
+            torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [0],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+        finally:
+            if previous_rows is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = previous_rows
+            if previous_contract is not None:
+                os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+                    previous_contract
+                )
+            if previous_qkv is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = (
+                    previous_qkv
+                )
+
+        batch = torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_snapshot()
+        self.assertTrue(
+            any(
+                "role=stack_qkv_output" in row
+                and "decision=accepted" in row
+                for row in batch
+            )
+        )
+        self.assertFalse(
+            any(
+                (
+                    "role=stack_norm1_output" in row
+                    or "role=stack_norm2_output" in row
+                )
+                and "decision=accepted" in row
+                for row in batch
+            )
+        )
 
     def test_vulkan_stack_diagnostic_rows_default_off(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)

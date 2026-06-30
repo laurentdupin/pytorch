@@ -1,6 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after recovery-guard stack sync removal.
+Last refreshed: 2026-06-30 after LayerNorm stat retire-handoff proof.
 
 ## Repo State Summary
 
@@ -1392,13 +1392,22 @@ the attention program itself. This is a lifetime/provenance proof only: it does
 not change attention kernels, SDPA admission, transition materialization policy,
 submit elision, or pending-retire handoff behavior.
 
-Unscoped LayerNorm buffer-width cleanup is now split out of the generic
+Stack-scoped LayerNorm internal statistic buffers now have a shape-plan-derived
+last-use proof for `[tokens,1]` `stack_norm1_output` and `stack_norm2_output`
+resources. Under `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF`, only those
+exact TensorAllocation rows can join the stack-internal retire batch after the
+same formal internal/non-escaping/final-consumer proof used by the existing
+stack-scope retire handoff. The legacy
+`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=qkv` spelling remains QKV-only
+and does not enable LayerNorm stat batching. Unscoped LayerNorm buffer-width
+cleanup remains
+split out of the generic
 `stack_internal_temp_raw_generation_range_missing_last_consumer` diagnostic
 bucket as `layernorm_buffer_width_unscoped_cleanup` when the allocation label is
-one of the generic buffer-width LayerNorm families. This is fail-closed
-classification only: those rows still report no formal last-use proof, remain
-unsafe retire candidates, and continue to count against missing-consumer
-ordering proof until stack-scoped LayerNorm stat/output lifetime proof exists.
+one of the generic buffer-width LayerNorm families. Those rows still report no
+formal last-use proof, remain unsafe retire candidates, and continue to count
+against missing-consumer ordering proof until they have their own scoped
+producer/consumer contract.
 
 `docs/vulkan/CAPABILITY_PROFILES.md` and
 `docs/vulkan/capability_profiles.json` define the first capability-profile

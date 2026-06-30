@@ -956,7 +956,7 @@ void build_stack_descriptor_binding_table(VulkanVisionStackShapePlan& plan) {
 std::vector<api::VulkanStackLastUseProof> build_stack_last_use_proofs(
     const VulkanVisionStackShapePlan& plan) {
   std::vector<api::VulkanStackLastUseProof> proofs;
-  proofs.reserve(plan.steps.size());
+  proofs.reserve(plan.steps.size() * 2u);
   for (size_t index = 0; index < plan.steps.size(); ++index) {
     const VulkanStackPlanStep& producer = plan.steps[index];
     if (
@@ -1007,6 +1007,27 @@ std::vector<api::VulkanStackLastUseProof> build_stack_last_use_proofs(
         !proof.final_output &&
         producer.kind != VulkanStackPlanStepKind::Residual2;
     proofs.emplace_back(std::move(proof));
+
+    if (
+        (producer.kind == VulkanStackPlanStepKind::Norm1 ||
+         producer.kind == VulkanStackPlanStepKind::Norm2) &&
+        plan.key.tokens > 0) {
+      api::VulkanStackLastUseProof stat_proof;
+      stat_proof.producer_phase =
+          vision_phase_for_stack_plan_step(producer.kind);
+      stat_proof.producer_block_index = producer.block_index;
+      stat_proof.producer_role =
+          api::stack_retired_resource_role_for_phase(
+              stat_proof.producer_phase);
+      stat_proof.shape = {plan.key.tokens, 1};
+      stat_proof.dtype = static_cast<int64_t>(convert_dtype(producer.dtype));
+      stat_proof.expected_consumer_phase =
+          vision_phase_for_stack_plan_step(producer.kind);
+      stat_proof.expected_consumer_block_index = producer.block_index;
+      stat_proof.final_consumer_before_stack_submit = true;
+      stat_proof.internal_non_escaping = true;
+      proofs.emplace_back(std::move(stat_proof));
+    }
 
     if (
         producer.kind == VulkanStackPlanStepKind::Attention &&

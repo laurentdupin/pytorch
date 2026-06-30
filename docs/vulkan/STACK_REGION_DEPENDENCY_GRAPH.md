@@ -867,14 +867,14 @@ match, and the owner remains fail-closed unless a concrete source match is
 proven without relying on bookkeeping-excluded count/byte coverage.
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
-contract-facing `StackScopeRetireHandoffContract.v0` spelling for the same QKV
-stack-temp retire-batch candidate class. It preserves the existing behavior
-limits: no pending-retire handoff movement, no deferred submit, no submit
-elision, no shader change, and no shape-admission change. In the focused DAv2
-`vits_140` bridge A/B, this spelling reduced old-path pending retire bytes
-from 3,576,384,928 to 2,104,055,200 by moving the already-proven QKV class into
-the stack-internal retire batch; `retire_queue_drain` submit count and
-`stack_scope_end` count were unchanged.
+contract-facing `StackScopeRetireHandoffContract.v0` spelling. It includes the
+legacy QKV stack-temp retire-batch candidate class and the newer stack-scoped
+LayerNorm statistic-buffer proof class. The legacy
+`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=qkv` spelling remains QKV-only;
+LayerNorm statistic buffers require the stack-scope contract spelling. The
+contract preserves the existing behavior limits: no pending-retire handoff
+movement, no deferred submit, no submit elision, no shader change, and no
+shape-admission change.
 Direct attention score/probability scratch tensors are now covered by a
 separate shape-plan-derived last-use proof. The proof is emitted only for
 direct-attention vision stack plans with positive `num_heads` and `tokens`, and
@@ -888,9 +888,11 @@ Unscoped LayerNorm buffer-width cleanup rows are now identified as
 stack-internal-temp raw range bucket. The class is deliberately not a
 `StackScopeRetireHandoffContract` input: it keeps `safe_candidate=0`, has no
 formal last-use proof, and contributes to the existing missing-consumer
-ordering budget. A later proof must bind stack-scoped LayerNorm stat/output
-resources to producer/consumer phases before any LayerNorm cleanup can move
-into a retire handoff or segment plan.
+ordering budget. The new `[tokens,1]` LayerNorm statistic-buffer proof covers
+only TensorAllocation rows with `stack_norm1_output` or `stack_norm2_output`
+provenance, matching Norm1/Norm2 phase, no public/final/requested/alias escape,
+and a same-block final consumer before stack submit. It does not promote the
+unscoped cleanup class.
 The graph now also exports a pending allocation signature for source-identity
 diagnostics. `StackRegionBoundarySubmitPlan.v0` includes
 `pending_allocation_signature` entries keyed by allocation id, generation, byte
@@ -1355,6 +1357,15 @@ flag, while non-throwing replay-risk and route diagnostics remain diagnostic
 only and do not force the next vision op to flush. This is recovery semantics,
 not a shape or model route: successful stack-owner execution must not pay a
 post-failure recovery synchronize.
+Stack-scoped LayerNorm statistic buffers are now represented by the same
+shape-plan proof surface. `[tokens,1]` `stack_norm1_output` and
+`stack_norm2_output` TensorAllocation rows can report formal last-use proof and
+can join the stack-scope retire handoff only when
+`PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF` is enabled and the resource remains
+internal, non-escaping, non-aliasing, and consumed before stack submit. Broader
+buffer-width LayerNorm cleanup rows remain classified separately as
+`layernorm_buffer_width_unscoped_cleanup` and stay fail-closed until a scoped
+producer/consumer contract exists for them.
 Stack-owned external cleanup logical-boundary rows now carry the same segment
 identity when the segmented canary opens a segment scope. The segment index,
 block range, and segment planned dispatch count make cleanup rows joinable to
