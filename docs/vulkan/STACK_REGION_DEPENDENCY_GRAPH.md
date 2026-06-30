@@ -1200,20 +1200,23 @@ mark `segment_selected_for_recording`, and the summary reports
 selected external segments must also stay within the small planned-dispatch
 budget, so higher-dispatch real-model segments reject before external recording
 starts.
-Dispatch-derived prefix segmentation is intentionally not exposed. A prototype
-that selected smaller planned-dispatch segments avoided the single-forward
-stack-overflow case but still overflowed under repeated real `vits_140`
-inference, so future segment planners must include repeat-stability proof before
-being retained.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix_to_exit`
+is the first dispatch-budget behavior canary after persistent external
+recording pools gained a global-completion reset owner. It derives
+block-boundary segments from planned dispatch counts, records only the first two
+segments through stack-owned external recording, and leaves the remaining tail
+on the existing context-owned path. It is still a prefix canary: larger
+multi-scope sequences remain blocked until repeat stability is proven for every
+selected scope, cleanup-retire ownership, and persistent-pool reset ownership.
 For private bridge runs, the graph may still emit
 `dispatch_budget_candidate_summary` and `dispatch_budget_candidate_segment`
 rows. These rows are evidence only: they derive hypothetical block-boundary
 segments from the same planned-dispatch budget while reporting
 `owned_command_buffer_mode=dispatch_budget_candidate_only`,
 `segment_selected_for_recording=0`, and
-`planned_dispatch_count_admission_predicate=0`. They do not reopen the rejected
-dispatch-derived prefix recording mode. If the candidate plan needs more than
-the current two-scope canary budget, it fails closed with
+`planned_dispatch_count_admission_predicate=0`. They remain separate from the
+new two-scope dispatch-budget prefix canary. If the full candidate plan needs
+more than the current two-scope canary budget, it fails closed with
 `dispatch_budget_candidate_scope_limit_exceeded`. Such rows also report
 `candidate_sequence_scope_limit_exceeded=1`,
 `candidate_sequence_requires_multi_scope_owner=1`,

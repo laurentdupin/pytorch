@@ -1420,15 +1420,22 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
   const std::string mode(env);
   if (
       mode == "segmented_stack_entry_to_exit" ||
-      mode == "segmented_stack_prefix_to_exit") {
+      mode == "segmented_stack_prefix_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
   return "none";
 }
 
 bool stack_owned_command_buffer_segmented_prefix_canary_enabled() {
+  const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
+  return mode == "segmented_stack_prefix_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix_to_exit";
+}
+
+bool stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled() {
   return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
-      "segmented_stack_prefix_to_exit";
+      "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 
 bool stack_owned_command_buffer_segmented_canary_enabled() {
@@ -1607,6 +1614,28 @@ bool selected_segment_dispatch_budget_exceeded(
   return false;
 }
 
+bool selected_segment_block_budget_exceeded(
+    const StackOwnedCommandBufferSegmentPlan& segment_plan) {
+  if (segment_plan.selected_segment_count == 0u) {
+    return false;
+  }
+  size_t segment_start = 0u;
+  for (size_t segment_index = 0u;
+       segment_index < segment_plan.selected_segment_count;
+       ++segment_index) {
+    const size_t segment_end = segment_plan.segment_ends.at(segment_index);
+    if (segment_end < segment_start) {
+      return true;
+    }
+    if (segment_end + 1u - segment_start >
+        kSegmentedOwnedCommandBufferBlockLimit) {
+      return true;
+    }
+    segment_start = segment_end + 1u;
+  }
+  return false;
+}
+
 StackOwnedCommandBufferSegmentPlan
 stack_dispatch_budget_candidate_segment_plan(
     const size_t block_count,
@@ -1662,6 +1691,46 @@ stack_dispatch_budget_candidate_segment_plan(
     candidate.fail_reason = "dispatch_budget_candidate_scope_limit_exceeded";
   }
   return candidate;
+}
+
+StackOwnedCommandBufferSegmentPlan stack_dispatch_budget_prefix_segment_plan(
+    const size_t block_count,
+    const VulkanVisionStackShapePlan* const plan) {
+  StackOwnedCommandBufferSegmentPlan result =
+      stack_dispatch_budget_candidate_segment_plan(block_count, plan);
+  if (
+      result.fail_reason == std::string("stack_shape_plan_not_ready") ||
+      result.fail_reason == std::string("no_dispatch_budget_candidate_segments") ||
+      result.fail_reason ==
+          std::string("single_block_dispatch_limit_exceeded_candidate")) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    return result;
+  }
+  if (result.segment_ends.empty()) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    result.fail_reason = "dispatch_budget_candidate_empty";
+    return result;
+  }
+  result.selected_segment_count =
+      std::min(result.segment_ends.size(), kSegmentedOwnedCommandBufferScopeLimit);
+  result.coverage = result.segment_ends.size() > result.selected_segment_count
+      ? "prefix"
+      : "full";
+  result.status = "dispatch_budget_prefix_plan_available_behavior_canary";
+  result.fail_reason = result.segment_ends.size() > result.selected_segment_count
+      ? "dispatch_budget_candidate_scope_limit_exceeded_prefix_selected"
+      : "none";
+  if (selected_segment_block_budget_exceeded(result)) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    result.fail_reason = "dispatch_budget_prefix_block_limit_exceeded";
+  }
+  return result;
 }
 
 class VulkanStackCommandRecordingScope final {
@@ -8842,6 +8911,8 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       std::string(segmented_canary_mode) != "none";
   const bool segmented_prefix_canary_requested =
       stack_owned_command_buffer_segmented_prefix_canary_enabled();
+  const bool dispatch_budget_prefix_canary_requested =
+      stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled();
   StackOwnedCommandBufferSegmentPlan segmented_stack_owned_command_buffer_plan;
   if (!segmented_canary_requested) {
     segmented_stack_owned_command_buffer_plan.status =
@@ -8862,10 +8933,14 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         "stack_shape_plan_not_ready";
   } else {
     segmented_stack_owned_command_buffer_plan =
-        stack_owned_command_buffer_segment_plan(
-            context->blocks().size(),
-            capture_indices_vec,
-            segmented_prefix_canary_requested);
+        dispatch_budget_prefix_canary_requested
+        ? stack_dispatch_budget_prefix_segment_plan(
+              context->blocks().size(),
+              stack_shape_plan)
+        : stack_owned_command_buffer_segment_plan(
+              context->blocks().size(),
+              capture_indices_vec,
+              segmented_prefix_canary_requested);
     if (selected_segment_dispatch_budget_exceeded(
             stack_shape_plan,
             segmented_stack_owned_command_buffer_plan)) {

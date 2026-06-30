@@ -105,10 +105,15 @@ eligible private-bridge segments externally and leaves the remaining tail on the
 existing context-owned path. This is a partial recording experiment, not a
 full-stack DAv2 performance path. Selected external segments also fail closed
 when their planned dispatch count exceeds the current small-scope canary budget.
-Do not derive smaller dispatch-budget prefix segments for real DAv2 yet:
-experiments with dispatch-derived prefix scopes completed one forward but hit
-stack overflow under repeated `vits_140` inference. Any future replacement must
-prove repeat stability before being left available, even behind an opt-in flag.
+The previous dispatch-derived prefix experiment completed one forward but hit
+stack overflow under repeated `vits_140` inference, so it was removed. After
+the persistent external recording pool reset owner landed, the first bounded
+replacement is available only as
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix_to_exit`.
+It selects the first two dispatch-budget candidate segments, leaves the
+remaining tail on the context-owned path, and keeps submit elision disabled.
+It is not a full-stack DAv2 performance path; the six-segment candidate
+sequence remains blocked on repeat-stable multi-scope ownership proof.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
