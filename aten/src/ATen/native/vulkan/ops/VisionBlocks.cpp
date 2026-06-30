@@ -1878,31 +1878,36 @@ StackOwnedCommandBufferSegmentPlan stack_dispatch_budget_prefix_segment_plan(
   return result;
 }
 
-StackOwnedCommandBufferSegmentPlan stack_wide3_segment_plan(
+StackOwnedCommandBufferSegmentPlan stack_fixed_width_segment_plan(
     const size_t block_count,
-    const VulkanVisionStackShapePlan* const plan) {
+    const VulkanVisionStackShapePlan* const plan,
+    const size_t segment_block_limit,
+    const size_t segment_scope_limit,
+    const uint64_t segment_dispatch_limit,
+    const char* const dispatch_limit_fail_reason,
+    const char* const scope_limit_fail_reason,
+    const char* const available_status) {
   StackOwnedCommandBufferSegmentPlan result;
-  result.segment_block_limit = kSegmentedOwnedCommandBufferWide3BlockLimit;
-  result.segment_scope_limit = kSegmentedOwnedCommandBufferWide3ScopeLimit;
-  result.segment_dispatch_limit =
-      kSegmentedOwnedCommandBufferWide3DispatchLimit;
+  result.segment_block_limit = segment_block_limit;
+  result.segment_scope_limit = segment_scope_limit;
+  result.segment_dispatch_limit = segment_dispatch_limit;
   if (!plan || block_count == 0u) {
     result.status = "segment_plan_rejected_behavior_neutral";
     result.fail_reason = "stack_shape_plan_not_ready";
     return result;
   }
   for (size_t segment_start = 0u; segment_start < block_count;
-       segment_start += kSegmentedOwnedCommandBufferWide3BlockLimit) {
+       segment_start += segment_block_limit) {
     const size_t segment_end = std::min(
         block_count - 1u,
-        segment_start + kSegmentedOwnedCommandBufferWide3BlockLimit - 1u);
+        segment_start + segment_block_limit - 1u);
     if (
         planned_segment_dispatch_count(plan, segment_start, segment_end) >
         result.segment_dispatch_limit) {
       result.selected_segment_count = 0u;
       result.coverage = "none";
       result.status = "segment_plan_rejected_behavior_neutral";
-      result.fail_reason = "wide3_segment_dispatch_limit_exceeded";
+      result.fail_reason = dispatch_limit_fail_reason;
       return result;
     }
     result.segment_ends.push_back(segment_end);
@@ -1911,57 +1916,42 @@ StackOwnedCommandBufferSegmentPlan stack_wide3_segment_plan(
     result.selected_segment_count = 0u;
     result.coverage = "none";
     result.status = "segment_plan_rejected_behavior_neutral";
-    result.fail_reason = "wide3_segment_scope_limit_exceeded";
+    result.fail_reason = scope_limit_fail_reason;
     return result;
   }
   result.selected_segment_count = result.segment_ends.size();
   result.coverage = "full";
-  result.status = "wide3_segment_plan_available_behavior_canary";
+  result.status = available_status;
   result.fail_reason = "none";
   return result;
+}
+
+StackOwnedCommandBufferSegmentPlan stack_wide3_segment_plan(
+    const size_t block_count,
+    const VulkanVisionStackShapePlan* const plan) {
+  return stack_fixed_width_segment_plan(
+      block_count,
+      plan,
+      kSegmentedOwnedCommandBufferWide3BlockLimit,
+      kSegmentedOwnedCommandBufferWide3ScopeLimit,
+      kSegmentedOwnedCommandBufferWide3DispatchLimit,
+      "wide3_segment_dispatch_limit_exceeded",
+      "wide3_segment_scope_limit_exceeded",
+      "wide3_segment_plan_available_behavior_canary");
 }
 
 StackOwnedCommandBufferSegmentPlan stack_wide4_segment_plan(
     const size_t block_count,
     const VulkanVisionStackShapePlan* const plan) {
-  StackOwnedCommandBufferSegmentPlan result;
-  result.segment_block_limit = kSegmentedOwnedCommandBufferWide4BlockLimit;
-  result.segment_scope_limit = kSegmentedOwnedCommandBufferWide4ScopeLimit;
-  result.segment_dispatch_limit =
-      kSegmentedOwnedCommandBufferWide4DispatchLimit;
-  if (!plan || block_count == 0u) {
-    result.status = "segment_plan_rejected_behavior_neutral";
-    result.fail_reason = "stack_shape_plan_not_ready";
-    return result;
-  }
-  for (size_t segment_start = 0u; segment_start < block_count;
-       segment_start += kSegmentedOwnedCommandBufferWide4BlockLimit) {
-    const size_t segment_end = std::min(
-        block_count - 1u,
-        segment_start + kSegmentedOwnedCommandBufferWide4BlockLimit - 1u);
-    if (
-        planned_segment_dispatch_count(plan, segment_start, segment_end) >
-        result.segment_dispatch_limit) {
-      result.selected_segment_count = 0u;
-      result.coverage = "none";
-      result.status = "segment_plan_rejected_behavior_neutral";
-      result.fail_reason = "wide4_segment_dispatch_limit_exceeded";
-      return result;
-    }
-    result.segment_ends.push_back(segment_end);
-  }
-  if (result.segment_ends.size() > result.segment_scope_limit) {
-    result.selected_segment_count = 0u;
-    result.coverage = "none";
-    result.status = "segment_plan_rejected_behavior_neutral";
-    result.fail_reason = "wide4_segment_scope_limit_exceeded";
-    return result;
-  }
-  result.selected_segment_count = result.segment_ends.size();
-  result.coverage = "full";
-  result.status = "wide4_segment_plan_available_behavior_canary";
-  result.fail_reason = "none";
-  return result;
+  return stack_fixed_width_segment_plan(
+      block_count,
+      plan,
+      kSegmentedOwnedCommandBufferWide4BlockLimit,
+      kSegmentedOwnedCommandBufferWide4ScopeLimit,
+      kSegmentedOwnedCommandBufferWide4DispatchLimit,
+      "wide4_segment_dispatch_limit_exceeded",
+      "wide4_segment_scope_limit_exceeded",
+      "wide4_segment_plan_available_behavior_canary");
 }
 
 StackOwnedCommandBufferSegmentPlan
