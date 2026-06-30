@@ -101,6 +101,7 @@ VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES = frozenset(
         "segmented_stack_wide4_to_exit",
     )
 )
+VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS = 12
 
 
 def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
@@ -149,6 +150,49 @@ def vulkan_stack_output_bridge_repeat_topology_status(
         ),
         "stack_region_owned_command_buffer_mode": normalized_mode,
         "required_mode": "bounded segmented stack-owned recording",
+        "evidence": (
+            "test/vulkan_contract_proofs/"
+            "performance_plan_evidence_manifest.json"
+        ),
+    }
+
+
+def vulkan_stack_output_bridge_depth_status(
+    *,
+    device_kind: str,
+    bridge_requested: bool,
+    model: Any,
+) -> dict[str, Any]:
+    pretrained = getattr(model, "pretrained", None)
+    blocks = getattr(pretrained, "blocks", None) if pretrained is not None else None
+    block_count = len(blocks) if blocks is not None else None
+    max_proven_blocks = VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS
+    if device_kind != "vulkan" or not bridge_requested:
+        return {
+            "allowed": True,
+            "reason": "bridge_not_requested_for_vulkan",
+            "block_count": block_count,
+            "max_proven_blocks": max_proven_blocks,
+        }
+    if block_count is None:
+        return {
+            "allowed": False,
+            "reason": "stack_output_bridge_block_count_unavailable",
+            "block_count": None,
+            "max_proven_blocks": max_proven_blocks,
+        }
+    if block_count <= max_proven_blocks:
+        return {
+            "allowed": True,
+            "reason": "stack_output_bridge_depth_within_proven_rowset",
+            "block_count": block_count,
+            "max_proven_blocks": max_proven_blocks,
+        }
+    return {
+        "allowed": False,
+        "reason": "stack_output_bridge_depth_exceeds_proven_rowset",
+        "block_count": block_count,
+        "max_proven_blocks": max_proven_blocks,
         "evidence": (
             "test/vulkan_contract_proofs/"
             "performance_plan_evidence_manifest.json"
@@ -795,12 +839,12 @@ def validate_vulkan_stack_output_device_bridge_sanity(
     if bridge is None:
         return {"enabled": False, "reason": "bridge_not_installed"}
     with bridge.torch.inference_mode():
-        bridge_output = bridge(image_tensor)
+        reference_output = bridge.original_forward(image_tensor)
         synchronize = getattr(bridge.torch.ops.vulkan_prepack, "synchronize", None)
         reference_boundary_synchronized = synchronize is not None
         if synchronize is not None:
             synchronize()
-        reference_output = bridge.original_forward(image_tensor)
+        bridge_output = bridge(image_tensor)
     bridge_cpu = bridge_output.detach().cpu()
     reference_cpu = reference_output.detach().cpu()
     diff = (bridge_cpu - reference_cpu).abs()
@@ -2011,6 +2055,9 @@ def install_failure_artifact_hook(
                 "vulkan_stack_output_device_bridge_repeat_topology": context.get(
                     "vulkan_stack_output_device_bridge_repeat_topology"
                 ),
+                "vulkan_stack_output_device_bridge_depth": context.get(
+                    "vulkan_stack_output_device_bridge_depth"
+                ),
                 "vulkan_stack_output_device_bridge_sanity": context.get(
                     "vulkan_stack_output_device_bridge_sanity"
                 ),
@@ -2315,6 +2362,22 @@ def run() -> None:
         state_dict = torch.load(checkpoint, map_location="cpu")
         model.load_state_dict(state_dict)
         model = model.eval()
+        bridge_depth_status = vulkan_stack_output_bridge_depth_status(
+            device_kind=device_kind,
+            bridge_requested=bool(args.vulkan_stack_output_device_bridge),
+            model=model,
+        )
+        failure_context["vulkan_stack_output_device_bridge_depth"] = (
+            bridge_depth_status
+        )
+        if not bridge_depth_status["allowed"]:
+            raise RuntimeError(
+                "Vulkan stack-output bridge is blocked for this stack depth. "
+                f"Reason: {bridge_depth_status['reason']}; "
+                f"block_count={bridge_depth_status['block_count']}; "
+                f"max_proven_blocks={bridge_depth_status['max_proven_blocks']}. "
+                f"Evidence: {bridge_depth_status.get('evidence')}"
+            )
         vulkan_stack_output_device_bridge_contexts = (
             create_vulkan_stack_output_device_bridge_contexts(torch, model)
             if device_kind == "vulkan" and args.vulkan_stack_output_device_bridge
@@ -2771,6 +2834,9 @@ def run() -> None:
         ),
         "vulkan_stack_output_device_bridge_repeat_topology": (
             failure_context.get("vulkan_stack_output_device_bridge_repeat_topology")
+        ),
+        "vulkan_stack_output_device_bridge_depth": failure_context.get(
+            "vulkan_stack_output_device_bridge_depth"
         ),
         "vulkan_stack_output_device_bridge_sanity": bridge_sanity,
         "stack_output_device_consumer_registrations": failure_context.get(

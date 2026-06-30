@@ -238,6 +238,78 @@ class TestVulkanGovernance(TestCase):
             torch.is_vulkan_available(),
         )
 
+    def test_vulkan_stack_output_bridge_sanity_runs_reference_first(self):
+        benchmark = self._depth_anything_benchmark_module()
+        call_order = []
+
+        def fake_sync():
+            call_order.append("sync")
+
+        class FakeTorch:
+            inference_mode = staticmethod(torch.inference_mode)
+            isfinite = staticmethod(torch.isfinite)
+            allclose = staticmethod(torch.allclose)
+            ops = types.SimpleNamespace(
+                vulkan_prepack=types.SimpleNamespace(synchronize=fake_sync)
+            )
+
+        class FakeBridge:
+            torch = FakeTorch
+
+            def __call__(self, image):
+                call_order.append("bridge")
+                return image + 1
+
+            def original_forward(self, image):
+                call_order.append("reference")
+                return image + 1
+
+        class FakeModel:
+            _vulkan_stack_output_device_bridge = FakeBridge()
+
+        result = benchmark.validate_vulkan_stack_output_device_bridge_sanity(
+            FakeModel(),
+            torch.zeros(1),
+        )
+
+        self.assertEqual(call_order, ["reference", "sync", "bridge"])
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["max_abs"], 0.0)
+
+    def test_vulkan_stack_output_bridge_depth_gate_blocks_unproven_stack(self):
+        benchmark = self._depth_anything_benchmark_module()
+
+        def fake_model(block_count):
+            return types.SimpleNamespace(
+                pretrained=types.SimpleNamespace(
+                    blocks=[object() for _ in range(block_count)]
+                )
+            )
+
+        allowed = benchmark.vulkan_stack_output_bridge_depth_status(
+            device_kind="vulkan",
+            bridge_requested=True,
+            model=fake_model(12),
+        )
+        blocked = benchmark.vulkan_stack_output_bridge_depth_status(
+            device_kind="vulkan",
+            bridge_requested=True,
+            model=fake_model(24),
+        )
+
+        self.assertTrue(allowed["allowed"])
+        self.assertEqual(
+            allowed["reason"],
+            "stack_output_bridge_depth_within_proven_rowset",
+        )
+        self.assertFalse(blocked["allowed"])
+        self.assertEqual(
+            blocked["reason"],
+            "stack_output_bridge_depth_exceeds_proven_rowset",
+        )
+        self.assertEqual(blocked["block_count"], 24)
+        self.assertEqual(blocked["max_proven_blocks"], 12)
+
     def test_execution_contract_tuple_matches_carry_metadata(self):
         header = self._repo_text(
             "aten",

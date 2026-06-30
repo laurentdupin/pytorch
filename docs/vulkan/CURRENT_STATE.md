@@ -71,9 +71,12 @@ zero, the graph catalog showed the same 20 accepted / 36 rejected
 `StackRegionSegmentPlan.v0` rows, and a separate no-graph three-repeat timing
 run measured about 110.2 ms mean / 109.2 ms median / 112.4 ms p95
 device-resident forward. `vitl_140` remains unsafe blocked on the same canary:
-the graph-summary probe emitted segment-plan rows, but the benchmark process
-exited with Windows stack overflow `-1073741571` before writing a result
-artifact. Do not infer `vitl` support from `vits` or `vitb`.
+normal no-bridge execution succeeds, and a marker probe showed reference-first
+bridge sanity plus one bridge forward can complete, but a second bridge forward
+overflows the 24-block stack with Windows `-1073741571`. The benchmark now
+fails unproven stack-output bridge requests when `block_count > 12`, writing a
+structured failure artifact instead of rediscovering the process-level crash.
+Do not infer `vitl` support from `vits` or `vitb`.
 
 ## DAv2 Stack Region Policy Lock
 

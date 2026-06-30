@@ -147,9 +147,16 @@ The initial catalog records the current `vits_140` performance lane:
   forward. This is a separate one-row `vitb` canary rowset, not an expansion of
   the `vits` rowset;
 - DAv2 `vitl_140` through the same wide4 canary remains unsafe blocked: the
-  graph-summary probe emitted segment-plan rows, but the process exited with
-  Windows stack overflow `-1073741571` before writing a benchmark result
-  artifact. Do not infer `vitl` support from `vits` or `vitb` evidence;
+  graph-summary probe emitted segment-plan rows, normal no-bridge execution
+  succeeds, and reference-first sanity plus one bridge forward can complete,
+  but a second bridge forward overflows the 24-block stack with Windows
+  `-1073741571`. The benchmark now guards unproven deep stack-output bridge
+  requests before native execution and writes a structured failure artifact.
+  Do not infer `vitl` support from `vits` or `vitb` evidence;
+- stack-output bridge depth guard: accepted benchmark control-plane fix. It
+  keeps bridge requests with `block_count > 12` fail-closed until repeated
+  deep-stack bridge execution is proven, while preserving the `vitb_140`
+  positive row;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
