@@ -14,6 +14,11 @@ the checked-in performance-plan evidence ledger. This is separate from accepted
 shape rows: it records accepted fixes, opt-in canaries, slower-but-correct
 plan candidates, correctness-blocked paths, and unsafe topologies so later
 agents do not repeat the same diagnostics as if they were new work.
+The latest segment-mode evidence keeps `segmented_stack_wide4_to_exit` as the
+best current `vits_140` bridge canary. The wide3 and prefix-tail modes are
+valid in the recorded three-repeat sweep but slower than wide4, while repeated
+context-owned stack-output bridge timing remains unsafe because it can hit
+Windows stack overflow after a one-repeat sanity pass.
 
 ## DAv2 Stack Region Policy Lock
 

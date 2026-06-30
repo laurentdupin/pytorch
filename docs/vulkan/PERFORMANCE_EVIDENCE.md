@@ -75,6 +75,10 @@ The initial catalog records the current `vits_140` performance lane:
 
 - stream-sync persistent external-recording pool reset: accepted default fix;
 - segmented stack-owned wide4 bridge canary: accepted canary;
+- context-owned stack-output bridge repeated timing: unsafe blocked because
+  three-repeat bridge runs stack-overflow while one-repeat sanity passes;
+- wide3 and prefix-tail segment modes: valid in the latest `vits_140`
+  three-repeat sweep, but slower than wide4 on the recorded RX 9070 lane;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;

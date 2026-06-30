@@ -94,13 +94,105 @@
         "repeat_count": 10
       },
       "artifacts": [
-        "agent_space/dav2_vits140_wide4_10repeat_stream_sync_pool_reset.json"
+        "agent_space/dav2_vits140_wide4_10repeat_stream_sync_pool_reset.json",
+        "agent_space/dav2_vits140_segment_compare_summary_3repeat.json",
+        "agent_space/dav2_vits140_segment_compare_summary_3repeat.md"
       ],
-      "decision": "Keep as an opt-in canary and current best measured bridge lane. Do not promote without multi-GPU and multi-row stability.",
+      "decision": "Keep as an opt-in canary and current best measured bridge lane. A follow-up 3-repeat sweep after the pool-reset fix measured wide4 ahead of wide3 and the prefix-tail modes for device-resident vits_140 timing. Do not promote without multi-GPU and multi-row stability.",
+      "compared_candidates": [
+        {
+          "mode": "segmented_stack_wide3_to_exit",
+          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "device_resident_mean_ms": 74.004,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "artifact": "agent_space/dav2_vits140_segment_compare_wide3_3repeat.json"
+        },
+        {
+          "mode": "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
+          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "device_resident_mean_ms": 79.299,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix3_tail_3repeat.json"
+        },
+        {
+          "mode": "segmented_stack_dispatch_budget_prefix4_tail_to_exit",
+          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "device_resident_mean_ms": 104.095,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix4_tail_3repeat.json"
+        },
+        {
+          "mode": "segmented_stack_dispatch_budget_prefix5_tail_to_exit",
+          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "device_resident_mean_ms": 72.227,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix5_tail_3repeat.json"
+        },
+        {
+          "mode": "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
+          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "device_resident_mean_ms": 70.08,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix6_tail_3repeat.json"
+        }
+      ],
       "revisit_conditions": [
         "After multi-scope ownership proof is repeat-stable.",
         "After DAv2 vits_182 and non-DAv2 corpus rows show no stack overflow, device loss, or capture drift.",
-        "After contract/graph counters show no hidden fallback, readback, or extra copy regression."
+        "After contract/graph counters show no hidden fallback, readback, or extra copy regression.",
+        "If a longer repeat-count run or another GPU contradicts the 3-repeat segment-mode sweep."
+      ]
+    },
+    {
+      "id": "dav2_vits140_context_owned_bridge_repeated_run_stack_overflow",
+      "status": "unsafe_blocked",
+      "head": "316300434e0",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 evidence row; failure is tied to repeated context-owned bridge topology, not a model-name route.",
+      "contract_or_topology_scope": [
+        "StackOutputToDeviceConsumerBridge",
+        "context-owned stack planned recording",
+        "repeated benchmark timing"
+      ],
+      "candidate": "Use the stack-output device bridge repeatedly without a stack-owned segmented recording mode.",
+      "correctness": {
+        "status": "unsafe",
+        "reason": "A one-repeat context-owned bridge run passes bridge sanity, but repeated three-forward runs exit with Windows stack overflow -1073741571 before writing a result artifact."
+      },
+      "counters": {
+        "single_repeat_cpu_fallback": 0,
+        "single_repeat_sync_readback": 0,
+        "performance_valid": false
+      },
+      "timing_ms": {
+        "single_repeat_device_resident_mean": 84.314,
+        "repeated_run_device_resident_mean": null
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_context_bridge_repro_1repeat.json",
+        "agent_space/dav2_vits140_context_repeat_probe_runs.json",
+        "agent_space/dav2_vits140_context_canary_isolation_runs.json",
+        "agent_space/dav2_vits140_context_no_handoff_runs.json"
+      ],
+      "decision": "Do not use repeated context-owned stack-output bridge timing as a performance lane. Use a bounded segmented stack-owned recording mode for repeated bridge benchmarks.",
+      "revisit_conditions": [
+        "Only revisit after the context-owned bridge repeat stack overflow has a root-cause fix.",
+        "Require a repeated no-stack-owned-mode run to complete with bridge sanity, cpu_fallback=0, and sync_readback=0.",
+        "Do not compare context-owned bridge timings against segmented modes while the repeated context-owned run exits with -1073741571."
       ]
     },
     {
