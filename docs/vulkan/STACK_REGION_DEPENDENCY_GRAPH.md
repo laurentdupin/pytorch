@@ -868,8 +868,18 @@ proven without relying on bookkeeping-excluded count/byte coverage.
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
 contract-facing `StackScopeRetireHandoffContract.v0` spelling. It includes the
-legacy QKV stack-temp retire-batch candidate class and the newer stack-scoped
-LayerNorm statistic-buffer proof class. The legacy
+legacy QKV stack-temp retire-batch candidate class, the newer stack-scoped
+LayerNorm statistic-buffer proof class, and proven same-block stack activation
+rows for `stack_norm1_output`, `stack_proj_output`,
+`stack_residual1_output`, `stack_norm2_output`, and `stack_fc2_output`. Those
+activation rows require TensorAllocation provenance, direct buffer storage,
+positive shape, last-use/non-escape/internal-temp proof, no
+requested/final/alias/runtime escape, a producer phase matching the role, and
+an expected same-block consumer phase matching the local stack contract
+(`qkv_linear`, `residual1`, `norm2`, `fc1_gelu`, or `residual2`,
+respectively). `stack_residual2_output`, requested/final outputs, raw
+stack-internal cleanup, metadata/uniform rows, and unscoped LayerNorm
+buffer-width cleanup remain excluded. The legacy
 `PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=qkv` spelling remains QKV-only;
 LayerNorm statistic buffers require the stack-scope contract spelling. The
 contract preserves the existing behavior limits: no pending-retire handoff

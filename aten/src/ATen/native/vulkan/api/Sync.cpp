@@ -26942,6 +26942,8 @@ std::array<VulkanRetireCallSiteCounter, 27>& retire_call_site_counters() {
 bool is_stack_temp_role(VulkanRetiredResourceRole role);
 bool is_layernorm_stat_stack_temp_retire_batch_candidate(
     const VulkanStackRetireProvenance& provenance);
+bool is_scope_internal_activation_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance);
 
 const char* stack_temp_retire_batch_reject_reason(
     const VulkanStackRetireProvenance& provenance) {
@@ -29474,7 +29476,9 @@ bool is_safe_stack_temp_retire_batch_candidate(
       stack_region_batch_qkv_retires_enabled() &&
       is_qkv_stack_temp_retire_batch_candidate(provenance)) ||
       (stack_scope_retire_handoff_enabled() &&
-       is_layernorm_stat_stack_temp_retire_batch_candidate(provenance));
+       (is_layernorm_stat_stack_temp_retire_batch_candidate(provenance) ||
+        is_scope_internal_activation_stack_temp_retire_batch_candidate(
+            provenance)));
 }
 
 bool is_qkv_stack_temp_retire_batch_candidate(
@@ -29488,6 +29492,70 @@ bool is_layernorm_stat_stack_temp_retire_batch_candidate(
   return is_layernorm_internal_stat_buffer(
              provenance.producer_role, provenance) &&
       has_proven_internal_stack_temp_lifetime(provenance);
+}
+
+VulkanVisionStackPhase scope_internal_activation_consumer_phase(
+    const VulkanRetiredResourceRole role) {
+  switch (role) {
+    case VulkanRetiredResourceRole::StackNorm1Output:
+      return VulkanVisionStackPhase::QkvLinear;
+    case VulkanRetiredResourceRole::StackProjOutput:
+      return VulkanVisionStackPhase::Residual1;
+    case VulkanRetiredResourceRole::StackResidual1Output:
+      return VulkanVisionStackPhase::Norm2;
+    case VulkanRetiredResourceRole::StackNorm2Output:
+      return VulkanVisionStackPhase::Fc1Gelu;
+    case VulkanRetiredResourceRole::StackFc2Output:
+      return VulkanVisionStackPhase::Residual2;
+    default:
+      return VulkanVisionStackPhase::Unknown;
+  }
+}
+
+VulkanVisionStackPhase scope_internal_activation_producer_phase(
+    const VulkanRetiredResourceRole role) {
+  switch (role) {
+    case VulkanRetiredResourceRole::StackNorm1Output:
+      return VulkanVisionStackPhase::Norm1;
+    case VulkanRetiredResourceRole::StackProjOutput:
+      return VulkanVisionStackPhase::ProjLinear;
+    case VulkanRetiredResourceRole::StackResidual1Output:
+      return VulkanVisionStackPhase::Residual1;
+    case VulkanRetiredResourceRole::StackNorm2Output:
+      return VulkanVisionStackPhase::Norm2;
+    case VulkanRetiredResourceRole::StackFc2Output:
+      return VulkanVisionStackPhase::Fc2;
+    default:
+      return VulkanVisionStackPhase::Unknown;
+  }
+}
+
+bool has_positive_shape(const std::vector<int64_t>& shape) {
+  return !shape.empty() &&
+      std::all_of(shape.begin(), shape.end(), [](const int64_t dim) {
+        return dim > 0;
+      });
+}
+
+bool is_scope_internal_activation_stack_temp_retire_batch_candidate(
+    const VulkanStackRetireProvenance& provenance) {
+  const VulkanVisionStackPhase expected_producer_phase =
+      scope_internal_activation_producer_phase(provenance.producer_role);
+  const VulkanVisionStackPhase expected_consumer_phase =
+      scope_internal_activation_consumer_phase(provenance.producer_role);
+  if (
+      expected_producer_phase == VulkanVisionStackPhase::Unknown ||
+      expected_consumer_phase == VulkanVisionStackPhase::Unknown) {
+    return false;
+  }
+  return has_proven_internal_stack_temp_lifetime(provenance) &&
+      provenance.source == VulkanStackRetireProvenanceSource::TensorAllocation &&
+      provenance.direct_buffer && provenance.buffer_storage &&
+      !provenance.image_storage && provenance.dtype >= 0 &&
+      has_positive_shape(provenance.shape) &&
+      provenance.phase == expected_producer_phase &&
+      provenance.expected_consumer_phase == expected_consumer_phase &&
+      provenance.expected_consumer_block_index == provenance.block_index;
 }
 
 void note_stack_internal_temp_retire_batch_decision(
@@ -29508,7 +29576,9 @@ void note_stack_internal_temp_retire_batch_decision(
       is_qkv_stack_temp_retire_batch_candidate(provenance);
   const bool scope_handoff_candidate =
       stack_scope_retire_handoff_enabled() &&
-      is_layernorm_stat_stack_temp_retire_batch_candidate(provenance);
+      (is_layernorm_stat_stack_temp_retire_batch_candidate(provenance) ||
+       is_scope_internal_activation_stack_temp_retire_batch_candidate(
+           provenance));
   bool candidate = std::string(reason) == "accepted" ||
       qkv_candidate || scope_handoff_candidate;
   if (candidate) {

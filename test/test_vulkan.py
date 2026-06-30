@@ -19727,6 +19727,34 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in batch
             )
         )
+        for role, consumer_phase in (
+            ("stack_norm1_output", "qkv_linear"),
+            ("stack_proj_output", "residual1"),
+            ("stack_residual1_output", "norm2"),
+            ("stack_norm2_output", "fc1_gelu"),
+            ("stack_fc2_output", "residual2"),
+        ):
+            self.assertTrue(
+                any(
+                    f"role={role}" in row
+                    and "decision=accepted" in row
+                    and "last_use_proof=1" in row
+                    and "internal_non_escaping=1" in row
+                    and "requested_intermediate=0" in row
+                    and "final_output=0" in row
+                    and "alias_or_view=0" in row
+                    and "runtime_alias=0" in row
+                    and f"expected_consumer_phase={consumer_phase}" in row
+                    for row in batch
+                )
+            )
+        self.assertFalse(
+            any(
+                "role=stack_residual2_output" in row
+                and "decision=accepted" in row
+                for row in batch
+            )
+        )
         self.assertFalse(
             any(
                 "class=layernorm_buffer_width_unscoped_cleanup" in row
@@ -19797,6 +19825,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in batch
             )
         )
+        for role in (
+            "stack_proj_output",
+            "stack_residual1_output",
+            "stack_fc2_output",
+        ):
+            self.assertFalse(
+                any(
+                    f"role={role}" in row and "decision=accepted" in row
+                    for row in batch
+                )
+            )
 
     def test_vulkan_stack_diagnostic_rows_default_off(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)

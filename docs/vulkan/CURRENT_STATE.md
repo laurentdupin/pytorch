@@ -809,16 +809,36 @@ stack-internal batch predicate to the separately proven QKV stack-temp class.
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
 contract-facing `StackScopeRetireHandoffContract.v0` spelling for that same
-proven class. It does not add shape admission, change shaders, move
-pending-retire entries into the region handoff batch, defer submits, or
-authorize submit elision; it only lets QKV stack temps with existing last-use
-and non-escape proof join the existing stack-internal retire batch. A focused
-DAv2 `vits_140` bridge run after the recovery-flush guard showed old-path
-pending retire bytes drop from 3,576,384,928 to 2,104,055,200 and QKV
-hypothetical bytes drop from 1,472,329,728 to zero under the contract spelling,
-with bridge sanity passing, CPU fallback zero, and sync readback zero.
-`retire_queue_drain` submit count and `stack_scope_end` count were unchanged,
-so this is a retire-pressure reduction, not submit-count reduction.
+proven class. It also admits proven stack-scope activation rows for
+`stack_norm1_output`, `stack_proj_output`, `stack_residual1_output`,
+`stack_norm2_output`, and `stack_fc2_output` when their TensorAllocation
+provenance is a direct Vulkan buffer with positive shape, has
+last-use/non-escape/internal-temp proof, no requested/final/alias/runtime
+escape, the producer phase matches the role, and the expected same-block
+consumer phase matches the local stack contract (`qkv_linear`, `residual1`,
+`norm2`, `fc1_gelu`, or `residual2`, respectively). `stack_residual2_output`,
+requested/final outputs, aliases, raw stack-internal cleanup, metadata/uniform,
+and unscoped LayerNorm buffer-width cleanup remain excluded. The contract does
+not add shape admission, change shaders, move pending-retire entries into the
+region handoff batch, defer submits, or authorize submit elision; it only lets
+these proven internal stack tensors join the existing stack-internal retire
+batch. A focused DAv2 `vits_140` bridge run after the recovery-flush guard
+showed old-path pending retire bytes drop from 3,576,384,928 to 2,104,055,200
+and QKV hypothetical bytes drop from 1,472,329,728 to zero under the contract
+spelling, with bridge sanity passing, CPU fallback zero, and sync readback
+zero. `retire_queue_drain` submit count and `stack_scope_end` count were
+unchanged, so this is a retire-pressure reduction, not submit-count reduction.
+After the stack-scope activation expansion, a focused 10-repeat DAv2
+`vits_140` context-owned bridge run with decoder bridge planned recording
+reported `single_image_forward_device_resident` mean 78.64 ms, median
+78.68 ms, p95 81.55 ms, bridge sanity `max_abs=1.639e-06`, CPU fallback zero,
+sync readback zero, and buffer copies zero. The measurement window accepted
+2,280 stack-internal retire-batch rows / 634,344,960 bytes across
+`stack_attention_output`, `stack_fc1_gelu_output`, `stack_fc2_output`,
+`stack_norm1_output`, `stack_norm2_output`, `stack_proj_output`,
+`stack_qkv_output`, and `stack_residual1_output`; the only rejected stack role
+remained `stack_residual2_output`, because those rows are requested/final
+capture outputs.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
 now covers the graph-pending bytes, but raw resource-count coverage remains
 partial because metadata/uniform bookkeeping entries are not stack-internal
