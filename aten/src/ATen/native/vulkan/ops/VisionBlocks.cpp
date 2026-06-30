@@ -1655,6 +1655,11 @@ stack_dispatch_budget_candidate_segment_plan(
   if (has_overbudget_single_block) {
     candidate.status = "dispatch_budget_candidate_behavior_neutral";
     candidate.fail_reason = "single_block_dispatch_limit_exceeded_candidate";
+    return candidate;
+  }
+  if (candidate.segment_ends.size() > kSegmentedOwnedCommandBufferScopeLimit) {
+    candidate.status = "dispatch_budget_candidate_rejected_behavior_neutral";
+    candidate.fail_reason = "dispatch_budget_candidate_scope_limit_exceeded";
   }
   return candidate;
 }

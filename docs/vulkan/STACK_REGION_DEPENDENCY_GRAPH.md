@@ -1212,7 +1212,9 @@ segments from the same planned-dispatch budget while reporting
 `owned_command_buffer_mode=dispatch_budget_candidate_only`,
 `segment_selected_for_recording=0`, and
 `planned_dispatch_count_admission_predicate=0`. They do not reopen the rejected
-dispatch-derived prefix recording mode.
+dispatch-derived prefix recording mode. If the candidate plan needs more than
+the current two-scope canary budget, it fails closed with
+`dispatch_budget_candidate_scope_limit_exceeded`.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and

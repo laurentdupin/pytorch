@@ -126,7 +126,10 @@ are candidate-only. They set
 `owned_command_buffer_mode=dispatch_budget_candidate_only`,
 `segment_selected_for_recording=0`, and
 `planned_dispatch_count_admission_predicate=0`; they do not expose the rejected
-dispatch-derived prefix canary again.
+dispatch-derived prefix canary again. Candidate plans that need more than the
+current two-scope canary budget report
+`dispatch_budget_candidate_scope_limit_exceeded`, which is now the real
+`vits_140` evidence row for six two-block candidate segments.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The

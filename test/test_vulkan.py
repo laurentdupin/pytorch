@@ -27296,9 +27296,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["segmented_canary_selected"] == "0"
                     and row["selected_segment_count"] == "0"
                     and row["segment_plan_status"]
-                    == "dispatch_budget_candidate_behavior_neutral"
+                    == "dispatch_budget_candidate_rejected_behavior_neutral"
                     and row["segment_plan_fail_reason"]
-                    == "dispatch_budget_candidate_not_exposed"
+                    == "dispatch_budget_candidate_scope_limit_exceeded"
                     and row["planned_dispatch_candidate_only"] == "1"
                     and row["planned_dispatch_budget_enforced"] == "0"
                     and row["planned_dispatch_count_admission_predicate"] == "0"
