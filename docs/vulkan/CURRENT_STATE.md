@@ -238,6 +238,17 @@ stays under a 36-dispatch budget, so it can test whether fewer stack-owned
 segment close submits are safe without exposing a numeric scope override. The
 mode remains opt-in and keeps submit elision, deferred submit, and
 pending-retire transfer disabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit`
+is the next fixed wider-segment probe. It records three four-block external
+segments for 12-block private-bridge stacks when each segment stays under a
+48-dispatch budget. It exists to test whether one fewer stack-owned segment
+close submit is safe after `wide3`; it is still opt-in, exposes no numeric
+scope override, and keeps submit elision, deferred submit, and pending-retire
+transfer disabled. A 10-repeat `vits_140` canary run stayed valid with bridge
+sanity passing, measured about 71.0 ms mean / 70.7 ms median / 75.1 ms p95,
+and reduced the exact device-resident loop to about nine queue submits: four
+stack-planned submits, three retire-queue-drain submits, one pre-stack flush,
+and one explicit backend sync.
 The benchmark harness now emits `vulkan_measurement_phase_counters` alongside
 the existing aggregate `vulkan_phase_counters`. The new rows are deltas for
 each single-image measurement loop and keep the legacy aggregate phase intact.

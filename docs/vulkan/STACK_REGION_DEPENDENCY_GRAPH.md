@@ -1345,6 +1345,14 @@ fail-closed behavior for submit elision, deferred submit, and pending-retire
 transfer. `StackRegionSegmentPlan.v0` rows expose the wider block, scope, and
 dispatch budgets so benchmark artifacts can distinguish it from the six
 two-block prefix6 canary.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit`
+is the next fixed-width probe. For 12-block private-bridge stacks it selects
+three four-block external recording segments with a 48-dispatch per-segment
+budget. It exists only to test the next smaller segment-submit count after
+`wide3`; it does not add a numeric scope-limit override, transfer pending
+retires, defer submits, or enable submit elision. Initial `vits_140` evidence
+shows it reduces the device-resident forward's stack-planned submit count by
+one versus `wide3` while keeping bridge sanity and zero fallback/readback.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope

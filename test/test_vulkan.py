@@ -28977,6 +28977,147 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_owned_command_buffer_wide4_canary(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=12,
+            label_prefix=(
+                "vision.synthetic.stack.owned_command_buffer_wide4"
+            ),
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [2, 5],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": os.path.join(
+                TEST_FILE_DIR,
+                "vulkan_stack_region_owned_command_buffer_wide4_test.json",
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "segmented_stack_wide4_to_exit"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            for _ in range(2):
+                with torch.inference_mode():
+                    actual = (
+                        torch.ops.vulkan_prepack
+                        .run_vision_backbone_stack_private_capture_debug(
+                            x,
+                            stack_context,
+                            [2, 5],
+                            True,
+                        )
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                self.assertEqual(actual[0].cpu(), expected[0].cpu())
+                self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            segment_plan_rows = [
+                row["fields"] for row in graph["stack_region_segment_plan_rows"]
+            ]
+            summary_rows = [
+                row
+                for row in segment_plan_rows
+                if row["row_kind"] == "summary"
+                and row["owned_command_buffer_mode"]
+                == "segmented_stack_wide4_to_exit"
+            ]
+            self.assertTrue(
+                any(
+                    row["segmented_canary_selected"] == "1"
+                    and row["selected_segment_count"] == "3"
+                    and row["segment_scope_limit"] == "3"
+                    and row["segment_block_limit"] == "4"
+                    and row["segment_planned_dispatch_limit"] == "48"
+                    and row["segment_ends"] == "3_7_11"
+                    and row["segment_plan_status"]
+                    == "wide4_segment_plan_available_behavior_canary"
+                    for row in summary_rows
+                )
+            )
+            segment_rows = [
+                row for row in segment_plan_rows if row["row_kind"] == "segment"
+            ]
+            selected_segment_rows = [
+                row
+                for row in segment_rows
+                if row["owned_command_buffer_mode"]
+                == "segmented_stack_wide4_to_exit"
+                and row["segment_selected_for_recording"] == "1"
+            ]
+            unselected_segment_rows = [
+                row
+                for row in segment_rows
+                if row["owned_command_buffer_mode"]
+                == "segmented_stack_wide4_to_exit"
+                and row["segment_selected_for_recording"] == "0"
+            ]
+            self.assertEqual(len(selected_segment_rows), 3)
+            self.assertEqual(len(unselected_segment_rows), 0)
+            self.assertTrue(
+                all(
+                    int(row["segment_planned_dispatch_count"]) <= 48
+                    and int(row["segment_block_count"]) <= 4
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    for row in selected_segment_rows
+                )
+            )
+            cleanup_retire_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_retire_rows"
+                ]
+            ]
+            self.assertGreaterEqual(
+                sum(int(row["count"]) for row in cleanup_retire_rows),
+                6,
+            )
+            self.assertLessEqual(
+                max(
+                    int(row["external_command_buffer_acquires_after_scope"])
+                    for row in cleanup_retire_rows
+                ),
+                3,
+            )
+            self.assertTrue(
+                all(
+                    row["transfer_behavior_enabled"] == "0"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    and row["external_cleanup_retire_action"]
+                    == "scheduled_on_stack_exit_submission"
+                    for row in cleanup_retire_rows
+                )
+            )
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_stack_region_dependency_graph_summary_only_bounds_repeats(
         self,
     ):

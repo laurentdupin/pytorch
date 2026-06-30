@@ -1474,6 +1474,7 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
       mode == "segmented_stack_dispatch_budget_prefix5_tail_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix6_tail_to_exit" ||
       mode == "segmented_stack_wide3_to_exit" ||
+      mode == "segmented_stack_wide4_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
@@ -1507,6 +1508,9 @@ constexpr uint64_t kSegmentedOwnedCommandBufferDispatchLimit = 24u;
 constexpr size_t kSegmentedOwnedCommandBufferWide3BlockLimit = 3u;
 constexpr size_t kSegmentedOwnedCommandBufferWide3ScopeLimit = 4u;
 constexpr uint64_t kSegmentedOwnedCommandBufferWide3DispatchLimit = 36u;
+constexpr size_t kSegmentedOwnedCommandBufferWide4BlockLimit = 4u;
+constexpr size_t kSegmentedOwnedCommandBufferWide4ScopeLimit = 3u;
+constexpr uint64_t kSegmentedOwnedCommandBufferWide4DispatchLimit = 48u;
 
 size_t stack_owned_command_buffer_dispatch_budget_tail_scope_limit() {
   const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
@@ -1542,6 +1546,11 @@ bool stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled() {
 bool stack_owned_command_buffer_wide3_canary_enabled() {
   return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
       "segmented_stack_wide3_to_exit";
+}
+
+bool stack_owned_command_buffer_wide4_canary_enabled() {
+  return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
+      "segmented_stack_wide4_to_exit";
 }
 
 bool stack_owned_command_buffer_segmented_canary_enabled() {
@@ -1908,6 +1917,49 @@ StackOwnedCommandBufferSegmentPlan stack_wide3_segment_plan(
   result.selected_segment_count = result.segment_ends.size();
   result.coverage = "full";
   result.status = "wide3_segment_plan_available_behavior_canary";
+  result.fail_reason = "none";
+  return result;
+}
+
+StackOwnedCommandBufferSegmentPlan stack_wide4_segment_plan(
+    const size_t block_count,
+    const VulkanVisionStackShapePlan* const plan) {
+  StackOwnedCommandBufferSegmentPlan result;
+  result.segment_block_limit = kSegmentedOwnedCommandBufferWide4BlockLimit;
+  result.segment_scope_limit = kSegmentedOwnedCommandBufferWide4ScopeLimit;
+  result.segment_dispatch_limit =
+      kSegmentedOwnedCommandBufferWide4DispatchLimit;
+  if (!plan || block_count == 0u) {
+    result.status = "segment_plan_rejected_behavior_neutral";
+    result.fail_reason = "stack_shape_plan_not_ready";
+    return result;
+  }
+  for (size_t segment_start = 0u; segment_start < block_count;
+       segment_start += kSegmentedOwnedCommandBufferWide4BlockLimit) {
+    const size_t segment_end = std::min(
+        block_count - 1u,
+        segment_start + kSegmentedOwnedCommandBufferWide4BlockLimit - 1u);
+    if (
+        planned_segment_dispatch_count(plan, segment_start, segment_end) >
+        result.segment_dispatch_limit) {
+      result.selected_segment_count = 0u;
+      result.coverage = "none";
+      result.status = "segment_plan_rejected_behavior_neutral";
+      result.fail_reason = "wide4_segment_dispatch_limit_exceeded";
+      return result;
+    }
+    result.segment_ends.push_back(segment_end);
+  }
+  if (result.segment_ends.size() > result.segment_scope_limit) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    result.fail_reason = "wide4_segment_scope_limit_exceeded";
+    return result;
+  }
+  result.selected_segment_count = result.segment_ends.size();
+  result.coverage = "full";
+  result.status = "wide4_segment_plan_available_behavior_canary";
   result.fail_reason = "none";
   return result;
 }
@@ -9133,6 +9185,8 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled();
   const bool wide3_canary_requested =
       stack_owned_command_buffer_wide3_canary_enabled();
+  const bool wide4_canary_requested =
+      stack_owned_command_buffer_wide4_canary_enabled();
   const size_t dispatch_budget_tail_scope_limit =
       stack_owned_command_buffer_dispatch_budget_tail_scope_limit();
   const bool dispatch_budget_tail_to_exit_canary_requested =
@@ -9169,6 +9223,10 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
               stack_shape_plan)
         : wide3_canary_requested
         ? stack_wide3_segment_plan(
+              context->blocks().size(),
+              stack_shape_plan)
+        : wide4_canary_requested
+        ? stack_wide4_segment_plan(
               context->blocks().size(),
               stack_shape_plan)
         : dispatch_budget_prefix_canary_requested
