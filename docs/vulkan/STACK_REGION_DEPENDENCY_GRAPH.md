@@ -1304,6 +1304,12 @@ and keeps the unselected tail context-owned. It is a bounded experiment for the
 next external-recording prefix size only: no numeric scope-limit override is
 added, selected segments remain under the same block and dispatch budgets, and
 pending-retire transfer, deferred submit, and submit elision remain disabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix6_tail_to_exit`
+extends the exact prefix-tail series to six selected dispatch-budget prefix
+segments. This is intentionally a high-risk measurement canary because it can
+approach all-prefix external recording on small stacks; it still exposes no
+numeric override, keeps each selected segment under the same budgets, and keeps
+pending-retire transfer, deferred submit, and submit elision disabled.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope

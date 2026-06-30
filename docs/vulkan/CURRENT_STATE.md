@@ -217,6 +217,12 @@ opt-in evidence point rather than a numeric scope override or a general
 multi-scope owner; selected external segments still enforce the same block and
 dispatch budgets, pending-retire transfer stays disabled, and submit elision
 stays disabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix6_tail_to_exit`
+is the next fixed canary and may cover the full `vits_140` dispatch-budget
+prefix in practice. It remains a risk probe, not a production plan: the mode is
+exactly named, selected external segments keep the same per-segment budgets, no
+numeric scope override is exposed, and no submit elision, deferred submit, or
+pending-retire transfer is enabled.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The
