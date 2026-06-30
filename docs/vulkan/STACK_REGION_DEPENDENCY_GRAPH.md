@@ -1249,7 +1249,12 @@ command-buffer acquisitions plus descriptor-set allocations observed while an
 external recording command buffer was active. They are repeat-stability
 diagnostics only: `persistent_pool_reset_proven=0` means the row does not prove
 that a larger multi-scope segment sequence can safely reuse or reset those
-pools across repeated forwards. A valid row with
+pools across repeated forwards. Rows with observed pool pressure also report
+`external_pool_reset_required=1`,
+`external_pool_reset_owner_available=0`, and
+`external_pool_reset_blocker=persistent_pool_reset_owner_unimplemented`.
+This makes persistent-pool reset ownership a hard prerequisite for exposing a
+larger multi-scope recording canary. A valid row with
 `scheduled_on_stack_exit_submission` only proves the cleanup batch was handed
 to the existing retire queue under the stack-exit submission. It does not
 transfer pending retires, remove phase-boundary submits, defer submits, or prove

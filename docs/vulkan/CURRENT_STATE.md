@@ -151,7 +151,12 @@ still metadata-only: it does not transfer pending retires, remove submits,
 defer submits, reset persistent pools, or make cleanup resource count an
 admission predicate. Its purpose is to make repeated stack-owned recording
 cleanup and pool pressure visible after the rejected dispatch-derived prefix
-experiment exposed repeat-instability risk.
+experiment exposed repeat-instability risk. Rows with observed pool pressure
+now also report `external_pool_reset_required=1`,
+`external_pool_reset_owner_available=0`, and
+`external_pool_reset_blocker=persistent_pool_reset_owner_unimplemented`, so
+larger multi-scope recording canaries remain blocked until a real
+region-completion reset owner exists.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.
