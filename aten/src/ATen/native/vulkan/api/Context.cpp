@@ -2637,6 +2637,19 @@ bool Context::query_stream(const c10::Stream& stream) {
 
 void Context::synchronize_stream(const c10::Stream& stream) {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  if (sync_logging_enabled()) {
+    std::ostringstream log;
+    log << "event=synchronize_stream"
+        << " phase=" << submit_phase_name(current_submit_phase())
+        << " stack_phase=" << vision_stack_phase_name(current_vision_stack_phase())
+        << " stack_block=" << current_vision_stack_block_index()
+        << " pending=" << format_sync_bytes(pending_retire_bytes())
+        << " submit_count=" << submit_count_
+        << " caller=" << current_allocation_label()
+        << " recent_op="
+        << (recent_op_label().empty() ? "none" : recent_op_label());
+    append_sync_log_line(log.str());
+  }
   if (stream == current_c10_stream()) {
     submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
@@ -2652,6 +2665,20 @@ void Context::synchronize_stream(const c10::Stream& stream) {
 void Context::synchronize_device() {
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
+    if (sync_logging_enabled()) {
+      std::ostringstream log;
+      log << "event=synchronize_device"
+          << " phase=" << submit_phase_name(current_submit_phase())
+          << " stack_phase="
+          << vision_stack_phase_name(current_vision_stack_phase())
+          << " stack_block=" << current_vision_stack_block_index()
+          << " pending=" << format_sync_bytes(pending_retire_bytes())
+          << " submit_count=" << submit_count_
+          << " caller=" << current_allocation_label()
+          << " recent_op="
+          << (recent_op_label().empty() ? "none" : recent_op_label());
+      append_sync_log_line(log.str());
+    }
     submit_cmd_to_gpu(
         /*fence_handle=*/VK_NULL_HANDLE,
         /*final_use=*/true,

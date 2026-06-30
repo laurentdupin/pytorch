@@ -62,6 +62,7 @@ Error::Error(SourceLocation source_location, std::string msg)
   detail << "source=" << source_location_ << " message={" << msg_ << "}";
   const bool device_lost =
       msg_.find("VK_ERROR_DEVICE_LOST") != std::string::npos;
+  mark_vulkan_post_failure_recovery_required();
   what_ = report_vulkan_failure(
       device_lost ? VulkanFailureClass::DeviceLost : VulkanFailureClass::Unknown,
       source_location_.function,
@@ -77,6 +78,7 @@ Error::Error(SourceLocation source_location, const char* cond, std::string msg)
   const bool device_lost =
       msg_.find("Device lost") != std::string::npos ||
       msg_.find("VK_ERROR_DEVICE_LOST") != std::string::npos;
+  mark_vulkan_post_failure_recovery_required();
   what_ = report_vulkan_failure(
       device_lost ? VulkanFailureClass::DeviceLost : VulkanFailureClass::Unknown,
       source_location_.function,

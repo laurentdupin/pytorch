@@ -2291,7 +2291,7 @@ Tensor move_optional_to_vulkan_buffer(const std::optional<Tensor>& tensor) {
 }
 
 void recover_after_vulkan_failure_if_needed() {
-  if (!api::available()) {
+  if (!api::available() || !api::vulkan_post_failure_recovery_required()) {
     return;
   }
   api::context()->flush();

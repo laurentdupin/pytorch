@@ -1,6 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after stack-owner frequency submit attribution.
+Last refreshed: 2026-06-30 after recovery-guard stack sync removal.
 
 ## Repo State Summary
 
@@ -17,12 +17,21 @@ optimization. The old coalescing proof showed that consumer existence and
 retire lifetime proof are not sufficient: the missing contract is dispatch
 ordering at the producer-consumer edge before command recording.
 
-The current safe DAv2 bridge baseline is approximately 102-113 ms for
-`vits_140`. The opt-in generic stack-captures-to-decoder bridge is correct,
-copy-free, CPU-fallback-free, and sync-readback-free, but it remains limited by
-stack-owner explicit synchronizes and submits. The bridge must remain guarded;
-public `Tensor[]` capture behavior remains the safe default when a same-region
-consumer is not registered.
+The current safe DAv2 bridge baseline is approximately 82-103 ms for
+`vits_140` depending on whether the private decoder bridge planned-recording
+canary is enabled. The opt-in generic stack-captures-to-decoder bridge is
+correct, copy-free, CPU-fallback-free, and sync-readback-free. A previous
+`recover_after_vulkan_failure_if_needed()` bug forced `Context::flush()` at
+stack entry and every block entry even when no Vulkan failure recovery was
+pending; the helper now flushes only when
+`vulkan_post_failure_recovery_required()` is set. Thrown Vulkan API errors
+mark that recovery flag; non-throwing guard diagnostics such as replay-risk
+reports do not. The bridge must remain guarded; public `Tensor[]` capture
+behavior remains the safe default when a same-region consumer is not
+registered. A focused 30-repeat `vits_140` run with the recovery guard and the
+decoder bridge planned-recording canary measured about 77.7 ms mean / 77.4 ms
+median / 82.9 ms p95 for device-resident forward, with max_abs
+`8.344650268554688e-07`, `cpu_fallback=0`, and `sync_readback=0`.
 
 The next architecture direction is a dispatch-level
 `StackRegionDependencyGraph` built before command recording. Future submit

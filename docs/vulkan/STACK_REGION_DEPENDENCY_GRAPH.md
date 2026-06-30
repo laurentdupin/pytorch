@@ -1272,6 +1272,17 @@ normal command-submit frequency flushes. It is opt-in only, does not use the
 external stack-owned command-buffer path, does not remove any already recorded
 submit, does not run under explicit runtime-capture labels, and does not
 broaden shape, transition, or kernel admission.
+`PYTORCH_VULKAN_SYNC_LOG=<path>` can attribute remaining explicit device
+synchronizes by submit phase, stack phase, stack block, pending-retire bytes,
+submit count, current allocation label, and recent op label. This diagnostic
+exposed an accidental recovery path where `recover_after_vulkan_failure_if_needed()`
+flushed at stack entry and every block entry even without a pending Vulkan
+failure. The recovery helper now gates that flush on
+`vulkan_post_failure_recovery_required()`. Thrown Vulkan API errors mark the
+flag, while non-throwing replay-risk and route diagnostics remain diagnostic
+only and do not force the next vision op to flush. This is recovery semantics,
+not a shape or model route: successful stack-owner execution must not pay a
+post-failure recovery synchronize.
 Stack-owned external cleanup logical-boundary rows now carry the same segment
 identity when the segmented canary opens a segment scope. The segment index,
 block range, and segment planned dispatch count make cleanup rows joinable to
