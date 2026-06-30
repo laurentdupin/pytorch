@@ -86,6 +86,21 @@ PATCH_EMBED_FEATURE_MAP_TO_TOKENS_SHAPES = frozenset(
         (1024, 40, 61),
     )
 )
+VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES = frozenset(
+    (
+        "segmented_stack_entry_to_exit",
+        "segmented_stack_prefix_to_exit",
+        "segmented_stack_dispatch_budget_single_segment_to_exit",
+        "segmented_stack_dispatch_budget_prefix_to_exit",
+        "segmented_stack_dispatch_budget_prefix3_to_exit",
+        "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix4_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix5_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
+        "segmented_stack_wide3_to_exit",
+        "segmented_stack_wide4_to_exit",
+    )
+)
 
 
 def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
@@ -98,6 +113,47 @@ def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
     lib = torch_module.library.Library("torchvision", "DEF")
     lib.define("nms(Tensor dets, Tensor scores, float iou_threshold) -> Tensor")
     _TORCHVISION_COMPAT_LIBS.append(lib)
+
+
+def vulkan_stack_output_bridge_repeat_topology_status(
+    *,
+    device_kind: str,
+    bridge_requested: bool,
+    repeats: int,
+    stack_owned_mode: str | None,
+) -> dict[str, Any]:
+    normalized_mode = stack_owned_mode or "none"
+    if device_kind != "vulkan" or not bridge_requested:
+        return {
+            "allowed": True,
+            "reason": "bridge_not_requested_for_vulkan",
+            "stack_region_owned_command_buffer_mode": normalized_mode,
+        }
+    if repeats <= 1:
+        return {
+            "allowed": True,
+            "reason": "single_repeat_context_bridge_allowed",
+            "stack_region_owned_command_buffer_mode": normalized_mode,
+        }
+    if normalized_mode in VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES:
+        return {
+            "allowed": True,
+            "reason": "segmented_stack_owned_recording_mode_requested",
+            "stack_region_owned_command_buffer_mode": normalized_mode,
+        }
+    return {
+        "allowed": False,
+        "reason": (
+            "repeated_context_owned_stack_output_bridge_blocked_by_"
+            "performance_evidence"
+        ),
+        "stack_region_owned_command_buffer_mode": normalized_mode,
+        "required_mode": "bounded segmented stack-owned recording",
+        "evidence": (
+            "test/vulkan_contract_proofs/"
+            "performance_plan_evidence_manifest.json"
+        ),
+    }
 
 
 def optional_bias(module: Any) -> Any:
@@ -1826,6 +1882,9 @@ def install_failure_artifact_hook(
                 "vulkan_stack_output_device_bridge": context.get(
                     "vulkan_stack_output_device_bridge"
                 ),
+                "vulkan_stack_output_device_bridge_repeat_topology": context.get(
+                    "vulkan_stack_output_device_bridge_repeat_topology"
+                ),
                 "vulkan_stack_output_device_bridge_sanity": context.get(
                     "vulkan_stack_output_device_bridge_sanity"
                 ),
@@ -2085,6 +2144,26 @@ def run() -> None:
         raise FileNotFoundError(f"Image does not exist: {image_path}")
     if not image_paths:
         raise FileNotFoundError(f"No JPG files found in {image_dir}")
+    bridge_repeat_topology = vulkan_stack_output_bridge_repeat_topology_status(
+        device_kind=device_kind,
+        bridge_requested=bool(args.vulkan_stack_output_device_bridge),
+        repeats=int(args.repeats),
+        stack_owned_mode=os.environ.get(
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER"
+        ),
+    )
+    failure_context["vulkan_stack_output_device_bridge_repeat_topology"] = (
+        bridge_repeat_topology
+    )
+    if not bridge_repeat_topology["allowed"]:
+        raise RuntimeError(
+            "Repeated Vulkan stack-output bridge timing is blocked for the "
+            "context-owned topology. Set "
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER to a bounded "
+            "segmented stack-owned mode such as segmented_stack_wide4_to_exit, "
+            "or run with --repeats 1 for a one-shot sanity check. Evidence: "
+            f"{bridge_repeat_topology['evidence']}"
+        )
 
     if device_kind == "vulkan" and hasattr(torch.ops, "vulkan_prepack"):
         reset_fallback = getattr(
@@ -2557,6 +2636,9 @@ def run() -> None:
         "vulkan_dav2_block_owner": vulkan_block_owner,
         "vulkan_stack_output_device_bridge": failure_context.get(
             "vulkan_stack_output_device_bridge",
+        ),
+        "vulkan_stack_output_device_bridge_repeat_topology": (
+            failure_context.get("vulkan_stack_output_device_bridge_repeat_topology")
         ),
         "vulkan_stack_output_device_bridge_sanity": bridge_sanity,
         "stack_output_device_consumer_registrations": failure_context.get(

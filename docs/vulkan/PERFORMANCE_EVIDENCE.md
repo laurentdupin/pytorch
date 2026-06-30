@@ -77,6 +77,8 @@ The initial catalog records the current `vits_140` performance lane:
 - segmented stack-owned wide4 bridge canary: accepted canary;
 - context-owned stack-output bridge repeated timing: unsafe blocked because
   three-repeat bridge runs stack-overflow while one-repeat sanity passes;
+- benchmark preflight guard for that unsafe context-owned repeat topology:
+  accepted default control-plane fix;
 - wide3 and prefix-tail segment modes: valid in the latest `vits_140`
   three-repeat sweep, but slower than wide4 on the recorded RX 9070 lane;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;

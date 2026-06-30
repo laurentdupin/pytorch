@@ -19,6 +19,10 @@ best current `vits_140` bridge canary. The wide3 and prefix-tail modes are
 valid in the recorded three-repeat sweep but slower than wide4, while repeated
 context-owned stack-output bridge timing remains unsafe because it can hit
 Windows stack overflow after a one-repeat sanity pass.
+The DAv2 benchmark now fails this unsafe repeated context-owned bridge topology
+before native execution and writes a JSON failure artifact pointing to the
+performance evidence manifest. One-repeat bridge sanity checks and bounded
+segmented stack-owned modes remain allowed.
 
 ## DAv2 Stack Region Policy Lock
 

@@ -2,11 +2,13 @@
 
 import os
 import glob
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 import textwrap
+import types
 import unittest
 
 TEST_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -197,6 +199,37 @@ class TestVulkanGovernance(TestCase):
         path = os.path.join(REPO_ROOT, "docs", "vulkan", "capability_profiles.json")
         with open(path, encoding="utf-8") as handle:
             return json.load(handle)
+
+    @staticmethod
+    def _depth_anything_benchmark_module():
+        module_path = os.path.join(
+            REPO_ROOT,
+            "scripts",
+            "benchmarks",
+            "benchmark_depth_anything.py",
+        )
+        benchmark_dir = os.path.dirname(module_path)
+        previous_cv2 = sys.modules.get("cv2")
+        inserted_cv2_stub = previous_cv2 is None
+        if inserted_cv2_stub:
+            sys.modules["cv2"] = types.SimpleNamespace()
+        sys.path.insert(0, benchmark_dir)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "benchmark_depth_anything_for_test",
+                module_path,
+            )
+            module = importlib.util.module_from_spec(spec)
+            self_loader = spec.loader
+            self_loader.exec_module(module)
+            return module
+        finally:
+            if sys.path[0] == benchmark_dir:
+                sys.path.pop(0)
+            if inserted_cv2_stub:
+                sys.modules.pop("cv2", None)
+            elif previous_cv2 is not None:
+                sys.modules["cv2"] = previous_cv2
 
     def test_vulkan_backend_availability_api_matches_top_level(self):
         self.assertTrue(hasattr(torch.backends, "vulkan"))
@@ -1797,6 +1830,45 @@ class TestVulkanGovernance(TestCase):
             self.assertGreater(len(entry["artifacts"]), 0)
             self.assertIsInstance(entry["revisit_conditions"], list)
             self.assertGreater(len(entry["revisit_conditions"]), 0)
+
+    def test_vulkan_depth_anything_bridge_repeat_topology_guard(self):
+        benchmark = self._depth_anything_benchmark_module()
+
+        blocked = benchmark.vulkan_stack_output_bridge_repeat_topology_status(
+            device_kind="vulkan",
+            bridge_requested=True,
+            repeats=3,
+            stack_owned_mode=None,
+        )
+        self.assertFalse(blocked["allowed"])
+        self.assertEqual(
+            blocked["reason"],
+            "repeated_context_owned_stack_output_bridge_blocked_by_performance_evidence",
+        )
+
+        single_repeat = benchmark.vulkan_stack_output_bridge_repeat_topology_status(
+            device_kind="vulkan",
+            bridge_requested=True,
+            repeats=1,
+            stack_owned_mode=None,
+        )
+        self.assertTrue(single_repeat["allowed"])
+
+        wide4 = benchmark.vulkan_stack_output_bridge_repeat_topology_status(
+            device_kind="vulkan",
+            bridge_requested=True,
+            repeats=3,
+            stack_owned_mode="segmented_stack_wide4_to_exit",
+        )
+        self.assertTrue(wide4["allowed"])
+
+        cpu = benchmark.vulkan_stack_output_bridge_repeat_topology_status(
+            device_kind="cpu",
+            bridge_requested=True,
+            repeats=3,
+            stack_owned_mode=None,
+        )
+        self.assertTrue(cpu["allowed"])
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)

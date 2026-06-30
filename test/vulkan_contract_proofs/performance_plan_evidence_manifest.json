@@ -196,6 +196,48 @@
       ]
     },
     {
+      "id": "dav2_vits140_context_owned_bridge_repeat_preflight_guard",
+      "status": "accepted_default_fix",
+      "head": "post_f443b6fd49d_guard_cl",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "Benchmark control-plane guard; not a backend route or GPU dispatch predicate.",
+      "contract_or_topology_scope": [
+        "StackOutputToDeviceConsumerBridge",
+        "context-owned stack planned recording",
+        "benchmark preflight topology guard"
+      ],
+      "candidate": "Fail repeated context-owned stack-output bridge benchmark runs before native execution unless a bounded segmented stack-owned recording mode is requested.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "TestVulkanGovernance.test_vulkan_depth_anything_bridge_repeat_topology_guard"
+        ]
+      },
+      "counters": {
+        "blocked_run_writes_failure_json": true,
+        "segmented_wide4_positive_run_performance_valid": true,
+        "segmented_wide4_positive_run_cpu_fallback": 0,
+        "segmented_wide4_positive_run_sync_readback": 0
+      },
+      "timing_ms": {
+        "segmented_wide4_positive_single_repeat_device_resident_mean": 70.21
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_context_bridge_guarded_w0_r3.json",
+        "agent_space/dav2_vits140_wide4_guard_positive_1repeat.json"
+      ],
+      "decision": "Keep the benchmark guard so repeated bridge timing cannot rediscover the context-owned stack-overflow path by crashing Python.",
+      "revisit_conditions": [
+        "Only remove the guard after a repeated context-owned bridge run completes without stack overflow and has bridge sanity, cpu_fallback=0, and sync_readback=0.",
+        "Keep one-repeat bridge sanity allowed for local diagnostics.",
+        "Keep bounded segmented stack-owned modes allowed for performance canaries."
+      ]
+    },
+    {
       "id": "conv3x3_s1p1_workgroup_16x8_dav2_vits140_2026_06_30",
       "status": "rejected_slower",
       "head": "49f93e81e81",
