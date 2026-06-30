@@ -41,8 +41,11 @@ median / 82.9 ms p95 for device-resident forward, with max_abs
 The public `vulkan_prepack::synchronize()` path now follows the same recovery
 split: successful execution submits and waits the current stream, while full
 `Context::flush()` remains reserved for a pending post-failure recovery flag.
-This preserves synchronization semantics without resetting command/descriptor
-pools and clearing context cleanup state at every benchmark timing boundary.
+This preserves synchronization semantics without clearing broad context cleanup
+state at every benchmark timing boundary. The successful stream-sync path now
+also resets idle persistent external-recording command/descriptor pools after
+the current stream has completed, so segmented stack-owned recording does not
+accumulate stale recording pool state across repeated benchmark iterations.
 After the LayerNorm statistic-buffer retire proof, a matching 30-repeat
 `vits_140` run with `StackScopeRetireHandoffContract.v0`, decoder bridge
 planned recording, and the `segmented_stack_wide3_to_exit` canary measured

@@ -1403,8 +1403,12 @@ post-failure recovery synchronize.
 The public `vulkan_prepack::synchronize()` helper uses the same split. Without
 a pending post-failure recovery flag it submits and waits the current Vulkan
 stream, then releases retired packed contexts; it does not perform a full
-`Context::flush()` or reset command/descriptor pools. If recovery is pending,
-the helper still takes the full flush path before clearing the recovery flag.
+`Context::flush()`. After the current-stream wait completes, idle persistent
+external-recording command/descriptor pools are reset so segmented stack-owned
+recording does not retain per-iteration recording state across benchmark
+repeats. The reset is skipped while an external recording scope is active. If
+recovery is pending, the helper still takes the full flush path before clearing
+the recovery flag.
 Stack-scoped LayerNorm statistic buffers are now represented by the same
 shape-plan proof surface. `[tokens,1]` `stack_norm1_output` and
 `stack_norm2_output` TensorAllocation rows can report formal last-use proof and

@@ -2647,6 +2647,7 @@ bool Context::query_stream(const c10::Stream& stream) {
 }
 
 void Context::synchronize_stream(const c10::Stream& stream) {
+  bool synchronized_current_stream = false;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   if (sync_logging_enabled()) {
     std::ostringstream log;
@@ -2664,6 +2665,7 @@ void Context::synchronize_stream(const c10::Stream& stream) {
   if (stream == current_c10_stream()) {
     submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
+    synchronized_current_stream = true;
   }
   context_lock.unlock();
   VulkanStreamState& vk_stream = vulkan_stream_pool().unwrap(stream);
@@ -2671,6 +2673,10 @@ void Context::synchronize_stream(const c10::Stream& stream) {
       vk_stream.last_submitted_value.load(std::memory_order_acquire);
   vulkan_stream_pool().wait_complete(vk_stream, value);
   poll_retire_queue();
+  if (synchronized_current_stream) {
+    std::unique_lock<std::mutex> cleanup_lock(dispatch_lock());
+    flush_persistent_external_recording_pools_if_idle();
+  }
 }
 
 void Context::synchronize_device() {
