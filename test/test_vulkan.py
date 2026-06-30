@@ -19750,6 +19750,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertGreaterEqual(
                 graph["summary"]["live_vulkan_image_binding_nodes"], 0
             )
+            self.assertIn(
+                "stack_owner_frequency_submit_plan_rows",
+                graph["summary"],
+            )
             self.assertGreater(graph["summary"]["dependency_edge_rows"], 0)
             self.assertIn("dispatch_nodes", graph)
             self.assertIn("pre_dispatch_insertion_point_nodes", graph)
@@ -19758,6 +19762,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("dependency_edges", graph)
             self.assertIn("phase_boundary_nodes", graph)
             self.assertIn("stack_output_device_consumer_registrations", graph)
+            self.assertIn("stack_owner_frequency_submit_plan_rows", graph)
             self.assertIn("stack_region_boundary_submit_plan", graph)
             submit_plan = graph["stack_region_boundary_submit_plan"]
             self.assertEqual(

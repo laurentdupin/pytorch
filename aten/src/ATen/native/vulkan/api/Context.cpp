@@ -3383,6 +3383,24 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       kStackSubresourceLifetimeDryRunScopeBudgetBytes;
   const VulkanSubmitPhase phase = current_submit_phase();
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
+  note_stack_owner_frequency_submit_plan(
+      origin,
+      phase,
+      callsite,
+      stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
+      stack_region_single_recording_owner_state_.load(
+          std::memory_order_acquire),
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      pending_dispatch_count,
+      had_cmd,
+      fence_handle == VK_NULL_HANDLE,
+      !final_use,
+      is_stack_planned_recording_active(),
+      stack_planned_recording_owned_by_current_thread(),
+      stack_region_owned_command_buffer_active_.load(
+          std::memory_order_acquire));
   if (origin == VulkanSubmitOrigin::ExplicitSynchronize) {
     note_external_recording_cleanup_logical_boundary(
         phase,

@@ -2345,6 +2345,22 @@ TORCH_API void note_stack_region_recording_domain(
     VulkanSubmitPhase phase,
     VulkanRetireCallSite callsite,
     bool region_owned_command_buffer_active = false);
+TORCH_API void note_stack_owner_frequency_submit_plan(
+    VulkanSubmitOrigin origin,
+    VulkanSubmitPhase phase,
+    VulkanRetireCallSite callsite,
+    uint64_t region_id,
+    uint32_t region_state,
+    uint64_t command_buffer_recording_id,
+    uint64_t submit_epoch_before,
+    uint64_t submit_epoch_after,
+    uint64_t pending_dispatch_count,
+    bool had_cmd,
+    bool fence_handle_null,
+    bool final_use_false,
+    bool stack_planned_recording_active,
+    bool stack_planned_recording_owned_by_current_thread,
+    bool region_owned_command_buffer_active);
 TORCH_API void note_stack_region_external_recording_cleanup_logical_boundary(
     uint64_t region_id,
     uint32_t region_state,

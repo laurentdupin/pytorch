@@ -1,6 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after stack diagnostic row gating.
+Last refreshed: 2026-06-30 after stack-owner frequency submit attribution.
 
 ## Repo State Summary
 
@@ -128,6 +128,15 @@ numeric counters but do not build the heavy string-keyed retire-blocker,
 region-lifetime-attribution, or subresource dry-run row maps. This preserves
 the graph/proof surface for explicit diagnostic runs while keeping ordinary
 performance measurements from paying for diagnostic row construction.
+`StackOwnerFrequencySubmitPlan.v0` is now the graph-gated attribution row for
+`normal_cmd_submit_frequency` submits that occur while the submit phase is
+`stack_owner`. It records the region id/state, command-buffer recording id,
+submit epoch, pending dispatch count, planned-recording ownership state,
+external region-owned command-buffer state, and fail-closed blocker. The row is
+behavior-neutral: it preserves the frequency submit and does not authorize
+submit elision. Its purpose is to decide whether the next canary should target
+frequency-submit suppression under planned stack ownership or a coverage gap
+where dispatches escaped planned recording.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic

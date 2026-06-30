@@ -585,6 +585,10 @@ struct StackRegionRecordingDomainValue final {
   uint64_t count = 0u;
 };
 
+struct StackOwnerFrequencySubmitPlanValue final {
+  uint64_t count = 0u;
+};
+
 struct StackRegionExternalRecordingCleanupLogicalBoundaryValue final {
   uint64_t count = 0u;
 };
@@ -708,6 +712,12 @@ stack_region_exit_submit_runtime_point_rows() {
 std::map<std::string, StackRegionRecordingDomainValue>&
 stack_region_recording_domain_rows() {
   static std::map<std::string, StackRegionRecordingDomainValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackOwnerFrequencySubmitPlanValue>&
+stack_owner_frequency_submit_plan_rows() {
+  static std::map<std::string, StackOwnerFrequencySubmitPlanValue> rows;
   return rows;
 }
 
@@ -2468,6 +2478,85 @@ void record_stack_region_recording_domain(
       << " submit_elision_enabled=0 deferred_submit_enabled=0";
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_region_recording_domain_rows()[key.str()].count += 1u;
+}
+
+void record_stack_owner_frequency_submit_plan(
+    const VulkanSubmitOrigin origin,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const bool had_cmd,
+    const bool fence_handle_null,
+    const bool final_use_false,
+    const bool stack_planned_recording_active,
+    const bool stack_planned_recording_owned_by_current_thread,
+    const bool region_owned_command_buffer_active) {
+  if (
+      stack_region_dependency_graph_path() == nullptr ||
+      origin != VulkanSubmitOrigin::NormalCmdSubmitFrequency ||
+      phase != VulkanSubmitPhase::StackOwner) {
+    return;
+  }
+  const bool planned_scope_complete =
+      stack_planned_recording_active &&
+      stack_planned_recording_owned_by_current_thread;
+  const bool canary_candidate =
+      planned_scope_complete && fence_handle_null && final_use_false &&
+      !region_owned_command_buffer_active && had_cmd &&
+      pending_dispatch_count > 0u;
+  const char* top_blocker = "current_topology_frequency_submit_preserved";
+  if (!had_cmd) {
+    top_blocker = "no_command_buffer_work";
+  } else if (!stack_planned_recording_active) {
+    top_blocker = "stack_planned_recording_inactive";
+  } else if (!stack_planned_recording_owned_by_current_thread) {
+    top_blocker = "stack_planned_recording_wrong_thread";
+  } else if (!fence_handle_null) {
+    top_blocker = "host_fence_submit_required";
+  } else if (!final_use_false) {
+    top_blocker = "final_use_submit_required";
+  } else if (region_owned_command_buffer_active) {
+    top_blocker = "region_owned_external_recording_frequency_submit_unexpected";
+  } else if (pending_dispatch_count == 0u) {
+    top_blocker = "no_pending_dispatches";
+  }
+
+  std::ostringstream key;
+  key << "stack_owner_frequency_submit_plan=1"
+      << " schema=StackOwnerFrequencySubmitPlan.v0"
+      << " origin=" << submit_origin_name(origin)
+      << " phase=" << submit_phase_name(phase)
+      << " callsite=" << retire_call_site_name(callsite)
+      << " stack_phase=" << vision_stack_phase_name(current_vision_stack_phase())
+      << " stack_block=" << current_vision_stack_block_index()
+      << " region_id=" << region_id
+      << " region_state=" << region_state
+      << " command_buffer_recording_id=" << command_buffer_recording_id
+      << " submit_epoch_before=" << submit_epoch_before
+      << " submit_epoch_after=" << submit_epoch_after
+      << " pending_dispatch_count=" << pending_dispatch_count
+      << " had_cmd=" << (had_cmd ? 1 : 0)
+      << " fence_handle_null=" << (fence_handle_null ? 1 : 0)
+      << " final_use_false=" << (final_use_false ? 1 : 0)
+      << " stack_planned_recording_active="
+      << (stack_planned_recording_active ? 1 : 0)
+      << " stack_planned_recording_owned_by_current_thread="
+      << (stack_planned_recording_owned_by_current_thread ? 1 : 0)
+      << " planned_scope_complete=" << (planned_scope_complete ? 1 : 0)
+      << " region_owned_command_buffer_active="
+      << (region_owned_command_buffer_active ? 1 : 0)
+      << " canary_candidate=" << (canary_candidate ? 1 : 0)
+      << " behavior_neutral=1 default_behavior_unchanged=1"
+      << " submit_elision_enabled=0 deferred_submit_enabled=0"
+      << " frequency_submit_preserved=1"
+      << " top_blocker=" << top_blocker;
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_owner_frequency_submit_plan_rows()[key.str()].count += 1u;
 }
 
 void record_stack_region_external_recording_cleanup_logical_boundary(
@@ -24024,6 +24113,7 @@ void split_stack_graph_rows(
     std::vector<std::string>& single_recording_canary_rows,
     std::vector<std::string>& exit_submit_runtime_point_rows,
     std::vector<std::string>& recording_domain_rows,
+    std::vector<std::string>& frequency_submit_plan_rows,
     std::vector<std::string>& external_recording_cleanup_logical_boundary_rows,
     std::vector<std::string>& external_recording_cleanup_retire_rows,
     std::vector<std::string>& segment_plan_rows,
@@ -24031,6 +24121,10 @@ void split_stack_graph_rows(
   for (const auto& row : rows) {
     if (row.find("stack_region_recording_domain=1") != std::string::npos) {
       recording_domain_rows.emplace_back(row);
+      continue;
+    }
+    if (row.find("stack_owner_frequency_submit_plan=1") != std::string::npos) {
+      frequency_submit_plan_rows.emplace_back(row);
       continue;
     }
     if (
@@ -24159,6 +24253,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> single_recording_canary_rows;
   std::vector<std::string> exit_submit_runtime_point_rows;
   std::vector<std::string> recording_domain_rows;
+  std::vector<std::string> frequency_submit_plan_rows;
   std::vector<std::string> external_recording_cleanup_logical_boundary_rows;
   std::vector<std::string> external_recording_cleanup_retire_rows;
   std::vector<std::string> segment_plan_rows;
@@ -24180,6 +24275,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       single_recording_canary_rows,
       exit_submit_runtime_point_rows,
       recording_domain_rows,
+      frequency_submit_plan_rows,
       external_recording_cleanup_logical_boundary_rows,
       external_recording_cleanup_retire_rows,
       segment_plan_rows,
@@ -24402,6 +24498,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_owner_frequency_submit_plan_rows",
+      frequency_submit_plan_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "stack_region_external_recording_cleanup_logical_boundary_rows",
       external_recording_cleanup_logical_boundary_rows.size(),
       summary_first);
@@ -24543,6 +24644,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         first);
     append_graph_array(
         out,
+        "stack_owner_frequency_submit_plan_rows",
+        frequency_submit_plan_rows,
+        "stack_owner_frequency_submit_plan",
+        first);
+    append_graph_array(
+        out,
         "stack_region_external_recording_cleanup_logical_boundary_rows",
         external_recording_cleanup_logical_boundary_rows,
         "stack_region_external_recording_cleanup_logical_boundary",
@@ -24661,6 +24768,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_recording_domain_rows",
       recording_domain_rows,
       "stack_region_recording_domain",
+      first);
+  append_graph_array(
+      out,
+      "stack_owner_frequency_submit_plan_rows",
+      frequency_submit_plan_rows,
+      "stack_owner_frequency_submit_plan",
       first);
   append_graph_array(
       out,
@@ -24800,6 +24913,40 @@ void note_stack_region_recording_domain(
       pending_dispatch_count,
       phase,
       callsite,
+      region_owned_command_buffer_active);
+}
+
+void note_stack_owner_frequency_submit_plan(
+    const VulkanSubmitOrigin origin,
+    const VulkanSubmitPhase phase,
+    const VulkanRetireCallSite callsite,
+    const uint64_t region_id,
+    const uint32_t region_state,
+    const uint64_t command_buffer_recording_id,
+    const uint64_t submit_epoch_before,
+    const uint64_t submit_epoch_after,
+    const uint64_t pending_dispatch_count,
+    const bool had_cmd,
+    const bool fence_handle_null,
+    const bool final_use_false,
+    const bool stack_planned_recording_active,
+    const bool stack_planned_recording_owned_by_current_thread,
+    const bool region_owned_command_buffer_active) {
+  record_stack_owner_frequency_submit_plan(
+      origin,
+      phase,
+      callsite,
+      region_id,
+      region_state,
+      command_buffer_recording_id,
+      submit_epoch_before,
+      submit_epoch_after,
+      pending_dispatch_count,
+      had_cmd,
+      fence_handle_null,
+      final_use_false,
+      stack_planned_recording_active,
+      stack_planned_recording_owned_by_current_thread,
       region_owned_command_buffer_active);
 }
 
@@ -32889,6 +33036,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_single_recording_canary_rows().size() +
       stack_region_exit_submit_runtime_point_rows().size() +
       stack_region_recording_domain_rows().size() +
+      stack_owner_frequency_submit_plan_rows().size() +
       stack_region_external_recording_cleanup_logical_boundary_rows().size() +
       stack_region_external_recording_cleanup_retire_rows().size() +
       stack_region_segment_plan_rows().size() +
@@ -33067,6 +33215,11 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_owner_frequency_submit_plan_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
   for (const auto& item :
        stack_region_external_recording_cleanup_logical_boundary_rows()) {
     std::ostringstream row;
@@ -33119,6 +33272,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_single_recording_canary_rows().clear();
   stack_region_exit_submit_runtime_point_rows().clear();
   stack_region_recording_domain_rows().clear();
+  stack_owner_frequency_submit_plan_rows().clear();
   stack_region_external_recording_cleanup_logical_boundary_rows().clear();
   stack_region_external_recording_cleanup_retire_rows().clear();
   stack_region_segment_plan_rows().clear();

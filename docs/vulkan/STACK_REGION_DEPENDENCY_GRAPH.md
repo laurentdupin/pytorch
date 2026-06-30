@@ -1239,6 +1239,15 @@ lifetime dry-runs. Runs that need those rows without writing a graph can set
 `PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS=1`. Ordinary timed runs leave those rows
 off and keep aggregate counters only, so timing is not dominated by
 string-keyed diagnostic map construction.
+The graph also includes `StackOwnerFrequencySubmitPlan.v0` rows under
+`stack_owner_frequency_submit_plan_rows` for stack-owner
+`normal_cmd_submit_frequency` submits. These rows are emitted only when a graph
+dump is requested. They record whether planned stack recording was active and
+owned by the current thread, whether an external region-owned command buffer
+was active, the command-buffer recording id, submit epoch, pending dispatch
+count, and a fail-closed blocker. They do not suppress the submit. The next
+behavior canary must use these rows to distinguish a true frequency-submit
+suppression candidate from a planned-recording coverage gap.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and
