@@ -26666,6 +26666,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == "scheduled_on_stack_exit_submission"
                     and int(row["external_cleanup_resource_count"]) > 0
                     and int(row["external_cleanup_resource_bytes"]) > 0
+                    and int(row["external_command_buffer_acquires_in_scope"]) > 0
+                    and int(row["external_descriptor_sets_in_scope"]) > 0
+                    and row["external_scope_pool_pressure_observed"] == "1"
+                    and row["persistent_pool_reset_proven"] == "0"
                     for row in external_cleanup_retire_rows
                 )
             )
@@ -27302,6 +27306,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["planned_dispatch_candidate_only"] == "1"
                     and row["planned_dispatch_budget_enforced"] == "0"
                     and row["planned_dispatch_count_admission_predicate"] == "0"
+                    and row["candidate_sequence_scope_limit_exceeded"] == "1"
+                    and row["candidate_sequence_requires_multi_scope_owner"] == "1"
+                    and row["candidate_sequence_repeat_stability_required"] == "1"
+                    and row["candidate_sequence_execution_safe"] == "0"
+                    and row["candidate_sequence_blocker"]
+                    == "multi_scope_repeat_stability_unproven"
                     for row in segment_plan_rows
                 )
             )
@@ -27319,6 +27329,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["planned_dispatch_candidate_only"] == "1"
                     and row["planned_dispatch_budget_enforced"] == "0"
                     and row["planned_dispatch_count_admission_predicate"] == "0"
+                    and row["candidate_sequence_scope_limit_exceeded"] == "1"
+                    and row["candidate_sequence_requires_multi_scope_owner"] == "1"
+                    and row["candidate_sequence_repeat_stability_required"] == "1"
+                    and row["candidate_sequence_execution_safe"] == "0"
+                    and row["candidate_sequence_blocker"]
+                    == "multi_scope_repeat_stability_unproven"
                     and int(row["segment_planned_dispatch_count"]) <= 24
                     for row in candidate_segment_rows
                 )
@@ -27405,8 +27421,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == "scheduled_on_stack_exit_submission"
                     and row["behavior_neutral"] == "1"
                     and row["transfer_behavior_enabled"] == "0"
+                    and int(row["external_command_buffer_acquires_in_scope"]) > 0
+                    and int(row["external_descriptor_sets_in_scope"]) > 0
+                    and row["external_scope_pool_pressure_observed"] == "1"
+                    and row["persistent_pool_reset_proven"] == "0"
                     for row in cleanup_retire_rows
                 )
+            )
+            self.assertGreater(
+                max(
+                    int(row["external_command_buffer_acquires_after_scope"])
+                    for row in cleanup_retire_rows
+                ),
+                min(
+                    int(row["external_command_buffer_acquires_before_scope"])
+                    for row in cleanup_retire_rows
+                ),
+            )
+            self.assertGreater(
+                max(
+                    int(row["external_descriptor_sets_after_scope"])
+                    for row in cleanup_retire_rows
+                ),
+                min(
+                    int(row["external_descriptor_sets_before_scope"])
+                    for row in cleanup_retire_rows
+                ),
             )
         finally:
             for key, value in previous.items():

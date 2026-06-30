@@ -1380,6 +1380,10 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_planned_recording_owner_{},
       stack_planned_recording_stats_{},
       stack_region_owned_recording_dispatch_count_{0u},
+      stack_region_external_command_buffer_acquire_count_{0u},
+      stack_region_external_descriptor_set_count_{0u},
+      stack_region_external_command_buffer_acquire_at_begin_{0u},
+      stack_region_external_descriptor_set_count_at_begin_{0u},
       stack_region_owned_recording_retained_buffers_{},
       stack_region_owned_recording_retained_images_{},
       stack_region_single_recording_plan_id_{0u},
@@ -2355,6 +2359,11 @@ void Context::begin_external_command_recording(CommandBuffer& cmd) {
   VK_CHECK_COND(
       g_external_command_recording_state.cmd == nullptr,
       "Vulkan external command recording is already active");
+  stack_region_external_command_buffer_acquire_at_begin_ =
+      stack_region_external_command_buffer_acquire_count_;
+  stack_region_external_descriptor_set_count_at_begin_ =
+      stack_region_external_descriptor_set_count_;
+  ++stack_region_external_command_buffer_acquire_count_;
   g_external_command_recording_state.cmd = &cmd;
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
@@ -2510,6 +2519,9 @@ DescriptorSet Context::get_descriptor_set(
 
   active_cmd().bind_pipeline(pipeline, pipeline_layout, local_workgroup_size);
 
+  if (external_recording_cmd()) {
+    ++stack_region_external_descriptor_set_count_;
+  }
   return active_descriptor_pool().get_descriptor_set(
       shader_layout, shader_descriptor.kernel_layout);
 }
@@ -2891,6 +2903,22 @@ void Context::retire_external_recording_cleanup_resources(
   const uint64_t buffer_count = buffers.size();
   const uint64_t image_count = images.size();
   const uint64_t resource_count = buffer_count + image_count;
+  const uint64_t command_buffer_acquires_before_scope =
+      stack_region_external_command_buffer_acquire_at_begin_;
+  const uint64_t descriptor_sets_before_scope =
+      stack_region_external_descriptor_set_count_at_begin_;
+  const uint64_t command_buffer_acquires_after_scope =
+      stack_region_external_command_buffer_acquire_count_;
+  const uint64_t descriptor_sets_after_scope =
+      stack_region_external_descriptor_set_count_;
+  const uint64_t command_buffer_acquires_in_scope =
+      command_buffer_acquires_after_scope >= command_buffer_acquires_before_scope
+      ? command_buffer_acquires_after_scope - command_buffer_acquires_before_scope
+      : 0u;
+  const uint64_t descriptor_sets_in_scope =
+      descriptor_sets_after_scope >= descriptor_sets_before_scope
+      ? descriptor_sets_after_scope - descriptor_sets_before_scope
+      : 0u;
   uint64_t resource_bytes = 0u;
   for (const VulkanBuffer& buffer : buffers) {
     if (buffer.owns_memory()) {
@@ -2916,6 +2944,12 @@ void Context::retire_external_recording_cleanup_resources(
         image_count,
         resource_count,
         resource_bytes,
+        command_buffer_acquires_before_scope,
+        command_buffer_acquires_after_scope,
+        command_buffer_acquires_in_scope,
+        descriptor_sets_before_scope,
+        descriptor_sets_after_scope,
+        descriptor_sets_in_scope,
         timeline_valid,
         timeline_valid ? "scheduled_on_stack_exit_submission"
                        : "cleared_missing_submission_timeline");

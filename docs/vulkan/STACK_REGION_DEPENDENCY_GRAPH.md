@@ -1214,7 +1214,14 @@ segments from the same planned-dispatch budget while reporting
 `planned_dispatch_count_admission_predicate=0`. They do not reopen the rejected
 dispatch-derived prefix recording mode. If the candidate plan needs more than
 the current two-scope canary budget, it fails closed with
-`dispatch_budget_candidate_scope_limit_exceeded`.
+`dispatch_budget_candidate_scope_limit_exceeded`. Such rows also report
+`candidate_sequence_scope_limit_exceeded=1`,
+`candidate_sequence_requires_multi_scope_owner=1`,
+`candidate_sequence_repeat_stability_required=1`, and
+`candidate_sequence_blocker=multi_scope_repeat_stability_unproven` so the
+blocker is not confused with a request to raise the scope-count constant. A
+larger dispatch-budget sequence needs a repeat-stable multi-scope ownership
+contract before it can become a behavior canary.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and
@@ -1236,7 +1243,13 @@ authorize larger segment scopes.
 `StackRegionExternalRecordingCleanupRetire.v0` records the stack-exit cleanup
 scheduling side of stack-owned external recording. It reports retained
 buffer/image counts, retained cleanup bytes, stack-exit submit timeline
-validity, and the cleanup-retire action. A valid row with
+validity, the cleanup-retire action, and external recording pool-pressure
+counters. The pool-pressure fields report cumulative and per-scope persistent
+command-buffer acquisitions plus descriptor-set allocations observed while an
+external recording command buffer was active. They are repeat-stability
+diagnostics only: `persistent_pool_reset_proven=0` means the row does not prove
+that a larger multi-scope segment sequence can safely reuse or reset those
+pools across repeated forwards. A valid row with
 `scheduled_on_stack_exit_submission` only proves the cleanup batch was handed
 to the existing retire queue under the stack-exit submission. It does not
 transfer pending retires, remove phase-boundary submits, defer submits, or prove

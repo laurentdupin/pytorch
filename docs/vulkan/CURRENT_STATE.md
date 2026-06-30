@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-29 after owner-complete single-recording submit-elision
-canary rejection.
+Last refreshed: 2026-06-30 after dispatch-budget segment sequence-scope
+classification.
 
 ## Repo State Summary
 
@@ -128,8 +128,13 @@ are candidate-only. They set
 `planned_dispatch_count_admission_predicate=0`; they do not expose the rejected
 dispatch-derived prefix canary again. Candidate plans that need more than the
 current two-scope canary budget report
-`dispatch_budget_candidate_scope_limit_exceeded`, which is now the real
-`vits_140` evidence row for six two-block candidate segments.
+`dispatch_budget_candidate_scope_limit_exceeded`, plus
+`candidate_sequence_requires_multi_scope_owner=1` and
+`candidate_sequence_blocker=multi_scope_repeat_stability_unproven`. This is
+now the real `vits_140` evidence row for six two-block candidate segments: the
+segments are individually under dispatch budget, but the sequence is blocked
+on repeat-stable multi-scope ownership proof rather than a larger hard-coded
+scope limit.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The
@@ -137,12 +142,16 @@ stamp is metadata-only and does not make cleanup resource count a segment
 admission predicate. `StackRegionExternalRecordingCleanupRetire.v0` now records
 the matching stack-exit cleanup-retire scheduling event for stack-owned
 external recordings: buffer/image counts, retained cleanup bytes, timeline
-validity, and whether the batch was scheduled on the stack-exit submission or
-cleared because no valid timeline was available. This is still metadata-only:
-it does not transfer pending retires, remove submits, defer submits, or make
-cleanup resource count an admission predicate. Its purpose is to make repeated
-stack-owned recording cleanup pressure visible after the rejected
-dispatch-derived prefix experiment exposed repeat-instability risk.
+validity, whether the batch was scheduled on the stack-exit submission or
+cleared because no valid timeline was available, and persistent external
+recording pool-pressure counters. The new counters report cumulative and
+per-scope persistent command-buffer acquisitions plus descriptor-set
+allocations observed while the external command buffer was active. This is
+still metadata-only: it does not transfer pending retires, remove submits,
+defer submits, reset persistent pools, or make cleanup resource count an
+admission predicate. Its purpose is to make repeated stack-owned recording
+cleanup and pool pressure visible after the rejected dispatch-derived prefix
+experiment exposed repeat-instability risk.
 
 Vulkan availability checks in this tree should use
 `torch.is_vulkan_available()` or `torch.vulkan.is_available()`.

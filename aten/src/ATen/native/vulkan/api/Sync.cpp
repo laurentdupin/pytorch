@@ -2541,6 +2541,12 @@ void record_stack_region_external_recording_cleanup_retire(
     const uint64_t image_count,
     const uint64_t resource_count,
     const uint64_t resource_bytes,
+    const uint64_t external_command_buffer_acquires_before_scope,
+    const uint64_t external_command_buffer_acquires_after_scope,
+    const uint64_t external_command_buffer_acquires_in_scope,
+    const uint64_t external_descriptor_sets_before_scope,
+    const uint64_t external_descriptor_sets_after_scope,
+    const uint64_t external_descriptor_sets_in_scope,
     const bool timeline_valid,
     const char* const retire_action) {
   std::ostringstream key;
@@ -2558,6 +2564,20 @@ void record_stack_region_external_recording_cleanup_retire(
       << " external_cleanup_image_count=" << image_count
       << " external_cleanup_resource_count=" << resource_count
       << " external_cleanup_resource_bytes=" << resource_bytes
+      << " external_command_buffer_acquires_before_scope="
+      << external_command_buffer_acquires_before_scope
+      << " external_command_buffer_acquires_after_scope="
+      << external_command_buffer_acquires_after_scope
+      << " external_command_buffer_acquires_in_scope="
+      << external_command_buffer_acquires_in_scope
+      << " external_descriptor_sets_before_scope="
+      << external_descriptor_sets_before_scope
+      << " external_descriptor_sets_after_scope="
+      << external_descriptor_sets_after_scope
+      << " external_descriptor_sets_in_scope="
+      << external_descriptor_sets_in_scope
+      << " external_scope_pool_pressure_observed=1"
+      << " persistent_pool_reset_proven=0"
       << " external_cleanup_timeline_valid=" << (timeline_valid ? 1 : 0)
       << " external_cleanup_retire_action="
       << (retire_action && retire_action[0] != '\0' ? retire_action
@@ -2609,6 +2629,14 @@ void record_stack_region_segment_plan(
       row_kind && row_kind[0] != '\0' ? row_kind : "summary";
   const bool dispatch_budget_candidate_only =
       row_kind_string.find("dispatch_budget_candidate") == 0u;
+  const bool candidate_sequence_scope_limit_exceeded =
+      dispatch_budget_candidate_only && segment_count > segment_scope_limit;
+  const char* candidate_sequence_blocker = "none";
+  if (dispatch_budget_candidate_only) {
+    candidate_sequence_blocker = candidate_sequence_scope_limit_exceeded
+        ? "multi_scope_repeat_stability_unproven"
+        : "candidate_execution_not_exposed";
+  }
   std::ostringstream key;
   key << "stack_region_segment_plan=1"
       << " schema=StackRegionSegmentPlan.v0"
@@ -2645,6 +2673,14 @@ void record_stack_region_segment_plan(
       << (dispatch_budget_candidate_only ? 0 : 1)
       << " planned_dispatch_candidate_only="
       << (dispatch_budget_candidate_only ? 1 : 0)
+      << " candidate_sequence_scope_limit_exceeded="
+      << (candidate_sequence_scope_limit_exceeded ? 1 : 0)
+      << " candidate_sequence_requires_multi_scope_owner="
+      << (candidate_sequence_scope_limit_exceeded ? 1 : 0)
+      << " candidate_sequence_repeat_stability_required="
+      << (candidate_sequence_scope_limit_exceeded ? 1 : 0)
+      << " candidate_sequence_execution_safe=0"
+      << " candidate_sequence_blocker=" << candidate_sequence_blocker
       << " block_count=" << block_count
       << " runtime_capture_indices="
       << stack_region_row_token(runtime_capture_indices)
@@ -24676,6 +24712,12 @@ void note_stack_region_external_recording_cleanup_retire(
     const uint64_t image_count,
     const uint64_t resource_count,
     const uint64_t resource_bytes,
+    const uint64_t external_command_buffer_acquires_before_scope,
+    const uint64_t external_command_buffer_acquires_after_scope,
+    const uint64_t external_command_buffer_acquires_in_scope,
+    const uint64_t external_descriptor_sets_before_scope,
+    const uint64_t external_descriptor_sets_after_scope,
+    const uint64_t external_descriptor_sets_in_scope,
     const bool timeline_valid,
     const char* const retire_action) {
   if (stack_region_dependency_graph_path() == nullptr) {
@@ -24691,6 +24733,12 @@ void note_stack_region_external_recording_cleanup_retire(
       image_count,
       resource_count,
       resource_bytes,
+      external_command_buffer_acquires_before_scope,
+      external_command_buffer_acquires_after_scope,
+      external_command_buffer_acquires_in_scope,
+      external_descriptor_sets_before_scope,
+      external_descriptor_sets_after_scope,
+      external_descriptor_sets_in_scope,
       timeline_valid,
       retire_action);
 }

@@ -2374,6 +2374,12 @@ TORCH_API void note_stack_region_external_recording_cleanup_retire(
     uint64_t image_count,
     uint64_t resource_count,
     uint64_t resource_bytes,
+    uint64_t external_command_buffer_acquires_before_scope,
+    uint64_t external_command_buffer_acquires_after_scope,
+    uint64_t external_command_buffer_acquires_in_scope,
+    uint64_t external_descriptor_sets_before_scope,
+    uint64_t external_descriptor_sets_after_scope,
+    uint64_t external_descriptor_sets_in_scope,
     bool timeline_valid,
     const char* retire_action);
 TORCH_API void note_stack_region_segment_plan(

@@ -147,6 +147,10 @@ class TORCH_API Context final {
   std::thread::id stack_planned_recording_owner_;
   StackPlannedRecordingStats stack_planned_recording_stats_;
   uint64_t stack_region_owned_recording_dispatch_count_;
+  uint64_t stack_region_external_command_buffer_acquire_count_;
+  uint64_t stack_region_external_descriptor_set_count_;
+  uint64_t stack_region_external_command_buffer_acquire_at_begin_;
+  uint64_t stack_region_external_descriptor_set_count_at_begin_;
   std::vector<VulkanBuffer> stack_region_owned_recording_retained_buffers_;
   std::vector<VulkanImage> stack_region_owned_recording_retained_images_;
   std::atomic<uint64_t> stack_region_single_recording_plan_id_;
