@@ -154,6 +154,56 @@
       ]
     },
     {
+      "id": "dav2_vits182_segmented_stack_wide4_bridge_catalog_2026_07_01",
+      "status": "accepted_canary",
+      "head": "be9a12ff5fe",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "182x280"
+      },
+      "device_notes": "RX 9070 single-repeat graph-catalog run; timing is not meaningful because stack graph diagnostics were enabled.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "StackRegionSegmentPlan.v0",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Use segmented stack-owned external recording for the wide4 bridge canary on the next DAv2 vits input size.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 2.507120370864868e-06,
+        "mean_abs": 1.1435449920327301e-07,
+        "tests": [
+          "focused benchmark_depth_anything.py vits_182 wide4 graph-catalog run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "segment_plan_available": true,
+        "segment_plan_accepted_row_count": 20,
+        "segment_plan_rejected_row_count": 36,
+        "segment_plan_max_segment_dispatch_count": 42
+      },
+      "timing_ms": {
+        "device_resident_mean": null,
+        "repeat_count": 1,
+        "timing_claim": "none_graph_diagnostics_enabled"
+      },
+      "artifacts": [
+        "agent_space/dav2_vits182_wide4_catalog_1repeat.json",
+        "agent_space/dav2_vits182_wide4_catalog_graph.json"
+      ],
+      "decision": "Catalog as shape-stability evidence for the existing wide4 canary. Do not use this graph-diagnostic run as a latency result.",
+      "revisit_conditions": [
+        "Run a repeat-count timing pass without stack graph diagnostics before making a vits_182 performance claim.",
+        "Keep this canary opt-in until multi-row and multi-GPU stability is recorded.",
+        "Revisit if the StackRegionSegmentPlan.v0 row schema or wide4 dispatch budget changes."
+      ]
+    },
+    {
       "id": "dav2_vits140_context_owned_bridge_repeated_run_stack_overflow",
       "status": "unsafe_blocked",
       "head": "316300434e0",

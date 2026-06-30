@@ -33,6 +33,10 @@ only and must not be used as a production route table.
 checked-in performance evidence manifest and can summarize this per-run
 segment-plan field from benchmark artifacts before a diagnostic sweep is
 rerun.
+A focused `vits_182` wide4 graph-catalog run now records that bridge sanity
+and `StackRegionSegmentPlan.v0` evidence pass for the next DAv2 input size;
+the run is cataloged as shape/topology stability evidence only because graph
+diagnostics make its wall-clock timing unusable as a latency claim.
 
 ## DAv2 Stack Region Policy Lock
 

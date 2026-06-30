@@ -110,6 +110,9 @@ The initial catalog records the current `vits_140` performance lane:
   accepted default control-plane fix;
 - wide3 and prefix-tail segment modes: valid in the latest `vits_140`
   three-repeat sweep, but slower than wide4 on the recorded RX 9070 lane;
+- the first `vits_182` wide4 graph-catalog run: bridge sanity and
+  `StackRegionSegmentPlan.v0` evidence passed, but timing is not meaningful
+  because graph diagnostics were enabled;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
