@@ -334,6 +334,40 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertTrue(split_plan["chunks"][1]["requires_input_baton"])
 
+        env_key = benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV
+        previous = os.environ.get(env_key)
+        try:
+            os.environ[env_key] = (
+                benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY
+            )
+            canary = benchmark.vulkan_stack_output_bridge_depth_status(
+                device_kind="vulkan",
+                bridge_requested=True,
+                model=fake_model(24),
+            )
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
+        self.assertFalse(canary["allowed"])
+        self.assertEqual(
+            canary["reason"],
+            "stack_output_bridge_depth_exceeds_proven_rowset",
+        )
+        canary_plan = canary["deep_stack_bridge_split_plan"]
+        self.assertEqual(
+            canary_plan["status"],
+            "deep_stack_bridge_split_plan_python_private_baton_unsafe_blocked",
+        )
+        self.assertFalse(canary_plan["runtime_implemented"])
+        self.assertTrue(canary_plan["runtime_unsafe_blocked"])
+        self.assertEqual(
+            canary_plan["unsafe_blocker"],
+            "python_private_baton_canary_stack_overflow_at_private_capture_debug",
+        )
+
     def test_execution_contract_tuple_matches_carry_metadata(self):
         header = self._repo_text(
             "aten",

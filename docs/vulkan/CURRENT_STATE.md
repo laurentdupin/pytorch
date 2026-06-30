@@ -80,7 +80,12 @@ That artifact includes `StackOutputBridgeDeepSplitPlan.v0`: for `vitl_140`,
 the behavior-neutral plan has two 12-block chunks, captures `[4, 11]` in chunk
 0 and `[17, 23]` in chunk 1, and an explicit private-baton requirement between
 chunks. The runtime for that topology is not implemented, so `vitl` remains
-blocked. Do not infer `vitl` support from `vits` or `vitb`.
+blocked. A benchmark-local `python_private_baton` canary for that topology was
+also tried and rejected: it still overflows the native stack inside
+`run_vision_backbone_stack_private_capture_debug`, so the benchmark now records
+that mode as unsafe-blocked metadata and fails closed before native execution.
+Do not infer `vitl` support from `vits` or `vitb`, and do not retry the
+Python-mediated baton path as the next runtime proof.
 
 ## DAv2 Stack Region Policy Lock
 

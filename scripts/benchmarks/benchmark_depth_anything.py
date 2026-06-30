@@ -102,6 +102,28 @@ VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES = frozenset(
     )
 )
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS = 12
+VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV = (
+    "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
+)
+VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY = "python_private_baton"
+VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES = frozenset(
+    (VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY,)
+)
+VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES = frozenset()
+
+
+def vulkan_stack_output_bridge_deep_split_mode() -> str:
+    return (
+        os.environ.get(VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV, "none").strip()
+        or "none"
+    )
+
+
+def vulkan_stack_output_bridge_deep_split_runtime_enabled() -> bool:
+    return (
+        vulkan_stack_output_bridge_deep_split_mode()
+        in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES
+    )
 
 
 def ensure_torchvision_runtime_compat(torch_module: Any) -> None:
@@ -129,6 +151,14 @@ def vulkan_stack_output_bridge_repeat_topology_status(
             "allowed": True,
             "reason": "bridge_not_requested_for_vulkan",
             "stack_region_owned_command_buffer_mode": normalized_mode,
+        }
+    if vulkan_stack_output_bridge_deep_split_runtime_enabled():
+        return {
+            "allowed": True,
+            "reason": "deep_split_stack_output_bridge_canary_requested",
+            "stack_region_owned_command_buffer_mode": normalized_mode,
+            "deep_split_runtime_mode": vulkan_stack_output_bridge_deep_split_mode(),
+            "deep_split_runtime_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
         }
     if repeats <= 1:
         return {
@@ -174,10 +204,20 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
     capture_indices: list[int] | None,
     max_proven_blocks: int,
 ) -> dict[str, Any]:
+    runtime_mode = vulkan_stack_output_bridge_deep_split_mode()
+    runtime_enabled = runtime_mode in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES
+    runtime_unsafe_blocked = (
+        runtime_mode in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES
+    )
     result: dict[str, Any] = {
         "schema": "StackOutputBridgeDeepSplitPlan.v0",
         "needed": bool(block_count is not None and block_count > max_proven_blocks),
         "runtime_implemented": False,
+        "runtime_mode": runtime_mode,
+        "runtime_requested": runtime_mode != "none",
+        "runtime_canary_enabled": runtime_enabled,
+        "runtime_unsafe_blocked": runtime_unsafe_blocked,
+        "runtime_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
         "max_blocks_per_chunk": max_proven_blocks,
         "block_count": block_count,
         "capture_indices": capture_indices,
@@ -254,11 +294,29 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
     result.update(
         {
             "available": True,
-            "status": "deep_stack_bridge_split_plan_available_runtime_unimplemented",
+            "status": (
+                "deep_stack_bridge_split_plan_python_private_baton_unsafe_blocked"
+                if runtime_unsafe_blocked
+                else "deep_stack_bridge_split_plan_available_runtime_implemented"
+                if runtime_enabled
+                else "deep_stack_bridge_split_plan_available_runtime_unimplemented"
+            ),
             "topology": "chunked_stack_output_bridge_with_private_baton",
             "chunks": chunks,
             "chunk_count": len(chunks),
             "private_baton_required": len(chunks) > 1,
+            "runtime_implemented": runtime_enabled,
+            "unsafe_blocker": (
+                "python_private_baton_canary_stack_overflow_at_private_capture_debug"
+                if runtime_unsafe_blocked
+                else None
+            ),
+            "runtime_scope": (
+                "none"
+            ),
+            "same_region_decoder_consumer": None,
+            "python_boundary_before_decoder": None,
+            "host_readback_before_decoder": None,
             "next_required_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
         }
     )
@@ -301,6 +359,18 @@ def vulkan_stack_output_bridge_depth_status(
         return {
             "allowed": True,
             "reason": "stack_output_bridge_depth_within_proven_rowset",
+            "block_count": block_count,
+            "max_proven_blocks": max_proven_blocks,
+            "deep_stack_bridge_split_plan": split_plan,
+        }
+    if (
+        split_plan.get("available")
+        and split_plan.get("runtime_implemented")
+        and split_plan.get("runtime_canary_enabled")
+    ):
+        return {
+            "allowed": True,
+            "reason": "stack_output_bridge_deep_split_canary_requested",
             "block_count": block_count,
             "max_proven_blocks": max_proven_blocks,
             "deep_stack_bridge_split_plan": split_plan,
@@ -827,6 +897,11 @@ class VulkanStackOutputDeviceBridge:
         self.decoder_context = bridge_contexts["decoder_context"]
         self.bridge_consumer_id = f"{label}.decoder_preprocess_head"
         self.bridge_consumer_context = "VisionDecoderPreprocessHeadContext"
+        self.deep_split_plan = build_vulkan_stack_output_bridge_deep_split_plan(
+            block_count=len(self.stack_owner.block_contexts),
+            capture_indices=self.capture_indices,
+            max_proven_blocks=VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS,
+        )
 
     def registrations_for_input(self, x: Any) -> list[dict[str, Any]]:
         if not isinstance(x, self.torch.Tensor) or x.dim() != 4:
@@ -946,6 +1021,7 @@ def install_vulkan_stack_output_device_bridge(
         "capture_indices": bridge.capture_indices,
         "consumer_id": bridge.bridge_consumer_id,
         "consumer_context": bridge.bridge_consumer_context,
+        "deep_split_plan": bridge.deep_split_plan,
     }
 
 

@@ -661,6 +661,50 @@
       ]
     },
     {
+      "id": "dav2_vitl140_python_private_baton_deep_split_unsafe_2026_07_01",
+      "status": "unsafe_blocked",
+      "head": "post_a44414fb7db_deep_split_probe",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitl",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 evidence. This was a benchmark-local proof canary for the generic deep stack-output bridge split topology, not a production route.",
+      "contract_or_topology_scope": [
+        "StackOutputBridgeDeepSplitPlan.v0",
+        "StackOutputBridgeDeepSplitPlanRuntime.v0",
+        "benchmark python_private_baton canary",
+        "private stack capture debug op"
+      ],
+      "candidate": "Split the 24-block stack-output bridge into two <=12-block Python-mediated chunks, use the last output of chunk 0 as a private baton, and feed the four captured Vulkan tensors through the existing LayerNorm and decoder-preprocess ops.",
+      "correctness": {
+        "status": "unsafe",
+        "reason": "The attempted Python private-baton canary still hit native Windows stack overflow -1073741571 at run_vision_backbone_stack_private_capture_debug before a result artifact could be written. The benchmark now treats PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=python_private_baton as unsafe-blocked metadata and fails closed before entering native bridge execution."
+      },
+      "counters": {
+        "cpu_fallback": null,
+        "sync_readback": null,
+        "performance_valid": false,
+        "deep_split_plan_available": true,
+        "deep_split_plan_chunk_count": 2,
+        "python_private_baton_runtime_supported": false,
+        "unsafe_guard_writes_failure_json": true
+      },
+      "timing_ms": {
+        "candidate_device_resident_mean": null
+      },
+      "artifacts": [
+        "agent_space/dav2_vitl140_deep_split_python_baton_probe3.log",
+        "agent_space/dav2_vitl140_python_baton_unsafe_guard.json"
+      ],
+      "decision": "Do not use a Python-mediated deep split bridge as the runtime proof path. Keep it cataloged as unsafe-blocked so future work moves to a real backend-owned StackOutputBridgeDeepSplitPlanRuntime.v0 or a lower-level stack execution ownership fix rather than rerunning this canary.",
+      "revisit_conditions": [
+        "Only revisit if run_vision_backbone_stack_private_capture_debug stack usage is fixed independently and a one-repeat plus repeated vitl_140 canary writes valid result artifacts.",
+        "A future runtime proof should avoid Python-mediated public boundaries and implement private baton handoff inside backend-owned stack execution.",
+        "Keep the depth guard fail-closed for block_count > 12 until repeated deep-stack bridge correctness and process stability are proven."
+      ]
+    },
+    {
       "id": "dav2_stack_output_bridge_depth_guard_2026_07_01",
       "status": "accepted_default_fix",
       "head": "post_b976d136cfc1_guard_cl",

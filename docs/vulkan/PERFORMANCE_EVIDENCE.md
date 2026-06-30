@@ -155,6 +155,13 @@ The initial catalog records the current `vits_140` performance lane:
   with `StackOutputBridgeDeepSplitPlan.v0`. For `vitl_140`, that plan has two
   12-block chunks, split capture slots, and a private-baton requirement. Do not
   infer `vitl` support from `vits` or `vitb` evidence;
+- a benchmark-local `python_private_baton` proof canary for that deep split
+  topology is also unsafe blocked. The attempted run still hit native Windows
+  stack overflow inside `run_vision_backbone_stack_private_capture_debug`
+  before a result artifact could be written. The benchmark now records
+  `PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=python_private_baton` as
+  unsafe-blocked metadata in the deep split plan and fails closed before
+  native bridge execution;
 - stack-output bridge depth guard: accepted benchmark control-plane fix. It
   keeps bridge requests with `block_count > 12` fail-closed until repeated
   deep-stack bridge execution is proven, while preserving the `vitb_140`
