@@ -1298,6 +1298,12 @@ extends that exact canary to four selected dispatch-budget prefix segments.
 It is intentionally not a general multi-scope owner: the external scopes remain
 bounded by the same block and dispatch budgets, the unselected tail remains
 context-owned, and the mode is still opt-in with submit elision disabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix5_tail_to_exit`
+extends the same exact canary to five selected dispatch-budget prefix segments
+and keeps the unselected tail context-owned. It is a bounded experiment for the
+next external-recording prefix size only: no numeric scope-limit override is
+added, selected segments remain under the same block and dispatch budgets, and
+pending-retire transfer, deferred submit, and submit elision remain disabled.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope

@@ -210,6 +210,13 @@ is a higher-risk exact canary that selects four dispatch-budget prefix segments
 and keeps the same coalesced context-owned tail. It exists only to probe the
 next bounded external-recording scope; it is still opt-in, keeps submit elision
 disabled, and must be judged by bridge sanity plus submit/retire counters.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix5_tail_to_exit`
+extends the same exact canary to five selected dispatch-budget prefix segments
+with the coalesced context-owned tail. It is intentionally another fixed,
+opt-in evidence point rather than a numeric scope override or a general
+multi-scope owner; selected external segments still enforce the same block and
+dispatch budgets, pending-retire transfer stays disabled, and submit elision
+stays disabled.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The
