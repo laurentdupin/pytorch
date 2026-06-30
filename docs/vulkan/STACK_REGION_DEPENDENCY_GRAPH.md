@@ -865,6 +865,16 @@ transfer-required counts. This filtered coverage is an accounting diagnostic,
 not source identity. The main `source_match_status` remains the raw source
 match, and the owner remains fail-closed unless a concrete source match is
 proven without relying on bookkeeping-excluded count/byte coverage.
+`PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
+`PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
+contract-facing `StackScopeRetireHandoffContract.v0` spelling for the same QKV
+stack-temp retire-batch candidate class. It preserves the existing behavior
+limits: no pending-retire handoff movement, no deferred submit, no submit
+elision, no shader change, and no shape-admission change. In the focused DAv2
+`vits_140` bridge A/B, this spelling reduced old-path pending retire bytes
+from 3,576,384,928 to 2,104,055,200 by moving the already-proven QKV class into
+the stack-internal retire batch; `retire_queue_drain` submit count and
+`stack_scope_end` count were unchanged.
 The graph now also exports a pending allocation signature for source-identity
 diagnostics. `StackRegionBoundarySubmitPlan.v0` includes
 `pending_allocation_signature` entries keyed by allocation id, generation, byte

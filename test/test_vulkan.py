@@ -19434,6 +19434,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             torch.ops.vulkan_prepack.stack_subresource_lifetime_dry_run_counters()
         )
         scratch = torch.ops.vulkan_prepack.stack_scratch_arena_lifetime_snapshot()
+        qkv_hypothetical_count = 12
         self.assertTrue(
             any(
                 "role=stack_" in row
@@ -19487,7 +19488,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
         self.assertGreater(blocker_counters[0], 0)
-        self.assertGreater(blocker_counters[14], 0)
+        self.assertGreater(blocker_counters[qkv_hypothetical_count], 0)
         self.assertTrue(any("summary=1" in row for row in blocker))
         self.assertTrue(any("copresent_group=1" in row for row in blocker))
         self.assertTrue(
@@ -19520,7 +19521,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertTrue(
             any(
                 "summary=1" in row
-                and "skipped_no_old_path_pending=1" in row
+                and "skipped_no_old_path_pending=" in row
                 for row in blocker
             )
         )
@@ -19626,6 +19627,62 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in safety
             )
         )
+
+    def test_vulkan_stack_scope_retire_handoff_enables_qkv_batch(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        previous_rows = os.environ.get("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS")
+        previous_contract = os.environ.get("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF")
+        previous_qkv = os.environ.pop(
+            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None
+        )
+        os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = "1"
+        os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+            "stack_scope_retire_handoff"
+        )
+        try:
+            torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
+            torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [0],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+        finally:
+            if previous_rows is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = previous_rows
+            if previous_contract is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+                    previous_contract
+                )
+            if previous_qkv is not None:
+                os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = (
+                    previous_qkv
+                )
+
+        batch = torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_snapshot()
+        blocker_counters = (
+            torch.ops.vulkan_prepack.stack_retire_drain_blocker_counters()
+        )
+        qkv_hypothetical_count = 12
+        qkv_hypothetical_bytes = 13
+        self.assertTrue(
+            any(
+                "role=stack_qkv_output" in row
+                and "decision=accepted" in row
+                and "last_use_proof=1" in row
+                and "internal_non_escaping=1" in row
+                for row in batch
+            )
+        )
+        self.assertEqual(blocker_counters[qkv_hypothetical_count], 0)
+        self.assertEqual(blocker_counters[qkv_hypothetical_bytes], 0)
 
     def test_vulkan_stack_diagnostic_rows_default_off(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)

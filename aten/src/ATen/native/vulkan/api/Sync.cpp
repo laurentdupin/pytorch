@@ -29411,11 +29411,20 @@ void note_vulkan_retire_drain(
 bool stack_region_batch_qkv_retires_enabled() {
   const char* env =
       std::getenv("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES");
-  if (env == nullptr || *env == '\0') {
+  if (env != nullptr && *env != '\0') {
+    const std::string value(env);
+    if (value == "1" || value == "qkv") {
+      return true;
+    }
+  }
+  const char* contract_env =
+      std::getenv("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF");
+  if (contract_env == nullptr || *contract_env == '\0') {
     return false;
   }
-  const std::string value(env);
-  return value == "1" || value == "qkv";
+  const std::string contract_value(contract_env);
+  return contract_value == "1" ||
+      contract_value == "stack_scope_retire_handoff";
 }
 
 bool is_safe_stack_temp_retire_batch_candidate(

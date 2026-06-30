@@ -736,6 +736,19 @@ stack-exit source, so the owner still fail-closes on
 `pending_retire_transfer_source_incomplete`.
 `PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` expands the existing
 stack-internal batch predicate to the separately proven QKV stack-temp class.
+`PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
+`PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
+contract-facing `StackScopeRetireHandoffContract.v0` spelling for that same
+proven class. It does not add shape admission, change shaders, move
+pending-retire entries into the region handoff batch, defer submits, or
+authorize submit elision; it only lets QKV stack temps with existing last-use
+and non-escape proof join the existing stack-internal retire batch. A focused
+DAv2 `vits_140` bridge run after the recovery-flush guard showed old-path
+pending retire bytes drop from 3,576,384,928 to 2,104,055,200 and QKV
+hypothetical bytes drop from 1,472,329,728 to zero under the contract spelling,
+with bridge sanity passing, CPU fallback zero, and sync readback zero.
+`retire_queue_drain` submit count and `stack_scope_end` count were unchanged,
+so this is a retire-pressure reduction, not submit-count reduction.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
 now covers the graph-pending bytes, but raw resource-count coverage remains
 partial because metadata/uniform bookkeeping entries are not stack-internal
