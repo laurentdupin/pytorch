@@ -19391,6 +19391,36 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
 
+    def test_vulkan_prepack_synchronize_uses_stream_sync_without_failure(self):
+        log_path = os.path.join(
+            TEST_FILE_DIR, "vulkan_prepack_synchronize_stream_sync_test.log"
+        )
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        previous = os.environ.get("PYTORCH_VULKAN_SYNC_LOG")
+        torch.ops.vulkan_prepack.synchronize()
+        os.environ["PYTORCH_VULKAN_SYNC_LOG"] = log_path
+        try:
+            with torch.inference_mode():
+                x = torch.ones((4,), device="vulkan")
+                _ = x + x
+                torch.ops.vulkan_prepack.synchronize()
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_SYNC_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_SYNC_LOG"] = previous
+
+        self.assertTrue(os.path.exists(log_path))
+        with open(log_path, encoding="utf-8") as handle:
+            rows = handle.readlines()
+        self.assertTrue(any("before_stream_sync" in row for row in rows))
+        self.assertTrue(any("after_stream_sync" in row for row in rows))
+        self.assertFalse(any("before_context_sync" in row for row in rows))
+        self.assertFalse(any(row.startswith("flush:") for row in rows))
+        self.assertFalse(any("event=synchronize_device" in row for row in rows))
+
     def test_vulkan_vision_stack_temp_lifetime_safety_snapshot(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
 

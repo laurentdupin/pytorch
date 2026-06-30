@@ -283,16 +283,23 @@ std::string swap_runtime_label_runtime(std::string label) {
 
 void synchronize_runtime() {
   if (api::available()) {
-    log_vulkan_prepack_synchronize_stage("before_context_sync");
-    api::context()->flush();
-    log_vulkan_prepack_synchronize_stage("after_context_sync");
+    api::Context* const context = api::context();
+    if (api::vulkan_post_failure_recovery_required()) {
+      log_vulkan_prepack_synchronize_stage("before_context_sync");
+      context->flush();
+      log_vulkan_prepack_synchronize_stage("after_context_sync");
+      api::clear_vulkan_post_failure_recovery_required();
+    } else {
+      log_vulkan_prepack_synchronize_stage("before_stream_sync");
+      context->synchronize_stream(context->current_c10_stream());
+      log_vulkan_prepack_synchronize_stage("after_stream_sync");
+    }
     log_vulkan_prepack_synchronize_stage("before_packed_weight_retire_release");
     utils::release_retired_packed_weight_entries();
     log_vulkan_prepack_synchronize_stage("after_packed_weight_retire_release");
     log_vulkan_prepack_synchronize_stage("before_linear_context_retire_release");
     utils::release_retired_linear_contexts();
     log_vulkan_prepack_synchronize_stage("after_linear_context_retire_release");
-    api::clear_vulkan_post_failure_recovery_required();
   }
 }
 

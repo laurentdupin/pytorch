@@ -1,6 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after DAv2 measurement-phase attribution.
+Last refreshed: 2026-06-30 after DAv2 prepack synchronize attribution.
 
 ## Repo State Summary
 
@@ -38,6 +38,11 @@ as `reference_boundary_synchronized` in the sanity metadata. A focused
 decoder bridge planned-recording canary measured about 77.7 ms mean / 77.4 ms
 median / 82.9 ms p95 for device-resident forward, with max_abs
 `8.344650268554688e-07`, `cpu_fallback=0`, and `sync_readback=0`.
+The public `vulkan_prepack::synchronize()` path now follows the same recovery
+split: successful execution submits and waits the current stream, while full
+`Context::flush()` remains reserved for a pending post-failure recovery flag.
+This preserves synchronization semantics without resetting command/descriptor
+pools and clearing context cleanup state at every benchmark timing boundary.
 After the LayerNorm statistic-buffer retire proof, a matching 30-repeat
 `vits_140` run with `StackScopeRetireHandoffContract.v0`, decoder bridge
 planned recording, and the `segmented_stack_wide3_to_exit` canary measured

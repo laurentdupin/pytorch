@@ -1400,6 +1400,11 @@ flag, while non-throwing replay-risk and route diagnostics remain diagnostic
 only and do not force the next vision op to flush. This is recovery semantics,
 not a shape or model route: successful stack-owner execution must not pay a
 post-failure recovery synchronize.
+The public `vulkan_prepack::synchronize()` helper uses the same split. Without
+a pending post-failure recovery flag it submits and waits the current Vulkan
+stream, then releases retired packed contexts; it does not perform a full
+`Context::flush()` or reset command/descriptor pools. If recovery is pending,
+the helper still takes the full flush path before clearing the recovery flag.
 Stack-scoped LayerNorm statistic buffers are now represented by the same
 shape-plan proof surface. `[tokens,1]` `stack_norm1_output` and
 `stack_norm2_output` TensorAllocation rows can report formal last-use proof and
