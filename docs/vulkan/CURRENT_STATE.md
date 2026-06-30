@@ -119,9 +119,10 @@ budget, and fail-closed reason such as
 `segment_scope_limit_exceeded`. They do not change command-buffer topology,
 open recording scopes by themselves, move cleanup resources, defer submits, or
 authorize submit elision.
-The graph now also emits `dispatch_budget_candidate_*` segment-plan rows that
-derive hypothetical block-boundary segments from the same planned dispatch
-budget, but these rows are candidate-only. They set
+For private bridge runs, the graph now also emits
+`dispatch_budget_candidate_*` segment-plan rows that derive hypothetical
+block-boundary segments from the same planned dispatch budget, but these rows
+are candidate-only. They set
 `owned_command_buffer_mode=dispatch_budget_candidate_only`,
 `segment_selected_for_recording=0`, and
 `planned_dispatch_count_admission_predicate=0`; they do not expose the rejected
