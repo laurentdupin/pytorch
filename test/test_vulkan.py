@@ -1831,6 +1831,44 @@ class TestVulkanGovernance(TestCase):
             self.assertIsInstance(entry["revisit_conditions"], list)
             self.assertGreater(len(entry["revisit_conditions"]), 0)
 
+    def test_vulkan_performance_plan_evidence_query_cli(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(
+                    REPO_ROOT,
+                    "tools",
+                    "vulkan_contract_codegen",
+                    "query_performance_evidence.py",
+                ),
+                "--repo-root",
+                REPO_ROOT,
+                "--query",
+                "wide4",
+                "--query",
+                "140x210",
+                "--json",
+                "--require-match",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        payload = json.loads(result.stdout)
+        self.assertGreater(payload["match_count"], 0)
+        match_ids = {match["id"] for match in payload["matches"]}
+        self.assertIn(
+            "dav2_vits140_segmented_stack_wide4_bridge_canary_2026_06_30",
+            match_ids,
+        )
+
     def test_vulkan_depth_anything_bridge_repeat_topology_guard(self):
         benchmark = self._depth_anything_benchmark_module()
 

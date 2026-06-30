@@ -29,6 +29,10 @@ rows are present in the debug snapshot. This summary records the observed
 segment-plan modes, statuses, fail reasons, dispatch budgets, and sampled
 segment rows for the measured shape/topology. It is evidence lookup metadata
 only and must not be used as a production route table.
+`tools/vulkan_contract_codegen/query_performance_evidence.py` searches the
+checked-in performance evidence manifest and can summarize this per-run
+segment-plan field from benchmark artifacts before a diagnostic sweep is
+rerun.
 
 ## DAv2 Stack Region Policy Lock
 

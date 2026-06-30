@@ -56,6 +56,21 @@ already cataloged as accepted, slower, rejected, or unsafe for the same
 model/input/device/topology, update the existing evidence entry instead of
 rerunning the same diagnostic sweep.
 
+Use the query helper before launching long-running diagnostics:
+
+```
+python tools/vulkan_contract_codegen/query_performance_evidence.py \
+  --query wide4 --query 140x210
+```
+
+The helper searches the checked-in manifest recursively and can also summarize
+the segment-plan catalog from a benchmark artifact:
+
+```
+python tools/vulkan_contract_codegen/query_performance_evidence.py \
+  --artifact agent_space/dav2_vits140_wide4.json
+```
+
 Add or update an entry when a task:
 
 - accepts a default performance fix;
