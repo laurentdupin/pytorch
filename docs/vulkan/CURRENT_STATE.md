@@ -1,6 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after LayerNorm stat retire-handoff proof.
+Last refreshed: 2026-06-30 after DAv2 measurement-phase attribution.
 
 ## Repo State Summary
 
@@ -38,6 +38,14 @@ as `reference_boundary_synchronized` in the sanity metadata. A focused
 decoder bridge planned-recording canary measured about 77.7 ms mean / 77.4 ms
 median / 82.9 ms p95 for device-resident forward, with max_abs
 `8.344650268554688e-07`, `cpu_fallback=0`, and `sync_readback=0`.
+After the LayerNorm statistic-buffer retire proof, a matching 30-repeat
+`vits_140` run with `StackScopeRetireHandoffContract.v0`, decoder bridge
+planned recording, and the `segmented_stack_wide3_to_exit` canary measured
+about 75.5 ms mean / 74.7 ms median / 86.0 ms p95. The bridge sanity check
+passed with max_abs `1.6391277313232422e-06`, CPU fallback stayed zero, and
+sync readback stayed zero. The comparable context-owned stack path measured
+about 92.0 ms mean / 90.2 ms median / 104.2 ms p95. This is a valid canary
+performance improvement, not a production default.
 
 The next architecture direction is a dispatch-level
 `StackRegionDependencyGraph` built before command recording. Future submit
@@ -230,6 +238,13 @@ stays under a 36-dispatch budget, so it can test whether fewer stack-owned
 segment close submits are safe without exposing a numeric scope override. The
 mode remains opt-in and keeps submit elision, deferred submit, and
 pending-retire transfer disabled.
+The benchmark harness now emits `vulkan_measurement_phase_counters` alongside
+the existing aggregate `vulkan_phase_counters`. The new rows are deltas for
+each single-image measurement loop and keep the legacy aggregate phase intact.
+For the current `vits_140` `wide3` device-resident forward, those rows show the
+remaining per-forward structure is about 10 queue submits: five stack-planned
+submits, three retire-queue-drain submits, one pre-stack flush, and one
+explicit backend sync. This is the next structural budget to target.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The

@@ -27,7 +27,10 @@ from depth_anything_common import (
     resolve_depth_anything_repo,
     resolve_runtime_device,
 )
-from benchmark_suite_common import VulkanCounterPhaseTracker
+from benchmark_suite_common import (
+    VulkanCounterPhaseTracker,
+    diff_vulkan_debug_counters,
+)
 from vulkan_model_probe import create_vulkan_model_probe
 
 
@@ -1131,6 +1134,26 @@ def _safe_phase_summary(vulkan_phase_tracker: Any) -> Any:
         return vulkan_phase_tracker.summary()
     except Exception as exc:
         return {"error": repr(exc)}
+
+
+def _append_measurement_phase_delta(
+    phases: list[dict[str, Any]],
+    *,
+    name: str,
+    start: dict[str, Any],
+    torch_module: Any,
+    device_kind: str,
+    snapshot_mode: str,
+) -> dict[str, Any]:
+    end = snapshot_vulkan_debug_counters(torch_module, device_kind)
+    delta = diff_vulkan_debug_counters(start, end)
+    phases.append(
+        {
+            "name": name,
+            "delta": compact_vulkan_debug_counters(delta, snapshot_mode),
+        }
+    )
+    return end
 
 
 def _parse_vulkan_snapshot_fields(row: Any) -> dict[str, str]:
@@ -2280,8 +2303,13 @@ def run() -> None:
         legacy_end_to_end_durations: list[float] = []
         forward_device_resident_durations: list[float] = []
         forward_with_readback_durations: list[float] = []
+        measurement_phase_counters: list[dict[str, Any]] = []
 
         with inference_context(torch, device_kind):
+            measurement_phase_start = snapshot_vulkan_debug_counters(
+                torch,
+                device_kind,
+            )
             for _ in range(args.repeats):
                 start = time.perf_counter()
                 with vulkan_timed_region(torch):
@@ -2296,6 +2324,14 @@ def run() -> None:
                         OUTPUT_MODE_READBACK,
                     )
                 end_to_end_with_readback_durations.append(time.perf_counter() - start)
+            measurement_phase_start = _append_measurement_phase_delta(
+                measurement_phase_counters,
+                name="single_image_end_to_end_with_readback",
+                start=measurement_phase_start,
+                torch_module=torch,
+                device_kind=device_kind,
+                snapshot_mode=args.vulkan_debug_snapshot_mode,
+            )
 
             if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
                 for _ in range(args.repeats):
@@ -2312,6 +2348,14 @@ def run() -> None:
                             legacy_forward_output_mode,
                         )
                     legacy_end_to_end_durations.append(time.perf_counter() - start)
+                measurement_phase_start = _append_measurement_phase_delta(
+                    measurement_phase_counters,
+                    name="single_image_end_to_end_legacy_alias",
+                    start=measurement_phase_start,
+                    torch_module=torch,
+                    device_kind=device_kind,
+                    snapshot_mode=args.vulkan_debug_snapshot_mode,
+                )
 
             for _ in range(args.repeats):
                 start = time.perf_counter()
@@ -2331,6 +2375,14 @@ def run() -> None:
                         OUTPUT_MODE_DEVICE_RESIDENT,
                     )
                 forward_device_resident_durations.append(time.perf_counter() - start)
+            measurement_phase_start = _append_measurement_phase_delta(
+                measurement_phase_counters,
+                name="single_image_forward_device_resident",
+                start=measurement_phase_start,
+                torch_module=torch,
+                device_kind=device_kind,
+                snapshot_mode=args.vulkan_debug_snapshot_mode,
+            )
 
             for _ in range(args.repeats):
                 start = time.perf_counter()
@@ -2350,6 +2402,14 @@ def run() -> None:
                         OUTPUT_MODE_READBACK,
                     )
                 forward_with_readback_durations.append(time.perf_counter() - start)
+            _append_measurement_phase_delta(
+                measurement_phase_counters,
+                name="single_image_forward_with_readback",
+                start=measurement_phase_start,
+                torch_module=torch,
+                device_kind=device_kind,
+                snapshot_mode=args.vulkan_debug_snapshot_mode,
+            )
         if vulkan_phase_tracker is not None:
             vulkan_phase_tracker.mark("timed_forward")
 
@@ -2500,6 +2560,7 @@ def run() -> None:
         ),
         "vulkan_debug_counters": result_debug_counters,
         "vulkan_phase_counters": result_phase_counters,
+        "vulkan_measurement_phase_counters": measurement_phase_counters,
         "vulkan_stack_output_device_bridge_dry_run": bridge_dry_run,
         "vulkan_stack_owner_planned_dependency_dry_run": (
             planned_dependency_dry_run

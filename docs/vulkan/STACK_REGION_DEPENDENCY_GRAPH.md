@@ -1267,6 +1267,14 @@ lifetime dry-runs. Runs that need those rows without writing a graph can set
 `PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS=1`. Ordinary timed runs leave those rows
 off and keep aggregate counters only, so timing is not dominated by
 string-keyed diagnostic map construction.
+Depth Anything benchmark runs now also report
+`vulkan_measurement_phase_counters`. These rows are benchmark-local counter
+deltas for each single-image measurement loop, such as device-resident forward
+versus readback forward. They preserve the existing aggregate
+`vulkan_phase_counters` shape and do not change graph recording, segment
+selection, transition contracts, retire handoff, or submit behavior. They exist
+so performance decisions can use the exact loop being timed instead of the
+larger aggregate `timed_forward` phase.
 The graph also includes `StackOwnerFrequencySubmitPlan.v0` rows under
 `stack_owner_frequency_submit_plan_rows` for stack-owner
 `normal_cmd_submit_frequency` submits. These rows are emitted only when a graph
