@@ -186,6 +186,13 @@ now the real `vits_140` evidence row for six two-block candidate segments: the
 segments are individually under dispatch budget, but the sequence is blocked
 on repeat-stable multi-scope ownership proof rather than a larger hard-coded
 scope limit.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_single_segment_to_exit`
+is a narrower canary for the same dispatch-budget segment planner. It selects
+only the first dispatch-budget candidate segment, records the remaining segment
+boundaries through context-owned planned scopes, preserves all submits, and
+does not change the two-scope prefix budget. Its purpose is to isolate the
+cost and cleanup behavior of one region-owned external segment before any
+multi-scope expansion.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The

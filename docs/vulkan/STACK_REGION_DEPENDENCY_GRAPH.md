@@ -1273,6 +1273,13 @@ external segments; over-budget selected segments fail closed before external
 recording starts. The row itself remains behavior-neutral: it does not open
 scopes, change command-buffer topology, move pending retires, defer submits, or
 authorize submit elision.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_single_segment_to_exit`
+uses the same dispatch-budget candidate rows but selects exactly one external
+segment and records the rest of the candidate segment boundaries through the
+existing context-owned planned-recording path. It is an isolation canary for
+single-segment cleanup, pool pressure, and timing; it does not raise the
+two-scope prefix limit, transfer pending retires, remove submits, or prove that
+multi-scope repeat execution is stable.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope

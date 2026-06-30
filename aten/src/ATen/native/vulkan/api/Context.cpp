@@ -116,6 +116,7 @@ bool stack_region_owned_command_buffer_canary_enabled() {
   return value == "1" || value == "stack_entry_to_exit" ||
       value == "segmented_stack_entry_to_exit" ||
       value == "segmented_stack_prefix_to_exit" ||
+      value == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
       value == "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 

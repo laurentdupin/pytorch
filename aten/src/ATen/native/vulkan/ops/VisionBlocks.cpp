@@ -1421,6 +1421,7 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
   if (
       mode == "segmented_stack_entry_to_exit" ||
       mode == "segmented_stack_prefix_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
@@ -1430,7 +1431,13 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
 bool stack_owned_command_buffer_segmented_prefix_canary_enabled() {
   const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
   return mode == "segmented_stack_prefix_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit";
+}
+
+bool stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled() {
+  return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
+      "segmented_stack_dispatch_budget_single_segment_to_exit";
 }
 
 bool stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled() {
@@ -1739,6 +1746,44 @@ StackOwnedCommandBufferSegmentPlan stack_dispatch_budget_prefix_segment_plan(
     result.coverage = "none";
     result.status = "segment_plan_rejected_behavior_neutral";
     result.fail_reason = "dispatch_budget_prefix_block_limit_exceeded";
+  }
+  return result;
+}
+
+StackOwnedCommandBufferSegmentPlan
+stack_dispatch_budget_single_segment_plan(
+    const size_t block_count,
+    const VulkanVisionStackShapePlan* const plan) {
+  StackOwnedCommandBufferSegmentPlan result =
+      stack_dispatch_budget_candidate_segment_plan(block_count, plan);
+  if (
+      result.fail_reason == std::string("stack_shape_plan_not_ready") ||
+      result.fail_reason == std::string("no_dispatch_budget_candidate_segments") ||
+      result.fail_reason ==
+          std::string("single_block_dispatch_limit_exceeded_candidate")) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    return result;
+  }
+  if (result.segment_ends.empty()) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    result.fail_reason = "dispatch_budget_candidate_empty";
+    return result;
+  }
+  result.selected_segment_count = 1u;
+  result.coverage = result.segment_ends.size() > 1u ? "prefix" : "full";
+  result.status = "dispatch_budget_single_segment_plan_available_behavior_canary";
+  result.fail_reason = result.segment_ends.size() > 1u
+      ? "dispatch_budget_candidate_multi_segment_single_selected"
+      : "none";
+  if (selected_segment_block_budget_exceeded(result)) {
+    result.selected_segment_count = 0u;
+    result.coverage = "none";
+    result.status = "segment_plan_rejected_behavior_neutral";
+    result.fail_reason = "dispatch_budget_single_segment_block_limit_exceeded";
   }
   return result;
 }
@@ -8921,6 +8966,8 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       std::string(segmented_canary_mode) != "none";
   const bool segmented_prefix_canary_requested =
       stack_owned_command_buffer_segmented_prefix_canary_enabled();
+  const bool dispatch_budget_single_segment_canary_requested =
+      stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled();
   const bool dispatch_budget_prefix_canary_requested =
       stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled();
   StackOwnedCommandBufferSegmentPlan segmented_stack_owned_command_buffer_plan;
@@ -8943,7 +8990,11 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         "stack_shape_plan_not_ready";
   } else {
     segmented_stack_owned_command_buffer_plan =
-        dispatch_budget_prefix_canary_requested
+        dispatch_budget_single_segment_canary_requested
+        ? stack_dispatch_budget_single_segment_plan(
+              context->blocks().size(),
+              stack_shape_plan)
+        : dispatch_budget_prefix_canary_requested
         ? stack_dispatch_budget_prefix_segment_plan(
               context->blocks().size(),
               stack_shape_plan)
