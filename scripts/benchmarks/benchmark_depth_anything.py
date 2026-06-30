@@ -157,6 +157,114 @@ def vulkan_stack_output_bridge_repeat_topology_status(
     }
 
 
+def vulkan_stack_output_bridge_capture_indices(model: Any) -> list[int] | None:
+    encoder = getattr(model, "encoder", None)
+    intermediate_layer_idx = getattr(model, "intermediate_layer_idx", None)
+    if encoder is None or intermediate_layer_idx is None:
+        return None
+    try:
+        return [int(index) for index in intermediate_layer_idx[encoder]]
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def build_vulkan_stack_output_bridge_deep_split_plan(
+    *,
+    block_count: int | None,
+    capture_indices: list[int] | None,
+    max_proven_blocks: int,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "schema": "StackOutputBridgeDeepSplitPlan.v0",
+        "needed": bool(block_count is not None and block_count > max_proven_blocks),
+        "runtime_implemented": False,
+        "max_blocks_per_chunk": max_proven_blocks,
+        "block_count": block_count,
+        "capture_indices": capture_indices,
+        "chunks": [],
+        "private_baton_required": False,
+    }
+    if block_count is None:
+        result.update(
+            {
+                "available": False,
+                "status": "block_count_unavailable",
+            }
+        )
+        return result
+    if block_count <= max_proven_blocks:
+        result.update(
+            {
+                "available": True,
+                "status": "not_required_single_proven_stack_chunk",
+            }
+        )
+        return result
+    if not capture_indices:
+        result.update(
+            {
+                "available": False,
+                "status": "capture_indices_unavailable",
+            }
+        )
+        return result
+    invalid_captures = [
+        index for index in capture_indices if index < 0 or index >= block_count
+    ]
+    if invalid_captures:
+        result.update(
+            {
+                "available": False,
+                "status": "capture_index_out_of_range",
+                "invalid_capture_indices": invalid_captures,
+            }
+        )
+        return result
+
+    chunks = []
+    chunk_start = 0
+    chunk_index = 0
+    while chunk_start < block_count:
+        chunk_end = min(chunk_start + max_proven_blocks - 1, block_count - 1)
+        chunk_captures = []
+        for capture_slot, capture_index in enumerate(capture_indices):
+            if chunk_start <= capture_index <= chunk_end:
+                chunk_captures.append(
+                    {
+                        "capture_slot": capture_slot,
+                        "captured_block": capture_index,
+                        "local_block_index": capture_index - chunk_start,
+                    }
+                )
+        chunks.append(
+            {
+                "chunk_index": chunk_index,
+                "block_start": chunk_start,
+                "block_end": chunk_end,
+                "block_count": chunk_end + 1 - chunk_start,
+                "capture_count": len(chunk_captures),
+                "captures": chunk_captures,
+                "requires_input_baton": chunk_index > 0,
+                "emits_output_baton": chunk_end + 1 < block_count,
+            }
+        )
+        chunk_start = chunk_end + 1
+        chunk_index += 1
+
+    result.update(
+        {
+            "available": True,
+            "status": "deep_stack_bridge_split_plan_available_runtime_unimplemented",
+            "topology": "chunked_stack_output_bridge_with_private_baton",
+            "chunks": chunks,
+            "chunk_count": len(chunks),
+            "private_baton_required": len(chunks) > 1,
+            "next_required_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
+        }
+    )
+    return result
+
+
 def vulkan_stack_output_bridge_depth_status(
     *,
     device_kind: str,
@@ -167,12 +275,19 @@ def vulkan_stack_output_bridge_depth_status(
     blocks = getattr(pretrained, "blocks", None) if pretrained is not None else None
     block_count = len(blocks) if blocks is not None else None
     max_proven_blocks = VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS
+    capture_indices = vulkan_stack_output_bridge_capture_indices(model)
+    split_plan = build_vulkan_stack_output_bridge_deep_split_plan(
+        block_count=block_count,
+        capture_indices=capture_indices,
+        max_proven_blocks=max_proven_blocks,
+    )
     if device_kind != "vulkan" or not bridge_requested:
         return {
             "allowed": True,
             "reason": "bridge_not_requested_for_vulkan",
             "block_count": block_count,
             "max_proven_blocks": max_proven_blocks,
+            "deep_stack_bridge_split_plan": split_plan,
         }
     if block_count is None:
         return {
@@ -180,6 +295,7 @@ def vulkan_stack_output_bridge_depth_status(
             "reason": "stack_output_bridge_block_count_unavailable",
             "block_count": None,
             "max_proven_blocks": max_proven_blocks,
+            "deep_stack_bridge_split_plan": split_plan,
         }
     if block_count <= max_proven_blocks:
         return {
@@ -187,12 +303,14 @@ def vulkan_stack_output_bridge_depth_status(
             "reason": "stack_output_bridge_depth_within_proven_rowset",
             "block_count": block_count,
             "max_proven_blocks": max_proven_blocks,
+            "deep_stack_bridge_split_plan": split_plan,
         }
     return {
         "allowed": False,
         "reason": "stack_output_bridge_depth_exceeds_proven_rowset",
         "block_count": block_count,
         "max_proven_blocks": max_proven_blocks,
+        "deep_stack_bridge_split_plan": split_plan,
         "evidence": (
             "test/vulkan_contract_proofs/"
             "performance_plan_evidence_manifest.json"

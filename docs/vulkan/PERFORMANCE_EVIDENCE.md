@@ -151,12 +151,16 @@ The initial catalog records the current `vits_140` performance lane:
   succeeds, and reference-first sanity plus one bridge forward can complete,
   but a second bridge forward overflows the 24-block stack with Windows
   `-1073741571`. The benchmark now guards unproven deep stack-output bridge
-  requests before native execution and writes a structured failure artifact.
-  Do not infer `vitl` support from `vits` or `vitb` evidence;
+  requests before native execution and writes a structured failure artifact
+  with `StackOutputBridgeDeepSplitPlan.v0`. For `vitl_140`, that plan has two
+  12-block chunks, split capture slots, and a private-baton requirement. Do not
+  infer `vitl` support from `vits` or `vitb` evidence;
 - stack-output bridge depth guard: accepted benchmark control-plane fix. It
   keeps bridge requests with `block_count > 12` fail-closed until repeated
   deep-stack bridge execution is proven, while preserving the `vitb_140`
-  positive row;
+  positive row. The next runtime contract is
+  `StackOutputBridgeDeepSplitPlanRuntime.v0`, not a larger hardcoded stack-depth
+  limit;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;

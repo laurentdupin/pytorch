@@ -625,7 +625,7 @@
       "candidate": "Run DAv2 vitl_140 through the same segmented stack-owned wide4 canary used by vits and vitb.",
       "correctness": {
         "status": "unsafe",
-        "reason": "The graph-summary probe emitted StackRegionSegmentPlan rows, but repeated stack-output bridge execution for the 24-block vitl stack hit Windows stack overflow -1073741571 before writing a result artifact. A follow-up guard now blocks this unproven deep bridge row before native execution and writes a structured failure artifact."
+        "reason": "The graph-summary probe emitted StackRegionSegmentPlan rows, normal no-bridge execution succeeds, and reference-first bridge sanity plus one bridge forward can complete. Repeated bridge execution for the 24-block vitl stack hit Windows stack overflow -1073741571 before the depth guard. The guard now blocks this unproven deep bridge row before native execution and emits a StackOutputBridgeDeepSplitPlan.v0 payload with two 12-block chunks and a private-baton requirement."
       },
       "counters": {
         "cpu_fallback": null,
@@ -633,7 +633,10 @@
         "performance_valid": false,
         "segment_plan_graph_summary_available": true,
         "segment_plan_graph_summary_row_count": 20,
-        "guarded_failure_artifact_available": true
+        "guarded_failure_artifact_available": true,
+        "deep_split_plan_available": true,
+        "deep_split_plan_chunk_count": 2,
+        "deep_split_plan_runtime_implemented": false
       },
       "timing_ms": {
         "candidate_device_resident_mean": null
@@ -646,10 +649,12 @@
         "agent_space/dav2_vitl140_no_bridge_probe.json",
         "agent_space/dav2_vitl140_bridge_stage_probe.log",
         "agent_space/dav2_vitl140_bridge_repeat_stage_probe.log",
-        "agent_space/dav2_vitl140_bridge_depth_guard_failure.json"
+        "agent_space/dav2_vitl140_bridge_depth_guard_failure.json",
+        "agent_space/dav2_vitl140_bridge_deep_split_guard_failure.json"
       ],
-      "decision": "Do not run vitl_140 through the stack-output bridge until repeated deep-stack bridge safety is proven. The benchmark now fails this row closed through the stack-depth guard instead of rediscovering the native stack overflow.",
+      "decision": "Do not run vitl_140 through the stack-output bridge until the deep split runtime is implemented and proven. The benchmark now fails this row closed through the stack-depth guard and reports the required chunked private-baton topology instead of rediscovering the native stack overflow.",
       "revisit_conditions": [
+        "Implement StackOutputBridgeDeepSplitPlanRuntime.v0 with private baton handoff between chunks.",
         "Prove repeated bridge execution for a 24-block stack without process-level stack overflow.",
         "Require a vitl_140 bridge run to write a valid result artifact with bridge sanity before collecting timing.",
         "Keep vitl out of accepted StackRegionSegmentPlan rowsets until correctness and process stability are proven."
@@ -675,8 +680,9 @@
         "status": "passed",
         "tests": [
           "TestVulkanGovernance.test_vulkan_stack_output_bridge_depth_gate_blocks_unproven_stack",
-          "focused vitl_140 bridge guard writes failure artifact",
-          "focused vitb_140 bridge guard positive run remains valid"
+          "focused vitb_140 bridge guard positive run remains valid",
+          "focused vitl_140 bridge guard emits StackOutputBridgeDeepSplitPlan.v0 payload",
+          "focused vitl_140 bridge guard writes failure artifact"
         ]
       },
       "counters": {
@@ -684,7 +690,10 @@
         "vitl140_blocked_before_native_bridge_forward": true,
         "vitb140_positive_run_performance_valid": true,
         "vitb140_positive_run_cpu_fallback": 0,
-        "vitb140_positive_run_sync_readback": 0
+        "vitb140_positive_run_sync_readback": 0,
+        "deep_split_plan_available_for_vitl140": true,
+        "deep_split_plan_chunk_count_for_vitl140": 2,
+        "deep_split_plan_runtime_implemented": false
       },
       "timing_ms": {
         "vitb140_positive_single_repeat_device_resident_mean": 102.165
@@ -692,12 +701,14 @@
       "artifacts": [
         "agent_space/dav2_vitl140_bridge_depth_guard_failure.json",
         "agent_space/dav2_vitl140_bridge_depth_guard_failure.log",
-        "agent_space/dav2_vitb140_bridge_depth_guard_positive.json"
+        "agent_space/dav2_vitb140_bridge_depth_guard_positive.json",
+        "agent_space/dav2_vitl140_bridge_deep_split_guard_failure.json"
       ],
-      "decision": "Keep the depth guard so unproven deep stack-output bridge rows fail with a structured artifact instead of process-level stack overflow. This does not make vitl an accepted bridge rowset.",
+      "decision": "Keep the depth guard so unproven deep stack-output bridge rows fail with a structured artifact. The guard now also reports the behavior-neutral StackOutputBridgeDeepSplitPlan.v0 topology required for 24-block stacks; this does not make vitl an accepted bridge rowset.",
       "revisit_conditions": [
-        "Only raise or remove the 12-block limit after a repeated deep-stack bridge run completes without stack overflow and has bridge sanity, cpu_fallback=0, and sync_readback=0.",
-        "Keep vitl out of accepted bridge rowsets until a deeper StackRegionSegmentPlan or bridge implementation proves repeated execution safety.",
+        "Only raise or remove the 12-block limit after StackOutputBridgeDeepSplitPlanRuntime.v0 proves private-baton chunk execution.",
+        "Require repeated deep-stack bridge execution to complete without stack overflow and have bridge sanity, cpu_fallback=0, and sync_readback=0.",
+        "Keep vitl out of accepted bridge rowsets until the deep split runtime is implemented and proven.",
         "Do not bypass this guard with a model-name exception."
       ]
     },

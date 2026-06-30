@@ -76,7 +76,11 @@ bridge sanity plus one bridge forward can complete, but a second bridge forward
 overflows the 24-block stack with Windows `-1073741571`. The benchmark now
 fails unproven stack-output bridge requests when `block_count > 12`, writing a
 structured failure artifact instead of rediscovering the process-level crash.
-Do not infer `vitl` support from `vits` or `vitb`.
+That artifact includes `StackOutputBridgeDeepSplitPlan.v0`: for `vitl_140`,
+the behavior-neutral plan has two 12-block chunks, captures `[4, 11]` in chunk
+0 and `[17, 23]` in chunk 1, and an explicit private-baton requirement between
+chunks. The runtime for that topology is not implemented, so `vitl` remains
+blocked. Do not infer `vitl` support from `vits` or `vitb`.
 
 ## DAv2 Stack Region Policy Lock
 

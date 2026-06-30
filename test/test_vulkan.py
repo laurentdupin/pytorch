@@ -279,8 +279,10 @@ class TestVulkanGovernance(TestCase):
     def test_vulkan_stack_output_bridge_depth_gate_blocks_unproven_stack(self):
         benchmark = self._depth_anything_benchmark_module()
 
-        def fake_model(block_count):
+        def fake_model(block_count, capture_indices=(4, 11, 17, 23)):
             return types.SimpleNamespace(
+                encoder="fake",
+                intermediate_layer_idx={"fake": list(capture_indices)},
                 pretrained=types.SimpleNamespace(
                     blocks=[object() for _ in range(block_count)]
                 )
@@ -309,6 +311,28 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertEqual(blocked["block_count"], 24)
         self.assertEqual(blocked["max_proven_blocks"], 12)
+        split_plan = blocked["deep_stack_bridge_split_plan"]
+        self.assertEqual(
+            split_plan["status"],
+            "deep_stack_bridge_split_plan_available_runtime_unimplemented",
+        )
+        self.assertFalse(split_plan["runtime_implemented"])
+        self.assertTrue(split_plan["private_baton_required"])
+        self.assertEqual(split_plan["chunk_count"], 2)
+        self.assertEqual(
+            [(chunk["block_start"], chunk["block_end"]) for chunk in split_plan["chunks"]],
+            [(0, 11), (12, 23)],
+        )
+        self.assertEqual(split_plan["chunks"][0]["capture_count"], 2)
+        self.assertEqual(split_plan["chunks"][1]["capture_count"], 2)
+        self.assertEqual(
+            [
+                capture["captured_block"]
+                for capture in split_plan["chunks"][1]["captures"]
+            ],
+            [17, 23],
+        )
+        self.assertTrue(split_plan["chunks"][1]["requires_input_baton"])
 
     def test_execution_contract_tuple_matches_carry_metadata(self):
         header = self._repo_text(
