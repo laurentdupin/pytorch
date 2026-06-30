@@ -27613,6 +27613,134 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_owned_command_buffer_dispatch_budget_prefix_canary_repeats(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=6,
+            label_prefix=(
+                "vision.synthetic.stack.owned_command_buffer_dispatch_budget_"
+                "prefix_repeat"
+            ),
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [2, 5],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": os.path.join(
+                TEST_FILE_DIR,
+                "vulkan_stack_region_owned_command_buffer_dispatch_budget_"
+                "prefix_repeat_test.json",
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "segmented_stack_dispatch_budget_prefix_to_exit"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            for _ in range(4):
+                with torch.inference_mode():
+                    actual = (
+                        torch.ops.vulkan_prepack
+                        .run_vision_backbone_stack_private_capture_debug(
+                            x,
+                            stack_context,
+                            [2, 5],
+                            True,
+                        )
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                self.assertEqual(actual[0].cpu(), expected[0].cpu())
+                self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            segment_plan_rows = [
+                row["fields"] for row in graph["stack_region_segment_plan_rows"]
+            ]
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionSegmentPlan.v0"
+                    and row["row_kind"] == "summary"
+                    and row["owned_command_buffer_mode"]
+                    == "segmented_stack_dispatch_budget_prefix_to_exit"
+                    and row["segmented_canary_selected"] == "1"
+                    and row["selected_segment_count"] == "2"
+                    and row["segment_plan_coverage"] == "prefix"
+                    and row["segment_plan_status"]
+                    == "dispatch_budget_prefix_plan_available_behavior_canary"
+                    for row in segment_plan_rows
+                )
+            )
+            cleanup_retire_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_retire_rows"
+                ]
+            ]
+            self.assertGreaterEqual(
+                sum(int(row["count"]) for row in cleanup_retire_rows),
+                8,
+            )
+            self.assertTrue(
+                all(
+                    row["schema"] == "StackRegionExternalRecordingCleanupRetire.v0"
+                    and row["external_cleanup_timeline_valid"] == "1"
+                    and row["external_cleanup_retire_action"]
+                    == "scheduled_on_stack_exit_submission"
+                    and row["behavior_neutral"] == "1"
+                    and row["transfer_behavior_enabled"] == "0"
+                    and int(row["external_command_buffer_acquires_in_scope"]) > 0
+                    and int(row["external_descriptor_sets_in_scope"]) > 0
+                    and row["external_scope_pool_pressure_observed"] == "1"
+                    and row["external_pool_reset_owner_available"] == "1"
+                    and row["external_pool_reset_required"] == "1"
+                    and row["external_pool_reset_point"]
+                    == "global_completion_flush"
+                    and row["persistent_command_pool_reset_performed"] == "0"
+                    and row["persistent_descriptor_pool_reset_performed"] == "0"
+                    and row["persistent_pool_reset_proven"] == "1"
+                    and row["external_pool_reset_blocker"] == "none"
+                    for row in cleanup_retire_rows
+                )
+            )
+            self.assertLessEqual(
+                max(
+                    int(row["external_command_buffer_acquires_after_scope"])
+                    for row in cleanup_retire_rows
+                ),
+                2,
+            )
+            self.assertLessEqual(
+                max(
+                    int(row["external_descriptor_sets_after_scope"])
+                    for row in cleanup_retire_rows
+                ),
+                60,
+            )
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
     def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
         self,
     ):
