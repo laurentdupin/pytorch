@@ -1422,6 +1422,7 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
       mode == "segmented_stack_entry_to_exit" ||
       mode == "segmented_stack_prefix_to_exit" ||
       mode == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
@@ -1432,6 +1433,7 @@ bool stack_owned_command_buffer_segmented_prefix_canary_enabled() {
   const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
   return mode == "segmented_stack_prefix_to_exit" ||
       mode == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 
@@ -1440,9 +1442,15 @@ bool stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled() 
       "segmented_stack_dispatch_budget_single_segment_to_exit";
 }
 
-bool stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled() {
+bool stack_owned_command_buffer_dispatch_budget_prefix3_canary_enabled() {
   return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
-      "segmented_stack_dispatch_budget_prefix_to_exit";
+      "segmented_stack_dispatch_budget_prefix3_to_exit";
+}
+
+bool stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled() {
+  const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
+  return mode == "segmented_stack_dispatch_budget_prefix_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_to_exit";
 }
 
 bool stack_owned_command_buffer_segmented_canary_enabled() {
@@ -1462,6 +1470,7 @@ bool stack_decoder_bridge_planned_recording_canary_enabled() {
 
 constexpr size_t kSegmentedOwnedCommandBufferBlockLimit = 4u;
 constexpr size_t kSegmentedOwnedCommandBufferScopeLimit = 2u;
+constexpr size_t kSegmentedOwnedCommandBufferPrefix3ScopeLimit = 3u;
 constexpr uint64_t kSegmentedOwnedCommandBufferDispatchLimit = 24u;
 
 struct StackOwnedCommandBufferSegmentPlan final {
@@ -1500,10 +1509,18 @@ std::string format_segment_plan_ends(const std::vector<size_t>& segment_ends) {
   return stream.str();
 }
 
+size_t stack_owned_command_buffer_segment_scope_limit(
+    const bool dispatch_budget_prefix3_canary_requested) {
+  return dispatch_budget_prefix3_canary_requested
+      ? kSegmentedOwnedCommandBufferPrefix3ScopeLimit
+      : kSegmentedOwnedCommandBufferScopeLimit;
+}
+
 StackOwnedCommandBufferSegmentPlan stack_owned_command_buffer_segment_plan(
     const size_t block_count,
     const std::vector<int64_t>& capture_indices,
-    const bool allow_prefix) {
+    const bool allow_prefix,
+    const size_t segment_scope_limit) {
   StackOwnedCommandBufferSegmentPlan plan;
   if (block_count <= 2u) {
     plan.status = "segment_plan_rejected_behavior_neutral";
@@ -1554,9 +1571,9 @@ StackOwnedCommandBufferSegmentPlan stack_owned_command_buffer_segment_plan(
     }
     plan.segment_ends.push_back(block_count - 1u);
   }
-  if (plan.segment_ends.size() > kSegmentedOwnedCommandBufferScopeLimit) {
+  if (plan.segment_ends.size() > segment_scope_limit) {
     if (allow_prefix) {
-      plan.selected_segment_count = kSegmentedOwnedCommandBufferScopeLimit;
+      plan.selected_segment_count = segment_scope_limit;
       plan.coverage = "prefix";
       plan.status = "segment_prefix_plan_available_behavior_canary";
       plan.fail_reason = "segment_scope_limit_exceeded_prefix_selected";
@@ -1580,7 +1597,8 @@ std::optional<std::vector<size_t>> stack_owned_command_buffer_segment_ends(
       stack_owned_command_buffer_segment_plan(
           block_count,
           capture_indices,
-          /*allow_prefix=*/false);
+          /*allow_prefix=*/false,
+          kSegmentedOwnedCommandBufferScopeLimit);
   if (plan.fail_reason != std::string("none")) {
     return std::nullopt;
   }
@@ -1656,7 +1674,8 @@ bool selected_segment_block_budget_exceeded(
 StackOwnedCommandBufferSegmentPlan
 stack_dispatch_budget_candidate_segment_plan(
     const size_t block_count,
-    const VulkanVisionStackShapePlan* const plan) {
+    const VulkanVisionStackShapePlan* const plan,
+    const size_t segment_scope_limit) {
   StackOwnedCommandBufferSegmentPlan candidate;
   candidate.coverage = "candidate_only";
   candidate.status = "dispatch_budget_candidate_behavior_neutral";
@@ -1703,7 +1722,7 @@ stack_dispatch_budget_candidate_segment_plan(
     candidate.fail_reason = "single_block_dispatch_limit_exceeded_candidate";
     return candidate;
   }
-  if (candidate.segment_ends.size() > kSegmentedOwnedCommandBufferScopeLimit) {
+  if (candidate.segment_ends.size() > segment_scope_limit) {
     candidate.status = "dispatch_budget_candidate_rejected_behavior_neutral";
     candidate.fail_reason = "dispatch_budget_candidate_scope_limit_exceeded";
   }
@@ -1712,9 +1731,11 @@ stack_dispatch_budget_candidate_segment_plan(
 
 StackOwnedCommandBufferSegmentPlan stack_dispatch_budget_prefix_segment_plan(
     const size_t block_count,
-    const VulkanVisionStackShapePlan* const plan) {
+    const VulkanVisionStackShapePlan* const plan,
+    const size_t segment_scope_limit) {
   StackOwnedCommandBufferSegmentPlan result =
-      stack_dispatch_budget_candidate_segment_plan(block_count, plan);
+      stack_dispatch_budget_candidate_segment_plan(
+          block_count, plan, segment_scope_limit);
   if (
       result.fail_reason == std::string("stack_shape_plan_not_ready") ||
       result.fail_reason == std::string("no_dispatch_budget_candidate_segments") ||
@@ -1733,7 +1754,7 @@ StackOwnedCommandBufferSegmentPlan stack_dispatch_budget_prefix_segment_plan(
     return result;
   }
   result.selected_segment_count =
-      std::min(result.segment_ends.size(), kSegmentedOwnedCommandBufferScopeLimit);
+      std::min(result.segment_ends.size(), segment_scope_limit);
   result.coverage = result.segment_ends.size() > result.selected_segment_count
       ? "prefix"
       : "full";
@@ -1755,7 +1776,8 @@ stack_dispatch_budget_single_segment_plan(
     const size_t block_count,
     const VulkanVisionStackShapePlan* const plan) {
   StackOwnedCommandBufferSegmentPlan result =
-      stack_dispatch_budget_candidate_segment_plan(block_count, plan);
+      stack_dispatch_budget_candidate_segment_plan(
+          block_count, plan, kSegmentedOwnedCommandBufferScopeLimit);
   if (
       result.fail_reason == std::string("stack_shape_plan_not_ready") ||
       result.fail_reason == std::string("no_dispatch_budget_candidate_segments") ||
@@ -8968,8 +8990,13 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       stack_owned_command_buffer_segmented_prefix_canary_enabled();
   const bool dispatch_budget_single_segment_canary_requested =
       stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled();
+  const bool dispatch_budget_prefix3_canary_requested =
+      stack_owned_command_buffer_dispatch_budget_prefix3_canary_enabled();
   const bool dispatch_budget_prefix_canary_requested =
       stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled();
+  const size_t segmented_stack_owned_command_buffer_scope_limit =
+      stack_owned_command_buffer_segment_scope_limit(
+          dispatch_budget_prefix3_canary_requested);
   StackOwnedCommandBufferSegmentPlan segmented_stack_owned_command_buffer_plan;
   if (!segmented_canary_requested) {
     segmented_stack_owned_command_buffer_plan.status =
@@ -8997,11 +9024,13 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         : dispatch_budget_prefix_canary_requested
         ? stack_dispatch_budget_prefix_segment_plan(
               context->blocks().size(),
-              stack_shape_plan)
+              stack_shape_plan,
+              segmented_stack_owned_command_buffer_scope_limit)
         : stack_owned_command_buffer_segment_plan(
               context->blocks().size(),
               capture_indices_vec,
-              segmented_prefix_canary_requested);
+              segmented_prefix_canary_requested,
+              segmented_stack_owned_command_buffer_scope_limit);
     if (selected_segment_dispatch_budget_exceeded(
             stack_shape_plan,
             segmented_stack_owned_command_buffer_plan)) {
@@ -9054,7 +9083,7 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         false,
         false,
         kSegmentedOwnedCommandBufferBlockLimit,
-        kSegmentedOwnedCommandBufferScopeLimit,
+        segmented_stack_owned_command_buffer_scope_limit,
         kSegmentedOwnedCommandBufferDispatchLimit,
         segmented_stack_owned_command_buffer_plan.status,
         segmented_stack_owned_command_buffer_plan.fail_reason);
@@ -9108,7 +9137,7 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
           !segment_capture_indices.empty(),
           segment_selected_for_recording,
           kSegmentedOwnedCommandBufferBlockLimit,
-          kSegmentedOwnedCommandBufferScopeLimit,
+          segmented_stack_owned_command_buffer_scope_limit,
           kSegmentedOwnedCommandBufferDispatchLimit,
           segmented_stack_owned_command_buffer_plan.status,
           segmented_stack_owned_command_buffer_plan.fail_reason);
@@ -9117,7 +9146,9 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
     if (private_device_consumer_bridge) {
       const StackOwnedCommandBufferSegmentPlan dispatch_budget_candidate_plan =
           stack_dispatch_budget_candidate_segment_plan(
-              context->blocks().size(), stack_shape_plan);
+              context->blocks().size(),
+              stack_shape_plan,
+              segmented_stack_owned_command_buffer_scope_limit);
       const std::string dispatch_budget_candidate_ends_signature =
           format_segment_plan_ends(dispatch_budget_candidate_plan.segment_ends);
       api::note_stack_region_segment_plan(
@@ -9149,7 +9180,7 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
           false,
           false,
           kSegmentedOwnedCommandBufferBlockLimit,
-          kSegmentedOwnedCommandBufferScopeLimit,
+          segmented_stack_owned_command_buffer_scope_limit,
           kSegmentedOwnedCommandBufferDispatchLimit,
           dispatch_budget_candidate_plan.status,
           dispatch_budget_candidate_plan.fail_reason);
@@ -9200,7 +9231,7 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
             !segment_capture_indices.empty(),
             false,
             kSegmentedOwnedCommandBufferBlockLimit,
-            kSegmentedOwnedCommandBufferScopeLimit,
+            segmented_stack_owned_command_buffer_scope_limit,
             kSegmentedOwnedCommandBufferDispatchLimit,
             dispatch_budget_candidate_plan.status,
             dispatch_budget_candidate_plan.fail_reason);

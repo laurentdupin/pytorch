@@ -1280,6 +1280,13 @@ existing context-owned planned-recording path. It is an isolation canary for
 single-segment cleanup, pool pressure, and timing; it does not raise the
 two-scope prefix limit, transfer pending retires, remove submits, or prove that
 multi-scope repeat execution is stable.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix3_to_exit`
+is a hard-coded follow-up canary that selects at most three dispatch-budget
+prefix segments. It deliberately avoids a numeric scope-limit environment
+override. The old prefix mode stays at two segments, selected segments still
+must satisfy the four-block and 24-dispatch budgets, remaining tail segments
+use the current context-owned planned-recording path, and the mode does not
+transfer pending retires, defer submits, or enable submit elision.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope
