@@ -363,6 +363,58 @@ struct VulkanStackOutputDeviceConsumerRegistration final {
   bool host_readback_before_consumption = true;
 };
 
+struct VulkanPrivateBridgeCaptureHandoffRecord final {
+  int64_t capture_slot = -1;
+  int64_t captured_block_index = -1;
+  std::string captured_substep = "unknown";
+  std::string output_role = "unknown";
+  std::string stack_context_id = "missing_stack_context_id";
+  std::string stack_session_id = "missing_bridge_session_id";
+  std::string stack_plan_id = "missing_stack_plan_id";
+  std::string bridge_stage = "unknown";
+  std::string downstream_consumer_id = "unknown";
+  std::string downstream_consumer_context = "unknown";
+  int64_t expected_consumer_input_index = -1;
+  std::vector<int64_t> raw_capture_shape;
+  std::vector<int64_t> normalized_capture_shape;
+  std::vector<int64_t> decoder_input_shape;
+  std::string raw_capture_identity_status = "not_recorded";
+  std::string raw_capture_storage_kind = "unknown";
+  std::string raw_capture_layout = "unknown";
+  uint64_t raw_capture_allocation_id = 0u;
+  uint64_t raw_capture_allocation_generation = 0u;
+  uint64_t raw_capture_byte_offset = 0u;
+  uint64_t raw_capture_byte_range = 0u;
+  int64_t raw_capture_storage_offset = 0;
+  std::string raw_capture_allocation_label = "unknown";
+  std::string normalized_identity_status = "not_recorded";
+  std::string normalized_storage_kind = "unknown";
+  std::string normalized_layout = "unknown";
+  uint64_t normalized_allocation_id = 0u;
+  uint64_t normalized_allocation_generation = 0u;
+  uint64_t normalized_byte_offset = 0u;
+  uint64_t normalized_byte_range = 0u;
+  int64_t normalized_storage_offset = 0;
+  std::string normalized_allocation_label = "unknown";
+  std::string decoder_input_identity_status = "not_recorded";
+  std::string decoder_input_storage_kind = "unknown";
+  std::string decoder_input_layout = "unknown";
+  uint64_t decoder_input_allocation_id = 0u;
+  uint64_t decoder_input_allocation_generation = 0u;
+  uint64_t decoder_input_byte_offset = 0u;
+  uint64_t decoder_input_byte_range = 0u;
+  int64_t decoder_input_storage_offset = 0;
+  std::string decoder_input_allocation_label = "unknown";
+  bool normalized_same_allocation_as_raw_capture = false;
+  bool decoder_input_aliases_normalized_capture = false;
+  bool python_public_boundary_before_consumption = true;
+  bool host_visible_boundary_before_consumption = true;
+  bool host_visible_access_before_consumption = true;
+  bool host_readback_before_consumption = true;
+  std::string handoff_status =
+      "private_bridge_capture_handoff_observed_behavior_neutral";
+};
+
 struct VulkanStackPlannedRegionContext final {
   std::string region_id = "missing_region_id";
   std::string stack_context_id = "missing_stack_context_id";
@@ -2556,10 +2608,13 @@ TORCH_API void note_stack_raw_resource_producer_registration(
     bool owns_memory);
 TORCH_API void note_stack_output_device_consumer_registration(
     const VulkanStackOutputDeviceConsumerRegistration& registration);
+TORCH_API void note_private_bridge_capture_handoff(
+    const VulkanPrivateBridgeCaptureHandoffRecord& record);
 TORCH_API std::vector<std::string> stack_dispatch_aggregate_snapshot();
 TORCH_API std::vector<std::string> stack_allocation_aggregate_snapshot();
 TORCH_API std::vector<std::string>
 stack_output_device_consumer_registration_snapshot();
+TORCH_API std::vector<std::string> private_bridge_capture_handoff_snapshot();
 TORCH_API std::vector<std::string>
 stack_dispatch_dependency_dry_run_snapshot();
 TORCH_API void reset_stack_dispatch_aggregate();

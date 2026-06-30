@@ -854,6 +854,15 @@ dependency records for blocks 2, 5, and 8, zero missing runtime identity, and
 excluded as final output. This is proof-only: the next behavior target is a
 private bridge capture handoff / decoder-consumer ownership contract, not
 admitting `stack_residual2_output` into the generic stack-internal retire batch.
+`PrivateBridgeCaptureHandoffContract.v0` is the first behavior-neutral row for
+that target. It records, per bridge capture slot, the raw residual2 capture
+identity after the stack returns, the post-bridge-LayerNorm identity, and the
+prefix-stripped decoder-preprocess input view identity. The row is generic to a
+private bridge capture chain: it carries allocation id/generation/range,
+storage offset, shape, consumer slot, and public/host/readback blockers, while
+recording `transfers_pending_retires=0` and `submit_elision_enabled=0`. This
+distinguishes requested private bridge captures from stack-internal temps and
+sets up a future decoder-consumer ownership canary without changing execution.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
 now covers the graph-pending bytes, but raw resource-count coverage remains
 partial because metadata/uniform bookkeeping entries are not stack-internal

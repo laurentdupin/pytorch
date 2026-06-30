@@ -37517,6 +37517,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in registrations
                 )
             )
+            self.assertGreater(
+                graph["summary"]["private_bridge_capture_handoff_rows"],
+                0,
+            )
+            private_handoffs = graph["private_bridge_capture_handoffs"]
+            self.assertTrue(private_handoffs)
+            self.assertTrue(
+                any(
+                    row["fields"].get("schema")
+                    == "PrivateBridgeCaptureHandoffContract.v0"
+                    and row["fields"].get("behavior_neutral") == "1"
+                    and row["fields"].get("transfers_pending_retires") == "0"
+                    and row["fields"].get("submit_elision_enabled") == "0"
+                    and row["fields"].get("bridge_stage")
+                    == "raw_capture_to_layernorm_to_strip_to_decoder_preprocess"
+                    and row["fields"].get("decoder_input_aliases_normalized_capture")
+                    == "1"
+                    for row in private_handoffs
+                )
+            )
             capture_contract = graph["capture_output_boundary_contract"]
             self.assertGreaterEqual(
                 capture_contract["consumer_registration_records"], 0

@@ -435,6 +435,16 @@ stack_output_device_consumer_registrations() {
   return rows;
 }
 
+struct PrivateBridgeCaptureHandoffValue final {
+  uint64_t count = 0u;
+};
+
+std::map<std::string, PrivateBridgeCaptureHandoffValue>&
+private_bridge_capture_handoffs() {
+  static std::map<std::string, PrivateBridgeCaptureHandoffValue> rows;
+  return rows;
+}
+
 struct StackDispatchDependencyDispatchValue final {
   uint64_t count = 0u;
   uint64_t first_position = 0u;
@@ -24242,6 +24252,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       stack_allocation_aggregate_snapshot();
   const std::vector<std::string> consumer_registration_rows =
       stack_output_device_consumer_registration_snapshot();
+  const std::vector<std::string> private_bridge_capture_handoff_rows =
+      private_bridge_capture_handoff_snapshot();
   const std::vector<std::string> lifetime_rows =
       stack_subresource_lifetime_dry_run_snapshot();
   const std::vector<std::string> region_rows =
@@ -24472,6 +24484,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "private_bridge_capture_handoff_rows",
+      private_bridge_capture_handoff_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "stack_region_boundary_submit_plan_rows",
       boundary_submit_plan_rows.size(),
       summary_first);
@@ -24687,6 +24704,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         consumer_registration_rows,
         "stack_output_device_consumer_registration",
         first);
+    append_graph_array(
+        out,
+        "private_bridge_capture_handoffs",
+        private_bridge_capture_handoff_rows,
+        "private_bridge_capture_handoff",
+        first);
     append_json_string_array(
         out,
         "unproven_or_missing_metadata_fields",
@@ -24819,6 +24842,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_output_device_consumer_registrations",
       consumer_registration_rows,
       "stack_output_device_consumer_registration",
+      first);
+  append_graph_array(
+      out,
+      "private_bridge_capture_handoffs",
+      private_bridge_capture_handoff_rows,
+      "private_bridge_capture_handoff",
       first);
   append_capture_output_boundary_contract_json(
       out,
@@ -33149,6 +33178,85 @@ void note_stack_output_device_consumer_registration(
   value.count += 1u;
 }
 
+void note_private_bridge_capture_handoff(
+    const VulkanPrivateBridgeCaptureHandoffRecord& record) {
+  std::ostringstream key;
+  key << "private_bridge_capture_handoff=1"
+      << " schema=PrivateBridgeCaptureHandoffContract.v0"
+      << " behavior_neutral=1"
+      << " transfers_pending_retires=0"
+      << " submit_elision_enabled=0"
+      << " capture_slot=" << record.capture_slot
+      << " captured_block=" << record.captured_block_index
+      << " captured_substep=" << record.captured_substep
+      << " output_role=" << record.output_role
+      << " stack_context_id=" << record.stack_context_id
+      << " stack_session_id=" << record.stack_session_id
+      << " stack_plan_id=" << record.stack_plan_id
+      << " bridge_stage=" << record.bridge_stage
+      << " downstream_consumer_id=" << record.downstream_consumer_id
+      << " downstream_consumer_context=" << record.downstream_consumer_context
+      << " expected_consumer_input_index="
+      << record.expected_consumer_input_index
+      << " raw_capture_shape=" << format_sizes(record.raw_capture_shape)
+      << " normalized_capture_shape="
+      << format_sizes(record.normalized_capture_shape)
+      << " decoder_input_shape=" << format_sizes(record.decoder_input_shape)
+      << " raw_capture_identity_status="
+      << record.raw_capture_identity_status
+      << " raw_capture_storage_kind=" << record.raw_capture_storage_kind
+      << " raw_capture_layout=" << record.raw_capture_layout
+      << " raw_capture_allocation_id=" << record.raw_capture_allocation_id
+      << " raw_capture_allocation_generation="
+      << record.raw_capture_allocation_generation
+      << " raw_capture_byte_offset=" << record.raw_capture_byte_offset
+      << " raw_capture_byte_range=" << record.raw_capture_byte_range
+      << " raw_capture_storage_offset=" << record.raw_capture_storage_offset
+      << " raw_capture_allocation_label="
+      << record.raw_capture_allocation_label
+      << " normalized_identity_status=" << record.normalized_identity_status
+      << " normalized_storage_kind=" << record.normalized_storage_kind
+      << " normalized_layout=" << record.normalized_layout
+      << " normalized_allocation_id=" << record.normalized_allocation_id
+      << " normalized_allocation_generation="
+      << record.normalized_allocation_generation
+      << " normalized_byte_offset=" << record.normalized_byte_offset
+      << " normalized_byte_range=" << record.normalized_byte_range
+      << " normalized_storage_offset=" << record.normalized_storage_offset
+      << " normalized_allocation_label=" << record.normalized_allocation_label
+      << " decoder_input_identity_status="
+      << record.decoder_input_identity_status
+      << " decoder_input_storage_kind=" << record.decoder_input_storage_kind
+      << " decoder_input_layout=" << record.decoder_input_layout
+      << " decoder_input_allocation_id=" << record.decoder_input_allocation_id
+      << " decoder_input_allocation_generation="
+      << record.decoder_input_allocation_generation
+      << " decoder_input_byte_offset=" << record.decoder_input_byte_offset
+      << " decoder_input_byte_range=" << record.decoder_input_byte_range
+      << " decoder_input_storage_offset=" << record.decoder_input_storage_offset
+      << " decoder_input_allocation_label="
+      << record.decoder_input_allocation_label
+      << " normalized_same_allocation_as_raw_capture="
+      << (record.normalized_same_allocation_as_raw_capture ? 1 : 0)
+      << " decoder_input_aliases_normalized_capture="
+      << (record.decoder_input_aliases_normalized_capture ? 1 : 0)
+      << " python_public_boundary_before_consumption="
+      << (record.python_public_boundary_before_consumption ? 1 : 0)
+      << " host_visible_boundary_before_consumption="
+      << (record.host_visible_boundary_before_consumption ? 1 : 0)
+      << " host_visible_access_before_consumption="
+      << (record.host_visible_access_before_consumption ? 1 : 0)
+      << " host_readback_before_consumption="
+      << (record.host_readback_before_consumption ? 1 : 0)
+      << " handoff_status=" << record.handoff_status;
+  {
+    std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+    auto& value = private_bridge_capture_handoffs()[key.str()];
+    value.count += 1u;
+  }
+  maybe_write_stack_region_dependency_graph_dump();
+}
+
 std::vector<std::string> stack_dispatch_aggregate_snapshot() {
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   std::vector<std::string> rows;
@@ -33182,6 +33290,18 @@ stack_output_device_consumer_registration_snapshot() {
   std::vector<std::string> rows;
   rows.reserve(stack_output_device_consumer_registrations().size());
   for (const auto& item : stack_output_device_consumer_registrations()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
+  return rows;
+}
+
+std::vector<std::string> private_bridge_capture_handoff_snapshot() {
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(private_bridge_capture_handoffs().size());
+  for (const auto& item : private_bridge_capture_handoffs()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
@@ -33449,6 +33569,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_segment_plan_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
+  private_bridge_capture_handoffs().clear();
 }
 
 void note_vulkan_queue_wait_idle() {

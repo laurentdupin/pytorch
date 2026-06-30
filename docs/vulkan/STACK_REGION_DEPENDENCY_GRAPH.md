@@ -162,6 +162,14 @@ when a stack-owner recording scope ends. The v0 schema is
   runtime allocation identity for the same edge still comes from stack-lifetime
   rows. Registration rows only feed graph proof diagnostics; they do not
   authorize sync removal.
+- `private_bridge_capture_handoffs` rows carry schema
+  `PrivateBridgeCaptureHandoffContract.v0`. They observe the private bridge
+  chain after stack captures are returned: raw residual2 capture, bridge
+  LayerNorm output, and prefix-stripped decoder-preprocess input view. Each row
+  records allocation id/generation/range, storage offset, shape, consumer input
+  slot, and public/host/readback blockers. The row is behavior-neutral:
+  `transfers_pending_retires=0`, `submit_elision_enabled=0`, and no decoder
+  route or shape admission changes are made.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records

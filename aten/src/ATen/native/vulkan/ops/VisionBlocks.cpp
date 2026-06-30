@@ -3234,6 +3234,105 @@ std::pair<utils::VulkanScratchSlice, Tensor> reserve_scratch_buffer_tensor(
   return {slice, make_scratch_buffer_alias(arena, slice, sizes, dtype)};
 }
 
+struct BridgeTensorIdentity final {
+  std::string status = "tensor_not_defined";
+  std::string storage_kind = "unknown";
+  std::string layout = "unknown";
+  uint64_t allocation_id = 0u;
+  uint64_t allocation_generation = 0u;
+  uint64_t byte_offset = 0u;
+  uint64_t byte_range = 0u;
+  int64_t storage_offset = 0;
+  std::string allocation_label = "unknown";
+  std::vector<int64_t> shape;
+};
+
+BridgeTensorIdentity bridge_tensor_identity(const Tensor& tensor) {
+  BridgeTensorIdentity identity;
+  if (!tensor.defined()) {
+    return identity;
+  }
+  identity.shape = tensor.sizes().vec();
+  if (!tensor.is_vulkan()) {
+    identity.status = "tensor_not_vulkan";
+    return identity;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  identity.status = "allocation_identity_available";
+  identity.storage_offset = v_tensor.storage_offset();
+  identity.layout =
+      v_tensor.has_direct_buffer_layout() ? "direct_buffer" : "buffer_view";
+  if (v_tensor.storage_type() == api::StorageType::BUFFER) {
+    const api::VulkanBuffer& buffer = v_tensor.buffer();
+    identity.storage_kind = "buffer";
+    identity.allocation_id = buffer.allocation_id();
+    identity.allocation_generation =
+        api::vulkan_memory_allocation_generation(identity.allocation_id);
+    identity.byte_offset = static_cast<uint64_t>(buffer.mem_offset());
+    identity.byte_range = static_cast<uint64_t>(buffer.mem_range());
+    identity.allocation_label =
+        buffer.allocation_label().empty() ? "unknown" : buffer.allocation_label();
+  } else {
+    const api::VulkanImage& image = v_tensor.image();
+    identity.storage_kind = "image";
+    identity.allocation_id = image.allocation_id();
+    identity.allocation_generation =
+        api::vulkan_memory_allocation_generation(identity.allocation_id);
+    identity.byte_range = static_cast<uint64_t>(image.allocated_size());
+    identity.allocation_label =
+        image.allocation_label().empty() ? "unknown" : image.allocation_label();
+  }
+  if (identity.allocation_id == 0u || identity.allocation_generation == 0u) {
+    identity.status = "allocation_identity_missing";
+  }
+  return identity;
+}
+
+void copy_bridge_identity_to_raw_capture(
+    api::VulkanPrivateBridgeCaptureHandoffRecord& record,
+    const BridgeTensorIdentity& identity) {
+  record.raw_capture_shape = identity.shape;
+  record.raw_capture_identity_status = identity.status;
+  record.raw_capture_storage_kind = identity.storage_kind;
+  record.raw_capture_layout = identity.layout;
+  record.raw_capture_allocation_id = identity.allocation_id;
+  record.raw_capture_allocation_generation = identity.allocation_generation;
+  record.raw_capture_byte_offset = identity.byte_offset;
+  record.raw_capture_byte_range = identity.byte_range;
+  record.raw_capture_storage_offset = identity.storage_offset;
+  record.raw_capture_allocation_label = identity.allocation_label;
+}
+
+void copy_bridge_identity_to_normalized_capture(
+    api::VulkanPrivateBridgeCaptureHandoffRecord& record,
+    const BridgeTensorIdentity& identity) {
+  record.normalized_capture_shape = identity.shape;
+  record.normalized_identity_status = identity.status;
+  record.normalized_storage_kind = identity.storage_kind;
+  record.normalized_layout = identity.layout;
+  record.normalized_allocation_id = identity.allocation_id;
+  record.normalized_allocation_generation = identity.allocation_generation;
+  record.normalized_byte_offset = identity.byte_offset;
+  record.normalized_byte_range = identity.byte_range;
+  record.normalized_storage_offset = identity.storage_offset;
+  record.normalized_allocation_label = identity.allocation_label;
+}
+
+void copy_bridge_identity_to_decoder_input(
+    api::VulkanPrivateBridgeCaptureHandoffRecord& record,
+    const BridgeTensorIdentity& identity) {
+  record.decoder_input_shape = identity.shape;
+  record.decoder_input_identity_status = identity.status;
+  record.decoder_input_storage_kind = identity.storage_kind;
+  record.decoder_input_layout = identity.layout;
+  record.decoder_input_allocation_id = identity.allocation_id;
+  record.decoder_input_allocation_generation = identity.allocation_generation;
+  record.decoder_input_byte_offset = identity.byte_offset;
+  record.decoder_input_byte_range = identity.byte_range;
+  record.decoder_input_storage_offset = identity.storage_offset;
+  record.decoder_input_allocation_label = identity.allocation_label;
+}
+
 Tensor prepare_buffer_attention_tensor(const Tensor& tensor) {
   TORCH_CHECK(
       tensor.is_vulkan(),
@@ -12026,6 +12125,11 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
   TORCH_CHECK(
       captured.size() == 4u,
       "Vision stack capture decoder bridge expected four captured tensors");
+  std::array<BridgeTensorIdentity, 4u> raw_capture_identities;
+  for (const auto capture_slot : c10::irange(captured.size())) {
+    raw_capture_identities[capture_slot] =
+        bridge_tensor_identity(captured[capture_slot]);
+  }
   std::unique_ptr<VulkanStackCommandRecordingScope>
       decoder_bridge_recording_scope;
   if (
@@ -12038,6 +12142,11 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
   }
   for (Tensor& tensor : captured) {
     tensor = run_layernorm_context(tensor, normalized_shape, norm_context);
+  }
+  std::array<BridgeTensorIdentity, 4u> normalized_capture_identities;
+  for (const auto capture_slot : c10::irange(captured.size())) {
+    normalized_capture_identities[capture_slot] =
+        bridge_tensor_identity(captured[capture_slot]);
   }
   const auto strip_special_tokens = [&](const Tensor& tensor) {
     TORCH_CHECK(
@@ -12053,11 +12162,56 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
         tensor.size(token_dim));
     return tensor.slice(token_dim, strip_prefix_tokens, tensor.size(token_dim));
   };
-  Tensor output = run_vision_decoder_preprocess_head_context_impl(
+  std::array<Tensor, 4u> decoder_inputs{{
       strip_special_tokens(captured[0]),
       strip_special_tokens(captured[1]),
       strip_special_tokens(captured[2]),
       strip_special_tokens(captured[3]),
+  }};
+  for (const auto capture_slot : c10::irange(decoder_inputs.size())) {
+    const int64_t capture_index = capture_indices[capture_slot];
+    const BridgeTensorIdentity decoder_input_identity =
+        bridge_tensor_identity(decoder_inputs[capture_slot]);
+    api::VulkanPrivateBridgeCaptureHandoffRecord handoff;
+    handoff.capture_slot = static_cast<int64_t>(capture_slot);
+    handoff.captured_block_index = capture_index;
+    handoff.captured_substep = "residual2";
+    handoff.output_role = "stack_residual2_output";
+    handoff.stack_context_id = planned_region_context.stack_context_id;
+    handoff.stack_session_id = planned_region_context.bridge_session_id;
+    handoff.stack_plan_id = planned_region_context.stack_plan_id;
+    handoff.bridge_stage =
+        "raw_capture_to_layernorm_to_strip_to_decoder_preprocess";
+    handoff.downstream_consumer_id =
+        "vision_stack_output_bridge.decoder_preprocess_head";
+    handoff.downstream_consumer_context = "VisionDecoderPreprocessHeadContext";
+    handoff.expected_consumer_input_index = static_cast<int64_t>(capture_slot);
+    copy_bridge_identity_to_raw_capture(
+        handoff, raw_capture_identities[capture_slot]);
+    copy_bridge_identity_to_normalized_capture(
+        handoff, normalized_capture_identities[capture_slot]);
+    copy_bridge_identity_to_decoder_input(handoff, decoder_input_identity);
+    handoff.normalized_same_allocation_as_raw_capture =
+        handoff.normalized_allocation_id != 0u &&
+        handoff.normalized_allocation_id == handoff.raw_capture_allocation_id &&
+        handoff.normalized_allocation_generation ==
+            handoff.raw_capture_allocation_generation;
+    handoff.decoder_input_aliases_normalized_capture =
+        handoff.decoder_input_allocation_id != 0u &&
+        handoff.decoder_input_allocation_id == handoff.normalized_allocation_id &&
+        handoff.decoder_input_allocation_generation ==
+            handoff.normalized_allocation_generation;
+    handoff.python_public_boundary_before_consumption = false;
+    handoff.host_visible_boundary_before_consumption = false;
+    handoff.host_visible_access_before_consumption = false;
+    handoff.host_readback_before_consumption = false;
+    api::note_private_bridge_capture_handoff(handoff);
+  }
+  Tensor output = run_vision_decoder_preprocess_head_context_impl(
+      decoder_inputs[0],
+      decoder_inputs[1],
+      decoder_inputs[2],
+      decoder_inputs[3],
       patch_h,
       patch_w,
       output_size,
