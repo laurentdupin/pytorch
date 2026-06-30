@@ -223,6 +223,13 @@ prefix in practice. It remains a risk probe, not a production plan: the mode is
 exactly named, selected external segments keep the same per-segment budgets, no
 numeric scope override is exposed, and no submit elision, deferred submit, or
 pending-retire transfer is enabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide3_to_exit`
+is the first fixed wider-segment canary after the prefix6 cap. It records four
+three-block external segments for 12-block vision stacks when each segment
+stays under a 36-dispatch budget, so it can test whether fewer stack-owned
+segment close submits are safe without exposing a numeric scope override. The
+mode remains opt-in and keeps submit elision, deferred submit, and
+pending-retire transfer disabled.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The

@@ -1310,6 +1310,15 @@ segments. This is intentionally a high-risk measurement canary because it can
 approach all-prefix external recording on small stacks; it still exposes no
 numeric override, keeps each selected segment under the same budgets, and keeps
 pending-retire transfer, deferred submit, and submit elision disabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide3_to_exit`
+starts the wider fixed-segment series rather than extending the prefix ladder.
+For 12-block vision stacks it selects four three-block external recording
+segments with a 36-dispatch per-segment budget, records all selected work
+through stack-owned external command buffers, and preserves the same
+fail-closed behavior for submit elision, deferred submit, and pending-retire
+transfer. `StackRegionSegmentPlan.v0` rows expose the wider block, scope, and
+dispatch budgets so benchmark artifacts can distinguish it from the six
+two-block prefix6 canary.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope
