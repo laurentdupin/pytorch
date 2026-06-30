@@ -319,6 +319,61 @@
       ]
     },
     {
+      "id": "dav2_vits560_segmented_stack_wide4_bridge_catalog_2026_07_01",
+      "status": "accepted_canary",
+      "head": "943e6bbf2db",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "560x840"
+      },
+      "device_notes": "RX 9070 evidence. The graph-catalog artifact records segment-plan rows; the separate three-repeat timing artifact was run with stack graph diagnostics disabled.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "StackRegionSegmentPlan.v0",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Use segmented stack-owned external recording for the wide4 bridge canary on the next DAv2 vits input size.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.0013580322265625e-05,
+        "mean_abs": 1.5058489566399658e-07,
+        "tests": [
+          "focused benchmark_depth_anything.py vits_560 wide4 graph-catalog run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "segment_plan_available": true,
+        "segment_plan_accepted_row_count": 20,
+        "segment_plan_rejected_row_count": 36,
+        "segment_plan_max_segment_dispatch_count": 42
+      },
+      "timing_ms": {
+        "device_resident_mean": 316.74,
+        "device_resident_median": 326.422,
+        "device_resident_p95": 347.817,
+        "with_readback_mean": 254.49,
+        "end_to_end_mean": 332.333,
+        "repeat_count": 3,
+        "timing_claim": "valid_no_graph_diagnostics"
+      },
+      "artifacts": [
+        "agent_space/dav2_vits560_wide4_catalog_1repeat.json",
+        "agent_space/dav2_vits560_wide4_catalog_graph.json",
+        "agent_space/dav2_vits560_wide4_timing_3repeat.json"
+      ],
+      "decision": "Catalog as shape-stability and timing evidence for the existing wide4 canary on the next DAv2 input size. Keep it opt-in; this is not a production default.",
+      "revisit_conditions": [
+        "Run a longer repeat-count pass before using this row as a stable regression threshold.",
+        "Keep this canary opt-in until multi-row and multi-GPU stability is recorded.",
+        "Revisit if the StackRegionSegmentPlan.v0 row schema or wide4 dispatch budget changes."
+      ]
+    },
+    {
       "id": "dav2_vits140_context_owned_bridge_repeated_run_stack_overflow",
       "status": "unsafe_blocked",
       "head": "316300434e0",

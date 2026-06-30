@@ -48,6 +48,10 @@ For `vits_420` / `420x630`, the same wide4 canary also passes bridge sanity
 and segment-plan evidence, with a separate no-graph three-repeat timing run at
 about 127.7 ms mean / 127.9 ms median / 130.9 ms p95 device-resident forward
 and max_abs `8.702278137207031e-06`.
+For `vits_560` / `560x840`, the wide4 canary remains valid with the same
+segment-plan row pattern; the no-graph three-repeat timing run measured about
+316.7 ms mean / 326.4 ms median / 347.8 ms p95 device-resident forward with
+bridge sanity max_abs `1.0013580322265625e-05`.
 
 ## DAv2 Stack Region Policy Lock
 
