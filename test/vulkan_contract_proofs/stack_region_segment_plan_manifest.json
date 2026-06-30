@@ -108,6 +108,83 @@
         "Add separate rowset evidence before broadening beyond DAv2 vits.",
         "Revalidate if StackRegionSegmentPlan.v0 rows, stack-scope retire handoff, or decoder bridge recording semantics change."
       ]
+    },
+    {
+      "id": "dav2_vitb_wide4_stack_region_segment_plan_v0_2026_07_01",
+      "status": "accepted_canary",
+      "contract_name": "StackRegionSegmentPlan.v0",
+      "mode": "segmented_stack_wide4_to_exit",
+      "admission_kind": "finite_resolution_rowset",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitb",
+        "inputs": [
+          "140x210"
+        ]
+      },
+      "required_benchmark_flags": {
+        "vulkan_stack_output_device_bridge": true,
+        "PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING": "planned_recording",
+        "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF": "stack_scope_retire_handoff",
+        "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": "segmented_stack_wide4_to_exit"
+      },
+      "segment_bounds": {
+        "selected_segment_dispatch_limit": 48,
+        "candidate_dispatch_limit": 24,
+        "max_observed_segment_dispatch_count": 42,
+        "accepted_segment_plan_row_count_per_graph_run": 20,
+        "rejected_segment_plan_row_count_per_graph_run": 36
+      },
+      "shared_segment_plan_counts": {
+        "owned_command_buffer_mode_counts": {
+          "dispatch_budget_candidate_only": 35,
+          "segmented_stack_wide4_to_exit": 21
+        },
+        "status_counts": {
+          "dispatch_budget_candidate_rejected_behavior_neutral": 35,
+          "segment_plan_rejected_behavior_neutral": 1,
+          "wide4_segment_plan_available_behavior_canary": 20
+        },
+        "fail_reason_counts": {
+          "dispatch_budget_candidate_scope_limit_exceeded": 35,
+          "none": 20,
+          "segmentation_requires_private_device_consumer_bridge": 1
+        }
+      },
+      "timing_ms_by_input": {
+        "140x210": {
+          "device_resident_mean": 110.198,
+          "repeat_count": 3
+        }
+      },
+      "correctness": {
+        "status": "passed",
+        "max_abs_range": [
+          3.5762786865234375e-06,
+          3.5762786865234375e-06
+        ],
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true
+      },
+      "performance_evidence_ids": [
+        "dav2_vitb140_segmented_stack_wide4_bridge_catalog_2026_07_01",
+        "dav2_vitb_segmented_stack_wide4_resolution_rowset_2026_07_01"
+      ],
+      "decision": "Use as the current finite DAv2 vitb_140 wide4 StackRegionSegmentPlan canary rowset only.",
+      "non_goals": [
+        "not a production default",
+        "not a DAv2-named backend route",
+        "not evidence for vits or vitl",
+        "not evidence for other vitb input sizes",
+        "not evidence for Lotus, PaddleOCR, HY-MT, or Gemma",
+        "not a ShapeEnvelope expansion"
+      ],
+      "revisit_conditions": [
+        "Add additional vitb inputs before treating this as a multi-resolution rowset.",
+        "Repeat the rowset with longer timing samples before turning it into a regression threshold.",
+        "Revalidate if StackRegionSegmentPlan.v0 rows, stack-scope retire handoff, or decoder bridge recording semantics change."
+      ]
     }
   ]
 }

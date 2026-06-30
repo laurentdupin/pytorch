@@ -140,6 +140,16 @@ The initial catalog records the current `vits_140` performance lane:
   evidence. The rowset is also recorded in
   `stack_region_segment_plan_manifest.json` so future agents can find the
   accepted canary boundary without repeating the graph cataloging work;
+- the first DAv2 `vitb_140` wide4 graph-catalog and timing runs: bridge sanity
+  passed with zero CPU fallback/readback, `StackRegionSegmentPlan.v0` showed
+  the same 20 accepted / 36 rejected row pattern as the `vits` rowset, and the
+  separate no-graph timing pass measured about 110.2 ms mean device-resident
+  forward. This is a separate one-row `vitb` canary rowset, not an expansion of
+  the `vits` rowset;
+- DAv2 `vitl_140` through the same wide4 canary remains unsafe blocked: the
+  graph-summary probe emitted segment-plan rows, but the process exited with
+  Windows stack overflow `-1073741571` before writing a benchmark result
+  artifact. Do not infer `vitl` support from `vits` or `vitb` evidence;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;

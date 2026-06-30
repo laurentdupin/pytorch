@@ -65,6 +65,15 @@ that finite rowset as a `StackRegionSegmentPlan.v0` governance boundary and
 links it back to the per-row performance evidence ids. Future `vitb` or `vitl`
 segment-plan work must add separate rowsets rather than widening the `vits`
 rowset by inference.
+A focused `vitb_140` run now has its own one-row wide4 canary rowset: bridge
+sanity passed with max_abs `3.5762786865234375e-06`, CPU fallback/readback were
+zero, the graph catalog showed the same 20 accepted / 36 rejected
+`StackRegionSegmentPlan.v0` rows, and a separate no-graph three-repeat timing
+run measured about 110.2 ms mean / 109.2 ms median / 112.4 ms p95
+device-resident forward. `vitl_140` remains unsafe blocked on the same canary:
+the graph-summary probe emitted segment-plan rows, but the benchmark process
+exited with Windows stack overflow `-1073741571` before writing a result
+artifact. Do not infer `vitl` support from `vits` or `vitb`.
 
 ## DAv2 Stack Region Policy Lock
 

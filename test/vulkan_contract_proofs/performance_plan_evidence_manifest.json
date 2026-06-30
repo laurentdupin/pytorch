@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-06-30",
+  "last_updated": "2026-07-01",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -497,6 +497,158 @@
       ]
     },
     {
+      "id": "dav2_vitb140_segmented_stack_wide4_bridge_catalog_2026_07_01",
+      "status": "accepted_canary",
+      "head": "b976d136cfc1",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitb",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 evidence. vitb/vitl checkpoints were present as optional archives; this row uses the extracted official vitb checkpoint in the Vulkan Depth-Anything checkout.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "StackRegionSegmentPlan.v0",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Use segmented stack-owned external recording for the wide4 bridge canary on DAv2 vitb_140.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 3.5762786865234375e-06,
+        "mean_abs": 3.387523008768767e-07,
+        "tests": [
+          "focused benchmark_depth_anything.py vitb_140 wide4 graph-catalog run",
+          "focused benchmark_depth_anything.py vitb_140 wide4 three-repeat timing run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "segment_plan_available": true,
+        "segment_plan_accepted_row_count": 20,
+        "segment_plan_rejected_row_count": 36,
+        "segment_plan_max_segment_dispatch_count": 42
+      },
+      "timing_ms": {
+        "device_resident_mean": 110.198,
+        "device_resident_median": 109.16,
+        "device_resident_p95": 112.431,
+        "with_readback_mean": 134.979,
+        "end_to_end_mean": 141.495,
+        "repeat_count": 3,
+        "timing_claim": "valid_no_graph_diagnostics"
+      },
+      "artifacts": [
+        "agent_space/dav2_vitb140_wide4_catalog_1repeat.json",
+        "agent_space/dav2_vitb140_wide4_catalog_graph.json",
+        "agent_space/dav2_vitb140_wide4_timing_3repeat.json"
+      ],
+      "decision": "Catalog as separate vitb evidence for the existing wide4 canary. Do not fold this into the vits rowset or infer vitl support from it.",
+      "revisit_conditions": [
+        "Run a longer repeat-count pass before using this row as a stable regression threshold.",
+        "Add more vitb inputs before promoting this from a one-row finite rowset.",
+        "Revisit if the StackRegionSegmentPlan.v0 row schema or wide4 dispatch budget changes."
+      ]
+    },
+    {
+      "id": "dav2_vitb_segmented_stack_wide4_resolution_rowset_2026_07_01",
+      "status": "accepted_canary",
+      "head": "b976d136cfc1",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitb",
+        "input": "finite rowset: 140x210"
+      },
+      "device_notes": "RX 9070 one-row finite rowset summary. This is intentionally separate from the DAv2 vits rowset.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "StackRegionSegmentPlan.v0 finite resolution rowset",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Treat segmented stack-owned wide4 recording as the current opt-in DAv2 vitb_140 canary rowset.",
+      "correctness": {
+        "status": "passed",
+        "max_abs_range": [
+          3.5762786865234375e-06,
+          3.5762786865234375e-06
+        ],
+        "rows": [
+          "140x210"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "segment_plan_available": true,
+        "shared_segment_plan_accepted_row_count": 20,
+        "shared_segment_plan_rejected_row_count": 36,
+        "shared_segment_plan_max_segment_dispatch_count": 42
+      },
+      "timing_ms": {
+        "timing_claim": "valid_no_graph_diagnostics_per_row",
+        "repeat_count_per_row": 3,
+        "device_resident_mean_by_input": {
+          "140x210": 110.198
+        }
+      },
+      "artifacts": [
+        "agent_space/dav2_vitb140_wide4_catalog_1repeat.json",
+        "agent_space/dav2_vitb140_wide4_timing_3repeat.json"
+      ],
+      "decision": "Use as a one-row DAv2 vitb wide4 canary evidence family only. Do not broaden to vits, vitl, other inputs, or default behavior without separate evidence.",
+      "revisit_conditions": [
+        "Add additional vitb input sizes before treating this as a multi-resolution rowset.",
+        "Before promotion, repeat with longer timing samples or a model-level gate.",
+        "Revisit if segment-plan rows, stack-scope retire handoff, or decoder bridge recording semantics change."
+      ]
+    },
+    {
+      "id": "dav2_vitl140_segmented_stack_wide4_stack_overflow_2026_07_01",
+      "status": "unsafe_blocked",
+      "head": "b976d136cfc1",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitl",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 evidence. The official vitl checkpoint was extracted from the optional archive before this probe.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "StackRegionSegmentPlan.v0",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Run DAv2 vitl_140 through the same segmented stack-owned wide4 canary used by vits and vitb.",
+      "correctness": {
+        "status": "unsafe",
+        "reason": "The graph-summary probe emitted StackRegionSegmentPlan rows but the benchmark process exited with Windows stack overflow -1073741571 before writing a result artifact. A no-graph one-repeat failure probe reproduced the same exit code."
+      },
+      "counters": {
+        "cpu_fallback": null,
+        "sync_readback": null,
+        "performance_valid": false,
+        "segment_plan_graph_summary_available": true,
+        "segment_plan_graph_summary_row_count": 20
+      },
+      "timing_ms": {
+        "candidate_device_resident_mean": null
+      },
+      "artifacts": [
+        "agent_space/dav2_vitl140_wide4_catalog_graph.json",
+        "agent_space/dav2_vitl140_wide4_failure_probe.log"
+      ],
+      "decision": "Do not rerun vitl_140 wide4 as a normal timing row until the stack-overflow root cause is fixed. Do not infer vitl support from vits or vitb evidence.",
+      "revisit_conditions": [
+        "Fix or isolate the vitl stack-overflow root cause.",
+        "Require a one-repeat vitl_140 run to write a valid result artifact with bridge sanity before collecting timing.",
+        "Keep vitl out of accepted StackRegionSegmentPlan rowsets until correctness and process stability are proven."
+      ]
+    },
+    {
       "id": "dav2_vits140_context_owned_bridge_repeated_run_stack_overflow",
       "status": "unsafe_blocked",
       "head": "316300434e0",
@@ -654,7 +806,7 @@
         "baseline_device_resident_mean": 67.775,
         "candidate_device_resident_mean": 72.002,
         "candidate_device_resident_median": 71.442,
-        "candidate_device_resident_p95": 79.070,
+        "candidate_device_resident_p95": 79.07,
         "repeat_count": 10
       },
       "artifacts": [
