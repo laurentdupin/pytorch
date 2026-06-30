@@ -28,7 +28,13 @@ pending; the helper now flushes only when
 mark that recovery flag; non-throwing guard diagnostics such as replay-risk
 reports do not. The bridge must remain guarded; public `Tensor[]` capture
 behavior remains the safe default when a same-region consumer is not
-registered. A focused 30-repeat `vits_140` run with the recovery guard and the
+registered. Bridge sanity validation now inserts a setup-phase Vulkan
+synchronize between the optimized bridge output and the original reference
+forward; deep `vitl` rows can otherwise reuse the same stack-owner context
+before the bridge path has fully closed, causing Windows stack overflow during
+the reference pass. This boundary is outside timed iterations and is reported
+as `reference_boundary_synchronized` in the sanity metadata. A focused
+30-repeat `vits_140` run with the recovery guard and the
 decoder bridge planned-recording canary measured about 77.7 ms mean / 77.4 ms
 median / 82.9 ms p95 for device-resident forward, with max_abs
 `8.344650268554688e-07`, `cpu_fallback=0`, and `sync_readback=0`.

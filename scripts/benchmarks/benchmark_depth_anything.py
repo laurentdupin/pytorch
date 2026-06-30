@@ -737,6 +737,10 @@ def validate_vulkan_stack_output_device_bridge_sanity(
         return {"enabled": False, "reason": "bridge_not_installed"}
     with bridge.torch.inference_mode():
         bridge_output = bridge(image_tensor)
+        synchronize = getattr(bridge.torch.ops.vulkan_prepack, "synchronize", None)
+        reference_boundary_synchronized = synchronize is not None
+        if synchronize is not None:
+            synchronize()
         reference_output = bridge.original_forward(image_tensor)
     bridge_cpu = bridge_output.detach().cpu()
     reference_cpu = reference_output.detach().cpu()
@@ -748,6 +752,7 @@ def validate_vulkan_stack_output_device_bridge_sanity(
         "finite": bool(bridge.torch.isfinite(bridge_cpu).all().item()),
         "bridge_shape": list(bridge_output.shape),
         "reference_shape": list(reference_output.shape),
+        "reference_boundary_synchronized": reference_boundary_synchronized,
         "passed": bool(
             bridge.torch.allclose(
                 bridge_cpu,
