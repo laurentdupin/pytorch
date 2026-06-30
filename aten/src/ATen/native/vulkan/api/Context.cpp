@@ -627,17 +627,18 @@ bool stack_region_pending_retire_handoff_candidate(
       is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
   const VulkanStackRawResourceAllocationProof allocation_proof =
       stack_raw_allocation_proof(pending);
+  const std::string allocation_label = pending_retire_allocation_label(pending);
   const char* const resource_class =
       stack_subresource_lifetime_dry_run_resource_class(
           pending.kind,
           pending.role,
           pending.stack_provenance,
           qkv_would_batch,
-          allocation_proof);
+          allocation_proof,
+          allocation_label);
   if (stack_region_pending_retire_bookkeeping_class(resource_class)) {
     return false;
   }
-  const std::string allocation_label = pending_retire_allocation_label(pending);
   const bool formal_last_use_proof =
       stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
           pending.kind,
@@ -768,13 +769,15 @@ void stack_region_accumulate_pending_retire_allocation_signature(
       is_qkv_stack_temp_retire_batch_candidate(pending.stack_provenance);
   const VulkanStackRawResourceAllocationProof allocation_proof =
       stack_raw_allocation_proof(pending);
+  const std::string& allocation_label = pending_retire_allocation_label(pending);
   const char* const resource_class =
       stack_subresource_lifetime_dry_run_resource_class(
           pending.kind,
           pending.role,
           pending.stack_provenance,
           qkv_would_batch,
-          allocation_proof);
+          allocation_proof,
+          allocation_label);
   stack_region_accumulate_pending_retire_allocation_signature(
       resources, allocation_proof, resource_class, pending.bytes);
 }
@@ -3149,7 +3152,8 @@ void Context::submit_pending_work_and_poll_retire(
                   pending.role,
                   pending.stack_provenance,
                   qkv_would_batch,
-                  allocation_proof);
+                  allocation_proof,
+                  allocation_label);
           const bool formal_last_use_proof =
               stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(
                   pending.kind,
@@ -3494,7 +3498,8 @@ VulkanSubmission Context::submit_cmd_to_gpu(
               pending.role,
               pending.stack_provenance,
               qkv_would_batch,
-              allocation_proof);
+              allocation_proof,
+              allocation_label);
       const bool formal_last_use_proof =
           stack_subresource_lifetime_dry_run_has_formal_stack_owner_last_use_proof(
               pending.kind,

@@ -328,6 +328,8 @@ constexpr const char* kDryRunLayerNormStatBuffer =
     "layernorm_stat_buffer";
 constexpr const char* kDryRunLayerNormInternalStatBuffer =
     "layernorm_internal_stat_buffer";
+constexpr const char* kDryRunLayerNormBufferWidthUnscopedCleanup =
+    "layernorm_buffer_width_unscoped_cleanup";
 constexpr const char* kDryRunMetadataUniform = "metadata_uniform";
 constexpr const char* kDryRunRawNoProvenance = "raw_no_provenance";
 constexpr const char* kDryRunNonStackSetupStagingPending =
@@ -27211,9 +27213,22 @@ bool is_attention_non_escape_last_consumer_class(
       key == kDryRunAttentionRawAuxiliaryRangeNonEscapeLastConsumer;
 }
 
+bool is_layernorm_buffer_width_cleanup_label(
+    const std::string& allocation_label) {
+  return allocation_label == "layer_norm.buffer_width" ||
+      allocation_label == "add_layer_norm.buffer_width" ||
+      allocation_label == "add_scaled_layer_norm.buffer_width";
+}
+
 const char* classify_stack_internal_raw_generation_range(
     const VulkanRetiredResourceRole role,
-    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
+  if (
+      role == VulkanRetiredResourceRole::StackInternalTemp &&
+      is_layernorm_buffer_width_cleanup_label(allocation_label)) {
+    return kDryRunLayerNormBufferWidthUnscopedCleanup;
+  }
   if (
       !allocation_proof.has_generation || !allocation_proof.has_byte_range ||
       !inside_vision_stack_phase() || current_vision_stack_block_index() < 0) {
@@ -27238,6 +27253,7 @@ bool is_stack_raw_generation_range_evidence_class(
   const std::string key(resource_class);
   return key ==
       kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer ||
+      key == kDryRunLayerNormBufferWidthUnscopedCleanup ||
       key == kDryRunStackQkvOutputRawGenerationRangeNonEscapeLastConsumer ||
       key == kDryRunStackProjOutputRawGenerationRangeNonEscapeLastConsumer ||
       key ==
@@ -27272,6 +27288,9 @@ const char* stack_raw_last_consumer_for_dry_run(
       key ==
       kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
     return "missing";
+  }
+  if (key == kDryRunLayerNormBufferWidthUnscopedCleanup) {
+    return "missing_layernorm_buffer_width_consumer";
   }
   return is_stack_temp_role(role) ? "unknown_stack_consumer"
                                   : "not_stack_raw_resource";
@@ -27418,7 +27437,8 @@ void note_dry_run_resource_class(
         bytes, std::memory_order_relaxed);
   } else if (
       key ==
-      kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+          kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer ||
+      key == kDryRunLayerNormBufferWidthUnscopedCleanup) {
     counters.stack_internal_temp_raw_generation_range_missing_last_consumer_count
         .fetch_add(1u, std::memory_order_relaxed);
     counters.stack_internal_temp_raw_generation_range_missing_last_consumer_bytes
@@ -27596,6 +27616,9 @@ const char* stack_region_lifetime_missing_proof_reason(
       key ==
       kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
     return "missing_last_consumer";
+  }
+  if (key == kDryRunLayerNormBufferWidthUnscopedCleanup) {
+    return "missing_layernorm_buffer_width_lifetime_proof";
   }
   if (is_stack_raw_generation_range_non_escape_last_consumer_class(
           resource_class)) {
@@ -29559,7 +29582,12 @@ void note_stack_retire_drain_blocker_resource(
       classify_stack_temp_lifetime_safety(role, provenance);
   const char* const resource_class =
       stack_subresource_lifetime_dry_run_resource_class(
-          kind, role, provenance, qkv_would_batch, allocation_proof);
+          kind,
+          role,
+          provenance,
+          qkv_would_batch,
+          allocation_proof,
+          allocation_label);
   const bool base_safe_candidate =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
   const bool formal_last_use_proof =
@@ -29826,7 +29854,12 @@ void note_region_lifetime_submit_attribution_resource(
       is_qkv_stack_temp_retire_batch_candidate(provenance);
   const char* const resource_class =
       stack_subresource_lifetime_dry_run_resource_class(
-          kind, role, provenance, qkv_would_batch, allocation_proof);
+          kind,
+          role,
+          provenance,
+          qkv_would_batch,
+          allocation_proof,
+          allocation_label);
   const bool base_safe_candidate =
       stack_subresource_lifetime_dry_run_resource_is_safe(resource_class);
   const bool formal_last_use_proof =
@@ -29942,7 +29975,8 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
     const VulkanRetiredResourceRole role,
     const VulkanStackRetireProvenance& provenance,
     const bool qkv_would_batch,
-    const VulkanStackRawResourceAllocationProof& allocation_proof) {
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label) {
   if (
       role == VulkanRetiredResourceRole::StackRequestedOutput ||
       role == VulkanRetiredResourceRole::StackFinalOutput ||
@@ -29986,7 +30020,7 @@ const char* stack_subresource_lifetime_dry_run_resource_class(
     if (is_stack_temp_role(role)) {
       if (allocation_proof.has_generation && allocation_proof.has_byte_range) {
         return classify_stack_internal_raw_generation_range(
-            role, allocation_proof);
+            role, allocation_proof, allocation_label);
       }
       return kDryRunStackInternalRawMissingGeneration;
     }
@@ -30802,7 +30836,8 @@ classify_stack_region_pending_side_effects(
             bytes);
       } else if (
           resource_class ==
-          kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer) {
+              kDryRunStackInternalTempRawGenerationRangeMissingLastConsumer ||
+          resource_class == kDryRunLayerNormBufferWidthUnscopedCleanup) {
         accumulate(
             coverage.stack_internal_temp_missing_last_consumer_count,
             coverage.stack_internal_temp_missing_last_consumer_bytes,

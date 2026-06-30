@@ -1392,6 +1392,14 @@ the attention program itself. This is a lifetime/provenance proof only: it does
 not change attention kernels, SDPA admission, transition materialization policy,
 submit elision, or pending-retire handoff behavior.
 
+Unscoped LayerNorm buffer-width cleanup is now split out of the generic
+`stack_internal_temp_raw_generation_range_missing_last_consumer` diagnostic
+bucket as `layernorm_buffer_width_unscoped_cleanup` when the allocation label is
+one of the generic buffer-width LayerNorm families. This is fail-closed
+classification only: those rows still report no formal last-use proof, remain
+unsafe retire candidates, and continue to count against missing-consumer
+ordering proof until stack-scoped LayerNorm stat/output lifetime proof exists.
+
 `docs/vulkan/CAPABILITY_PROFILES.md` and
 `docs/vulkan/capability_profiles.json` define the first capability-profile
 harness. Profiles are reduced feature masks intersected with the live adapter;

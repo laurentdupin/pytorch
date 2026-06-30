@@ -2220,7 +2220,8 @@ TORCH_API const char* stack_subresource_lifetime_dry_run_resource_class(
     VulkanRetiredResourceRole role,
     const VulkanStackRetireProvenance& provenance,
     bool qkv_would_batch,
-    const VulkanStackRawResourceAllocationProof& allocation_proof);
+    const VulkanStackRawResourceAllocationProof& allocation_proof,
+    const std::string& allocation_label);
 TORCH_API bool stack_subresource_lifetime_dry_run_resource_is_safe(
     const char* resource_class);
 TORCH_API bool stack_subresource_lifetime_dry_run_has_formal_norm2_last_use_proof(

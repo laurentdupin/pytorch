@@ -19593,6 +19593,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in dry_run
             )
         )
+        self.assertFalse(
+            any(
+                "resource=1" in row
+                and "class=layernorm_buffer_width_unscoped_cleanup" in row
+                and (
+                    "safe_candidate=1" in row
+                    or "formal_last_use_proof=1" in row
+                    or "missing_proof_reason=none" in row
+                )
+                for row in dry_run
+            )
+        )
         self.assertTrue(
             any(
                 "resource=1" in row

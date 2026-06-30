@@ -883,6 +883,14 @@ The expected consumer remains the same block's attention program, so the proof
 can classify score/probability buffers as internal after attention has run
 without treating requested captures, aliases, public outputs, or arbitrary
 attention tensors as safe.
+Unscoped LayerNorm buffer-width cleanup rows are now identified as
+`layernorm_buffer_width_unscoped_cleanup` instead of being left in the generic
+stack-internal-temp raw range bucket. The class is deliberately not a
+`StackScopeRetireHandoffContract` input: it keeps `safe_candidate=0`, has no
+formal last-use proof, and contributes to the existing missing-consumer
+ordering budget. A later proof must bind stack-scoped LayerNorm stat/output
+resources to producer/consumer phases before any LayerNorm cleanup can move
+into a retire handoff or segment plan.
 The graph now also exports a pending allocation signature for source-identity
 diagnostics. `StackRegionBoundarySubmitPlan.v0` includes
 `pending_allocation_signature` entries keyed by allocation id, generation, byte
