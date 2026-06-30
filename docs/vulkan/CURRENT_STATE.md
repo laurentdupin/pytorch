@@ -56,6 +56,10 @@ For `vits_700` / `700x1050`, the same canary remains valid with matching
 segment-plan rows; the no-graph three-repeat timing run measured about
 446.8 ms mean / 397.9 ms median / 550.2 ms p95 device-resident forward with
 bridge sanity max_abs `1.52587890625e-05`.
+The six `vits` rows are now grouped in the performance evidence manifest as a
+finite wide4 canary rowset. This is review memory for the current DAv2 vits
+performance lane, not a ShapeEnvelope expansion, a production dispatch table,
+or evidence for `vitb`, `vitl`, Lotus, PaddleOCR, HY-MT, or Gemma.
 
 ## DAv2 Stack Region Policy Lock
 

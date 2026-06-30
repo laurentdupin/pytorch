@@ -429,6 +429,74 @@
       ]
     },
     {
+      "id": "dav2_vits_segmented_stack_wide4_resolution_rowset_2026_07_01",
+      "status": "accepted_canary",
+      "head": "943e6bbf2db",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "finite rowset: 140x210, 182x280, 280x420, 420x630, 560x840, 700x1050"
+      },
+      "device_notes": "RX 9070 finite rowset summary. Each row has its own artifact entry; this row summarizes the shared canary behavior and is not a production default.",
+      "contract_or_topology_scope": [
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "StackRegionSegmentPlan.v0 finite resolution rowset",
+        "stack-scope retire handoff v0",
+        "private decoder bridge planned recording"
+      ],
+      "candidate": "Treat segmented stack-owned wide4 recording as the current opt-in DAv2 vits resolution-rowset canary.",
+      "correctness": {
+        "status": "passed",
+        "max_abs_range": [
+          1.6391277313232422e-06,
+          1.52587890625e-05
+        ],
+        "rows": [
+          "140x210",
+          "182x280",
+          "280x420",
+          "420x630",
+          "560x840",
+          "700x1050"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "segment_plan_available": true,
+        "shared_segment_plan_accepted_row_count": 20,
+        "shared_segment_plan_rejected_row_count": 36,
+        "shared_segment_plan_max_segment_dispatch_count": 42
+      },
+      "timing_ms": {
+        "timing_claim": "valid_no_graph_diagnostics_per_row",
+        "repeat_count_per_row": 3,
+        "device_resident_mean_by_input": {
+          "140x210": 67.775,
+          "182x280": 74.755,
+          "280x420": 91.891,
+          "420x630": 127.65,
+          "560x840": 316.74,
+          "700x1050": 446.834
+        }
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_10repeat_stream_sync_pool_reset.json",
+        "agent_space/dav2_vits182_wide4_timing_3repeat.json",
+        "agent_space/dav2_vits280_wide4_timing_3repeat.json",
+        "agent_space/dav2_vits420_wide4_timing_3repeat.json",
+        "agent_space/dav2_vits560_wide4_timing_3repeat.json",
+        "agent_space/dav2_vits700_wide4_timing_3repeat.json"
+      ],
+      "decision": "Use this as the finite DAv2 vits wide4 canary rowset evidence. Do not broaden to vitb/vitl, other models, or default behavior without separate rowset evidence.",
+      "revisit_conditions": [
+        "Before promotion, repeat the rowset with longer timing samples or a model-level gate.",
+        "Before broadening, add vitb/vitl or non-DAv2 corpus rowset evidence rather than inferring from vits.",
+        "Revisit if segment-plan rows, stack-scope retire handoff, or decoder bridge recording semantics change."
+      ]
+    },
+    {
       "id": "dav2_vits140_context_owned_bridge_repeated_run_stack_overflow",
       "status": "unsafe_blocked",
       "head": "316300434e0",

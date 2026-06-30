@@ -125,6 +125,10 @@ The initial catalog records the current `vits_140` performance lane:
 - the first `vits_700` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 446.8 ms mean device-resident forward;
+- a finite DAv2 `vits` wide4 rowset summary now groups the six measured input
+  sizes as one opt-in canary evidence family; it must not be broadened to
+  `vitb`, `vitl`, other models, or default behavior without separate rowset
+  evidence;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
