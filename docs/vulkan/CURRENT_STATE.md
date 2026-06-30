@@ -1384,6 +1384,13 @@ counts/bytes, resource-role signatures, stack lifetime/provenance fields, and
 allocation generation/range proof where available. The snapshot is diagnostic
 only: it does not defer submits, batch retire entries, change final readback
 semantics, or alter route/shape admission.
+Direct attention score/probability scratch tensors now have a shape-plan-derived
+last-use proof. For direct-attention vision stack plans with positive head and
+token counts, `[heads,tokens,tokens]` `stack_attention_output` buffers are
+classified as same-block attention-internal resources whose final consumer is
+the attention program itself. This is a lifetime/provenance proof only: it does
+not change attention kernels, SDPA admission, transition materialization policy,
+submit elision, or pending-retire handoff behavior.
 
 `docs/vulkan/CAPABILITY_PROFILES.md` and
 `docs/vulkan/capability_profiles.json` define the first capability-profile

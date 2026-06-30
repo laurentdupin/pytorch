@@ -1029,6 +1029,31 @@ std::vector<api::VulkanStackLastUseProof> build_stack_last_use_proofs(
       merge_proof.internal_non_escaping = true;
       proofs.emplace_back(std::move(merge_proof));
     }
+    if (
+        producer.kind == VulkanStackPlanStepKind::Attention &&
+        plan.key.direct_attention && plan.key.num_heads > 0 &&
+        plan.key.tokens > 0) {
+      api::VulkanStackLastUseProof probability_proof;
+      probability_proof.producer_phase =
+          vision_phase_for_stack_plan_step(producer.kind);
+      probability_proof.producer_block_index = producer.block_index;
+      probability_proof.producer_role =
+          api::stack_retired_resource_role_for_phase(
+              probability_proof.producer_phase);
+      probability_proof.shape = {
+          plan.key.num_heads,
+          plan.key.tokens,
+          plan.key.tokens,
+      };
+      probability_proof.dtype =
+          static_cast<int64_t>(convert_dtype(producer.dtype));
+      probability_proof.expected_consumer_phase =
+          vision_phase_for_stack_plan_step(producer.kind);
+      probability_proof.expected_consumer_block_index = producer.block_index;
+      probability_proof.final_consumer_before_stack_submit = true;
+      probability_proof.internal_non_escaping = true;
+      proofs.emplace_back(std::move(probability_proof));
+    }
   }
   return proofs;
 }

@@ -875,6 +875,14 @@ elision, no shader change, and no shape-admission change. In the focused DAv2
 from 3,576,384,928 to 2,104,055,200 by moving the already-proven QKV class into
 the stack-internal retire batch; `retire_queue_drain` submit count and
 `stack_scope_end` count were unchanged.
+Direct attention score/probability scratch tensors are now covered by a
+separate shape-plan-derived last-use proof. The proof is emitted only for
+direct-attention vision stack plans with positive `num_heads` and `tokens`, and
+only for the `[heads,tokens,tokens]` `stack_attention_output` scratch shape.
+The expected consumer remains the same block's attention program, so the proof
+can classify score/probability buffers as internal after attention has run
+without treating requested captures, aliases, public outputs, or arbitrary
+attention tensors as safe.
 The graph now also exports a pending allocation signature for source-identity
 diagnostics. `StackRegionBoundarySubmitPlan.v0` includes
 `pending_allocation_signature` entries keyed by allocation id, generation, byte
