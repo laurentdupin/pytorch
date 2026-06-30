@@ -1287,6 +1287,12 @@ override. The old prefix mode stays at two segments, selected segments still
 must satisfy the four-block and 24-dispatch budgets, remaining tail segments
 use the current context-owned planned-recording path, and the mode does not
 transfer pending retires, defer submits, or enable submit elision.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix3_tail_to_exit`
+uses the same three external prefix segments, then coalesces the unselected tail
+into a single context-owned planned-recording scope through stack exit. It is
+intended to measure candidate-tail close-submit overhead while keeping external
+recording bounded to three selected segments. It does not transfer pending
+retires, defer submits, or enable submit elision.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope

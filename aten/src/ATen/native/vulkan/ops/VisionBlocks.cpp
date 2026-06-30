@@ -1423,6 +1423,7 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
       mode == "segmented_stack_prefix_to_exit" ||
       mode == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix3_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_tail_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
@@ -1434,6 +1435,7 @@ bool stack_owned_command_buffer_segmented_prefix_canary_enabled() {
   return mode == "segmented_stack_prefix_to_exit" ||
       mode == "segmented_stack_dispatch_budget_single_segment_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix3_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_tail_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 
@@ -1443,14 +1445,21 @@ bool stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled() 
 }
 
 bool stack_owned_command_buffer_dispatch_budget_prefix3_canary_enabled() {
+  const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
+  return mode == "segmented_stack_dispatch_budget_prefix3_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_tail_to_exit";
+}
+
+bool stack_owned_command_buffer_dispatch_budget_prefix3_tail_canary_enabled() {
   return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
-      "segmented_stack_dispatch_budget_prefix3_to_exit";
+      "segmented_stack_dispatch_budget_prefix3_tail_to_exit";
 }
 
 bool stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled() {
   const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
   return mode == "segmented_stack_dispatch_budget_prefix_to_exit" ||
-      mode == "segmented_stack_dispatch_budget_prefix3_to_exit";
+      mode == "segmented_stack_dispatch_budget_prefix3_to_exit" ||
+      mode == "segmented_stack_dispatch_budget_prefix3_tail_to_exit";
 }
 
 bool stack_owned_command_buffer_segmented_canary_enabled() {
@@ -8992,6 +9001,8 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       stack_owned_command_buffer_dispatch_budget_single_segment_canary_enabled();
   const bool dispatch_budget_prefix3_canary_requested =
       stack_owned_command_buffer_dispatch_budget_prefix3_canary_enabled();
+  const bool dispatch_budget_prefix3_tail_canary_requested =
+      stack_owned_command_buffer_dispatch_budget_prefix3_tail_canary_enabled();
   const bool dispatch_budget_prefix_canary_requested =
       stack_owned_command_buffer_dispatch_budget_prefix_canary_enabled();
   const size_t segmented_stack_owned_command_buffer_scope_limit =
@@ -9281,9 +9292,13 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
           segmented_stack_owned_command_buffer_segment_index <
               segmented_stack_owned_command_buffer_plan.segment_ends.size();
       if (selected_external_segment || context_tail_segment) {
-        const size_t segment_end =
-            segmented_stack_owned_command_buffer_plan.segment_ends.at(
-                segmented_stack_owned_command_buffer_segment_index);
+        const bool context_tail_to_exit_segment =
+            dispatch_budget_prefix3_tail_canary_requested &&
+            !selected_external_segment;
+        const size_t segment_end = context_tail_to_exit_segment
+            ? context->blocks().size() - 1u
+            : segmented_stack_owned_command_buffer_plan.segment_ends.at(
+                  segmented_stack_owned_command_buffer_segment_index);
         planned_recording_scope =
             std::make_unique<VulkanStackCommandRecordingScope>(
                 *api::context(),
@@ -9366,10 +9381,23 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
         segmented_stack_owned_command_buffer_segment_index <
             segmented_stack_owned_command_buffer_plan.segment_ends.size() &&
         block_idx ==
-            segmented_stack_owned_command_buffer_plan.segment_ends.at(
-                segmented_stack_owned_command_buffer_segment_index)) {
+            (dispatch_budget_prefix3_tail_canary_requested &&
+                    segmented_stack_owned_command_buffer_segment_index >=
+                        segmented_stack_owned_command_buffer_plan
+                            .selected_segment_count
+                ? context->blocks().size() - 1u
+                : segmented_stack_owned_command_buffer_plan.segment_ends.at(
+                      segmented_stack_owned_command_buffer_segment_index))) {
       planned_recording_scope.reset();
-      segmented_stack_owned_command_buffer_segment_index++;
+      if (
+          dispatch_budget_prefix3_tail_canary_requested &&
+          segmented_stack_owned_command_buffer_segment_index >=
+              segmented_stack_owned_command_buffer_plan.selected_segment_count) {
+        segmented_stack_owned_command_buffer_segment_index =
+            segmented_stack_owned_command_buffer_plan.segment_ends.size();
+      } else {
+        segmented_stack_owned_command_buffer_segment_index++;
+      }
     }
   }
   planned_recording_scope.reset();

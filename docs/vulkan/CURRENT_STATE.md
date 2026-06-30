@@ -200,6 +200,11 @@ override: default prefix mode remains capped at two segments, all selected
 segments still enforce the four-block and 24-dispatch budgets, tail work stays
 on the existing context-owned planned-recording path, and submit elision stays
 disabled.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix3_tail_to_exit`
+keeps the same three external prefix segments but records the remaining
+unselected tail as one context-owned planned scope to stack exit. This tests
+whether the tail can avoid extra candidate-boundary close submits without
+increasing external recording scope or changing submit-elision policy.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The
