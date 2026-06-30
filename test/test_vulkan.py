@@ -19357,19 +19357,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_vulkan_vision_stack_temp_lifetime_safety_snapshot(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
 
-        torch.ops.vulkan_prepack.reset_retired_resource_aggregate()
-        torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
-        torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
-        torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
-        torch.ops.vulkan_prepack.reset_region_lifetime_submit_attribution()
-        torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
-        with torch.inference_mode():
-            torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
-                x,
-                stack_context,
-                [0],
-            )
-            torch.ops.vulkan_prepack.synchronize()
+        previous = os.environ.get("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS")
+        os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = "1"
+        try:
+            torch.ops.vulkan_prepack.reset_retired_resource_aggregate()
+            torch.ops.vulkan_prepack.reset_stack_temp_lifetime_safety_snapshot()
+            torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
+            torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
+            torch.ops.vulkan_prepack.reset_region_lifetime_submit_attribution()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [0],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = previous
 
         resources = torch.ops.vulkan_prepack.retired_resource_aggregate_snapshot()
         safety = torch.ops.vulkan_prepack.stack_temp_lifetime_safety_snapshot()
@@ -19581,6 +19589,46 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in safety
             )
         )
+
+    def test_vulkan_stack_diagnostic_rows_default_off(self):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
+
+        previous = os.environ.pop("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS", None)
+        previous_graph = os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+        try:
+            torch.ops.vulkan_prepack.reset_stack_retire_drain_blocker_counters()
+            torch.ops.vulkan_prepack.reset_region_lifetime_submit_attribution()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                    x,
+                    stack_context,
+                    [0],
+                )
+                torch.ops.vulkan_prepack.synchronize()
+        finally:
+            if previous is not None:
+                os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = previous
+            if previous_graph is not None:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous_graph
+
+        blocker_counters = (
+            torch.ops.vulkan_prepack.stack_retire_drain_blocker_counters()
+        )
+        dry_run_counters = (
+            torch.ops.vulkan_prepack.stack_subresource_lifetime_dry_run_counters()
+        )
+        self.assertGreater(blocker_counters[0], 0)
+        self.assertGreater(dry_run_counters[0], 0)
+        self.assertEqual(torch.ops.vulkan_prepack.stack_retire_drain_blocker_snapshot(), [])
+        self.assertEqual(
+            torch.ops.vulkan_prepack.region_lifetime_submit_attribution_snapshot(),
+            [],
+        )
+        dry_run_rows = (
+            torch.ops.vulkan_prepack.stack_subresource_lifetime_dry_run_snapshot()
+        )
+        self.assertFalse(any("resource=1" in row for row in dry_run_rows))
 
     def test_vulkan_stack_dispatch_dependency_dry_run_snapshot(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(

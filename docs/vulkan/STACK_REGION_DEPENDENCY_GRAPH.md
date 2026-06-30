@@ -1233,6 +1233,12 @@ cleanup-boundary, cleanup-retire, canary, and consumer-registration checks.
 They omit the full dispatch/resource/live-binding arrays and derived full-graph
 proof sections. This is only a graph-output mode; it does not change
 recording, submit, cleanup, retire, segment selection, or canary admission.
+Setting `PYTORCH_VULKAN_STACK_DEP_GRAPH` also enables detailed stack diagnostic
+rows for retire blockers, region-lifetime submit attribution, and subresource
+lifetime dry-runs. Runs that need those rows without writing a graph can set
+`PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS=1`. Ordinary timed runs leave those rows
+off and keep aggregate counters only, so timing is not dominated by
+string-keyed diagnostic map construction.
 `StackRegionSegmentPlan.v0` records the generic plan evidence for that choice.
 It emits a summary row even when segmentation rejects, and per-segment rows
 when candidate segments are computed. Rows carry only generic inputs and

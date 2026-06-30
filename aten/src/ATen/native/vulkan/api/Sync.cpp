@@ -2951,6 +2951,15 @@ const char* stack_region_dependency_graph_path() {
   return (env && *env) ? env : nullptr;
 }
 
+bool stack_diagnostic_rows_enabled() {
+  const char* env = std::getenv("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS");
+  if (env != nullptr && *env != '\0') {
+    const std::string value(env);
+    return value != "0" && value != "false" && value != "False";
+  }
+  return stack_region_dependency_graph_path() != nullptr;
+}
+
 bool stack_region_dependency_graph_summary_only() {
   const char* env = std::getenv("PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE");
   if (env == nullptr || *env == '\0') {
@@ -29378,6 +29387,9 @@ void note_stack_retire_drain_blocker_resource(
     const VulkanStackRetireProvenance& provenance,
     const VulkanStackRawResourceAllocationProof& allocation_proof,
     const std::string& allocation_label) {
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
+  }
   const char* reason =
       stack_drain_blocker_reason(kind, role, provenance, qkv_would_batch);
   const VulkanStackTempLifetimeSafety safety =
@@ -29524,6 +29536,10 @@ void note_stack_retire_drain_blocker_summary(
   counters.qkv_hypothetical_bytes.fetch_add(
       qkv_hypothetical_bytes, std::memory_order_relaxed);
 
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
+  }
+
   std::ostringstream key;
   key << "summary=1 phase=" << submit_phase_name(phase)
       << " callsite=" << retire_call_site_name(callsite)
@@ -29567,6 +29583,9 @@ void note_stack_retire_drain_copresent_group(
     const bool skipped_no_old_path_pending,
     const std::string& signature,
     const std::string& blockers) {
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
+  }
   std::ostringstream key;
   key << "copresent_group=1 phase=" << submit_phase_name(phase)
       << " callsite=" << retire_call_site_name(callsite)
@@ -29600,6 +29619,9 @@ void note_region_lifetime_submit_attribution_group(
     const uint64_t pending_bytes,
     const std::string& signature,
     const std::string& blockers) {
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
+  }
   std::ostringstream key;
   key << "group=1 origin=" << submit_origin_name(origin)
       << " phase=" << submit_phase_name(phase)
@@ -29634,6 +29656,9 @@ void note_region_lifetime_submit_attribution_resource(
     const VulkanStackRetireProvenance& provenance,
     const VulkanStackRawResourceAllocationProof& allocation_proof,
     const std::string& allocation_label) {
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
+  }
   const bool qkv_would_batch =
       is_qkv_stack_temp_retire_batch_candidate(provenance);
   const char* const resource_class =
@@ -30175,6 +30200,10 @@ void note_stack_subresource_lifetime_dry_run_resource(
         bytes, std::memory_order_relaxed);
   }
 
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
+  }
+
   std::ostringstream key;
   key << "resource=1 class=" << resource_class
       << " safe_candidate=" << (safe_candidate ? 1 : 0)
@@ -30335,6 +30364,10 @@ void note_stack_subresource_lifetime_dry_run_group(
         1u, std::memory_order_relaxed);
   } else if (budget_reject == "large_backing_excluded") {
     counters.rejected_large_backing.fetch_add(1u, std::memory_order_relaxed);
+  }
+
+  if (!stack_diagnostic_rows_enabled()) {
+    return;
   }
 
   std::ostringstream key;

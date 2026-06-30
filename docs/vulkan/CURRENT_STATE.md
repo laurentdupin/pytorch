@@ -1,7 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after dispatch-budget segment sequence-scope
-classification.
+Last refreshed: 2026-06-30 after stack diagnostic row gating.
 
 ## Repo State Summary
 
@@ -122,6 +121,13 @@ binding arrays. The mode is diagnostic-only: it does not change recording,
 submit, cleanup, retire, or segment-admission behavior. It exists because
 repeated `vits_140` bridge graph dumps can otherwise grow into hundreds of MB
 before producing timing results.
+Detailed stack retire/lifetime attribution rows are now opt-in through either
+`PYTORCH_VULKAN_STACK_DEP_GRAPH=<path>` or
+`PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS=1`. Normal timed runs keep aggregate
+numeric counters but do not build the heavy string-keyed retire-blocker,
+region-lifetime-attribution, or subresource dry-run row maps. This preserves
+the graph/proof surface for explicit diagnostic runs while keeping ordinary
+performance measurements from paying for diagnostic row construction.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
