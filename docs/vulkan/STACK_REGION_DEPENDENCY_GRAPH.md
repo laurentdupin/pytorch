@@ -155,7 +155,13 @@ when a stack-owner recording scope ends. The v0 schema is
   downstream consumer context/id/input slot, expected consumer shape/layout,
   and booleans for same planned region, Python public boundary, host-visible
   boundary, host-visible access, and host readback before consumption. These
-  rows only feed graph proof diagnostics; they do not authorize sync removal.
+  rows also carry producer identity fields when the registration point has a
+  producer tensor. The current private bridge registration is emitted before
+  the captured tensor exists, so it reports
+  `producer_identity_unavailable_registration_emitted_before_capture_tensor`;
+  runtime allocation identity for the same edge still comes from stack-lifetime
+  rows. Registration rows only feed graph proof diagnostics; they do not
+  authorize sync removal.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records

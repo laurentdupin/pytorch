@@ -839,6 +839,21 @@ sync readback zero, and buffer copies zero. The measurement window accepted
 `stack_qkv_output`, and `stack_residual1_output`; the only rejected stack role
 remained `stack_residual2_output`, because those rows are requested/final
 capture outputs.
+A follow-up graph/benchmark proof keeps that rejection explicit while exposing
+the private bridge dependency. `StackOutputToDeviceConsumerBridgeContract.v0`
+registrations are emitted before the captured tensor object exists, so their
+producer identity fields now report
+`producer_identity_unavailable_registration_emitted_before_capture_tensor`
+instead of silently omitting identity. The runtime allocation identity is still
+recovered from stack-lifetime rows. The DAv2 dry-run summary now consumes both
+`explicit_synchronize` and `retire_queue_drain` stack-owner phase-boundary rows;
+a focused one-repeat `vits_140` `segmented_stack_wide4_to_exit` run with
+`StackScopeRetireHandoffContract.v0` reported 12 proven private bridge
+dependency records for blocks 2, 5, and 8, zero missing runtime identity, and
+12 candidate phase-boundary/retire-drain queue-submit records. Block 11 remains
+excluded as final output. This is proof-only: the next behavior target is a
+private bridge capture handoff / decoder-consumer ownership contract, not
+admitting `stack_residual2_output` into the generic stack-internal retire batch.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
 now covers the graph-pending bytes, but raw resource-count coverage remains
 partial because metadata/uniform bookkeeping entries are not stack-internal

@@ -339,6 +339,13 @@ struct VulkanStackOutputDeviceConsumerRegistration final {
   std::string captured_substep = "unknown";
   std::string output_role = "unknown";
   std::vector<int64_t> output_shape;
+  std::string producer_allocation_identity_status = "not_recorded";
+  std::string producer_identity_source = "not_recorded";
+  uint64_t producer_allocation_id = 0u;
+  uint64_t producer_allocation_generation = 0u;
+  uint64_t producer_byte_offset = 0u;
+  uint64_t producer_byte_range = 0u;
+  std::string producer_allocation_label = "unknown";
   std::string stack_context_id = "unknown";
   std::string stack_session_id = "unknown";
   std::string stack_plan_id = "unknown";

@@ -1619,8 +1619,9 @@ def build_stack_owner_planned_dependency_dry_run(
     missing_runtime_identity_records = 0
     for row in rows:
         fields = _parse_vulkan_snapshot_fields(row)
+        origin = fields.get("origin")
         if (
-            fields.get("origin") != "explicit_synchronize"
+            origin not in {"explicit_synchronize", "retire_queue_drain"}
             or fields.get("phase") != "stack_owner"
             or fields.get("callsite") != "stack_owner_phase_boundary"
             or fields.get("role") != "stack_residual2_output"
@@ -1728,6 +1729,9 @@ def build_stack_owner_planned_dependency_dry_run(
         "proven_queue_submit_records": proven_queue_submit_records,
         "would_replace_phase_boundary_syncs": 0,
         "would_replace_phase_boundary_syncs_if_barrier_hook_existed": (
+            proven_queue_submit_records if replaceable_without_runtime_hook else 0
+        ),
+        "would_replace_phase_boundary_or_retire_drain_syncs_if_barrier_hook_existed": (
             proven_queue_submit_records if replaceable_without_runtime_hook else 0
         ),
         "bytes": bytes_seen,

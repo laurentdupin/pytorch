@@ -11989,6 +11989,9 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     registration.captured_substep = "residual2";
     registration.output_role = "stack_residual2_output";
     registration.output_shape = bridge_capture_shape;
+    registration.producer_allocation_identity_status =
+        "producer_identity_unavailable_registration_emitted_before_capture_tensor";
+    registration.producer_identity_source = "pre_capture_registration";
     registration.stack_context_id = planned_region_context.stack_context_id;
     registration.stack_session_id = planned_region_context.bridge_session_id;
     registration.stack_plan_id = planned_region_context.stack_plan_id;

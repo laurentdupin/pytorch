@@ -33098,6 +33098,28 @@ void note_stack_output_device_consumer_registration(
       << " captured_substep=" << registration.captured_substep
       << " output_role=" << registration.output_role
       << " output_shape=" << format_sizes(registration.output_shape)
+      << " producer_allocation_identity_status="
+      << registration.producer_allocation_identity_status
+      << " producer_identity_source=" << registration.producer_identity_source
+      << " producer_allocation_id=" << registration.producer_allocation_id
+      << " producer_allocation_generation="
+      << registration.producer_allocation_generation
+      << " producer_byte_offset=" << registration.producer_byte_offset
+      << " producer_byte_range=" << registration.producer_byte_range
+      << " producer_allocation_label="
+      << registration.producer_allocation_label
+      << " allocation_id=" << registration.producer_allocation_id
+      << " allocation_generation="
+      << registration.producer_allocation_generation
+      << " allocation_has_generation="
+      << (registration.producer_allocation_id != 0u &&
+              registration.producer_allocation_generation != 0u
+          ? 1
+          : 0)
+      << " byte_offset=" << registration.producer_byte_offset
+      << " byte_range=" << registration.producer_byte_range
+      << " allocation_has_byte_range="
+      << (registration.producer_byte_range != 0u ? 1 : 0)
       << " stack_context_id=" << registration.stack_context_id
       << " stack_session_id=" << registration.stack_session_id
       << " stack_plan_id=" << registration.stack_plan_id

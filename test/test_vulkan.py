@@ -37503,6 +37503,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in registrations
                 )
             )
+            self.assertTrue(
+                any(
+                    row["fields"].get("producer_allocation_identity_status")
+                    == (
+                        "producer_identity_unavailable_"
+                        "registration_emitted_before_capture_tensor"
+                    )
+                    and row["fields"].get("producer_identity_source")
+                    == "pre_capture_registration"
+                    and row["fields"].get("allocation_has_generation") == "0"
+                    and row["fields"].get("allocation_has_byte_range") == "0"
+                    for row in registrations
+                )
+            )
             capture_contract = graph["capture_output_boundary_contract"]
             self.assertGreaterEqual(
                 capture_contract["consumer_registration_records"], 0
