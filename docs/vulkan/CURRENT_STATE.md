@@ -39,6 +39,11 @@ A separate no-graph three-repeat timing run measured about 74.8 ms mean /
 76.1 ms median / 78.3 ms p95 for device-resident forward with bridge sanity
 passing at max_abs `2.507120370864868e-06`. This is opt-in canary evidence,
 not a production default.
+The same wide4 canary is also cataloged for `vits_280` / `280x420`: segment
+plan evidence passes with the same 20 accepted / 36 rejected row split, and a
+separate no-graph three-repeat timing run measured about 91.9 ms mean /
+91.7 ms median / 107.5 ms p95 device-resident forward with bridge sanity
+passing at max_abs `4.291534423828125e-06`.
 
 ## DAv2 Stack Region Policy Lock
 
