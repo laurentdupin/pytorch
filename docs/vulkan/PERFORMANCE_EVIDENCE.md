@@ -16,6 +16,14 @@ what was the decision?
 The machine-readable ledger is
 `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json`.
 
+Depth Anything V2 benchmark artifacts also include
+`vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
+present in the Vulkan debug snapshot. Treat that field as the per-run catalog
+for segmented stack-owned recording: it records observed modes, status/fail
+reason counts, dispatch-budget counts, and sampled segment rows for the
+measured model/input. Promote durable decisions from that artifact into the
+manifest instead of leaving them only in ignored `agent_space` files.
+
 ## Status Values
 
 - `accepted_default_fix`: behavior has been accepted as the normal safe path.
@@ -41,6 +49,12 @@ Before trying a Vulkan performance candidate, search the manifest by:
 - candidate id
 - shader/kernel/route label
 - device and driver notes
+
+For segmented stack-owned recording, also inspect the benchmark artifact's
+`vulkan_stack_region_segment_plan` field when it is available. If a mode is
+already cataloged as accepted, slower, rejected, or unsafe for the same
+model/input/device/topology, update the existing evidence entry instead of
+rerunning the same diagnostic sweep.
 
 Add or update an entry when a task:
 

@@ -154,3 +154,8 @@ fusion path, replay shortcut, or other execution-plan candidate. A
 recorded device/input/topology did not justify promoting that plan. A future
 autotune or device-keyed plan cache may revisit it only under the entry's
 `revisit_conditions`.
+
+For Depth Anything V2 segmented stack-owned recording runs, first inspect the
+benchmark artifact's `vulkan_stack_region_segment_plan` field. It is the
+per-run catalog for `StackRegionSegmentPlan.v0` rows and should be promoted to
+the performance evidence manifest whenever it changes a durable decision.

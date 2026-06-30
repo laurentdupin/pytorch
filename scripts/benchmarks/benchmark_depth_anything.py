@@ -1231,6 +1231,11 @@ def _counter_as_int(value: Any) -> int:
         return 0
 
 
+def _increment_count(counts: dict[str, int], key: Any, count: int = 1) -> None:
+    normalized = str(key) if key not in {None, ""} else "unknown"
+    counts[normalized] = counts.get(normalized, 0) + count
+
+
 def _field_bool(fields: dict[str, str], key: str) -> bool | str:
     if key not in fields:
         return "unknown"
@@ -1259,6 +1264,119 @@ def _bridge_snapshot_rows(
     if isinstance(rows, list):
         return "total", rows
     return "unavailable", []
+
+
+def _stack_region_segment_plan_rows(
+    debug_counters: dict[str, Any],
+) -> list[dict[str, str]]:
+    rows = debug_counters.get("stack_dispatch_dependency_dry_run_snapshot")
+    if not isinstance(rows, list):
+        return []
+    segment_rows: list[dict[str, str]] = []
+    for row in rows:
+        fields = _parse_vulkan_snapshot_fields(row)
+        if fields.get("schema") == "StackRegionSegmentPlan.v0":
+            segment_rows.append(fields)
+    return segment_rows
+
+
+def build_vulkan_stack_region_segment_plan_summary(
+    debug_counters: dict[str, Any],
+) -> dict[str, Any]:
+    """Summarize StackRegionSegmentPlan.v0 rows for benchmark evidence lookup."""
+    rows = _stack_region_segment_plan_rows(debug_counters)
+    row_kind_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    fail_reason_counts: dict[str, int] = {}
+    coverage_counts: dict[str, int] = {}
+    owned_command_buffer_mode_counts: dict[str, int] = {}
+    segment_planned_dispatch_limit_counts: dict[str, int] = {}
+    segment_rows: list[dict[str, Any]] = []
+    accepted_rows = 0
+    rejected_rows = 0
+    observed_row_count = 0
+    max_planned_dispatch_count = 0
+    max_segment_planned_dispatch_count = 0
+    for fields in rows:
+        count = _counter_as_int(fields.get("count")) or 1
+        observed_row_count += count
+        row_kind = fields.get("row_kind", "unknown")
+        status = fields.get("segment_plan_status", "unknown")
+        fail_reason = fields.get("segment_plan_fail_reason", "unknown")
+        coverage = fields.get("segment_plan_coverage", "unknown")
+        mode = fields.get("owned_command_buffer_mode", "unknown")
+        _increment_count(row_kind_counts, row_kind, count)
+        _increment_count(status_counts, status, count)
+        _increment_count(fail_reason_counts, fail_reason, count)
+        _increment_count(coverage_counts, coverage, count)
+        _increment_count(owned_command_buffer_mode_counts, mode, count)
+        _increment_count(
+            segment_planned_dispatch_limit_counts,
+            fields.get("segment_planned_dispatch_limit"),
+            count,
+        )
+        accepted = "available" in status and fail_reason == "none"
+        if accepted:
+            accepted_rows += count
+        else:
+            rejected_rows += count
+        planned_dispatch_count = _counter_as_int(
+            fields.get("segment_planned_dispatch_count")
+        )
+        max_planned_dispatch_count = max(
+            max_planned_dispatch_count,
+            planned_dispatch_count,
+        )
+        if row_kind == "segment" and len(segment_rows) < 32:
+            max_segment_planned_dispatch_count = max(
+                max_segment_planned_dispatch_count,
+                planned_dispatch_count,
+            )
+            segment_rows.append(
+                {
+                    "owned_command_buffer_mode": mode,
+                    "segment_index": fields.get("segment_index", "unknown"),
+                    "segment_start": fields.get("segment_start", "unknown"),
+                    "segment_end": fields.get("segment_end", "unknown"),
+                    "segment_plan_coverage": coverage,
+                    "segment_plan_status": status,
+                    "segment_plan_fail_reason": fail_reason,
+                    "segment_planned_dispatch_count": planned_dispatch_count,
+                    "segment_planned_dispatch_limit": _counter_as_int(
+                        fields.get("segment_planned_dispatch_limit")
+                    ),
+                    "count": count,
+                }
+            )
+    return {
+        "contract_name": "StackRegionSegmentPlan.v0",
+        "source_counter": "stack_dispatch_dependency_dry_run_snapshot",
+        "available": bool(rows),
+        "phase_source": "total",
+        "behavior_changed": False,
+        "row_count": len(rows),
+        "observed_row_count": observed_row_count,
+        "accepted_row_count": accepted_rows,
+        "rejected_row_count": rejected_rows,
+        "row_kind_counts": row_kind_counts,
+        "status_counts": status_counts,
+        "fail_reason_counts": fail_reason_counts,
+        "coverage_counts": coverage_counts,
+        "owned_command_buffer_mode_counts": owned_command_buffer_mode_counts,
+        "segment_planned_dispatch_limit_counts": (
+            segment_planned_dispatch_limit_counts
+        ),
+        "segment_row_count": row_kind_counts.get("segment", 0),
+        "max_planned_dispatch_count": max_planned_dispatch_count if rows else None,
+        "max_segment_planned_dispatch_count": (
+            max_segment_planned_dispatch_count if rows else None
+        ),
+        "segments": segment_rows,
+        "catalog_note": (
+            "Benchmark-local summary of recorded StackRegionSegmentPlan.v0 rows; "
+            "used for evidence lookup only, not production routing."
+        ),
+    }
 
 
 def _bridge_stack_capture_storage_rows(
@@ -1842,6 +1960,11 @@ def install_failure_artifact_hook(
                 if device_kind == "vulkan"
                 else None
             )
+            segment_plan_summary = (
+                build_vulkan_stack_region_segment_plan_summary(debug_counters)
+                if device_kind == "vulkan"
+                else None
+            )
             out_path = output_path_from_args(args)
             result = {
                 "benchmark_name": "benchmark_depth_anything",
@@ -1898,6 +2021,7 @@ def install_failure_artifact_hook(
                 "vulkan_stack_owner_planned_dependency_dry_run": (
                     planned_dependency_dry_run
                 ),
+                "vulkan_stack_region_segment_plan": segment_plan_summary,
                 "allocation_failure_snapshot": debug_counters.get(
                     "last_allocation_failure_snapshot",
                     [],
@@ -2585,6 +2709,11 @@ def run() -> None:
         if device_kind == "vulkan"
         else None
     )
+    segment_plan_summary = (
+        build_vulkan_stack_region_segment_plan_summary(debug_counters)
+        if device_kind == "vulkan"
+        else None
+    )
     bridge_sanity = failure_context.get("vulkan_stack_output_device_bridge_sanity")
     bridge_sanity_failed = (
         isinstance(bridge_sanity, dict)
@@ -2651,6 +2780,7 @@ def run() -> None:
         "vulkan_stack_owner_planned_dependency_dry_run": (
             planned_dependency_dry_run
         ),
+        "vulkan_stack_region_segment_plan": segment_plan_summary,
         "vulkan_model_probe": probe_summary,
         "performance_valid": not bool(invalid_reasons),
         "performance_invalid_reasons": invalid_reasons,

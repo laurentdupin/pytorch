@@ -1,6 +1,6 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after DAv2 prepack synchronize attribution.
+Last refreshed: 2026-06-30 after DAv2 segment-plan evidence cataloging.
 
 ## Repo State Summary
 
@@ -23,6 +23,12 @@ The DAv2 benchmark now fails this unsafe repeated context-owned bridge topology
 before native execution and writes a JSON failure artifact pointing to the
 performance evidence manifest. One-repeat bridge sanity checks and bounded
 segmented stack-owned modes remain allowed.
+Depth Anything V2 benchmark artifacts now also include a compact
+`vulkan_stack_region_segment_plan` summary when `StackRegionSegmentPlan.v0`
+rows are present in the debug snapshot. This summary records the observed
+segment-plan modes, statuses, fail reasons, dispatch budgets, and sampled
+segment rows for the measured shape/topology. It is evidence lookup metadata
+only and must not be used as a production route table.
 
 ## DAv2 Stack Region Policy Lock
 

@@ -1870,6 +1870,81 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertTrue(cpu["allowed"])
 
+    def test_vulkan_depth_anything_segment_plan_summary_from_rows(self):
+        benchmark = self._depth_anything_benchmark_module()
+
+        summary = benchmark.build_vulkan_stack_region_segment_plan_summary(
+            {
+                "stack_dispatch_dependency_dry_run_snapshot": [
+                    (
+                        "StackRegionSegmentPlan.v0 schema=StackRegionSegmentPlan.v0 "
+                        "row_kind=summary "
+                        "owned_command_buffer_mode=segmented_stack_wide4_to_exit "
+                        "segment_plan_coverage=prefix "
+                        "segment_plan_status=wide4_segment_plan_available_behavior_canary "
+                        "segment_plan_fail_reason=none "
+                        "segment_planned_dispatch_count=96 "
+                        "segment_planned_dispatch_limit=48 count=1"
+                    ),
+                    (
+                        "StackRegionSegmentPlan.v0 schema=StackRegionSegmentPlan.v0 "
+                        "row_kind=segment "
+                        "owned_command_buffer_mode=segmented_stack_wide4_to_exit "
+                        "segment_index=0 segment_start=0 segment_end=4 "
+                        "segment_plan_coverage=prefix "
+                        "segment_plan_status=wide4_segment_plan_available_behavior_canary "
+                        "segment_plan_fail_reason=none "
+                        "segment_planned_dispatch_count=48 "
+                        "segment_planned_dispatch_limit=48 count=2"
+                    ),
+                    (
+                        "StackRegionSegmentPlan.v0 schema=StackRegionSegmentPlan.v0 "
+                        "row_kind=summary "
+                        "owned_command_buffer_mode=segmented_stack_prefix_to_exit "
+                        "segment_plan_coverage=none "
+                        "segment_plan_status=segment_plan_rejected_behavior_neutral "
+                        "segment_plan_fail_reason=segment_planned_dispatch_limit_exceeded "
+                        "segment_planned_dispatch_count=64 "
+                        "segment_planned_dispatch_limit=24 count=3"
+                    ),
+                    "OtherRow schema=SomethingElse row_kind=ignored count=100",
+                ]
+            }
+        )
+
+        self.assertEqual(summary["contract_name"], "StackRegionSegmentPlan.v0")
+        self.assertTrue(summary["available"])
+        self.assertEqual(summary["row_count"], 3)
+        self.assertEqual(summary["observed_row_count"], 6)
+        self.assertEqual(summary["accepted_row_count"], 3)
+        self.assertEqual(summary["rejected_row_count"], 3)
+        self.assertEqual(summary["row_kind_counts"]["summary"], 4)
+        self.assertEqual(summary["row_kind_counts"]["segment"], 2)
+        self.assertEqual(
+            summary["status_counts"]["wide4_segment_plan_available_behavior_canary"],
+            3,
+        )
+        self.assertEqual(
+            summary["fail_reason_counts"]["segment_planned_dispatch_limit_exceeded"],
+            3,
+        )
+        self.assertEqual(
+            summary["owned_command_buffer_mode_counts"][
+                "segmented_stack_wide4_to_exit"
+            ],
+            3,
+        )
+        self.assertEqual(summary["segment_planned_dispatch_limit_counts"]["48"], 3)
+        self.assertEqual(summary["segment_row_count"], 2)
+        self.assertEqual(summary["max_planned_dispatch_count"], 96)
+        self.assertEqual(summary["max_segment_planned_dispatch_count"], 48)
+        self.assertEqual(len(summary["segments"]), 1)
+        self.assertEqual(summary["segments"][0]["segment_end"], "4")
+        self.assertEqual(
+            summary["segments"][0]["owned_command_buffer_mode"],
+            "segmented_stack_wide4_to_exit",
+        )
+
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
         self.assertEqual(summary["specs"], 33)
