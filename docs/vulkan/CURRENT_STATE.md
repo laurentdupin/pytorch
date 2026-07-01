@@ -1,12 +1,45 @@
 # Vulkan Current State
 
-Last refreshed: 2026-06-30 after DAv2 segment-plan evidence cataloging.
+Last refreshed: 2026-07-01 after DAv2 multi-GPU conv workgroup evidence and
+vitl native private-baton deep-split bridge work.
 
 ## Repo State Summary
 
 The Vulkan backend planning direction is now repo-local in `docs/vulkan`.
 Ignored `agent_space` artifacts remain evidence inputs, not production
 dependencies.
+
+`conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
+`Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket
+16x4x1 default and a bounded large-spatial/high-output-channel heuristic as
+default behavior: RX 9070 `vits_280` improved, but RX 9070 `vits_140` regressed
+and the GTX 1080 `vits_280` segmented guardrail was worse/noisy. This is
+cataloged as performance-plan evidence rather than promoted. The previous 16x8
+workgroup candidate remains cataloged as slower, and the separate 768x768
+stride-2 pad-1 shader-routing canary is kept as negative ignored-artifact
+evidence rather than promoted.
+
+A focused GPU timestamp attribution pass on DAv2 `vitb_140` found the RX 9070
+vs RX 6700 XT gap is mostly buffer-conv kernel throughput, not the graph,
+transition, submit, retire, copy, or readback layer. On that row, RX 9070 spent
+about 170.7 ms in `conv2d_buffer_float_3x3_s1p1` family kernels versus about
+112.8 ms on RX 6700 XT, and about 118.2 ms in generic `conv2d_buffer_float`
+versus about 62.3 ms on RX 6700 XT. GTX 1080 underperformance is broader but
+still dominated by buffer conv plus copy/buffer movement. The next performance
+target is a proper `VulkanConvPlanKey`/candidate-plan tuning path for buffer
+conv families, not another static workgroup default.
+
+The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
+path enforces the same max-12-block proven-depth guard as the benchmark control
+plane by default. Direct native callers with deeper stack-output bridge contexts
+fail closed with `stack_output_bridge_depth_exceeds_proven_rowset` and point to
+`StackOutputBridgeDeepSplitPlanRuntime.v0` instead of rediscovering the `vitl`
+stack-overflow path. An opt-in
+`PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton` runtime now
+splits deeper stacks into <=12-block native chunks, keeps the inter-chunk baton
+device-private, and feeds the captured tensors directly to the decoder-preprocess
+bridge. The unsafe benchmark-mediated `python_private_baton` mode remains
+blocked.
 
 `docs/vulkan/PERFORMANCE_EVIDENCE.md` and
 `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` now hold
@@ -70,22 +103,21 @@ sanity passed with max_abs `3.5762786865234375e-06`, CPU fallback/readback were
 zero, the graph catalog showed the same 20 accepted / 36 rejected
 `StackRegionSegmentPlan.v0` rows, and a separate no-graph three-repeat timing
 run measured about 110.2 ms mean / 109.2 ms median / 112.4 ms p95
-device-resident forward. `vitl_140` remains unsafe blocked on the same canary:
-normal no-bridge execution succeeds, and a marker probe showed reference-first
-bridge sanity plus one bridge forward can complete, but a second bridge forward
-overflows the 24-block stack with Windows `-1073741571`. The benchmark now
-fails unproven stack-output bridge requests when `block_count > 12`, writing a
-structured failure artifact instead of rediscovering the process-level crash.
-That artifact includes `StackOutputBridgeDeepSplitPlan.v0`: for `vitl_140`,
-the behavior-neutral plan has two 12-block chunks, captures `[4, 11]` in chunk
-0 and `[17, 23]` in chunk 1, and an explicit private-baton requirement between
-chunks. The runtime for that topology is not implemented, so `vitl` remains
-blocked. A benchmark-local `python_private_baton` canary for that topology was
-also tried and rejected: it still overflows the native stack inside
-`run_vision_backbone_stack_private_capture_debug`, so the benchmark now records
-that mode as unsafe-blocked metadata and fails closed before native execution.
-Do not infer `vitl` support from `vits` or `vitb`, and do not retry the
-Python-mediated baton path as the next runtime proof.
+device-resident forward. `vitl_140` no longer needs to rediscover the old
+process-level stack overflow to make progress: the default path still fails
+closed for `block_count > 12`, but the opt-in native private-baton deep-split
+runtime can run the 24-block stack as two 12-block native chunks. A focused
+`vitl_140` smoke wrote a valid artifact with bridge sanity passing at max_abs
+`0.0001220703125`, `cpu_fallback=0`, and `sync_readback=0`; a separate
+10-repeat run also completed without Windows stack overflow and kept the same
+correctness/counter state, measuring about 237.5 ms mean / 221.2 ms median /
+305.8 ms p95 for device-resident forward. This is accepted canary evidence for
+`StackOutputBridgeDeepSplitPlanRuntime.v0`, not a default and not a
+`StackRegionSegmentPlan.v0` rowset expansion. The benchmark-local
+`python_private_baton` canary remains unsafe blocked because it overflows inside
+`run_vision_backbone_stack_private_capture_debug`. Do not infer broad `vitl`
+support from `vits` or `vitb`, and do not retry the Python-mediated baton path
+as the next runtime proof.
 
 ## DAv2 Stack Region Policy Lock
 

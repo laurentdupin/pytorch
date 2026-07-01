@@ -652,12 +652,11 @@
         "agent_space/dav2_vitl140_bridge_depth_guard_failure.json",
         "agent_space/dav2_vitl140_bridge_deep_split_guard_failure.json"
       ],
-      "decision": "Do not run vitl_140 through the stack-output bridge until the deep split runtime is implemented and proven. The benchmark now fails this row closed through the stack-depth guard and reports the required chunked private-baton topology instead of rediscovering the native stack overflow.",
+      "decision": "Keep as historical unsafe evidence for the context-owned 24-block bridge topology. Do not rerun this path to rediscover the stack overflow; use the native private-baton deep-split canary evidence instead.",
       "revisit_conditions": [
-        "Implement StackOutputBridgeDeepSplitPlanRuntime.v0 with private baton handoff between chunks.",
-        "Prove repeated bridge execution for a 24-block stack without process-level stack overflow.",
-        "Require a vitl_140 bridge run to write a valid result artifact with bridge sanity before collecting timing.",
-        "Keep vitl out of accepted StackRegionSegmentPlan rowsets until correctness and process stability are proven."
+        "Only revisit the context-owned 24-block bridge topology if stack execution ownership changes enough to remove the original process-level stack overflow cause.",
+        "Keep vitl out of accepted StackRegionSegmentPlan rowsets until separate segment-plan correctness and process stability are proven.",
+        "Do not infer this historical unsafe topology from the native deep-split canary."
       ]
     },
     {
@@ -705,6 +704,66 @@
       ]
     },
     {
+      "id": "dav2_vitl140_native_private_baton_deep_split_canary_2026_07_01",
+      "status": "accepted_canary",
+      "head": "local_native_private_baton_deep_split_runtime",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitl",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 evidence. The runtime is guarded by PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton or =1; it is not a production default.",
+      "contract_or_topology_scope": [
+        "StackOutputBridgeDeepSplitPlan.v0",
+        "StackOutputBridgeDeepSplitPlanRuntime.v0",
+        "native private-baton stack-output bridge",
+        "StackOutputToDeviceConsumerBridgeContract"
+      ],
+      "candidate": "Split a 24-block stack-output bridge into two <=12-block native chunks, use the final chunk-0 capture as a device-private baton, map global capture slots back to decoder order, and keep LayerNorm plus decoder-preprocess consumption inside the native bridge.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 0.0001220703125,
+        "mean_abs": 1.4314996406028513e-05,
+        "tests": [
+          "TestVulkanGovernance.test_vulkan_stack_output_bridge_depth_gate_blocks_unproven_stack",
+          "TestVulkanEagerRuntime.test_vulkan_stack_capture_decoder_bridge_rejects_unproven_depth_native",
+          "TestVulkanEagerRuntime.test_vulkan_stack_capture_decoder_bridge_deep_split_native_canary",
+          "TestVulkanEagerRuntime.test_vulkan_stack_capture_deep_split_bridge_graph_handoff_contract",
+          "focused DAv2 vitl_140 native_private_baton bridge sanity run",
+          "focused DAv2 vitl_140 native_private_baton 10-repeat run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "deep_split_plan_runtime_implemented": true,
+        "deep_split_plan_chunk_count": 2,
+        "python_boundary_before_decoder": false,
+        "host_readback_before_decoder": false,
+        "process_stack_overflow_observed": false
+      },
+      "timing_ms": {
+        "device_resident_mean": 237.456,
+        "device_resident_median": 221.223,
+        "device_resident_p95": 305.763,
+        "repeat_count": 10,
+        "timing_claim": "coverage_and_process_stability_only"
+      },
+      "artifacts": [
+        "agent_space/dav2_vitl140_deep_split_native_private_baton_check.json",
+        "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat3.json",
+        "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat10.json"
+      ],
+      "decision": "Accept as an opt-in deep-stack bridge canary that fixes the vitl_140 stack-output bridge coverage blocker without using the unsafe Python-mediated baton. Do not promote as default and do not treat this as StackRegionSegmentPlan.v0 rowset evidence.",
+      "revisit_conditions": [
+        "Run multi-resolution or multi-GPU timing before making any performance claim.",
+        "Add graph/handoff assertions if this canary becomes a default candidate.",
+        "Keep python_private_baton unsafe-blocked unless its native stack usage is fixed independently.",
+        "Do not broaden beyond the max-12-block chunk rule without separate evidence."
+      ]
+    },
+    {
       "id": "dav2_stack_output_bridge_depth_guard_2026_07_01",
       "status": "accepted_default_fix",
       "head": "post_b976d136cfc1_guard_cl",
@@ -726,7 +785,8 @@
           "TestVulkanGovernance.test_vulkan_stack_output_bridge_depth_gate_blocks_unproven_stack",
           "focused vitb_140 bridge guard positive run remains valid",
           "focused vitl_140 bridge guard emits StackOutputBridgeDeepSplitPlan.v0 payload",
-          "focused vitl_140 bridge guard writes failure artifact"
+          "focused vitl_140 bridge guard writes failure artifact",
+          "focused native_private_baton deep split canary allows proven deep-stack runtime"
         ]
       },
       "counters": {
@@ -737,7 +797,8 @@
         "vitb140_positive_run_sync_readback": 0,
         "deep_split_plan_available_for_vitl140": true,
         "deep_split_plan_chunk_count_for_vitl140": 2,
-        "deep_split_plan_runtime_implemented": false
+        "deep_split_plan_runtime_implemented": true,
+        "native_private_baton_canary_required_for_deep_stacks": true
       },
       "timing_ms": {
         "vitb140_positive_single_repeat_device_resident_mean": 102.165
@@ -748,11 +809,11 @@
         "agent_space/dav2_vitb140_bridge_depth_guard_positive.json",
         "agent_space/dav2_vitl140_bridge_deep_split_guard_failure.json"
       ],
-      "decision": "Keep the depth guard so unproven deep stack-output bridge rows fail with a structured artifact. The guard now also reports the behavior-neutral StackOutputBridgeDeepSplitPlan.v0 topology required for 24-block stacks; this does not make vitl an accepted bridge rowset.",
+      "decision": "Keep the depth guard so unproven deep stack-output bridge rows fail with a structured artifact unless the native private-baton deep-split canary is explicitly requested. This does not make vitl an accepted StackRegionSegmentPlan rowset.",
       "revisit_conditions": [
-        "Only raise or remove the 12-block limit after StackOutputBridgeDeepSplitPlanRuntime.v0 proves private-baton chunk execution.",
+        "Only raise or remove the 12-block default limit after the native deep-split runtime has longer repeat-count and multi-row evidence.",
         "Require repeated deep-stack bridge execution to complete without stack overflow and have bridge sanity, cpu_fallback=0, and sync_readback=0.",
-        "Keep vitl out of accepted bridge rowsets until the deep split runtime is implemented and proven.",
+        "Keep vitl out of accepted segment-plan rowsets until separate segment-plan evidence is proven.",
         "Do not bypass this guard with a model-name exception."
       ]
     },
@@ -881,6 +942,139 @@
         "Only revisit under a device/driver-keyed VulkanConvPlan autotune experiment.",
         "Only revisit if the 3x3 shader implementation changes enough to invalidate this workgroup comparison.",
         "Do not rerun as another static default proposal for the same shader and device evidence."
+      ]
+    },
+    {
+      "id": "conv3x3_s1p1_workgroup_spatial_channel_heuristic_multi_gpu_dav2_2026_07_01",
+      "status": "rejected_slower",
+      "head": "008f45473374",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits/vitb",
+        "input": "vits_140x210, vits_280x420, and vitb_140x210"
+      },
+      "device_notes": "Checked on RX 9070, RX 6700 XT, and GTX 1080. The plan is a generic conv2d_buffer_float_3x3_s1p1 workgroup choice, not a device-name production route.",
+      "contract_or_topology_scope": [
+        "conv2d_buffer_float_3x3_s1p1",
+        "VulkanConvPlanCandidate",
+        "Kernel3x3Stride1Pad1 large-spatial or high-output-channel workgroup"
+      ],
+      "candidate": "Use 16x4x1 for Kernel3x3Stride1Pad1 rows either as a blanket default or as a spatial/channel heuristic; keep 8x8x1 otherwise for the heuristic variant.",
+      "correctness": {
+        "status": "passed",
+        "max_abs_by_row": {
+          "rx9070_vits_280": 4.291534423828125e-06,
+          "rx6700xt_vits_280": 2.8133392333984375e-05,
+          "gtx1080_vits_280": 4.673004150390625e-05,
+          "rx9070_vitb_140": 3.5762786865234375e-06,
+          "rx6700xt_vitb_140": 5.4836273193359375e-06,
+          "gtx1080_vitb_140": 2.1457672119140625e-05
+        },
+        "tests": [
+          "DAv2 bridge sanity embedded in focused benchmark rows",
+          "TestVulkanEagerRuntime.test_vulkan_stack_capture_decoder_bridge_rejects_unproven_depth_native"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback_rx9070": 0,
+        "sync_readback_rx6700xt": 15,
+        "sync_readback_gtx1080": 15,
+        "performance_valid": true
+      },
+      "timing_ms": {
+        "rx9070_vits_280_baseline_device_resident_mean": 81.872,
+        "rx9070_vits_280_candidate_device_resident_mean": 75.583,
+        "rx6700xt_vits_280_baseline_device_resident_mean": 78.634,
+        "rx6700xt_vits_280_candidate_device_resident_mean": 72.731,
+        "gtx1080_vits_280_baseline_device_resident_mean": 136.885,
+        "gtx1080_vits_280_candidate_device_resident_mean": 128.932,
+        "rx9070_vitb_140_baseline_device_resident_mean": 98.9,
+        "rx9070_vitb_140_candidate_device_resident_mean": 97.965,
+        "rx6700xt_vitb_140_baseline_device_resident_mean": 82.721,
+        "rx6700xt_vitb_140_candidate_device_resident_mean": 77.8,
+        "gtx1080_vitb_140_baseline_device_resident_mean": 194.349,
+        "gtx1080_vitb_140_candidate_device_resident_mean": 184.12,
+        "rx9070_vits_140_baseline_device_resident_mean": 64.169,
+        "rx9070_vits_140_blanket_16x4_device_resident_mean": 66.048,
+        "rx9070_vits_140_heuristic_segmented_device_resident_mean": 67.413,
+        "rx9070_vits_280_heuristic_segmented_device_resident_mean": 75.186,
+        "rx6700xt_vits_280_heuristic_segmented_device_resident_mean": 73.182,
+        "gtx1080_vits_280_heuristic_segmented_device_resident_mean": 140.469,
+        "repeat_count": 10
+      },
+      "artifacts": [
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vits140_rx9070_nolog.json",
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vits280_rx9070_nolog.json",
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vits280_rx6700_nolog.json",
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vits280_gtx1080_nolog.json",
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vitb140_rx9070_nolog.json",
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vitb140_rx6700_nolog.json",
+        "agent_space/rx9070_s1p1_wg16x4_canary_008f454/vitb140_gtx1080_nolog.json",
+        "agent_space/diagnostic_s1p1_workgroup_heuristic_segmented_008f454/summary.json",
+        "agent_space/diagnostic_s1p1_workgroup_heuristic_segmented_008f454/rx9070_vits140.json",
+        "agent_space/diagnostic_s1p1_workgroup_heuristic_segmented_008f454/rx9070_vits280.json",
+        "agent_space/diagnostic_s1p1_workgroup_heuristic_segmented_008f454/rx6700xt_vits280.json",
+        "agent_space/diagnostic_s1p1_workgroup_heuristic_segmented_008f454/gtx1080_vits280.json",
+        "agent_space/rx9070_stride2p1_canary_008f454/vitb140_rx9070_nolog.json"
+      ],
+      "decision": "Do not promote 16x4x1 as a default for Kernel3x3Stride1Pad1. The blanket candidate improved several vits_280/vitb_140 rows but regressed RX 9070 vits_140. The spatial/channel heuristic still regressed RX 9070 vits_140 and was worse/noisy for GTX 1080 vits_280 under the comparable segmented run. Keep the separate 768x768 stride-2 pad-1 shader-routing canary rejected as neutral/slower.",
+      "revisit_conditions": [
+        "Only revisit under a device/driver-keyed VulkanConvPlan autotune system instead of another static default proposal.",
+        "If the 3x3 stride-1 pad-1 shader implementation changes enough to invalidate this workgroup comparison."
+      ]
+    },
+    {
+      "id": "dav2_vitb140_multi_gpu_conv_timestamp_attribution_2026_07_01",
+      "status": "proposed_unstarted",
+      "head": "008f45473374",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vitb",
+        "input": "140x210"
+      },
+      "device_notes": "Timestamped on RX 9070, RX 6700 XT, and GTX 1080 with segmented stack-owned recording. This is attribution evidence, not a production route.",
+      "contract_or_topology_scope": [
+        "VulkanConvPlanKey",
+        "conv2d_buffer_float_3x3_s1p1",
+        "conv2d_buffer_float generic decoder/patch conv",
+        "buffer conv candidate-plan tuning"
+      ],
+      "candidate": "Create a contract-backed conv plan/tuning path for buffer conv families before trying another static workgroup default.",
+      "correctness": {
+        "status": "passed",
+        "max_abs_by_row": {
+          "rx9070_vitb_140": 3.5762786865234375e-06,
+          "rx6700xt_vitb_140": 5.4836273193359375e-06,
+          "gtx1080_vitb_140": 2.1457672119140625e-05
+        },
+        "tests": [
+          "DAv2 bridge sanity embedded in timestamped benchmark rows"
+        ]
+      },
+      "timing_ms": {
+        "rx9070_conv_3x3_s1p1_family": 170.707,
+        "rx6700xt_conv_3x3_s1p1_family": 112.814,
+        "gtx1080_conv_3x3_s1p1_family": 398.761,
+        "rx9070_conv_generic_family": 118.232,
+        "rx6700xt_conv_generic_family": 62.294,
+        "gtx1080_conv_generic_family": 203.76,
+        "rx9070_matmul_linear_family": 75.069,
+        "rx6700xt_matmul_linear_family": 62.611,
+        "gtx1080_matmul_linear_family": 135.276,
+        "rx9070_copy_readback_family": 18.567,
+        "rx6700xt_copy_readback_family": 48.765,
+        "gtx1080_copy_readback_family": 516.557
+      },
+      "artifacts": [
+        "agent_space/diagnostic_per_kernel_rx9070_6700_gtx_vitb140_008f454/summary.json",
+        "agent_space/diagnostic_per_kernel_rx9070_6700_gtx_vitb140_008f454/summary.md"
+      ],
+      "decision": "Do not continue graph/transition diagnostics for the RX 9070 versus RX 6700 XT vitb_140 gap. The timestamped gap is dominated by buffer conv kernel families: RX 9070 is about 57.9 ms slower than RX 6700 XT in conv2d_buffer_float_3x3_s1p1 and about 55.9 ms slower in generic conv2d_buffer_float. GTX 1080 is dominated by the same conv families plus copy/buffer movement.",
+      "revisit_conditions": [
+        "When adding a VulkanConvPlanKey or candidate-plan cache for buffer conv families.",
+        "When adding device/driver-keyed autotune support for conv plans.",
+        "When changing conv2d_buffer_float or conv2d_buffer_float_3x3_s1p1 shader implementations."
       ]
     },
     {

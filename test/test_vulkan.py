@@ -335,6 +335,59 @@ class TestVulkanGovernance(TestCase):
         self.assertTrue(split_plan["chunks"][1]["requires_input_baton"])
 
         env_key = benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV
+
+        def depth_status_with_deep_split_env(value):
+            previous = os.environ.get(env_key)
+            try:
+                os.environ[env_key] = value
+                return benchmark.vulkan_stack_output_bridge_depth_status(
+                    device_kind="vulkan",
+                    bridge_requested=True,
+                    model=fake_model(24),
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop(env_key, None)
+                else:
+                    os.environ[env_key] = previous
+
+        for env_value in (
+            benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,
+            "1",
+        ):
+            with self.subTest(deep_split_env=env_value):
+                native_canary = depth_status_with_deep_split_env(env_value)
+                self.assertTrue(native_canary["allowed"])
+                self.assertEqual(
+                    native_canary["reason"],
+                    "stack_output_bridge_deep_split_canary_requested",
+                )
+                native_plan = native_canary["deep_stack_bridge_split_plan"]
+                self.assertEqual(
+                    native_plan["runtime_mode"],
+                    benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,
+                )
+                self.assertEqual(
+                    native_plan["status"],
+                    "deep_stack_bridge_split_plan_available_runtime_implemented",
+                )
+                self.assertTrue(native_plan["runtime_implemented"])
+                self.assertTrue(native_plan["runtime_canary_enabled"])
+                self.assertFalse(native_plan["runtime_unsafe_blocked"])
+                self.assertEqual(
+                    native_plan["runtime_contract"],
+                    "StackOutputBridgeDeepSplitPlanRuntime.v0",
+                )
+                self.assertEqual(
+                    native_plan["runtime_scope"],
+                    "native_bridge_private_device_baton",
+                )
+                self.assertTrue(native_plan["private_baton_required"])
+                self.assertTrue(native_plan["same_region_decoder_consumer"])
+                self.assertFalse(native_plan["python_boundary_before_decoder"])
+                self.assertFalse(native_plan["host_readback_before_decoder"])
+                self.assertEqual(native_plan["chunk_count"], 2)
+
         previous = os.environ.get(env_key)
         try:
             os.environ[env_key] = (
@@ -6399,6 +6452,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             fixture["output_size"],
             fixture["preprocess_context"],
         )
+
+    def _make_depth_anything_v2_deep_stack_context(
+        self,
+        fixture,
+        block_count=13,
+    ):
+        contexts = [
+            fixture["contexts"][idx % len(fixture["contexts"])]
+            for idx in range(block_count)
+        ]
+        stack_context = torch.ops.vulkan_prepack.create_vision_backbone_stack_context(
+            contexts,
+            6,
+            64,
+            fixture["embed_dim"],
+            fixture["embed_dim"] * 2,
+        )
+        return contexts, stack_context
 
     def _make_depth_anything_v2_tokens_from_image_fixture(self, image, fixture):
         feature_map = torch.ops.vulkan_prepack.run_conv2d_context(
@@ -37982,6 +38053,93 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "Depth Anything supported image-entry fixture mismatch",
         )
 
+    def test_vulkan_stack_capture_decoder_bridge_rejects_unproven_depth_native(self):
+        fixture = self._make_depth_anything_v2_supported_fixture()
+        _, deep_stack_context = self._make_depth_anything_v2_deep_stack_context(
+            fixture
+        )
+
+        with torch.inference_mode(), self.assertRaisesRegex(
+            RuntimeError,
+            "stack_output_bridge_depth_exceeds_proven_rowset",
+        ):
+            (
+                torch.ops.vulkan_prepack
+                .run_vision_stack_captures_decoder_preprocess_bridge(
+                    fixture["tokens"],
+                    deep_stack_context,
+                    fixture["capture_indices"],
+                    [fixture["embed_dim"]],
+                    fixture["norm_context"],
+                    1,
+                    fixture["patch_h"],
+                    fixture["patch_w"],
+                    fixture["output_size"],
+                    fixture["preprocess_context"],
+                )
+            )
+
+    def test_vulkan_stack_capture_decoder_bridge_deep_split_native_canary(self):
+        fixture = self._make_depth_anything_v2_supported_fixture()
+        contexts, deep_stack_context = self._make_depth_anything_v2_deep_stack_context(
+            fixture
+        )
+        capture_indices = [0, 4, 11, 12]
+        env_key = "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
+        previous = os.environ.get(env_key)
+        os.environ[env_key] = "native_private_baton"
+        try:
+            with torch.inference_mode():
+                actual = (
+                    torch.ops.vulkan_prepack
+                    .run_vision_stack_captures_decoder_preprocess_bridge(
+                        fixture["tokens"],
+                        deep_stack_context,
+                        capture_indices,
+                        [fixture["embed_dim"]],
+                        fixture["norm_context"],
+                        1,
+                        fixture["patch_h"],
+                        fixture["patch_w"],
+                        fixture["output_size"],
+                        fixture["preprocess_context"],
+                    )
+                )
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
+        with torch.inference_mode():
+            captured = torch.ops.vulkan_prepack.run_vision_backbone_stack_norm_replay_bundle_bridge(
+                fixture["tokens"],
+                contexts,
+                capture_indices,
+                [fixture["embed_dim"]],
+                fixture["norm_context"],
+            )
+            patch_tokens = [
+                tensor[1:, :] if tensor.dim() == 2 else tensor[:, 1:, :]
+                for tensor in captured
+            ]
+            expected = torch.ops.vulkan_prepack.run_vision_decoder_preprocess_head_context(
+                patch_tokens[0],
+                patch_tokens[1],
+                patch_tokens[2],
+                patch_tokens[3],
+                fixture["patch_h"],
+                fixture["patch_w"],
+                fixture["output_size"],
+                fixture["preprocess_context"],
+            )
+
+        self.assertEqual(list(actual.shape), [1, 1, *fixture["output_size"]])
+        self.assertTrue(
+            torch.allclose(actual.cpu(), expected.cpu(), atol=1e-2, rtol=1e-2),
+            "Deep split native baton bridge fixture mismatch",
+        )
+
     def test_vulkan_stack_capture_bridge_registration_in_graph_dump(self):
         fixture = self._make_depth_anything_v2_supported_fixture()
         graph_path = os.path.join(
@@ -38202,6 +38360,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 submit_plan["schema"],
                 "StackRegionBoundarySubmitPlan.v0",
             )
+
             self.assertEqual(submit_plan["barriers_inserted"], 0)
             self.assertEqual(submit_plan["submits_removed"], 0)
             self.assertFalse(submit_plan["behavior_change_allowed"])
@@ -38288,6 +38447,127 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
             else:
                 os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
+    def test_vulkan_stack_capture_deep_split_bridge_graph_handoff_contract(self):
+        fixture = self._make_depth_anything_v2_supported_fixture()
+        _, deep_stack_context = self._make_depth_anything_v2_deep_stack_context(
+            fixture
+        )
+        capture_indices = [0, 4, 11, 12]
+        graph_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_stack_capture_deep_split_bridge_graph_test.json",
+        )
+        if os.path.exists(graph_path):
+            os.remove(graph_path)
+
+        previous_graph = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        previous_split = os.environ.get(
+            "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
+        )
+        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        os.environ[
+            "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
+        ] = "native_private_baton"
+        try:
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            with torch.inference_mode():
+                (
+                    torch.ops.vulkan_prepack
+                    .run_vision_stack_captures_decoder_preprocess_bridge(
+                        fixture["tokens"],
+                        deep_stack_context,
+                        capture_indices,
+                        [fixture["embed_dim"]],
+                        fixture["norm_context"],
+                        1,
+                        fixture["patch_h"],
+                        fixture["patch_w"],
+                        fixture["output_size"],
+                        fixture["preprocess_context"],
+                    )
+                )
+                torch.ops.vulkan_prepack.synchronize()
+        finally:
+            if previous_graph is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous_graph
+            if previous_split is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT", None)
+            else:
+                os.environ[
+                    "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
+                ] = previous_split
+
+        self.assertTrue(os.path.exists(graph_path))
+        try:
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            registrations = graph["stack_output_device_consumer_registrations"]
+            registered_blocks = {
+                int(row["fields"]["captured_block"])
+                for row in registrations
+                if row["fields"].get("stack_plan_id")
+                == "vision_stack_capture_decoder_preprocess_plan"
+            }
+            self.assertTrue(set(capture_indices).issubset(registered_blocks))
+            for capture_index in capture_indices:
+                matching = [
+                    row["fields"]
+                    for row in registrations
+                    if row["fields"].get("captured_block") == str(capture_index)
+                    and row["fields"].get("stack_plan_id")
+                    == "vision_stack_capture_decoder_preprocess_plan"
+                ]
+                self.assertTrue(matching)
+                self.assertTrue(
+                    any(
+                        row.get("consumer_in_same_planned_region") == "1"
+                        and row.get("python_public_boundary_before_consumption")
+                        == "0"
+                        and row.get("host_readback_before_consumption") == "0"
+                        for row in matching
+                    )
+                )
+
+            handoffs = graph["private_bridge_capture_handoffs"]
+            completed_blocks = {
+                int(row["fields"]["captured_block"])
+                for row in handoffs
+                if row["fields"].get("handoff_status")
+                == "private_bridge_capture_decoder_consumer_completed_behavior_neutral"
+            }
+            self.assertTrue(set(capture_indices).issubset(completed_blocks))
+            for capture_index in capture_indices:
+                matching = [
+                    row["fields"]
+                    for row in handoffs
+                    if row["fields"].get("captured_block") == str(capture_index)
+                    and row["fields"].get("handoff_status")
+                    == "private_bridge_capture_decoder_consumer_completed_behavior_neutral"
+                ]
+                self.assertTrue(matching)
+                self.assertTrue(
+                    any(
+                        row.get("decoder_consumer_completed_before_bridge_exit")
+                        == "1"
+                        and row.get(
+                            "decoder_bridge_recording_scope_closed_before_release"
+                        )
+                        == "1"
+                        and row.get("python_public_boundary_before_consumption")
+                        == "0"
+                        and row.get("host_readback_before_consumption") == "0"
+                        and row.get("transfers_pending_retires") == "0"
+                        and row.get("submit_elision_enabled") == "0"
+                        for row in matching
+                    )
+                )
+        finally:
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 

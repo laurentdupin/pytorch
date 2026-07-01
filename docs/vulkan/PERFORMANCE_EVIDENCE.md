@@ -146,15 +146,14 @@ The initial catalog records the current `vits_140` performance lane:
   separate no-graph timing pass measured about 110.2 ms mean device-resident
   forward. This is a separate one-row `vitb` canary rowset, not an expansion of
   the `vits` rowset;
-- DAv2 `vitl_140` through the same wide4 canary remains unsafe blocked: the
-  graph-summary probe emitted segment-plan rows, normal no-bridge execution
-  succeeds, and reference-first sanity plus one bridge forward can complete,
-  but a second bridge forward overflows the 24-block stack with Windows
-  `-1073741571`. The benchmark now guards unproven deep stack-output bridge
-  requests before native execution and writes a structured failure artifact
-  with `StackOutputBridgeDeepSplitPlan.v0`. For `vitl_140`, that plan has two
-  12-block chunks, split capture slots, and a private-baton requirement. Do not
-  infer `vitl` support from `vits` or `vitb` evidence;
+- DAv2 `vitl_140` through the same wide4 canary remains a separate evidence
+  family: the older context-owned bridge and the Python-mediated deep split are
+  unsafe blocked by Windows stack overflow, but the opt-in native
+  `StackOutputBridgeDeepSplitPlanRuntime.v0` canary now runs the 24-block bridge
+  as two 12-block native chunks with a device-private baton. The focused smoke
+  and 10-repeat runs passed bridge sanity, kept `cpu_fallback=0` and
+  `sync_readback=0`, and wrote valid artifacts. This is not a default and not
+  evidence to widen the `vits` or `vitb` segment-plan rowsets;
 - a benchmark-local `python_private_baton` proof canary for that deep split
   topology is also unsafe blocked. The attempted run still hit native Windows
   stack overflow inside `run_vision_backbone_stack_private_capture_debug`
@@ -163,12 +162,19 @@ The initial catalog records the current `vits_140` performance lane:
   unsafe-blocked metadata in the deep split plan and fails closed before
   native bridge execution;
 - stack-output bridge depth guard: accepted benchmark control-plane fix. It
-  keeps bridge requests with `block_count > 12` fail-closed until repeated
-  deep-stack bridge execution is proven, while preserving the `vitb_140`
-  positive row. The next runtime contract is
+  keeps bridge requests with `block_count > 12` fail-closed unless the native
+  private-baton deep-split canary is explicitly requested, while preserving the
+  `vitb_140` positive row. The runtime contract is
   `StackOutputBridgeDeepSplitPlanRuntime.v0`, not a larger hardcoded stack-depth
   limit;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;
+- `conv2d_buffer_float_3x3_s1p1` 16x4 workgroup: rejected as a default after
+  segmented multi-GPU DAv2 checks showed RX 9070 `vits_280` gains but RX 9070
+  `vits_140` and GTX 1080 `vits_280` regressions/noise;
+- DAv2 `vitb_140` GPU timestamp attribution: RX 9070 and GTX 1080 performance
+  gaps are dominated by buffer conv families, so the next useful work is a
+  `VulkanConvPlanKey`/candidate-plan tuning path rather than another graph
+  diagnostic;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

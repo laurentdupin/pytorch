@@ -106,17 +106,23 @@ VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV = (
     "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
 )
 VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY = "python_private_baton"
+VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY = "native_private_baton"
 VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES = frozenset(
     (VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY,)
 )
-VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES = frozenset()
+VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES = frozenset(
+    (VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,)
+)
 
 
 def vulkan_stack_output_bridge_deep_split_mode() -> str:
-    return (
+    mode = (
         os.environ.get(VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV, "none").strip()
         or "none"
     )
+    if mode == "1":
+        return VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
+    return mode
 
 
 def vulkan_stack_output_bridge_deep_split_runtime_enabled() -> bool:
@@ -312,11 +318,13 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
                 else None
             ),
             "runtime_scope": (
-                "none"
+                "native_bridge_private_device_baton"
+                if runtime_enabled
+                else "none"
             ),
-            "same_region_decoder_consumer": None,
-            "python_boundary_before_decoder": None,
-            "host_readback_before_decoder": None,
+            "same_region_decoder_consumer": True if runtime_enabled else None,
+            "python_boundary_before_decoder": False if runtime_enabled else None,
+            "host_readback_before_decoder": False if runtime_enabled else None,
             "next_required_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
         }
     )

@@ -1511,6 +1511,23 @@ constexpr uint64_t kSegmentedOwnedCommandBufferWide3DispatchLimit = 36u;
 constexpr size_t kSegmentedOwnedCommandBufferWide4BlockLimit = 4u;
 constexpr size_t kSegmentedOwnedCommandBufferWide4ScopeLimit = 3u;
 constexpr uint64_t kSegmentedOwnedCommandBufferWide4DispatchLimit = 48u;
+constexpr size_t kStackOutputDeviceBridgeMaxProvenBlocks = 12u;
+
+bool stack_output_bridge_deep_split_native_baton_enabled() {
+  const char* const env =
+      std::getenv("PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  std::string mode(env);
+  const size_t first = mode.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) {
+    return false;
+  }
+  const size_t last = mode.find_last_not_of(" \t\r\n");
+  mode = mode.substr(first, last + 1u - first);
+  return mode == "1" || mode == "native_private_baton";
+}
 
 size_t stack_owned_command_buffer_dispatch_budget_tail_scope_limit() {
   const std::string mode(stack_owned_command_buffer_segmented_canary_mode());
@@ -9707,6 +9724,141 @@ std::vector<Tensor> run_vision_backbone_stack_context(
       /*preserve_private_captures_in_plan=*/false);
 }
 
+c10::intrusive_ptr<VisionBackboneStackContext>
+create_vision_backbone_stack_subcontext(
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    const size_t block_start,
+    const size_t block_end) {
+  TORCH_CHECK(
+      context,
+      "Vision stack split bridge expects a defined parent stack context");
+  TORCH_CHECK(
+      block_start <= block_end && block_end < context->blocks().size(),
+      "Vision stack split bridge received invalid chunk bounds");
+  std::vector<c10::intrusive_ptr<VisionBackboneBlockContext>> blocks;
+  blocks.reserve(block_end + 1u - block_start);
+  for (size_t block_idx = block_start; block_idx <= block_end; ++block_idx) {
+    const auto& block_context = context->blocks()[block_idx];
+    TORCH_CHECK(
+        static_cast<bool>(block_context),
+        "Vision stack split bridge expects defined backbone contexts");
+    blocks.push_back(block_context);
+  }
+  return c10::make_intrusive<VisionBackboneStackContext>(
+      std::move(blocks),
+      context->num_heads(),
+      context->head_dim(),
+      context->hidden(),
+      context->mlp_hidden());
+}
+
+std::vector<Tensor> run_vision_stack_captures_private_baton_split(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<VisionBackboneStackContext>& context,
+    IntArrayRef capture_indices) {
+  TORCH_CHECK(
+      context,
+      "Vision stack split bridge expects a defined stack context");
+  const size_t block_count = context->blocks().size();
+  TORCH_CHECK(
+      block_count > kStackOutputDeviceBridgeMaxProvenBlocks,
+      "Vision stack split bridge expects a deep stack");
+
+  const std::vector<int64_t> capture_indices_vec = capture_indices.vec();
+  for (const int64_t capture_idx : capture_indices_vec) {
+    TORCH_CHECK(
+        capture_idx >= 0 && capture_idx < static_cast<int64_t>(block_count),
+        "Vision stack split bridge capture index ",
+        capture_idx,
+        " is out of range for ",
+        block_count,
+        " contexts");
+  }
+
+  std::vector<Tensor> captured(capture_indices_vec.size());
+  Tensor chunk_input = input_arg;
+  size_t chunk_start = 0u;
+  while (chunk_start < block_count) {
+    const size_t chunk_end = std::min(
+        chunk_start + kStackOutputDeviceBridgeMaxProvenBlocks - 1u,
+        block_count - 1u);
+    const bool needs_output_baton = chunk_end + 1u < block_count;
+    const int64_t local_baton_index =
+        static_cast<int64_t>(chunk_end - chunk_start);
+
+    std::vector<int64_t> local_capture_indices;
+    std::vector<int64_t> local_capture_slots;
+    int64_t local_baton_output_pos = -1;
+    for (const auto capture_slot : c10::irange(capture_indices_vec.size())) {
+      const int64_t capture_idx = capture_indices_vec[capture_slot];
+      if (
+          capture_idx >= static_cast<int64_t>(chunk_start) &&
+          capture_idx <= static_cast<int64_t>(chunk_end)) {
+        const int64_t local_capture_idx =
+            capture_idx - static_cast<int64_t>(chunk_start);
+        if (needs_output_baton && local_capture_idx == local_baton_index) {
+          local_baton_output_pos =
+              static_cast<int64_t>(local_capture_indices.size());
+        }
+        local_capture_indices.push_back(local_capture_idx);
+        local_capture_slots.push_back(static_cast<int64_t>(capture_slot));
+      }
+    }
+    if (needs_output_baton && local_baton_output_pos < 0) {
+      local_baton_output_pos =
+          static_cast<int64_t>(local_capture_indices.size());
+      local_capture_indices.push_back(local_baton_index);
+      local_capture_slots.push_back(-1);
+    }
+    if (local_capture_indices.empty()) {
+      break;
+    }
+
+    const auto subcontext =
+        create_vision_backbone_stack_subcontext(context, chunk_start, chunk_end);
+    std::vector<Tensor> chunk_outputs =
+        run_vision_backbone_stack_context_impl(
+            chunk_input,
+            subcontext,
+            local_capture_indices,
+            /*private_device_consumer_bridge=*/true,
+            /*preserve_private_captures_in_plan=*/true);
+    TORCH_CHECK(
+        chunk_outputs.size() == local_capture_slots.size(),
+        "Vision stack split bridge chunk output count mismatch");
+
+    for (const auto output_pos : c10::irange(chunk_outputs.size())) {
+      const int64_t capture_slot = local_capture_slots[output_pos];
+      if (capture_slot >= 0) {
+        captured.at(static_cast<size_t>(capture_slot)) =
+            chunk_outputs[output_pos];
+      }
+    }
+    if (needs_output_baton) {
+      TORCH_CHECK(
+          local_baton_output_pos >= 0 &&
+              static_cast<size_t>(local_baton_output_pos) <
+                  chunk_outputs.size(),
+          "Vision stack split bridge missing private baton output");
+      chunk_input = chunk_outputs[static_cast<size_t>(local_baton_output_pos)];
+      TORCH_CHECK(
+          chunk_input.defined(),
+          "Vision stack split bridge produced an undefined private baton");
+    }
+    chunk_start = chunk_end + 1u;
+  }
+
+  for (const auto capture_slot : c10::irange(captured.size())) {
+    TORCH_CHECK(
+        captured[capture_slot].defined(),
+        "Vision stack split bridge missing requested capture slot ",
+        capture_slot);
+  }
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge.deep_split_native_private_baton");
+  return captured;
+}
+
 std::vector<Tensor> run_vision_backbone_stack_private_capture_debug(
     const Tensor& input_arg,
     const c10::intrusive_ptr<VisionBackboneStackContext>& context,
@@ -12011,6 +12163,16 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
   TORCH_CHECK(
       context->blocks().size() > 0,
       "Vision stack capture decoder bridge expects at least one backbone context");
+  const bool deep_stack =
+      context->blocks().size() > kStackOutputDeviceBridgeMaxProvenBlocks;
+  TORCH_CHECK(
+      !deep_stack || stack_output_bridge_deep_split_native_baton_enabled(),
+      "Vision stack capture decoder bridge depth exceeds proven rowset; "
+      "reason=stack_output_bridge_depth_exceeds_proven_rowset; block_count=",
+      context->blocks().size(),
+      "; max_proven_blocks=",
+      kStackOutputDeviceBridgeMaxProvenBlocks,
+      "; next_required_contract=StackOutputBridgeDeepSplitPlanRuntime.v0");
   TORCH_CHECK(
       capture_indices.size() == 4,
       "Vision stack capture decoder bridge expects exactly four capture indices");
@@ -12116,12 +12278,15 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
   const Device output_device = input_arg.device();
   const ScalarType output_dtype = input_arg.scalar_type();
   std::vector<Tensor> captured =
-      run_vision_backbone_stack_context_impl(
-          input_arg,
-          context,
-          capture_indices,
-          /*private_device_consumer_bridge=*/true,
-          /*preserve_private_captures_in_plan=*/true);
+      deep_stack
+      ? run_vision_stack_captures_private_baton_split(
+            input_arg, context, capture_indices)
+      : run_vision_backbone_stack_context_impl(
+            input_arg,
+            context,
+            capture_indices,
+            /*private_device_consumer_bridge=*/true,
+            /*preserve_private_captures_in_plan=*/true);
   TORCH_CHECK(
       captured.size() == 4u,
       "Vision stack capture decoder bridge expected four captured tensors");
