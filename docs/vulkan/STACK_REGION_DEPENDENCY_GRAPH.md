@@ -1512,6 +1512,12 @@ state is intentionally fail-closed: `stable_for_re_record=1` but
 `stable_for_command_replay=0`. Command replay must not be enabled until those
 joins prove stable allocation id, generation, byte range, descriptor update
 generation, and lifetime ownership across forwards.
+`StackProgramOwnedTempLiveIdentityJoin.v0` is the first live-data companion row.
+It reports that `(phase, block, binding)` live descriptor matches are observable
+but not sufficient: a single planned temp slot can map to multiple low-level
+allocation identities and shader labels in the current topology. The next
+replay-enabling primitive is therefore a stable program-temp slot id or
+replay-owned temp allocator that is carried into live descriptor rows.
 
 ## Validation Gates
 

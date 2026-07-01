@@ -2006,11 +2006,12 @@
       "device_notes": "Reporting-only replay-readiness evidence. The contract is generic to stack-region command replay and is not a device dispatch predicate.",
       "contract_or_topology_scope": [
         "StackProgramOwnedTempStabilityContract.v0",
+        "StackProgramOwnedTempLiveIdentityJoin.v0",
         "stack replay binding mode",
         "program-owned internal temporary descriptors",
         "command replay readiness"
       ],
-      "candidate": "Expose a structured proof row that distinguishes program-owned temps that are safe for per-forward re-recording from temps that still lack allocator-backed stable slot identity for command replay.",
+      "candidate": "Expose structured proof rows that distinguish program-owned temps that are safe for per-forward re-recording from temps that still lack allocator-backed stable slot identity for command replay, and report the overbroad live descriptor join that prevents replay authorization.",
       "correctness": {
         "status": "behavior_neutral",
         "tests": [
@@ -2024,18 +2025,24 @@
         "ready_for_command_replay": false,
         "stable_for_re_record": true,
         "stable_for_command_replay": false,
+        "broad_phase_block_binding_match": true,
+        "overbroad_join_detected": true,
+        "stable_allocation_identity_count": 0,
+        "live_identity_join_ready": false,
         "fail_closed_reason": "program_owned_temp_slot_identity_unproven"
       },
       "timing_ms": {
         "performance_claim": false
       },
       "artifacts": [
+        "agent_space/dav2_vits140_program_temp_live_identity_full_debug.json",
         "vulkan_debug_counters.stack_program_owned_temp_stability",
+        "vulkan_debug_counters.stack_program_owned_temp_live_identity",
         "vulkan_debug_counters.stack_replay_binding_mode"
       ],
-      "decision": "Keep this as accepted reporting infrastructure. It does not enable replay, but it makes the next replay blocker explicit: allocator-backed program-owned temp slot identity must be proven before command replay can replace per-forward command re-recording.",
+      "decision": "Keep this as accepted reporting infrastructure. It does not enable replay, but it makes the next replay blocker explicit: broad live descriptor matches exist but are overbroad and allocation identities are unstable. Allocator-backed program-owned temp slot identity must be proven before command replay can replace per-forward command re-recording.",
       "revisit_conditions": [
-        "When a stack temp slot allocator or replay-owned scratch/temp pool records stable allocation id, generation, byte range, and lifetime across forwards.",
+        "When a stack temp slot allocator or replay-owned scratch/temp pool records a stable low-level program-temp slot id with allocation id, generation, byte range, and lifetime across forwards.",
         "When an opt-in command-replay canary consumes the proof row and keeps bridge sanity, CPU fallback, sync readback, and copy counters clean.",
         "When CPU-side descriptor/command-recording attribution shows command replay is no longer the top control-plane bottleneck."
       ]

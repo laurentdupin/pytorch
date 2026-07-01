@@ -39,6 +39,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -296,6 +297,57 @@ std::unordered_map<std::string, std::string>&
 stack_program_owned_temp_stability_rows() {
   static std::unordered_map<std::string, std::string> rows;
   return rows;
+}
+
+using StackFieldMap = std::unordered_map<std::string, std::string>;
+
+StackFieldMap parse_stack_row_fields(const std::string& row) {
+  StackFieldMap fields;
+  std::istringstream stream(row);
+  std::string token;
+  while (stream >> token) {
+    const size_t separator = token.find('=');
+    if (separator == std::string::npos || separator == 0u) {
+      continue;
+    }
+    fields.emplace(token.substr(0u, separator), token.substr(separator + 1u));
+  }
+  return fields;
+}
+
+const std::string& stack_row_field(
+    const StackFieldMap& fields,
+    const char* const key) {
+  static const std::string empty;
+  const auto iter = fields.find(key);
+  return iter == fields.end() ? empty : iter->second;
+}
+
+struct StackProgramOwnedTempDescriptor final {
+  std::string phase;
+  std::string block;
+  std::string binding;
+};
+
+std::string stack_program_temp_broad_join_key(
+    const std::string& phase,
+    const std::string& block,
+    const std::string& binding) {
+  return phase + "|block:" + block + "|binding:" + binding;
+}
+
+std::string stack_program_temp_phase_block_key(
+    const std::string& phase,
+    const std::string& block) {
+  return phase + "|block:" + block;
+}
+
+std::string stack_program_temp_allocation_identity(
+    const StackFieldMap& fields) {
+  return stack_row_field(fields, "allocation_id") + ":" +
+      stack_row_field(fields, "allocation_generation") + ":" +
+      stack_row_field(fields, "byte_offset") + ":" +
+      stack_row_field(fields, "byte_range");
 }
 
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
@@ -8391,6 +8443,122 @@ std::vector<std::string> stack_program_owned_temp_stability_snapshot() {
   }
   std::sort(rows.begin(), rows.end());
   return rows;
+}
+
+std::vector<std::string> stack_program_owned_temp_live_identity_snapshot() {
+  std::vector<StackProgramOwnedTempDescriptor> descriptors;
+  std::string plan_key;
+  std::string tokens = "0";
+  for (const auto& row : stack_descriptor_binding_table_snapshot()) {
+    const StackFieldMap fields = parse_stack_row_fields(row);
+    if (
+        stack_row_field(fields, "lifetime") != "internal_temp" ||
+        stack_row_field(fields, "mode") != "program_owned_temp") {
+      continue;
+    }
+    StackProgramOwnedTempDescriptor descriptor;
+    descriptor.phase = stack_row_field(fields, "phase");
+    descriptor.block = stack_row_field(fields, "block");
+    descriptor.binding = stack_row_field(fields, "binding");
+    descriptors.emplace_back(std::move(descriptor));
+    if (plan_key.empty()) {
+      plan_key = stack_row_field(fields, "plan_key");
+      tokens = stack_row_field(fields, "tokens");
+    }
+  }
+
+  std::unordered_map<std::string, std::set<std::string>> live_identities;
+  std::unordered_map<std::string, uint64_t> descriptor_generation_counts;
+  for (const auto& row : api::stack_dispatch_dependency_dry_run_snapshot()) {
+    const StackFieldMap fields = parse_stack_row_fields(row);
+    if (stack_row_field(fields, "live_vulkan_buffer_binding") == "1") {
+      const std::string key = stack_program_temp_broad_join_key(
+          stack_row_field(fields, "phase"),
+          stack_row_field(fields, "block"),
+          stack_row_field(fields, "descriptor_binding"));
+      if (
+          stack_row_field(fields, "allocation_has_generation") == "1" &&
+          stack_row_field(fields, "allocation_has_byte_range") == "1") {
+        live_identities[key].insert(
+            stack_program_temp_allocation_identity(fields));
+      }
+      continue;
+    }
+    if (
+        stack_row_field(fields, "descriptor_set_update_generation_record") ==
+        "1") {
+      if (
+          stack_row_field(
+              fields, "actual_descriptor_set_update_generation_status") ==
+          "actual_vk_descriptor_set_update_generation_observed") {
+        ++descriptor_generation_counts[stack_program_temp_phase_block_key(
+            stack_row_field(fields, "phase"), stack_row_field(fields, "block"))];
+      }
+    }
+  }
+
+  uint64_t broad_match_count = 0u;
+  uint64_t missing_live_identity_count = 0u;
+  uint64_t stable_allocation_identity_count = 0u;
+  uint64_t unstable_allocation_identity_count = 0u;
+  uint64_t descriptor_generation_phase_block_match_count = 0u;
+  uint64_t max_distinct_allocation_identities = 0u;
+  for (const auto& descriptor : descriptors) {
+    const std::string broad_key = stack_program_temp_broad_join_key(
+        descriptor.phase, descriptor.block, descriptor.binding);
+    const auto live_iter = live_identities.find(broad_key);
+    if (live_iter == live_identities.end() || live_iter->second.empty()) {
+      ++missing_live_identity_count;
+    } else {
+      ++broad_match_count;
+      const uint64_t distinct_count =
+          static_cast<uint64_t>(live_iter->second.size());
+      max_distinct_allocation_identities =
+          std::max(max_distinct_allocation_identities, distinct_count);
+      if (distinct_count == 1u) {
+        ++stable_allocation_identity_count;
+      } else {
+        ++unstable_allocation_identity_count;
+      }
+    }
+    if (
+        descriptor_generation_counts[stack_program_temp_phase_block_key(
+            descriptor.phase, descriptor.block)] > 0u) {
+      ++descriptor_generation_phase_block_match_count;
+    }
+  }
+
+  const bool overbroad_join_detected =
+      unstable_allocation_identity_count > 0u ||
+      stable_allocation_identity_count != descriptors.size();
+  std::ostringstream out;
+  out << "stack_program_owned_temp_live_identity"
+      << " schema=StackProgramOwnedTempLiveIdentityJoin.v0"
+      << " plan_key=" << (plan_key.empty() ? "unknown" : plan_key)
+      << " tokens=" << tokens
+      << " program_owned_temp_bindings=" << descriptors.size()
+      << " broad_phase_block_binding_match_count=" << broad_match_count
+      << " missing_live_identity_count=" << missing_live_identity_count
+      << " stable_allocation_identity_count="
+      << stable_allocation_identity_count
+      << " unstable_allocation_identity_count="
+      << unstable_allocation_identity_count
+      << " max_distinct_allocation_identities="
+      << max_distinct_allocation_identities
+      << " descriptor_generation_phase_block_match_count="
+      << descriptor_generation_phase_block_match_count
+      << " descriptor_generation_exact_slot_match_count=0"
+      << " stable_program_temp_slot_id_available=0"
+      << " overbroad_join_detected="
+      << (overbroad_join_detected ? 1 : 0)
+      << " live_identity_join_ready=0"
+      << " command_replay_behavior_enabled=0"
+      << " command_replay_authorized=0"
+      << " fail_closed_reason="
+      << (overbroad_join_detected
+              ? "program_owned_temp_slot_identity_missing_or_overbroad"
+              : "program_owned_temp_live_identity_join_incomplete");
+  return {out.str()};
 }
 
 void reset_stack_descriptor_binding_table() {

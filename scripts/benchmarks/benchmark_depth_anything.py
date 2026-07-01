@@ -1292,6 +1292,7 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "stack_descriptor_binding_table",
         "stack_descriptor_binding_validation",
         "stack_program_owned_temp_stability",
+        "stack_program_owned_temp_live_identity",
         "stack_planned_recording_readiness",
         "stack_planned_recording_counters",
         "stack_replay_readiness",

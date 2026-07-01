@@ -180,7 +180,11 @@ The initial catalog records the current `vits_140` performance lane:
   from `stable_for_command_replay=0` with
   `fail_closed_reason=program_owned_temp_slot_identity_unproven`. This is not a
   replay promotion and does not change execution; it prevents future agents from
-  treating the replay blocker as an unknown gap;
+  treating the replay blocker as an unknown gap. The companion
+  `StackProgramOwnedTempLiveIdentityJoin.v0` row shows that broad
+  `(phase, block, binding)` live descriptor matches are observable but
+  overbroad/unstable, so the next proof needs a stable low-level program-temp
+  slot id or replay-owned temp allocator;
 - the first `vits_182` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 74.8 ms mean device-resident forward;

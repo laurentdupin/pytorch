@@ -20638,6 +20638,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.ops.vulkan_prepack.reset_stack_shape_plan_counters()
         torch.ops.vulkan_prepack.reset_stack_resource_binding_manifest()
         torch.ops.vulkan_prepack.reset_stack_replay_counters()
+        torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
         with torch.inference_mode():
             torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
                 x,
@@ -20650,10 +20651,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         readiness = torch.ops.vulkan_prepack.stack_replay_readiness()
         modes = torch.ops.vulkan_prepack.stack_replay_binding_mode()
         temp_stability = torch.ops.vulkan_prepack.stack_program_owned_temp_stability()
+        temp_live_identity = (
+            torch.ops.vulkan_prepack.stack_program_owned_temp_live_identity()
+        )
         replay_counters = torch.ops.vulkan_prepack.stack_replay_counters()
 
         self.assertGreater(len(manifest), 0)
         self.assertGreater(len(temp_stability), 0)
+        self.assertGreater(len(temp_live_identity), 0)
         self.assertTrue(any("role=runtime_input" in row for row in manifest))
         self.assertTrue(any("role=packed_weight" in row for row in manifest))
         self.assertTrue(any("role=query" in row for row in manifest))
@@ -20681,6 +20686,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "fail_closed_reason=program_owned_temp_slot_identity_unproven"
                 in row
                 for row in temp_stability
+            )
+        )
+        self.assertTrue(
+            any(
+                "schema=StackProgramOwnedTempLiveIdentityJoin.v0" in row
+                and "live_identity_join_ready=0" in row
+                and "command_replay_authorized=0" in row
+                for row in temp_live_identity
             )
         )
         self.assertGreaterEqual(replay_counters[4], 1)

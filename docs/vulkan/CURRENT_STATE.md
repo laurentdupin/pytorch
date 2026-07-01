@@ -208,6 +208,13 @@ proven across forwards. Benchmark debug snapshots include
 `stack_replay_binding_mode`, so future replay work can consume this proof row
 instead of rediscovering the same `program_owned_temps_not_stable_for_command_replay`
 blocker.
+`StackProgramOwnedTempLiveIdentityJoin.v0` adds the next fail-closed replay
+diagnostic: it joins planned program-owned temp descriptors to live descriptor
+rows only at the broad `(phase, block, binding)` level and reports whether that
+join is stable enough for replay. Current `vits_140` evidence shows the broad
+join exists, but allocation identities are unstable and overbroad, so command
+replay still requires a stable low-level program-temp slot id or replay-owned
+temp allocator before it can be authorized.
 `Context` now has an empty-by-default bridge-private capture pending-retire
 handoff batch scaffold with clear/restore/retire helpers. No producer moves
 entries into that batch yet, so it is behavior-neutral and does not change
