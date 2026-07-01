@@ -1589,6 +1589,76 @@
         "Require value-preservation proof plus stress parity across repeated private-capture outputs.",
         "Do not revive retire-time or local lifetime-only phase-submit coalescing."
       ]
+    },
+    {
+      "id": "conv3x3_s1p1_plan_key_timestamp_table_evidence_2026_07_01",
+      "status": "accepted_reporting_infrastructure",
+      "head": "4a3d9293be04/398586828dee",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variants": [
+          "vits",
+          "vitb"
+        ],
+        "input": "140x210",
+        "devices": [
+          "RX 9070 device 0",
+          "GTX 1080 device 1",
+          "RX 6700 XT device 2"
+        ]
+      },
+      "device_notes": "Fresh one-repeat multi-GPU labels after 4a3d929 matched 272/272 exact labels with zero ambiguous joins. A focused GTX 1080 vits_140 repeat-10 check found the 16x8 workgroup locally improves two exact conv labels and whole-row device-resident mean by about 2.07 ms, but this is too narrow for default promotion and does not address the RX 9070 bottleneck.",
+      "contract_or_topology_scope": [
+        "VulkanConvPlanKey.v0",
+        "VulkanConvPlanExactLabelEvidence.v0",
+        "VulkanConvPlanTuningTable.v0",
+        "PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY"
+      ],
+      "candidate": "Use enriched conv GPU timestamp labels to join per-kernel timing to exact VulkanConvPlanKey rows, then build an offline fail-closed tuning table. The table emits one active candidate per match key and capability profile and preserves competing candidates as evidence.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "TestVulkanGovernance.test_vulkan_conv_plan_timestamp_summary_cli",
+          "TestVulkanGovernance.test_vulkan_conv_plan_timestamp_run_summary_cli",
+          "TestVulkanGovernance.test_vulkan_conv_plan_tuning_result_self_test",
+          "TestVulkanEagerRuntime.test_vulkan_conv_plan_workgroup_canary_records_candidate",
+          "TestVulkanEagerRuntime.test_vulkan_conv2d_decoder_3x3_s2p1_uses_specialized_path"
+        ]
+      },
+      "counters": {
+        "fresh_exact_label_count": 272,
+        "fresh_plan_key_matched": 272,
+        "fresh_plan_key_ambiguous": 0,
+        "fresh_plan_key_missing": 0,
+        "strict_vits140_table_rows_one_repeat": 1,
+        "strict_vitb140_table_rows_one_repeat": 0,
+        "gtx1080_vits140_repeat10_table_rows": 2,
+        "runtime_loader_enabled": false
+      },
+      "timing_ms": {
+        "gtx1080_vits140_repeat10_default_device_resident_delta_vs_16x8": -2.0658100003856816,
+        "gtx1080_vits140_repeat10_conv_plan_total_delta_vs_default": -6.915616,
+        "repeat_count": 10,
+        "scope": "device 1 vits_140 default vs 3x3_s1p1_16x8 only"
+      },
+      "artifacts": [
+        "agent_space/conv_plan_timestamp_sweep_4a3d929_vits140/run_summary.json",
+        "agent_space/conv_plan_timestamp_sweep_4a3d929_vits140/exact_label_evidence.json",
+        "agent_space/conv_plan_timestamp_sweep_4a3d929_vits140/tuning_table_check.json",
+        "agent_space/conv_plan_timestamp_sweep_4a3d929_vitb140/run_summary.json",
+        "agent_space/conv_plan_timestamp_sweep_4a3d929_vitb140/exact_label_evidence.json",
+        "agent_space/conv_plan_timestamp_sweep_4a3d929_vitb140/tuning_table_check.json",
+        "agent_space/conv_plan_stability_4a3d929_gtx1080_vits140/run_summary.json",
+        "agent_space/conv_plan_stability_4a3d929_gtx1080_vits140/exact_label_evidence.json",
+        "agent_space/conv_plan_stability_4a3d929_gtx1080_vits140/tuning_table.json"
+      ],
+      "decision": "Keep the label disambiguation and offline tuning-table infrastructure. Do not promote a default conv plan from this evidence. A future opt-in runtime loader may consume the table only after an explicit loader contract and repeat-stability evidence are added.",
+      "revisit_conditions": [
+        "If a runtime loader for VulkanConvPlanTuningTable.v0 is implemented under an opt-in fail-closed policy.",
+        "If RX 9070 or RX 6700 XT repeat-stability evidence shows a whole-row win for a matched exact key.",
+        "If shader code, capability profile fields, or VulkanConvPlanKey.v0 changes.",
+        "If GTX 1080 vits_140 16x8 evidence is repeated across processes and remains whole-row positive."
+      ]
     }
   ]
 }
