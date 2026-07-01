@@ -2249,22 +2249,24 @@ class TestVulkanGovernance(TestCase):
             TEST_FILE_DIR,
             "vulkan_conv_plan_timestamp_exact_labels.json",
         )
-        snapshot_row = (
-            "schema=VulkanConvPlanKey.v0 selected=FloatBufferConv reject=None "
-            "kernel=conv2d_buffer_float_3x3_s1p1 role=other_3x3_s1p1 "
-            "contract=none contract_family=none contract_tuple=none "
-            "input=[1,128,10,15] output_channels=128 "
-            "weight=[128,128,3,3] stride=[1,1] padding=[1,1] "
-            "dilation=[1,1] groups=1 context_device_index=0 "
-            "vendor_id=4098 device_id=29631 driver_version=252313600 "
-            "api_version=4206831 subgroup_size=64 min_subgroup_size=32 "
-            "max_subgroup_size=64 max_compute_workgroup_subgroups=8 "
-            "has_subgroup_size_control=1 has_compute_full_subgroups=1 "
-            "has_cooperative_matrix=0 cooperative_matrix_property_count=0 "
-            "has_timeline_semaphore=1 has_synchronization2=1"
-        )
+        def plan_key_row(kernel, local):
+            return (
+                "schema=VulkanConvPlanKey.v0 selected=FloatBufferConv reject=None "
+                f"kernel={kernel} role=other_3x3_s1p1 "
+                "contract=none contract_family=none contract_tuple=none "
+                "input=[1,128,10,15] output_channels=128 "
+                "weight=[128,128,3,3] stride=[1,1] padding=[1,1] "
+                "dilation=[1,1] groups=1 global=[15,10,128] "
+                f"local=[{local.replace('x', ',')}] context_device_index=0 "
+                "vendor_id=4098 device_id=29631 driver_version=252313600 "
+                "api_version=4206831 subgroup_size=64 min_subgroup_size=32 "
+                "max_subgroup_size=64 max_compute_workgroup_subgroups=8 "
+                "has_subgroup_size_control=1 has_compute_full_subgroups=1 "
+                "has_cooperative_matrix=0 cooperative_matrix_property_count=0 "
+                "has_timeline_semaphore=1 has_synchronization2=1"
+            )
 
-        def write_result_json(path, mean_s):
+        def write_result_json(path, mean_s, local):
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(
                     {
@@ -2281,7 +2283,16 @@ class TestVulkanGovernance(TestCase):
                         "vulkan_debug_counters": {
                             "cpu_fallback_count": 0,
                             "sync_readback_count": 0,
-                            "conv_plan_key_snapshot": [snapshot_row],
+                            "conv_plan_key_snapshot": [
+                                plan_key_row(
+                                    "conv2d_buffer_float_3x3_s1p1",
+                                    local,
+                                ),
+                                plan_key_row(
+                                    "conv2d_buffer_float_3x3_s1p1_add",
+                                    local,
+                                ),
+                            ],
                         },
                     },
                     handle,
@@ -2315,8 +2326,8 @@ class TestVulkanGovernance(TestCase):
                 handle.write("\n")
 
         try:
-            write_result_json(baseline_row_path, 0.100)
-            write_result_json(candidate_row_path, 0.080)
+            write_result_json(baseline_row_path, 0.100, "8x8x1")
+            write_result_json(candidate_row_path, 0.080, "16x4x1")
             write_timestamp_log(baseline_log_path, "8x8x1", 10_000_000, 5_000_000)
             write_timestamp_log(candidate_log_path, "16x4x1", 7_000_000, 4_000_000)
             with open(baseline_status_path, "w", encoding="utf-8") as handle:
@@ -2464,8 +2475,29 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(exact_main["default_match_status"], "default_label_matched")
         self.assertEqual(exact_main["candidate_local"], "16x4x1")
         self.assertEqual(exact_main["default_local"], "8x8x1")
+        self.assertEqual(exact_main["plan_key_match_status"], "matched")
+        self.assertEqual(
+            exact_main["plan_key"]["kernel"],
+            "conv2d_buffer_float_3x3_s1p1",
+        )
+        self.assertEqual(exact_main["plan_key"]["shape"]["input"], "[1,128,10,15]")
+        self.assertEqual(exact_main["plan_key"]["global"], "[15,10,128]")
+        self.assertEqual(exact_main["plan_key"]["local"], "[16,4,1]")
+        self.assertEqual(exact_main["plan_key"]["candidate"], "3x3_s1p1_16x4")
+        self.assertEqual(
+            exact_main["plan_key_capability_profile"]["vendor_id"], "4098"
+        )
+        self.assertEqual(
+            exact_main["plan_key_matches"][0]["plan_key"]["kernel"],
+            "conv2d_buffer_float_3x3_s1p1",
+        )
+        self.assertEqual(
+            exact_main["plan_key_matches"][0]["plan_key"]["local"],
+            "[16,4,1]",
+        )
         self.assertEqual(exact_main["delta_ms"], -3.0)
         self.assertEqual(exact_main["decision"], "locally_improved")
+        self.assertEqual(exact_main["decision_blocker"], "none")
         self.assertEqual(exact_main["capability_profiles"][0]["vendor_id"], "4098")
 
     def test_vulkan_stack_region_segment_plan_manifest_schema(self):

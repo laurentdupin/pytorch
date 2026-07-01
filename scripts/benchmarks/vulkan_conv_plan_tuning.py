@@ -439,6 +439,23 @@ def validate_exact_label_evidence(payload: dict[str, Any]) -> list[str]:
         for field in ("device", "model", "plan", "candidate_local", "decision"):
             if label.get(field) in (None, ""):
                 errors.append(f"{prefix}.{field} is required")
+        if label.get("plan_key_match_status") not in (
+            "matched",
+            "missing",
+            "ambiguous",
+        ):
+            errors.append(f"{prefix}.plan_key_match_status is invalid")
+        plan_key_matches = label.get("plan_key_matches")
+        if not isinstance(plan_key_matches, list):
+            errors.append(f"{prefix}.plan_key_matches must be a list")
+        if label.get("plan_key_match_status") == "matched":
+            if not isinstance(label.get("plan_key"), dict):
+                errors.append(f"{prefix}.plan_key must be an object when matched")
+            if not isinstance(label.get("plan_key_capability_profile"), dict):
+                errors.append(
+                    f"{prefix}.plan_key_capability_profile must be an object "
+                    "when matched"
+                )
         decision = label.get("decision")
         if decision not in VALID_TIMESTAMP_RUN_CLASSIFICATIONS:
             errors.append(
@@ -1434,6 +1451,10 @@ def _empty_exact_label_group(
         "row_json": [],
         "timestamp_logs": [],
         "capability_profiles": [],
+        "plan_key_match_status": "missing",
+        "plan_key": None,
+        "plan_key_capability_profile": None,
+        "plan_key_matches": [],
     }
     return label
 
@@ -1441,6 +1462,94 @@ def _empty_exact_label_group(
 def _append_unique(target: list[Any], value: Any) -> None:
     if value not in target:
         target.append(value)
+
+
+def _normalized_numeric_tuple(value: Any) -> tuple[str, ...]:
+    text = str(value).strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    return tuple(part.strip() for part in text.replace("x", ",").split(",") if part)
+
+
+def _plan_key_matches_timestamp_row(
+    fields: dict[str, str],
+    timestamp_row: dict[str, Any],
+) -> bool:
+    if fields.get("kernel") != timestamp_row.get("kernel"):
+        return False
+    if fields.get("output_channels") != str(timestamp_row.get("output_channels")):
+        return False
+    for field in ("input", "weight", "stride", "padding", "dilation"):
+        if _normalized_numeric_tuple(fields.get(field)) != _normalized_numeric_tuple(
+            timestamp_row.get(field)
+        ):
+            return False
+    if fields.get("groups") != str(timestamp_row.get("groups")):
+        return False
+    for field in ("global", "local"):
+        if _normalized_numeric_tuple(fields.get(field)) != _normalized_numeric_tuple(
+            timestamp_row.get(field)
+        ):
+            return False
+    return True
+
+
+def _plan_key_matches_for_timestamp_row(
+    row_payload: dict[str, Any],
+    timestamp_row: dict[str, Any],
+    *,
+    candidate: str,
+) -> list[dict[str, Any]]:
+    snapshot = row_payload.get("vulkan_debug_counters", {}).get(
+        "conv_plan_key_snapshot", []
+    )
+    if not isinstance(snapshot, list):
+        return []
+    matches = []
+    for entry in snapshot:
+        if not isinstance(entry, str) or PLAN_KEY_SCHEMA not in entry:
+            continue
+        fields = parse_plan_key_snapshot_row(entry)
+        if not _plan_key_matches_timestamp_row(fields, timestamp_row):
+            continue
+        matches.append(
+            {
+                "plan_key": plan_key_from_snapshot(fields, candidate=candidate),
+                "capability_profile": capability_profile_from_snapshot(fields),
+            }
+        )
+    return matches
+
+
+def _finalize_exact_label_plan_key_status(
+    labels: dict[tuple[str, str, str, str], dict[str, Any]],
+) -> None:
+    for label in labels.values():
+        match_count = len(label["plan_key_matches"])
+        if match_count == 1:
+            label["plan_key_match_status"] = "matched"
+            label["plan_key"] = label["plan_key_matches"][0]["plan_key"]
+            label["plan_key_capability_profile"] = label["plan_key_matches"][0][
+                "capability_profile"
+            ]
+        elif match_count == 0:
+            label["plan_key_match_status"] = "missing"
+            label["plan_key"] = None
+            label["plan_key_capability_profile"] = None
+        else:
+            label["plan_key_match_status"] = "ambiguous"
+            label["plan_key"] = None
+            label["plan_key_capability_profile"] = None
+
+
+def _apply_plan_key_decision_gate(label: dict[str, Any]) -> None:
+    match_status = label.get("plan_key_match_status")
+    if match_status == "matched":
+        label["decision_blocker"] = "none"
+        return
+    label["decision_blocker"] = f"plan_key_match_{match_status}"
+    if label.get("decision") == "locally_improved":
+        label["decision"] = "insufficient_noise_band"
 
 
 def _timestamp_exact_label_groups_from_run_status(
@@ -1498,6 +1607,13 @@ def _timestamp_exact_label_groups_from_run_status(
             _append_unique(group["timestamp_logs"], str(timestamp_summary["source_log"]))
             for profile in capability_profiles:
                 _append_unique(group["capability_profiles"], profile)
+            for plan_key_match in _plan_key_matches_for_timestamp_row(
+                row_payload,
+                timestamp_row,
+                candidate=plan,
+            ):
+                _append_unique(group["plan_key_matches"], plan_key_match)
+    _finalize_exact_label_plan_key_status(groups)
     return groups
 
 
@@ -1524,14 +1640,17 @@ def _exact_label_decision(
     if row_rejection is not None:
         label["decision"] = row_rejection
         label["default_match_status"] = "not_evaluated_row_rejected"
+        _apply_plan_key_decision_gate(label)
         return
     if not default_matches:
         label["decision"] = "insufficient_noise_band"
         label["default_match_status"] = "default_label_missing"
+        _apply_plan_key_decision_gate(label)
         return
     if len(default_matches) > 1:
         label["decision"] = "insufficient_noise_band"
         label["default_match_status"] = "default_label_ambiguous"
+        _apply_plan_key_decision_gate(label)
         return
 
     default = default_matches[0]
@@ -1547,6 +1666,7 @@ def _exact_label_decision(
         label["decision"] = "locally_rejected_slower"
     else:
         label["decision"] = "insufficient_noise_band"
+    _apply_plan_key_decision_gate(label)
 
 
 def build_exact_label_evidence_from_run_status(
