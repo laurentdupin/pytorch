@@ -28,6 +28,7 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -868,6 +869,34 @@ void record_float_buffer_conv2d_plan_key(
       static_cast<uint64_t>(v_input.gpu_nbytes()),
       static_cast<uint64_t>(v_output.gpu_nbytes()),
       static_cast<uint64_t>(v_weight.gpu_nbytes()));
+}
+
+std::string format_float_buffer_conv2d_profile_label(
+    const char* kernel_name,
+    const vTensor& v_input,
+    const vTensor& v_output,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size) {
+  std::ostringstream stream;
+  stream << "conv_plan"
+         << "|kernel=" << kernel_name
+         << "|input=" << format_conv_sizes(v_input.sizes())
+         << "|output_channels=" << v_output.sizes()[1]
+         << "|weight=" << format_conv_sizes(packed_weight.logical_weight_sizes())
+         << "|stride=" << format_conv_sizes(stride)
+         << "|padding=" << format_conv_sizes(padding)
+         << "|dilation=" << format_conv_sizes(dilation)
+         << "|groups=" << groups
+         << "|global=" << global_size.data[0u] << 'x' << global_size.data[1u]
+         << 'x' << global_size.data[2u]
+         << "|local=" << local_size.data[0u] << 'x' << local_size.data[1u]
+         << 'x' << local_size.data[2u];
+  return stream.str();
 }
 
 void log_float_buffer_conv2d_submit(
@@ -3382,6 +3411,21 @@ Tensor run_float_buffer_conv2d_impl(
       global_size,
       local_size,
       &plan_decision);
+  std::optional<api::RuntimeLabelScope> conv_profile_label_scope;
+  if (context->op_profiling_enabled()) {
+    conv_profile_label_scope.emplace(
+        conv2d::format_float_buffer_conv2d_profile_label(
+            kernel_name,
+            v_input,
+            v_output,
+            packed_weight,
+            stride,
+            padding,
+            dilation,
+            groups,
+            global_size,
+            local_size));
+  }
   context->submit_compute_job(
       shader,
       pipeline_barrier,
@@ -3505,6 +3549,21 @@ Tensor run_float_buffer_conv2d_add_impl(
       global_size,
       local_size);
 
+  std::optional<api::RuntimeLabelScope> conv_profile_label_scope;
+  if (context->op_profiling_enabled()) {
+    conv_profile_label_scope.emplace(
+        conv2d::format_float_buffer_conv2d_profile_label(
+            "conv2d_buffer_float_3x3_s1p1_add",
+            v_input,
+            v_output,
+            packed_weight,
+            stride,
+            padding,
+            dilation,
+            groups,
+            global_size,
+            local_size));
+  }
   context->submit_compute_job(
       VK_KERNEL(conv2d_buffer_float_3x3_s1p1_add),
       pipeline_barrier,

@@ -1252,6 +1252,51 @@
       ]
     },
     {
+      "id": "vulkan_conv_plan_timestamp_profile_labels_2026_07_01",
+      "status": "accepted_reporting_infrastructure",
+      "head": "deb5dd79e0a+conv_plan_timestamp_label",
+      "model_provenance": {
+        "model": "contract fixture",
+        "variant": "conv2d",
+        "input": "1x64x16x16"
+      },
+      "device_notes": "Reporting infrastructure only. Runtime dispatch must not use GPU names; the timestamp label exists so future sweeps can join per-kernel timing to exact plan-key and capability-profile rows.",
+      "contract_or_topology_scope": [
+        "VulkanConvPlanKey.v0",
+        "VulkanConvPlanTuningResult.v0",
+        "conv2d_buffer_float",
+        "conv2d_buffer_float_3x3_s1p1",
+        "conv2d_buffer_float_3x3_s1p1_add",
+        "GPU timestamp profiling"
+      ],
+      "candidate": "Add a behavior-neutral runtime profile label for float-buffer conv GPU timestamp rows with selected kernel, input shape, output channels, weight shape, conv attrs, and global/local workgroup.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "separate-process conv GPU timestamp smoke"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": false,
+        "default_behavior_changed": false
+      },
+      "timing_ms": {
+        "not_measured": true
+      },
+      "artifacts": [
+        "agent_space/conv_profile_label_smoke_deb5dd79/gpu_timestamp.log",
+        "aten/src/ATen/native/vulkan/ops/Convolution.cpp"
+      ],
+      "decision": "Accept as reporting infrastructure only. Timestamp rows can now be joined to exact conv plan-key rows for future focused multi-GPU per-kernel evidence, but runtime route selection and default workgroups remain unchanged.",
+      "revisit_conditions": [
+        "When collecting focused per-kernel timestamp sweeps for exact plan-key rows.",
+        "When extending profile labels to additional conv families or packed-resource plan variants.",
+        "When promoting a bounded device/driver/capability-keyed conv plan from per-kernel timing evidence."
+      ]
+    },
+    {
       "id": "decoder_tail_relu_via_conv_clamp_dav2_vits140_2026_06_30",
       "status": "rejected_slower",
       "head": "49f93e81e81",

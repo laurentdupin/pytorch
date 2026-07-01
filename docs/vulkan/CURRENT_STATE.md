@@ -63,6 +63,14 @@ evidence by exact normalized plan key and capability profile; those entries are
 still row-level timing evidence until per-kernel timing is attached, so they are
 not promotion proof by themselves.
 
+GPU timestamp rows now carry a `runtime=conv_plan|...` profile label for
+float-buffer conv submissions when timestamp profiling is enabled. The label
+records the selected kernel, input shape, output channel count, weight shape,
+conv attrs, and global/local workgroup so per-kernel timing can be joined back
+to exact `VulkanConvPlanKey.v0` rows. This is reporting-only infrastructure:
+route selection, shader selection, workgroup selection, descriptor binding, and
+fallback/readback behavior remain unchanged.
+
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
 plane by default. Direct native callers with deeper stack-output bridge contexts

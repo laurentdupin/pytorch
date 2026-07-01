@@ -198,6 +198,10 @@ The initial catalog records the current `vits_140` performance lane:
   exact-plan-key granularity mode. It is not consumed by runtime route selection
   yet, and exact-plan-key accepted rows still require stable per-kernel timing
   before they can become promotion evidence;
+- conv-plan GPU timestamp labels: accepted reporting infrastructure that tags
+  float-buffer conv timestamp rows with selected kernel, shape, attrs, and
+  workgroup fields. This makes per-kernel timing joinable to
+  `VulkanConvPlanKey.v0` rows but does not change routing or promote a plan;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;
