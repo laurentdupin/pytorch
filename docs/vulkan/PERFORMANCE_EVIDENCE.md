@@ -204,6 +204,12 @@ The initial catalog records the current `vits_140` performance lane:
   `VulkanConvPlanKey.v0` rows. The offline tuning tool can emit
   `VulkanConvPlanTimestampSummary.v0` from a timestamp log, but this does not
   change routing or promote a plan;
+- conv-plan timestamp sweep over DAv2 `vits_140`/`vitb_140` on RX 9070, GTX
+  1080, and RX 6700 XT: rejected broad promotion of both `3x3_s1p1_16x4` and
+  `3x3_s1p1_16x8`. Both candidates were correctness-clean and hit expected
+  local workgroups, but each had three improved and three regressed model/device
+  rows. `16x8` is promising for `vitb_140`, yet exact-label deltas are still
+  device-mixed, so promotion needs a tuning cache or narrower exact-plan policy;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

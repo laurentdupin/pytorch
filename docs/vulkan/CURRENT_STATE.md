@@ -73,6 +73,17 @@ fallback/readback behavior remain unchanged. The offline tuning tool can parse
 these logs into `VulkanConvPlanTimestampSummary.v0` grouped by the normalized
 conv-plan label fields.
 
+A focused 18-row timestamp sweep over DAv2 `vits_140` and `vitb_140` on RX
+9070, GTX 1080, and RX 6700 XT kept both `3x3_s1p1_16x4` and
+`3x3_s1p1_16x8` rejected as broad default promotions. Both candidates were
+correct and hit the expected local workgroup, but each improved three
+model/device rows and regressed three rows. `16x8` improved `vitb_140` whole-row
+timing on all three devices while regressing `vits_140`, and the vits/vitb
+target conv labels are disjoint, but exact vitb label deltas are still mixed by
+device for several labels. The next promotion path is therefore a
+device/driver/capability-keyed tuning cache or a narrower exact-plan policy,
+not a static workgroup default.
+
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
 plane by default. Direct native callers with deeper stack-output bridge contexts

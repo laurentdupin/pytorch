@@ -1297,6 +1297,76 @@
       ]
     },
     {
+      "id": "conv3x3_s1p1_workgroup_timestamp_sweep_910c71d_2026_07_01",
+      "status": "rejected_mixed",
+      "head": "259f3366e5c7+timestamp_summary_tool",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variants": [
+          "vits",
+          "vitb"
+        ],
+        "input": "140x210"
+      },
+      "device_notes": "Focused sweep on device indices 0=RX 9070, 1=GTX 1080, 2=RX 6700 XT. Device names are evidence provenance only; production routing must use contract/capability/tuning policy rather than GPU names.",
+      "contract_or_topology_scope": [
+        "VulkanConvPlanKey.v0",
+        "VulkanConvPlanTimestampSummary.v0",
+        "device_driver_capability_profile",
+        "Kernel3x3Stride1Pad1",
+        "conv2d_buffer_float_3x3_s1p1",
+        "conv2d_buffer_float_3x3_s1p1_add"
+      ],
+      "candidate": "Promote one of the opt-in 3x3_s1p1 workgroup canaries, either 16x4x1 or 16x8x1, as a broad default for the stride-1 pad-1 float-buffer conv family.",
+      "correctness": {
+        "status": "passed",
+        "max_abs_by_row": {
+          "rx9070_vits_140": 1.6391277313232422e-06,
+          "rx9070_vitb_140": 3.5762786865234375e-06,
+          "gtx1080_vits_140": 7.62939453125e-06,
+          "gtx1080_vitb_140": 2.1457672119140625e-05,
+          "rx6700xt_vits_140": 3.0174851417541504e-06,
+          "rx6700xt_vitb_140": 5.4836273193359375e-06
+        },
+        "tests": [
+          "DAv2 bridge sanity embedded in focused timestamp sweep rows",
+          "VulkanConvPlanTimestampSummary.v0 validation for each timestamp log"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "performance_valid": true,
+        "timestamp_summary_rows": 18,
+        "expected_workgroup_observed": true,
+        "default_behavior_changed": false
+      },
+      "timing_ms": {
+        "rx9070_vits_140_16x4_delta_mean": 3.611,
+        "rx9070_vits_140_16x8_delta_mean": 4.621,
+        "rx9070_vitb_140_16x4_delta_mean": -10.318,
+        "rx9070_vitb_140_16x8_delta_mean": -11.898,
+        "gtx1080_vits_140_16x4_delta_mean": 18.293,
+        "gtx1080_vits_140_16x8_delta_mean": 13.506,
+        "gtx1080_vitb_140_16x4_delta_mean": -5.298,
+        "gtx1080_vitb_140_16x8_delta_mean": -3.317,
+        "rx6700xt_vits_140_16x4_delta_mean": -4.775,
+        "rx6700xt_vits_140_16x8_delta_mean": 2.03,
+        "rx6700xt_vitb_140_16x4_delta_mean": 10.407,
+        "rx6700xt_vitb_140_16x8_delta_mean": -8.323
+      },
+      "artifacts": [
+        "agent_space/conv_plan_timestamp_sweep_910c71d/summary.json",
+        "agent_space/conv_plan_timestamp_sweep_910c71d/summary.md",
+        "agent_space/conv_plan_timestamp_sweep_910c71d/*.timestamp_summary.json"
+      ],
+      "decision": "Do not promote 16x4 or 16x8 as a broad default. Both candidates are correctness-clean and timestamp-labeled, but each improves three model/device rows and regresses three. The vits/vitb target conv labels are disjoint and 16x8 improves vitb_140 whole-row timing on all three devices, but exact vitb label deltas remain mixed by device for several labels; use a device/driver/capability-keyed tuning cache or a narrower exact-plan policy before any runtime promotion.",
+      "revisit_conditions": [
+        "When a runtime loader for validated VulkanConvPlanTuningResult rows exists.",
+        "When a narrower exact-plan policy can prove no paired vits_140 or multi-device regression.",
+        "When the 3x3 stride-1 pad-1 shader implementation changes enough to invalidate this timestamp comparison."
+      ]
+    },
+    {
       "id": "decoder_tail_relu_via_conv_clamp_dav2_vits140_2026_06_30",
       "status": "rejected_slower",
       "head": "49f93e81e81",
