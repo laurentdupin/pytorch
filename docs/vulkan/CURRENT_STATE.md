@@ -58,6 +58,10 @@ result tool for these rows. It consumes candidate-sweep JSON, emits
 `VulkanConvPlanTuningResult.v0`, and validates decisions keyed by
 `VulkanConvPlanKey.v0` plus the recorded device/capability profile. It is
 behavior-neutral and does not load tuning results into runtime route selection.
+The tool can also emit `--granularity plan-key` artifacts that split candidate
+evidence by exact normalized plan key and capability profile; those entries are
+still row-level timing evidence until per-kernel timing is attached, so they are
+not promotion proof by themselves.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control

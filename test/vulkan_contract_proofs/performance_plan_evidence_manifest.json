@@ -1222,7 +1222,7 @@
         "device_driver_capability_profile",
         "candidate-plan tuning evidence"
       ],
-      "candidate": "Add a behavior-neutral offline tuning-result schema/tool that converts canary sweep JSON into validated candidate decisions keyed by plan-key and capability-profile fields.",
+      "candidate": "Add a behavior-neutral offline tuning-result schema/tool that converts canary sweep JSON into validated candidate decisions keyed by plan-key and capability-profile fields, with optional exact-plan-key granularity.",
       "correctness": {
         "status": "passed",
         "tests": [
@@ -1240,12 +1240,15 @@
       },
       "artifacts": [
         "scripts/benchmarks/vulkan_conv_plan_tuning.py",
-        "agent_space/conv_workgroup_canary_sweep_81b2836/tuning_result.json"
+        "agent_space/conv_workgroup_canary_sweep_81b2836/tuning_result.json",
+        "agent_space/conv_workgroup_capability_sweep_cd82e1d/tuning_result.json",
+        "agent_space/conv_workgroup_capability_sweep_cd82e1d/tuning_result_plan_key.json"
       ],
-      "decision": "Accept as offline tuning infrastructure only. The result schema records accepted/rejected_mixed/rejected_slower/correctness_blocked candidate decisions and representative plan-key rows, but runtime conv route selection remains unchanged.",
+      "decision": "Accept as offline tuning infrastructure only. The result schema records accepted/rejected_mixed/rejected_slower/correctness_blocked candidate decisions and representative plan-key rows, and can split evidence by exact plan key plus capability profile. Runtime conv route selection remains unchanged; exact-plan-key accepted rows remain row-level evidence until per-kernel timing proves the specific key.",
       "revisit_conditions": [
         "When adding a runtime loader for a validated device/driver-keyed tuning result cache.",
-        "When extending candidate sweeps beyond workgroup size into shader-family or packed-resource variants."
+        "When extending candidate sweeps beyond workgroup size into shader-family or packed-resource variants.",
+        "When per-kernel timing can validate exact plan-key accepted entries independently of whole-row timing."
       ]
     },
     {

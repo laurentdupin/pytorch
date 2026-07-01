@@ -216,6 +216,22 @@ def _find_plan_key_fields(
     kernel: str,
     expected_local: list[int] | None,
 ) -> dict[str, str]:
+    matches = _find_plan_key_field_rows(
+        row_json,
+        kernel=kernel,
+        expected_local=expected_local,
+    )
+    if matches:
+        return matches[0]
+    raise ValueError(f"no {PLAN_KEY_SCHEMA} row for kernel={kernel} in {row_json}")
+
+
+def _find_plan_key_field_rows(
+    row_json: Path,
+    *,
+    kernel: str,
+    expected_local: list[int] | None,
+) -> list[dict[str, str]]:
     row = load_json(row_json)
     snapshot = row.get("vulkan_debug_counters", {}).get("conv_plan_key_snapshot", [])
     expected_local_text = (
@@ -223,20 +239,70 @@ def _find_plan_key_fields(
         if expected_local
         else None
     )
-    fallback: dict[str, str] | None = None
+    fallback: list[dict[str, str]] = []
+    matches: list[dict[str, str]] = []
     for line in snapshot:
         if not isinstance(line, str) or PLAN_KEY_SCHEMA not in line:
             continue
         fields = parse_plan_key_snapshot_row(line)
         if fields.get("kernel") != kernel:
             continue
-        if fallback is None:
-            fallback = fields
+        fallback.append(fields)
         if expected_local_text is None or fields.get("local") == expected_local_text:
-            return fields
-    if fallback is not None:
-        return fallback
-    raise ValueError(f"no {PLAN_KEY_SCHEMA} row for kernel={kernel} in {row_json}")
+            matches.append(fields)
+    return matches if matches else fallback
+
+
+def _row_delta_mean(row: dict[str, Any]) -> float | None:
+    delta = row.get("delta_vs_default", {}).get("mean_ms")
+    if isinstance(delta, (int, float)):
+        return float(delta)
+    return None
+
+
+def _row_decision(row: dict[str, Any]) -> str:
+    if row.get("correctness", {}).get("bridge_sanity_passed") is False:
+        return "correctness_blocked"
+    if not all(row.get("kernel_expected_local_ok", {}).values()):
+        return "correctness_blocked"
+    delta = _row_delta_mean(row)
+    if delta is not None and delta < 0:
+        return "accepted"
+    return "rejected_slower"
+
+
+def _combine_row_decisions(decisions: list[str]) -> str:
+    if any(decision == "correctness_blocked" for decision in decisions):
+        return "correctness_blocked"
+    accepted = any(decision == "accepted" for decision in decisions)
+    rejected = any(decision == "rejected_slower" for decision in decisions)
+    if accepted and rejected:
+        return "rejected_mixed"
+    if accepted:
+        return "accepted"
+    return "rejected_slower"
+
+
+def _plan_key_group_id(
+    *,
+    kernel: str,
+    candidate: str,
+    fields: dict[str, str],
+    capability_profile: dict[str, str],
+) -> str:
+    return "|".join(
+        [
+            kernel,
+            candidate,
+            f"vendor={capability_profile.get('vendor_id', 'not_available')}",
+            f"device={capability_profile.get('device_id', 'not_available')}",
+            f"driver={capability_profile.get('driver_version', 'not_available')}",
+            f"input={fields.get('input', 'not_available')}",
+            f"weight={fields.get('weight', 'not_available')}",
+            f"out={fields.get('output_channels', 'not_available')}",
+            f"local={fields.get('local', 'not_available')}",
+        ]
+    )
 
 
 def build_result_from_sweep_summary(
@@ -244,11 +310,21 @@ def build_result_from_sweep_summary(
     *,
     kernel: str,
     candidates: set[str] | None,
+    granularity: str = "candidate",
 ) -> dict[str, Any]:
     summary = load_json(summary_path)
     summary_dir = summary_path.parent
     plan_decisions = summary.get("plan_decisions", {})
     rows = summary.get("rows", [])
+
+    if granularity == "plan-key":
+        return build_plan_key_result_from_sweep_summary(
+            summary,
+            summary_path,
+            summary_dir,
+            kernel=kernel,
+            candidates=candidates,
+        )
 
     results: list[dict[str, Any]] = []
     for candidate, candidate_decision in sorted(plan_decisions.items()):
@@ -300,6 +376,116 @@ def build_result_from_sweep_summary(
         "schema": SCHEMA,
         "source_kind": "benchmark_sweep_summary",
         "source": str(summary_path),
+        "granularity": granularity,
+        "runtime_defaults_changed": False,
+        "result_count": len(results),
+        "results": results,
+    }
+    errors = validate_tuning_result(payload)
+    if errors:
+        raise ValueError("invalid tuning result:\n" + "\n".join(errors))
+    return payload
+
+
+def build_plan_key_result_from_sweep_summary(
+    summary: dict[str, Any],
+    summary_path: Path,
+    summary_dir: Path,
+    *,
+    kernel: str,
+    candidates: set[str] | None,
+) -> dict[str, Any]:
+    groups: dict[str, dict[str, Any]] = {}
+    for row in summary.get("rows", []):
+        candidate = row.get("plan")
+        if not candidate or candidate == "default":
+            continue
+        if candidates is not None and candidate not in candidates:
+            continue
+        row_json_value = row.get("row_json")
+        if not row_json_value:
+            continue
+        row_json = Path(row_json_value)
+        if not row_json.is_absolute():
+            row_json = summary_dir / row_json.name
+        fields_rows = _find_plan_key_field_rows(
+            row_json,
+            kernel=kernel,
+            expected_local=row.get("expected_local"),
+        )
+        if not fields_rows:
+            continue
+        row_decision = _row_decision(row)
+        emitted_group_ids: set[str] = set()
+        for fields in fields_rows:
+            capability_profile = capability_profile_from_snapshot(fields)
+            group_id = _plan_key_group_id(
+                kernel=kernel,
+                candidate=candidate,
+                fields=fields,
+                capability_profile=capability_profile,
+            )
+            if group_id in emitted_group_ids:
+                continue
+            emitted_group_ids.add(group_id)
+            group = groups.setdefault(
+                group_id,
+                {
+                    "id": group_id,
+                    "plan_key": plan_key_from_snapshot(fields, candidate=candidate),
+                    "capability_profile": capability_profile,
+                    "row_decisions": [],
+                    "source_rows": [],
+                    "row_evidence": [],
+                },
+            )
+            group["row_decisions"].append(row_decision)
+            group["source_rows"].append(row.get("label"))
+            group["row_evidence"].append(
+                {
+                    "source_row": row.get("label"),
+                    "device_index": row.get("device_index"),
+                    "model": row.get("model"),
+                    "input_size": row.get("input_size"),
+                    "delta_mean_ms": _row_delta_mean(row),
+                    "mean_ms": row.get("timing_device_resident_ms", {}).get("mean"),
+                    "correctness": row.get("correctness", {}),
+                    "cpu_fallback": row.get("cpu_fallback"),
+                    "sync_readback": row.get("sync_readback"),
+                    "expected_workgroup_observed": all(
+                        row.get("kernel_expected_local_ok", {}).values()
+                    ),
+                }
+            )
+
+    results = []
+    for group_id, group in sorted(groups.items()):
+        decision = _combine_row_decisions(group["row_decisions"])
+        results.append(
+            {
+                "id": f"{group_id}|decision={decision}",
+                "decision": decision,
+                "plan_key": group["plan_key"],
+                "capability_profile": group["capability_profile"],
+                "evidence": {
+                    "source_summary": str(summary_path),
+                    "source_head": summary.get("head"),
+                    "source_rows": group["source_rows"],
+                    "row_evidence": group["row_evidence"],
+                },
+                "revisit_conditions": [
+                    "Re-evaluate when VulkanConvPlanKey.v0 capability fields change.",
+                    "Re-evaluate when this exact plan key has stable per-kernel timing.",
+                    "Do not change runtime defaults from this offline artifact alone.",
+                ],
+            }
+        )
+
+    payload = {
+        "schema": SCHEMA,
+        "source_kind": "benchmark_sweep_summary",
+        "source": str(summary_path),
+        "granularity": "plan-key",
         "runtime_defaults_changed": False,
         "result_count": len(results),
         "results": results,
@@ -327,6 +513,7 @@ def cmd_from_sweep(args: argparse.Namespace) -> int:
         Path(args.summary),
         kernel=args.kernel,
         candidates=candidates,
+        granularity=args.granularity,
     )
     write_json(Path(args.out), payload)
     print(f"wrote {args.out}")
@@ -387,6 +574,11 @@ def cmd_self_test(args: argparse.Namespace) -> int:
                         "plan": "3x3_s1p1_16x4",
                         "row_json": str(row_path),
                         "expected_local": [16, 4, 1],
+                        "delta_vs_default": {"mean_ms": -1.0},
+                        "correctness": {"bridge_sanity_passed": True},
+                        "kernel_expected_local_ok": {
+                            "conv2d_buffer_float_3x3_s1p1": True,
+                        },
                     }
                 ],
                 "plan_decisions": {
@@ -402,6 +594,7 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             summary_path,
             kernel="conv2d_buffer_float_3x3_s1p1",
             candidates=None,
+            granularity="plan-key",
         )
         errors = validate_tuning_result(payload)
         if errors:
@@ -429,6 +622,11 @@ def main(argv: list[str] | None = None) -> int:
     from_sweep.add_argument("--out", required=True)
     from_sweep.add_argument("--kernel", required=True)
     from_sweep.add_argument("--candidate", action="append", default=[])
+    from_sweep.add_argument(
+        "--granularity",
+        choices=("candidate", "plan-key"),
+        default="candidate",
+    )
     from_sweep.set_defaults(func=cmd_from_sweep)
 
     self_test = subparsers.add_parser("self-test")

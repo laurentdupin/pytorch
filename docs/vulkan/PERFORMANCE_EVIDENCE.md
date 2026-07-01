@@ -194,8 +194,10 @@ The initial catalog records the current `vits_140` performance lane:
   `16x8` had a different mixed win/regression pattern;
 - `VulkanConvPlanTuningResult.v0`: accepted offline evidence format produced by
   `scripts/benchmarks/vulkan_conv_plan_tuning.py`. It records candidate
-  decisions by plan-key and capability-profile evidence, but it is not consumed
-  by runtime route selection yet;
+  decisions by plan-key and capability-profile evidence, including an optional
+  exact-plan-key granularity mode. It is not consumed by runtime route selection
+  yet, and exact-plan-key accepted rows still require stable per-kernel timing
+  before they can become promotion evidence;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;
