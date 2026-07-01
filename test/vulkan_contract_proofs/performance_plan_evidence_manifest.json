@@ -1041,7 +1041,7 @@
         "conv2d_buffer_float generic decoder/patch conv",
         "buffer conv candidate-plan tuning"
       ],
-      "candidate": "Create a reporting-only VulkanConvPlanKey.v0 snapshot for buffer conv families before trying another static workgroup default. Candidate-plan tuning and promotion remain unstarted.",
+      "candidate": "Create a reporting-only VulkanConvPlanKey.v0 snapshot for buffer conv families, including fused 3x3_s1p1_add submissions, before trying another static workgroup default. Candidate-plan tuning and promotion remain unstarted.",
       "correctness": {
         "status": "passed",
         "max_abs_by_row": {
@@ -1057,7 +1057,9 @@
         "cpu_fallback": 0,
         "sync_readback": 0,
         "performance_valid": true,
-        "dominant_family": "buffer_conv"
+        "dominant_family": "buffer_conv",
+        "plan_key_rows_after_fused_add_coverage": 43,
+        "fused_add_plan_key_rows": 7
       },
       "timing_ms": {
         "rx9070_conv_3x3_s1p1_family": 170.707,
@@ -1075,9 +1077,12 @@
       },
       "artifacts": [
         "agent_space/diagnostic_per_kernel_rx9070_6700_gtx_vitb140_008f454/summary.json",
-        "agent_space/diagnostic_per_kernel_rx9070_6700_gtx_vitb140_008f454/summary.md"
+        "agent_space/diagnostic_per_kernel_rx9070_6700_gtx_vitb140_008f454/summary.md",
+        "agent_space/conv_plan_key_multigpu_8b9c1f0/summary.json",
+        "agent_space/conv_plan_key_multigpu_8b9c1f0/summary.md",
+        "agent_space/conv_plan_key_add_coverage_8b9c1f0/rx9070_vitb140.json"
       ],
-      "decision": "Do not continue graph/transition diagnostics for the RX 9070 versus RX 6700 XT vitb_140 gap. The timestamped gap is dominated by buffer conv kernel families: RX 9070 is about 57.9 ms slower than RX 6700 XT in conv2d_buffer_float_3x3_s1p1 and about 55.9 ms slower in generic conv2d_buffer_float. The accepted next step is reporting-only VulkanConvPlanKey.v0 rows with selected kernel, contract provenance, layout, workgroup, and tunability fields; no candidate tuning or default promotion is claimed here.",
+      "decision": "Do not continue graph/transition diagnostics for the RX 9070 versus RX 6700 XT vitb_140 gap. The timestamped gap is dominated by buffer conv kernel families: RX 9070 is about 57.9 ms slower than RX 6700 XT in conv2d_buffer_float_3x3_s1p1 and about 55.9 ms slower in generic conv2d_buffer_float. The accepted next step is reporting-only VulkanConvPlanKey.v0 rows with selected kernel, contract provenance, layout, workgroup, and tunability fields. Fused conv-add submissions are also covered so the s1p1 bottleneck can be tuned as a complete family; no candidate tuning or default promotion is claimed here.",
       "revisit_conditions": [
         "When adding a candidate-plan cache for buffer conv families.",
         "When adding device/driver-keyed autotune support for conv plans.",

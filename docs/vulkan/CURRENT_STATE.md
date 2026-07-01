@@ -30,13 +30,14 @@ target is a proper `VulkanConvPlanKey`/candidate-plan tuning path for buffer
 conv families, not another static workgroup default.
 
 `VulkanConvPlanKey.v0` is now available as reporting-only infrastructure for
-float-buffer conv submissions. The snapshot records the selected kernel, contract
-name/family/tuple when present, dtype/storage/layout classes, offsets,
-global/local workgroup, candidate count, cacheability, and tunability. It does
-not change route selection, shader selection, workgroup selection, descriptor
-binding, or fallback/readback behavior. The next conv performance task is to
-collect focused multi-GPU plan-key evidence and build a bounded candidate-plan
-tuning layer on top of these rows.
+float-buffer conv submissions, including the fused `3x3_s1p1_add` conv path.
+The snapshot records the selected kernel, contract name/family/tuple when
+present, dtype/storage/layout classes, offsets, global/local workgroup,
+candidate count, cacheability, and tunability. It does not change route
+selection, shader selection, workgroup selection, descriptor binding, or
+fallback/readback behavior. The next conv performance task is to collect focused
+multi-GPU plan-key evidence and build a bounded candidate-plan tuning layer on
+top of these rows.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control

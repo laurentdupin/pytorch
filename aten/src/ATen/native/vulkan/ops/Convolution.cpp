@@ -3407,12 +3407,26 @@ Tensor run_float_buffer_conv2d_add_impl(
       api::utils::safe_downcast<uint32_t>(output_size[2]),
       api::utils::safe_downcast<uint32_t>(output_size[0] * output_size[1]),
   };
+  const api::utils::uvec3 local_size =
+      select_float_buffer_conv2d_work_group_size(shader_kind, global_size);
+
+  conv2d::log_float_buffer_conv2d_submit(
+      "conv2d_buffer_float_3x3_s1p1_add",
+      v_input,
+      v_output,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups,
+      global_size,
+      local_size);
 
   context->submit_compute_job(
       VK_KERNEL(conv2d_buffer_float_3x3_s1p1_add),
       pipeline_barrier,
       global_size,
-      select_float_buffer_conv2d_work_group_size(shader_kind, global_size),
+      local_size,
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
