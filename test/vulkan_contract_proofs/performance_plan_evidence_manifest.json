@@ -1940,6 +1940,59 @@
         "If a device/driver-specific linear tuning cache can validate full-row timing before selecting the tiled plan.",
         "If a cooperative-matrix or subgroup implementation provides a new candidate for the same exact plan key."
       ]
+    },
+    {
+      "id": "stack_region_retire_drain_defer_rejected_2026_07_01",
+      "status": "rejected_slower",
+      "head": "local_stack_region_retire_drain_defer_canary",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused probe. The canary is opt-in under PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER and is not a default route.",
+      "contract_or_topology_scope": [
+        "StackRegionSegmentPlan.v0 wide4 bridge evidence",
+        "stack planned-recording retire-drain policy",
+        "region-owned command/retire ownership"
+      ],
+      "candidate": "Defer bounded stack-owner old-path pending retire drains to the stack planned-region close submit, preserving the existing segment close submits and bridge correctness checks.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.6391277313232422e-06,
+        "mean_abs": 7.301201776499511e-08,
+        "tests": [
+          "Depth Anything V2 vits_140 bridge sanity embedded in benchmark run"
+        ]
+      },
+      "counters": {
+        "baseline_retire_queue_drain_submit_count": 15,
+        "candidate_retire_queue_drain_submit_count": 0,
+        "baseline_submit_origin_total": 45,
+        "candidate_submit_origin_total": 30,
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_count": 0
+      },
+      "timing_ms": {
+        "baseline_device_resident_mean": 64.282,
+        "submit_only_defer_device_resident_mean": 77.384,
+        "fastpath_defer_device_resident_mean": 94.818,
+        "fastpath_defer_device_resident_median": 91.859,
+        "fastpath_defer_device_resident_p95": 109.902,
+        "repeat_count": 5
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_context_fix_5repeat/vits140_wide4_5repeat.json",
+        "agent_space/dav2_vits140_segment_retire_defer_probe/vits140_planned_region_retire_defer_5repeat.json",
+        "agent_space/dav2_vits140_segment_retire_defer_probe/vits140_planned_region_retire_defer_fastpath_5repeat.json"
+      ],
+      "decision": "Do not promote stack-region retire-drain deferral as a standalone latency path. It removes the measured retire-drain queue submits but regresses wall time, implying the cost moves to later stack-close/lifetime work or pending-retire growth. The next control-plane task should prove stable program-owned temporaries and command replay/readiness, or another descriptor/recording reuse contract.",
+      "revisit_conditions": [
+        "If StackProgramOwnedTempStabilityContract.v0 or an equivalent replay-owned temp contract lands.",
+        "If segment-local completion ownership can retire the deferred resources without growing stack-close work.",
+        "If CPU-side descriptor/command-recording attribution shows retire-drain inspection is no longer on the hot path."
+      ]
     }
   ]
 }

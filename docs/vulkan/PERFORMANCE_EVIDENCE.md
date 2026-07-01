@@ -163,6 +163,17 @@ The initial catalog records the current `vits_140` performance lane:
   needs either segment-local completion ownership or a distinct bridge-scoped
   handoff batch with release and restore ownership before moving entries, not
   reuse of the same stack-exit batch as a standalone optimization;
+- opt-in stack-region retire-drain deferral:
+  `PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=stack_planned_region_exit`
+  is correctness-clean but rejected as slower. On the `vits_140` wide4 bridge,
+  submit-only deferral removed the 15 timed `retire_queue_drain` queue submits
+  but regressed to about 77.4 ms mean device-resident forward. The fast-path
+  variant also skipped intermediate drain inspection and still regressed to
+  about 94.8 ms mean while preserving bridge sanity, CPU fallback `0`,
+  sync readback `0`, and buffer copies `0`. This proves retire-drain submit
+  removal alone is not sufficient; the next control-plane work should target
+  stable program-owned temporaries/command replay or another descriptor/recording
+  reuse contract, not broader retire deferral;
 - the first `vits_182` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 74.8 ms mean device-resident forward;

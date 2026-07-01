@@ -165,6 +165,17 @@ bool stack_owner_poll_only_retire_drain_defer_enabled() {
   return std::string(env) == "stack_owner_poll_only";
 }
 
+bool stack_owned_segment_retire_drain_defer_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value == "stack_owned_segment_exit" ||
+      value == "stack_planned_region_exit";
+}
+
 const char* stack_region_single_recording_plan_state_name(
     const uint32_t state) {
   switch (state) {
@@ -3118,6 +3129,9 @@ void Context::submit_pending_work_and_poll_retire(
   const VulkanSubmitPhase phase = current_submit_phase();
   constexpr uint64_t kStackOwnerPollOnlyDeferralBudgetBytes =
       128u * 1024u * 1024u;
+  constexpr uint64_t kStackOwnedRegionRetireDrainDeferResourceCountLimit = 64u;
+  constexpr uint64_t kStackOwnedRegionRetireDrainDeferBytesLimit =
+      8u * 1024u * 1024u;
   if (
       stack_owner_poll_only_retire_drain_defer_enabled() &&
       phase == VulkanSubmitPhase::StackOwner &&
@@ -3128,6 +3142,30 @@ void Context::submit_pending_work_and_poll_retire(
       has_pending_command_work = has_pending_work_for_current_stream();
     }
     if (!has_pending_command_work) {
+      return;
+    }
+  }
+  if (
+      stack_owned_segment_retire_drain_defer_enabled() &&
+      phase == VulkanSubmitPhase::StackOwner &&
+      is_stack_planned_recording_active() &&
+      stack_planned_recording_owned_by_current_thread() &&
+      pending_bytes <= kStackOwnedRegionRetireDrainDeferBytesLimit) {
+    uint64_t pending_resource_count_for_defer = 0u;
+    {
+      std::lock_guard<std::mutex> bufferlist_lock(
+          pending_retire_buffers_mutex_);
+      pending_resource_count_for_defer += pending_retire_buffers_.size();
+    }
+    {
+      std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+      pending_resource_count_for_defer += pending_retire_images_.size();
+    }
+    if (
+        pending_resource_count_for_defer > 0u &&
+        pending_resource_count_for_defer <=
+            kStackOwnedRegionRetireDrainDeferResourceCountLimit) {
+      poll_retire_queue();
       return;
     }
   }
@@ -3347,11 +3385,21 @@ void Context::submit_pending_work_and_poll_retire(
           policy, pending_resource_count, pending_bytes);
   const bool old_path_pending_would_submit =
       has_old_path_pending_retire && !should_defer_tiny_old_path_pending;
+  const bool stack_owned_segment_retire_drain_defer =
+      stack_owned_segment_retire_drain_defer_enabled() &&
+      phase == VulkanSubmitPhase::StackOwner &&
+      is_stack_planned_recording_active() &&
+      stack_planned_recording_owned_by_current_thread() &&
+      pending_resource_count > 0u &&
+      pending_resource_count <=
+          kStackOwnedRegionRetireDrainDeferResourceCountLimit &&
+      pending_bytes <= kStackOwnedRegionRetireDrainDeferBytesLimit;
   const bool should_coalesce_norm2_retire_submit =
       record_subresource_lifetime_dry_run && dry_run_all_safe_group_eligible &&
       old_path_pending_would_submit;
   const bool should_submit_old_path_pending =
-      old_path_pending_would_submit && !should_coalesce_norm2_retire_submit;
+      old_path_pending_would_submit && !should_coalesce_norm2_retire_submit &&
+      !stack_owned_segment_retire_drain_defer;
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     had_pending_work = has_pending_work_for_current_stream();

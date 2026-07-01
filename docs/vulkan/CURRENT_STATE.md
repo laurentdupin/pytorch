@@ -187,6 +187,18 @@ valid but did not transfer pending retires: the release-owner rows remained
 mean. That result is cataloged as a no-op/rejected path. A future behavior
 canary needs a distinct bridge-scoped handoff batch with explicit restore and
 close-submit retire ownership before it moves entries.
+An opt-in stack-region retire-drain deferral canary is also rejected as a
+standalone latency path. With
+`PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=stack_planned_region_exit`, the
+`vits_140` wide4 bridge remained correctness-clean and removed the 15 timed
+`retire_queue_drain` queue submits over five repeats, but timing regressed from
+the 64.3 ms wide4 baseline to about 77.4 ms when only the submit was deferred
+and to about 94.8 ms when intermediate drain inspection was also skipped. This
+shows that removing those retire-drain submits without stable program-owned
+temporary/replay ownership shifts cost to later stack-close/lifetime work
+instead of improving latency. Do not promote this canary; the next control-plane
+task is stable stack temp identity for command replay or another
+descriptor/command-recording reuse contract.
 `Context` now has an empty-by-default bridge-private capture pending-retire
 handoff batch scaffold with clear/restore/retire helpers. No producer moves
 entries into that batch yet, so it is behavior-neutral and does not change
