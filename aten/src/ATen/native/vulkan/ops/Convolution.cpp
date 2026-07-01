@@ -725,14 +725,17 @@ void record_float_buffer_conv2d_aggregate(
 uint32_t conv_plan_candidate_count(
     const VulkanConvPlanDecision* decision,
     const VulkanConvAggregateKey& key) {
-  if (!decision || !key.pointwise) {
-    return 1u;
+  if (
+      decision && key.pointwise && decision->contract_name != nullptr &&
+      std::strcmp(
+          decision->contract_name,
+          "SmallSpatialPointwiseConvContract") == 0) {
+    return 2u;
   }
   if (
-      decision->contract_name != nullptr &&
-      std::strcmp(decision->contract_name, "SmallSpatialPointwiseConvContract") ==
-          0) {
-    return 2u;
+      key.kernel_name == "conv2d_buffer_float_3x3_s1p1" ||
+      key.kernel_name == "conv2d_buffer_float_3x3_s1p1_add") {
+    return 3u;
   }
   return 1u;
 }
@@ -2576,6 +2579,19 @@ api::utils::uvec3 select_float_buffer_conv2d_work_group_size(
     const api::utils::uvec3& global_size) {
   if (global_size.data[2u] <= 1u) {
     return adaptive_work_group_size(global_size);
+  }
+
+  const char* const workgroup_canary =
+      std::getenv("PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY");
+  if (
+      shader_kind == FloatBufferConv2dShaderKind::Kernel3x3Stride1Pad1 &&
+      workgroup_canary != nullptr) {
+    if (std::strcmp(workgroup_canary, "3x3_s1p1_16x4") == 0) {
+      return {16u, 4u, 1u};
+    }
+    if (std::strcmp(workgroup_canary, "3x3_s1p1_16x8") == 0) {
+      return {16u, 8u, 1u};
+    }
   }
 
   // The specialized float buffer conv kernels do not share work across

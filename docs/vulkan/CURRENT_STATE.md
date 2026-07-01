@@ -39,6 +39,14 @@ fallback/readback behavior. The next conv performance task is to collect focused
 multi-GPU plan-key evidence and build a bounded candidate-plan tuning layer on
 top of these rows.
 
+`PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY` is an opt-in candidate-plan
+experiment hook for the `Kernel3x3Stride1Pad1` float-buffer conv family. It
+currently admits `3x3_s1p1_16x4` and `3x3_s1p1_16x8` as canary workgroups while
+leaving the default `8x8x1` plan unchanged. The hook exists so multi-GPU
+evidence can be collected by `VulkanConvPlanKey.v0`; it is not a production
+promotion and must not be enabled by default without the manifest-backed bounded
+promotion evidence.
+
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
 plane by default. Direct native callers with deeper stack-output bridge contexts

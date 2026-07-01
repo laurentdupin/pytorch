@@ -181,6 +181,10 @@ The initial catalog records the current `vits_140` performance lane:
   classes, offsets, global/local workgroup, candidate count, cacheability, and
   tunability. This is not a behavior change and does not promote a new conv
   plan;
+- `PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY`: accepted opt-in canary for
+  `Kernel3x3Stride1Pad1` workgroup candidates `3x3_s1p1_16x4` and
+  `3x3_s1p1_16x8`. Defaults remain `8x8x1`; any default promotion still needs
+  bounded multi-GPU evidence because static 16x4/16x8 defaults were rejected;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

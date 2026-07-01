@@ -5885,6 +5885,53 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in plan_keys),
             msg="\n".join(plan_keys))
 
+    def test_vulkan_conv_plan_workgroup_canary_records_candidate(self):
+        torch.manual_seed(1754)
+        x_cpu = torch.randn(1, 64, 16, 16)
+        weight_cpu = torch.randn(32, 64, 3, 3)
+        bias_cpu = torch.randn(32)
+        expected = F.conv2d(
+            x_cpu,
+            weight_cpu,
+            bias_cpu,
+            stride=1,
+            padding=1,
+            dilation=1,
+            groups=1)
+
+        previous = os.environ.get("PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY")
+        os.environ["PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY"] = (
+            "3x3_s1p1_16x4"
+        )
+        try:
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            torch.ops.vulkan_prepack.reset_conv_aggregate()
+            actual = F.conv2d(
+                x_cpu.to("vulkan"),
+                weight_cpu.to("vulkan"),
+                bias_cpu.to("vulkan"),
+                stride=1,
+                padding=1,
+                dilation=1,
+                groups=1).cpu()
+        finally:
+            if previous is None:
+                os.environ.pop("PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY", None)
+            else:
+                os.environ["PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY"] = previous
+
+        self._assert_outputs_close(expected, actual, atol=2e-2, rtol=2e-2)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        plan_keys = torch.ops.vulkan_prepack.conv_plan_key_snapshot()
+        self.assertTrue(
+            any(
+                "schema=VulkanConvPlanKey.v0" in row
+                and "kernel=conv2d_buffer_float_3x3_s1p1" in row
+                and "local=[16,4,1]" in row
+                and "candidate_count=3" in row
+                for row in plan_keys),
+            msg="\n".join(plan_keys))
+
     def test_repeated_accuracy_linear_algebra_and_attention_matrix(self):
         def make_mm(variant):
             torch.manual_seed(1800 + variant)

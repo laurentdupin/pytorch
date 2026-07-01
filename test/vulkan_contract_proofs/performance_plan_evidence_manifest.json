@@ -1090,6 +1090,47 @@
       ]
     },
     {
+      "id": "conv3x3_s1p1_workgroup_canary_hook_2026_07_01",
+      "status": "accepted_canary",
+      "head": "24a6f209c9d+workgroup_canary",
+      "model_provenance": {
+        "model": "contract fixture",
+        "variant": "conv2d",
+        "input": "1x64x16x16"
+      },
+      "device_notes": "Opt-in canary hook only. Device and driver selection must come from external evidence rows; this is not a production device-name route.",
+      "contract_or_topology_scope": [
+        "VulkanConvPlanKey.v0",
+        "Kernel3x3Stride1Pad1",
+        "conv2d_buffer_float_3x3_s1p1",
+        "conv2d_buffer_float_3x3_s1p1_add"
+      ],
+      "candidate": "Expose PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY for 3x3_s1p1_16x4 and 3x3_s1p1_16x8 experiments while keeping the default 8x8x1 plan unchanged.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "TestVulkanEagerRuntime.test_vulkan_conv_plan_workgroup_canary_records_candidate"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": false,
+        "default_behavior_changed": false
+      },
+      "timing_ms": {
+        "not_measured": true
+      },
+      "artifacts": [
+        "test/test_vulkan.py::TestVulkanEagerRuntime.test_vulkan_conv_plan_workgroup_canary_records_candidate"
+      ],
+      "decision": "Keep as an opt-in candidate-plan experiment hook only. Prior static 16x4 and 16x8 default candidates remain rejected until new bounded multi-GPU evidence proves a narrower promotion.",
+      "revisit_conditions": [
+        "When collecting a multi-GPU candidate-plan sweep through VulkanConvPlanKey.v0 rows.",
+        "When promoting a bounded device/driver/shape policy instead of a static default."
+      ]
+    },
+    {
       "id": "decoder_tail_relu_via_conv_clamp_dav2_vits140_2026_06_30",
       "status": "rejected_slower",
       "head": "49f93e81e81",
