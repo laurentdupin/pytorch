@@ -199,6 +199,15 @@ temporary/replay ownership shifts cost to later stack-close/lifetime work
 instead of improving latency. Do not promote this canary; the next control-plane
 task is stable stack temp identity for command replay or another
 descriptor/command-recording reuse contract.
+`StackProgramOwnedTempStabilityContract.v0` is now exposed as reporting-only
+stack replay infrastructure. It records that current stack-internal temp
+descriptors are stable for per-forward re-recording, but remain fail-closed for
+command replay because allocator-backed program-temp slot identity is not yet
+proven across forwards. Benchmark debug snapshots include
+`stack_program_owned_temp_stability` rows next to
+`stack_replay_binding_mode`, so future replay work can consume this proof row
+instead of rediscovering the same `program_owned_temps_not_stable_for_command_replay`
+blocker.
 `Context` now has an empty-by-default bridge-private capture pending-retire
 handoff batch scaffold with clear/restore/retire helpers. No producer moves
 entries into that batch yet, so it is behavior-neutral and does not change

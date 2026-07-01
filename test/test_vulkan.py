@@ -20649,9 +20649,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         manifest = torch.ops.vulkan_prepack.stack_resource_binding_manifest()
         readiness = torch.ops.vulkan_prepack.stack_replay_readiness()
         modes = torch.ops.vulkan_prepack.stack_replay_binding_mode()
+        temp_stability = torch.ops.vulkan_prepack.stack_program_owned_temp_stability()
         replay_counters = torch.ops.vulkan_prepack.stack_replay_counters()
 
         self.assertGreater(len(manifest), 0)
+        self.assertGreater(len(temp_stability), 0)
         self.assertTrue(any("role=runtime_input" in row for row in manifest))
         self.assertTrue(any("role=packed_weight" in row for row in manifest))
         self.assertTrue(any("role=query" in row for row in manifest))
@@ -20667,6 +20669,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(readiness[13], 0)
         self.assertTrue(
             any("mode=re_record_command_buffer_per_forward" in row for row in modes)
+        )
+        self.assertTrue(
+            any(
+                "schema=StackProgramOwnedTempStabilityContract.v0" in row
+                and "stable_for_re_record=1" in row
+                and "stable_for_command_replay=0" in row
+                and "program_owned_temp_stability_proof_ready=0" in row
+                and "program_owned_temp_live_identity_status="
+                "missing_live_program_owned_temp_identity_join" in row
+                and "fail_closed_reason=program_owned_temp_slot_identity_unproven"
+                in row
+                for row in temp_stability
+            )
         )
         self.assertGreaterEqual(replay_counters[4], 1)
 
@@ -20780,6 +20795,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         readiness = torch.ops.vulkan_prepack.stack_replay_readiness()
         modes = torch.ops.vulkan_prepack.stack_replay_binding_mode()
+        temp_stability = torch.ops.vulkan_prepack.stack_program_owned_temp_stability()
         self.assertEqual(readiness[5], 1)
         self.assertEqual(readiness[13], 0)
         self.assertTrue(
@@ -20787,7 +20803,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "mode=re_record_command_buffer_per_forward" in row
                 and "ready_for_re_record_per_forward=1" in row
                 and "ready_for_command_replay=0" in row
+                and "program_owned_temp_stability_contract="
+                "StackProgramOwnedTempStabilityContract.v0" in row
+                and "program_owned_temps_stable_for_replay=0" in row
+                and "program_owned_temp_stability_proof_ready=0" in row
+                and "command_replay_authorized=0" in row
                 for row in modes
+            )
+        )
+        self.assertTrue(
+            any(
+                "stable_for_re_record=1" in row
+                and "stable_for_command_replay=0" in row
+                and "program_owned_temp_stability_status="
+                "program_owned_temp_stability_missing_live_identity" in row
+                for row in temp_stability
             )
         )
 

@@ -1851,6 +1851,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_stack_descriptor_binding_table() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_program_owned_temp_stability() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_planned_recording_readiness() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_planned_recording_counters() -> int[]"));
@@ -2269,6 +2271,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_stack_descriptor_binding_table"),
       TORCH_FN(reset_stack_descriptor_binding_table));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_program_owned_temp_stability"),
+      TORCH_FN(stack_program_owned_temp_stability_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_planned_recording_readiness"),

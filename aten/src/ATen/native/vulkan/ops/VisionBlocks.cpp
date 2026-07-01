@@ -292,6 +292,12 @@ stack_descriptor_binding_validation_rows() {
   return rows;
 }
 
+std::unordered_map<std::string, std::string>&
+stack_program_owned_temp_stability_rows() {
+  static std::unordered_map<std::string, std::string> rows;
+  return rows;
+}
+
 VulkanVisionOwnerCounters& vulkan_vision_owner_counters() {
   static VulkanVisionOwnerCounters counters;
   return counters;
@@ -2185,6 +2191,123 @@ std::string format_stack_descriptor_validation(
   return out.str();
 }
 
+std::string format_stack_program_owned_temp_stability(
+    const VulkanVisionStackShapePlan& plan) {
+  size_t internal_temp_bindings = 0u;
+  size_t program_owned_bindings = 0u;
+  size_t program_owned_storage_buffer_bindings = 0u;
+  size_t safe_to_rebind_bindings = 0u;
+  size_t escaping_internal_temp_bindings = 0u;
+  size_t requested_internal_temp_bindings = 0u;
+  size_t descriptor_indices_known_bindings = 0u;
+  size_t known_shape_bindings = 0u;
+
+  for (const auto& binding : plan.descriptor_bindings) {
+    if (binding.lifetime != VulkanStackResourceLifetime::InternalTemp) {
+      continue;
+    }
+    ++internal_temp_bindings;
+    if (
+        binding.binding_mode ==
+        VulkanStackDescriptorBindingMode::ProgramOwnedTemp) {
+      ++program_owned_bindings;
+      if (binding.resource_kind == VulkanStackResourceKind::StorageBuffer) {
+        ++program_owned_storage_buffer_bindings;
+      }
+    }
+    if (binding.safe_to_rebind) {
+      ++safe_to_rebind_bindings;
+    }
+    if (binding.descriptor_indices_known) {
+      ++descriptor_indices_known_bindings;
+    }
+    if (
+        !binding.tensor_shape.empty() &&
+        binding.dtype != c10::ScalarType::Undefined) {
+      ++known_shape_bindings;
+    }
+    if (binding.escapes_stack) {
+      ++escaping_internal_temp_bindings;
+    }
+    if (
+        binding.resource_role == "requested_intermediate_output" ||
+        binding.lifetime ==
+            VulkanStackResourceLifetime::RequestedIntermediateOutput) {
+      ++requested_internal_temp_bindings;
+    }
+  }
+
+  const bool all_program_owned =
+      internal_temp_bindings == program_owned_bindings;
+  const bool all_safe_to_rebind =
+      internal_temp_bindings == safe_to_rebind_bindings;
+  const bool all_descriptor_indices_known =
+      internal_temp_bindings == descriptor_indices_known_bindings;
+  const bool all_shapes_known = internal_temp_bindings == known_shape_bindings;
+  const bool no_escape_or_requested =
+      escaping_internal_temp_bindings == 0u &&
+      requested_internal_temp_bindings == 0u;
+  const bool shape_policy_complete =
+      plan.fixed_shapes && plan.known_lifetimes && plan.internal_outputs_owned;
+
+  // Program-owned temp descriptors are re-record-safe today, but replay needs
+  // stable slot identity across forwards. No allocator-backed slot proof exists
+  // yet, so this contract intentionally stays fail-closed.
+  constexpr bool kAllocatorSlotIdentityKnown = false;
+  const bool stable_for_command_replay = all_program_owned &&
+      all_safe_to_rebind && no_escape_or_requested && shape_policy_complete &&
+      kAllocatorSlotIdentityKnown;
+
+  std::ostringstream out;
+  out << "stack_program_owned_temp_stability"
+      << " schema=StackProgramOwnedTempStabilityContract.v0"
+      << " plan_key=" << format_stack_shape_key(plan.key)
+      << " tokens=" << plan.key.tokens
+      << " internal_temp_bindings=" << internal_temp_bindings
+      << " program_owned_temp_bindings=" << program_owned_bindings
+      << " program_owned_bindings=" << program_owned_bindings
+      << " program_owned_temp_storage_buffer_bindings="
+      << program_owned_storage_buffer_bindings
+      << " safe_to_rebind_bindings=" << safe_to_rebind_bindings
+      << " program_owned_temp_descriptor_indices_known="
+      << (all_descriptor_indices_known ? 1 : 0)
+      << " program_owned_temp_non_escaping="
+      << (no_escape_or_requested ? 1 : 0)
+      << " program_owned_temp_shapes_known=" << (all_shapes_known ? 1 : 0)
+      << " escaping_internal_temp_bindings="
+      << escaping_internal_temp_bindings
+      << " requested_internal_temp_bindings="
+      << requested_internal_temp_bindings
+      << " shape_policy_complete=" << (shape_policy_complete ? 1 : 0)
+      << " program_owned_temp_allocator_owner_status="
+      << "missing_program_owned_temp_allocator_owner"
+      << " program_owned_temp_live_identity_status="
+      << "missing_live_program_owned_temp_identity_join"
+      << " program_owned_temp_descriptor_generation_status="
+      << "missing_stable_descriptor_generation_join"
+      << " allocator_slot_identity_known="
+      << (kAllocatorSlotIdentityKnown ? 1 : 0)
+      << " stable_for_re_record="
+      << (all_program_owned && all_safe_to_rebind && no_escape_or_requested
+              ? 1
+              : 0)
+      << " stable_for_command_replay="
+      << (stable_for_command_replay ? 1 : 0)
+      << " program_owned_temp_stability_proof_ready="
+      << (stable_for_command_replay ? 1 : 0)
+      << " program_owned_temp_stability_status="
+      << (stable_for_command_replay
+              ? "program_owned_temp_stability_proven_behavior_disabled"
+              : "program_owned_temp_stability_missing_live_identity")
+      << " command_replay_behavior_enabled=0"
+      << " command_replay_authorized=0"
+      << " fail_closed_reason="
+      << (stable_for_command_replay
+              ? "ready"
+              : "program_owned_temp_slot_identity_unproven");
+  return out.str();
+}
+
 void record_stack_resource_binding_manifest(
     const VulkanVisionStackShapePlan& plan) {
   std::vector<std::string> new_rows;
@@ -2244,6 +2367,8 @@ void record_stack_resource_binding_manifest(
 
     stack_descriptor_binding_validation_rows()[key] =
         format_stack_descriptor_validation(plan);
+    stack_program_owned_temp_stability_rows()[key] =
+        format_stack_program_owned_temp_stability(plan);
 
     auto mode = determine_stack_replay_binding_mode(plan);
     std::ostringstream out;
@@ -2257,6 +2382,19 @@ void record_stack_resource_binding_manifest(
         << (plan.descriptor_re_record_ready ? 1 : 0)
         << " ready_for_command_replay="
         << (plan.descriptor_replay_ready ? 1 : 0)
+        << " program_owned_temp_stability_contract="
+        << "StackProgramOwnedTempStabilityContract.v0"
+        << " program_owned_temps_stable_for_replay="
+        << (plan.descriptor_replay_ready ? 1 : 0)
+        << " program_owned_temp_stability_proof_ready=0"
+        << " program_owned_temp_allocator_owner_status="
+        << "missing_program_owned_temp_allocator_owner"
+        << " program_owned_temp_live_identity_status="
+        << "missing_live_program_owned_temp_identity_join"
+        << " program_owned_temp_descriptor_generation_status="
+        << "missing_stable_descriptor_generation_join"
+        << " command_replay_behavior_enabled=0"
+        << " command_replay_authorized=0"
         << " reason="
         << (plan.descriptor_replay_ready
                 ? "descriptor_sets_rebindable_without_rerecord"
@@ -8225,6 +8363,7 @@ void reset_stack_resource_binding_manifest() {
   stack_replay_binding_mode_rows().clear();
   stack_descriptor_binding_table_rows().clear();
   stack_descriptor_binding_validation_rows().clear();
+  stack_program_owned_temp_stability_rows().clear();
 }
 
 std::vector<std::string> stack_descriptor_binding_table_snapshot() {
@@ -8237,6 +8376,17 @@ std::vector<std::string> stack_descriptor_binding_validation_snapshot() {
   std::vector<std::string> rows;
   rows.reserve(stack_descriptor_binding_validation_rows().size());
   for (const auto& entry : stack_descriptor_binding_validation_rows()) {
+    rows.emplace_back(entry.second);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+std::vector<std::string> stack_program_owned_temp_stability_snapshot() {
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(stack_program_owned_temp_stability_rows().size());
+  for (const auto& entry : stack_program_owned_temp_stability_rows()) {
     rows.emplace_back(entry.second);
   }
   std::sort(rows.begin(), rows.end());

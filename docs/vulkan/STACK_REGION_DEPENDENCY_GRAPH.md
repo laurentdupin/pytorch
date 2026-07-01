@@ -1503,6 +1503,16 @@ owner can request a region-owned command buffer or batch only through a
 diagnostic API that returns unavailable; there is still no implementation that
 preserves the removed submit's execution, timeline, and retire role.
 
+`StackProgramOwnedTempStabilityContract.v0` is the replay-side companion proof.
+It is emitted with the stack descriptor/replay readiness rows and records
+program-owned internal temp descriptor counts, descriptor-index coverage,
+non-escape status, shape coverage, and the missing allocator-owner,
+live-allocation-identity, and stable-descriptor-generation joins. The current
+state is intentionally fail-closed: `stable_for_re_record=1` but
+`stable_for_command_replay=0`. Command replay must not be enabled until those
+joins prove stable allocation id, generation, byte range, descriptor update
+generation, and lifetime ownership across forwards.
+
 ## Validation Gates
 
 Any future behavior-changing CL using this graph must include:

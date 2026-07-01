@@ -1993,6 +1993,52 @@
         "If segment-local completion ownership can retire the deferred resources without growing stack-close work.",
         "If CPU-side descriptor/command-recording attribution shows retire-drain inspection is no longer on the hot path."
       ]
+    },
+    {
+      "id": "stack_program_owned_temp_stability_reporting_2026_07_01",
+      "status": "accepted_reporting_infrastructure",
+      "head": "local_stack_program_owned_temp_stability_contract",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "Reporting-only replay-readiness evidence. The contract is generic to stack-region command replay and is not a device dispatch predicate.",
+      "contract_or_topology_scope": [
+        "StackProgramOwnedTempStabilityContract.v0",
+        "stack replay binding mode",
+        "program-owned internal temporary descriptors",
+        "command replay readiness"
+      ],
+      "candidate": "Expose a structured proof row that distinguishes program-owned temps that are safe for per-forward re-recording from temps that still lack allocator-backed stable slot identity for command replay.",
+      "correctness": {
+        "status": "behavior_neutral",
+        "tests": [
+          "TestVulkanEagerRuntime.test_vulkan_vision_stack_replay_readiness_reports_binding_mode",
+          "TestVulkanEagerRuntime.test_vulkan_vision_stack_descriptor_validation_keeps_replay_unsafe"
+        ]
+      },
+      "counters": {
+        "execution_behavior_changed": false,
+        "ready_for_re_record_per_forward": true,
+        "ready_for_command_replay": false,
+        "stable_for_re_record": true,
+        "stable_for_command_replay": false,
+        "fail_closed_reason": "program_owned_temp_slot_identity_unproven"
+      },
+      "timing_ms": {
+        "performance_claim": false
+      },
+      "artifacts": [
+        "vulkan_debug_counters.stack_program_owned_temp_stability",
+        "vulkan_debug_counters.stack_replay_binding_mode"
+      ],
+      "decision": "Keep this as accepted reporting infrastructure. It does not enable replay, but it makes the next replay blocker explicit: allocator-backed program-owned temp slot identity must be proven before command replay can replace per-forward command re-recording.",
+      "revisit_conditions": [
+        "When a stack temp slot allocator or replay-owned scratch/temp pool records stable allocation id, generation, byte range, and lifetime across forwards.",
+        "When an opt-in command-replay canary consumes the proof row and keeps bridge sanity, CPU fallback, sync readback, and copy counters clean.",
+        "When CPU-side descriptor/command-recording attribution shows command replay is no longer the top control-plane bottleneck."
+      ]
     }
   ]
 }

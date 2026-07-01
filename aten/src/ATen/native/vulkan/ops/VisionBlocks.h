@@ -453,6 +453,8 @@ std::vector<std::string> stack_descriptor_binding_validation_snapshot();
 
 void reset_stack_descriptor_binding_table();
 
+std::vector<std::string> stack_program_owned_temp_stability_snapshot();
+
 std::vector<int64_t> stack_planned_recording_readiness_snapshot();
 
 std::vector<int64_t> stack_planned_recording_counters_snapshot();

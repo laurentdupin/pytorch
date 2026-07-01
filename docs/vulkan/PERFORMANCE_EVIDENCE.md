@@ -174,6 +174,13 @@ The initial catalog records the current `vits_140` performance lane:
   removal alone is not sufficient; the next control-plane work should target
   stable program-owned temporaries/command replay or another descriptor/recording
   reuse contract, not broader retire deferral;
+- `StackProgramOwnedTempStabilityContract.v0` is accepted as reporting
+  infrastructure for that next control-plane task. It records program-owned
+  internal-temp descriptor counts and distinguishes `stable_for_re_record=1`
+  from `stable_for_command_replay=0` with
+  `fail_closed_reason=program_owned_temp_slot_identity_unproven`. This is not a
+  replay promotion and does not change execution; it prevents future agents from
+  treating the replay blocker as an unknown gap;
 - the first `vits_182` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 74.8 ms mean device-resident forward;
