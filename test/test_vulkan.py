@@ -2210,6 +2210,194 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(row["duration_ns_mean"], 35)
         self.assertEqual(row["duration_ns_max"], 50)
 
+    def test_vulkan_conv_plan_timestamp_run_summary_cli(self):
+        script_path = os.path.join(
+            REPO_ROOT,
+            "scripts",
+            "benchmarks",
+            "vulkan_conv_plan_tuning.py",
+        )
+        baseline_status_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_baseline_status.json",
+        )
+        candidate_status_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_candidate_status.json",
+        )
+        baseline_row_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_baseline.json",
+        )
+        candidate_row_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_candidate.json",
+        )
+        baseline_log_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_baseline.gpu_timestamp.log",
+        )
+        candidate_log_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_candidate.gpu_timestamp.log",
+        )
+        out_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_run_summary.json",
+        )
+
+        def write_result_json(path, mean_s):
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "performance_valid": True,
+                        "single_image_forward_device_resident": {
+                            "count": 3,
+                            "mean_s": mean_s,
+                        },
+                        "vulkan_stack_output_device_bridge_sanity": {
+                            "passed": True,
+                            "max_abs": 0.0,
+                            "mean_abs": 0.0,
+                        },
+                        "vulkan_debug_counters": {
+                            "cpu_fallback_count": 0,
+                            "sync_readback_count": 0,
+                        },
+                    },
+                    handle,
+                )
+
+        def write_timestamp_log(path, main_duration_ns, add_duration_ns):
+            lines = [
+                (
+                    "gpu_timestamp reason=submit name=conv "
+                    "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
+                    "|input=[1x128x10x15]|output_channels=128"
+                    "|weight=[128x128x3x3]|stride=[1x1]|padding=[1x1]"
+                    "|dilation=[1x1]|groups=1|global=15x10x128"
+                    f"|local=16x4x1 duration_ns={main_duration_ns}"
+                ),
+                (
+                    "gpu_timestamp reason=submit name=conv "
+                    "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1_add"
+                    "|input=[1x128x10x15]|output_channels=128"
+                    "|weight=[128x128x3x3]|stride=[1x1]|padding=[1x1]"
+                    "|dilation=[1x1]|groups=1|global=15x10x128"
+                    f"|local=16x4x1 duration_ns={add_duration_ns}"
+                ),
+                (
+                    "gpu_timestamp reason=submit name=attention "
+                    "runtime=attention duration_ns=100"
+                ),
+            ]
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(lines))
+                handle.write("\n")
+
+        try:
+            write_result_json(baseline_row_path, 0.100)
+            write_result_json(candidate_row_path, 0.080)
+            write_timestamp_log(baseline_log_path, 10_000_000, 5_000_000)
+            write_timestamp_log(candidate_log_path, 7_000_000, 4_000_000)
+            with open(baseline_status_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    [
+                        {
+                            "label": "dev0_vits_default",
+                            "device": 0,
+                            "model": "vits",
+                            "plan": "default",
+                            "exit_code": 0,
+                            "json": baseline_row_path,
+                            "timestamp_log": baseline_log_path,
+                        }
+                    ],
+                    handle,
+                )
+            with open(candidate_status_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    [
+                        {
+                            "label": "dev0_vits_3x3_s1p1_16x4",
+                            "device": 0,
+                            "model": "vits",
+                            "plan": "3x3_s1p1_16x4",
+                            "exit_code": 0,
+                            "json": candidate_row_path,
+                            "timestamp_log": candidate_log_path,
+                        }
+                    ],
+                    handle,
+                )
+            subprocess.run(
+                [
+                    sys.executable,
+                    script_path,
+                    "from-timestamp-run-status",
+                    "--run-status",
+                    candidate_status_path,
+                    "--baseline-run-status",
+                    baseline_status_path,
+                    "--out",
+                    out_path,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [sys.executable, script_path, "validate", out_path],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with open(out_path, encoding="utf-8") as handle:
+                summary = json.load(handle)
+        finally:
+            for path in (
+                baseline_status_path,
+                candidate_status_path,
+                baseline_row_path,
+                candidate_row_path,
+                baseline_log_path,
+                candidate_log_path,
+                out_path,
+            ):
+                if os.path.exists(path):
+                    os.remove(path)
+
+        self.assertEqual(
+            summary["schema"], "VulkanConvPlanTimestampRunSummary.v0"
+        )
+        self.assertFalse(summary["runtime_defaults_changed"])
+        self.assertEqual(summary["group_count"], 1)
+        self.assertEqual(summary["baseline_group_count"], 1)
+        group = summary["groups"][0]
+        self.assertEqual(group["device"], "0")
+        self.assertEqual(group["model"], "vits")
+        self.assertEqual(group["plan"], "3x3_s1p1_16x4")
+        self.assertEqual(group["cpu_fallback"], 0)
+        self.assertEqual(group["sync_readback"], 0)
+        self.assertEqual(group["conv_plan_total_ms"], 11.0)
+        self.assertEqual(
+            group["kernel_totals_ms"]["conv2d_buffer_float_3x3_s1p1"], 7.0
+        )
+        self.assertEqual(
+            group["kernel_totals_ms"]["conv2d_buffer_float_3x3_s1p1_add"], 4.0
+        )
+        self.assertEqual(
+            group["baseline_comparison"]["classification"], "locally_improved"
+        )
+        self.assertEqual(
+            group["baseline_comparison"]["device_resident_mean_delta_ms"], -20.0
+        )
+        self.assertEqual(
+            group["baseline_comparison"]["conv_plan_total_delta_ms"], -4.0
+        )
+
     def test_vulkan_stack_region_segment_plan_manifest_schema(self):
         manifest_path = os.path.join(
             REPO_ROOT,

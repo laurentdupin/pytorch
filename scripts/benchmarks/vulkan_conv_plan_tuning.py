@@ -10,12 +10,19 @@ from typing import Any
 
 SCHEMA = "VulkanConvPlanTuningResult.v0"
 TIMESTAMP_SCHEMA = "VulkanConvPlanTimestampSummary.v0"
+TIMESTAMP_RUN_SCHEMA = "VulkanConvPlanTimestampRunSummary.v0"
 PLAN_KEY_SCHEMA = "VulkanConvPlanKey.v0"
 VALID_DECISIONS = {
     "accepted",
     "rejected_mixed",
     "rejected_slower",
     "correctness_blocked",
+}
+VALID_TIMESTAMP_RUN_CLASSIFICATIONS = {
+    "locally_improved",
+    "locally_rejected_slower",
+    "correctness_blocked",
+    "insufficient_noise_band",
 }
 
 REQUIRED_SHAPE_FIELDS = (
@@ -77,6 +84,11 @@ CONV_PLAN_TIMESTAMP_GROUP_FIELDS = (
     "global",
     "local",
 )
+CONV_PLAN_TIMESTAMP_TARGET_KERNELS = (
+    "conv2d_buffer_float_3x3_s1p1",
+    "conv2d_buffer_float_3x3_s1p1_add",
+)
+TIMESTAMP_RUN_NOISE_BAND_MS = 1.0
 
 
 def parse_plan_key_snapshot_row(row: str) -> dict[str, str]:
@@ -296,13 +308,86 @@ def validate_timestamp_summary(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_timestamp_run_summary(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if payload.get("schema") != TIMESTAMP_RUN_SCHEMA:
+        errors.append(f"schema must be {TIMESTAMP_RUN_SCHEMA}")
+    if payload.get("runtime_defaults_changed") is not False:
+        errors.append("runtime_defaults_changed must be false")
+    if not payload.get("source_run_status"):
+        errors.append("source_run_status is required")
+    groups = payload.get("groups")
+    if not isinstance(groups, list):
+        errors.append("groups must be a list")
+        return errors
+    if payload.get("group_count") != len(groups):
+        errors.append("group_count must match len(groups)")
+    seen_ids: set[str] = set()
+    for index, group in enumerate(groups):
+        prefix = f"groups[{index}]"
+        group_id = group.get("id")
+        if not isinstance(group_id, str) or not group_id:
+            errors.append(f"{prefix}.id must be a non-empty string")
+        elif group_id in seen_ids:
+            errors.append(f"{prefix}.id is duplicated")
+        else:
+            seen_ids.add(group_id)
+        for field in ("device", "model", "plan"):
+            value = group.get(field)
+            if value in (None, ""):
+                errors.append(f"{prefix}.{field} is required")
+        source_rows = group.get("source_rows")
+        if not isinstance(source_rows, list) or not source_rows:
+            errors.append(f"{prefix}.source_rows must be a non-empty list")
+        correctness = group.get("correctness")
+        if not isinstance(correctness, dict):
+            errors.append(f"{prefix}.correctness must be an object")
+        timing = group.get("timing")
+        if not isinstance(timing, dict):
+            errors.append(f"{prefix}.timing must be an object")
+        for field in ("cpu_fallback", "sync_readback"):
+            value = group.get(field)
+            if not isinstance(value, int) or value < 0:
+                errors.append(f"{prefix}.{field} must be a non-negative integer")
+        total_ms = group.get("conv_plan_total_ms")
+        if not isinstance(total_ms, (int, float)) or total_ms < 0:
+            errors.append(f"{prefix}.conv_plan_total_ms must be non-negative")
+        kernel_totals = group.get("kernel_totals_ms")
+        if not isinstance(kernel_totals, dict):
+            errors.append(f"{prefix}.kernel_totals_ms must be an object")
+        else:
+            for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS:
+                value = kernel_totals.get(kernel)
+                if not isinstance(value, (int, float)) or value < 0:
+                    errors.append(
+                        f"{prefix}.kernel_totals_ms.{kernel} must be non-negative"
+                    )
+        capability_profiles = group.get("capability_profiles")
+        if not isinstance(capability_profiles, list):
+            errors.append(f"{prefix}.capability_profiles must be a list")
+        comparison = group.get("baseline_comparison")
+        if comparison is not None:
+            if not isinstance(comparison, dict):
+                errors.append(f"{prefix}.baseline_comparison must be an object")
+            else:
+                classification = comparison.get("classification")
+                if classification not in VALID_TIMESTAMP_RUN_CLASSIFICATIONS:
+                    errors.append(
+                        f"{prefix}.baseline_comparison.classification must be one "
+                        f"of {sorted(VALID_TIMESTAMP_RUN_CLASSIFICATIONS)}"
+                    )
+    return errors
+
+
 def validate_payload(payload: dict[str, Any]) -> list[str]:
     schema = payload.get("schema")
     if schema == SCHEMA:
         return validate_tuning_result(payload)
     if schema == TIMESTAMP_SCHEMA:
         return validate_timestamp_summary(payload)
-    return [f"schema must be {SCHEMA} or {TIMESTAMP_SCHEMA}"]
+    if schema == TIMESTAMP_RUN_SCHEMA:
+        return validate_timestamp_run_summary(payload)
+    return [f"schema must be {SCHEMA}, {TIMESTAMP_SCHEMA}, or {TIMESTAMP_RUN_SCHEMA}"]
 
 
 def load_json(path: Path) -> Any:
@@ -671,6 +756,385 @@ def build_timestamp_summary_from_log(log_path: Path) -> dict[str, Any]:
     return payload
 
 
+def _resolve_run_status_path(run_status_path: Path, value: Any) -> Path | None:
+    if not isinstance(value, str) or not value:
+        return None
+    path = Path(value)
+    if path.is_absolute() or path.exists():
+        return path
+    for parent in run_status_path.parents:
+        candidate = parent / path
+        if candidate.exists():
+            return candidate
+    return run_status_path.parent / path
+
+
+def _first_resolved_path(
+    run_status_path: Path,
+    row: dict[str, Any],
+    keys: tuple[str, ...],
+) -> Path | None:
+    for key in keys:
+        path = _resolve_run_status_path(run_status_path, row.get(key))
+        if path is not None:
+            return path
+    return None
+
+
+def _load_timestamp_summary_for_run(
+    run_status_path: Path,
+    row: dict[str, Any],
+    row_json_path: Path,
+) -> dict[str, Any]:
+    summary_path = _first_resolved_path(
+        run_status_path,
+        row,
+        ("timestamp_summary", "timestamp_summary_json"),
+    )
+    if summary_path is None:
+        inferred = row_json_path.with_name(row_json_path.stem + ".timestamp_summary.json")
+        if inferred.exists():
+            summary_path = inferred
+    if summary_path is not None and summary_path.exists():
+        summary = load_json(summary_path)
+        errors = validate_timestamp_summary(summary)
+        if errors:
+            raise ValueError(f"invalid timestamp summary {summary_path}:\n" + "\n".join(errors))
+        return summary
+
+    timestamp_log = _first_resolved_path(
+        run_status_path,
+        row,
+        ("timestamp_log", "gpu_timestamp_log"),
+    )
+    if timestamp_log is None:
+        inferred_log = row_json_path.with_name(row_json_path.stem + ".gpu_timestamp.log")
+        if inferred_log.exists():
+            timestamp_log = inferred_log
+    if timestamp_log is None or not timestamp_log.exists():
+        raise ValueError(
+            f"run_status row {row.get('label', row_json_path)} has no timestamp log"
+        )
+    return build_timestamp_summary_from_log(timestamp_log)
+
+
+def _json_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value in (0, 1):
+        return bool(value)
+    return None
+
+
+def _counter_from_sources(
+    row: dict[str, Any],
+    row_payload: dict[str, Any],
+    *,
+    row_key: str,
+    debug_key: str,
+) -> int | None:
+    value = row.get(row_key, row.get(debug_key))
+    if value is None:
+        value = row_payload.get(debug_key)
+    if value is None:
+        debug_counters = row_payload.get("vulkan_debug_counters", {})
+        if isinstance(debug_counters, dict):
+            value = debug_counters.get(debug_key)
+    if value is None:
+        return None
+    return int(value)
+
+
+def _device_resident_mean_ms(
+    row: dict[str, Any],
+    row_payload: dict[str, Any],
+) -> float | None:
+    timing_ms = row.get("timing_device_resident_ms")
+    if isinstance(timing_ms, dict) and timing_ms.get("mean") is not None:
+        return float(timing_ms["mean"])
+    timing = row_payload.get("single_image_forward_device_resident")
+    if isinstance(timing, dict) and timing.get("mean_s") is not None:
+        return float(timing["mean_s"]) * 1000.0
+    return None
+
+
+def _device_resident_sample_count(row_payload: dict[str, Any]) -> int | None:
+    timing = row_payload.get("single_image_forward_device_resident")
+    if isinstance(timing, dict) and timing.get("count") is not None:
+        return int(timing["count"])
+    return None
+
+
+def _bridge_sanity(row: dict[str, Any], row_payload: dict[str, Any]) -> dict[str, Any]:
+    correctness = row.get("correctness", {})
+    if not isinstance(correctness, dict):
+        correctness = {}
+    bridge = row_payload.get("vulkan_stack_output_device_bridge_sanity", {})
+    if not isinstance(bridge, dict):
+        bridge = {}
+    passed = correctness.get("bridge_sanity_passed")
+    if passed is None:
+        passed = bridge.get("passed")
+    return {
+        "bridge_sanity_passed": _json_bool(passed),
+        "bridge_sanity_max_abs": bridge.get("max_abs"),
+        "bridge_sanity_mean_abs": bridge.get("mean_abs"),
+        "performance_valid": _json_bool(row_payload.get("performance_valid")),
+        "exit_code": row.get("exit_code"),
+    }
+
+
+def _capability_profiles_from_row(row_payload: dict[str, Any]) -> list[dict[str, str]]:
+    snapshot = row_payload.get("vulkan_debug_counters", {}).get(
+        "conv_plan_key_snapshot", []
+    )
+    if not isinstance(snapshot, list):
+        return []
+    profiles: list[dict[str, str]] = []
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    for entry in snapshot:
+        if not isinstance(entry, str) or PLAN_KEY_SCHEMA not in entry:
+            continue
+        fields = parse_plan_key_snapshot_row(entry)
+        profile = capability_profile_from_snapshot(fields)
+        key = tuple(sorted(profile.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        profiles.append(profile)
+    return profiles
+
+
+def _kernel_totals_from_timestamp_summary(
+    timestamp_summary: dict[str, Any],
+) -> tuple[dict[str, float], dict[str, int]]:
+    totals = {kernel: 0.0 for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS}
+    counts = {kernel: 0 for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS}
+    for row in timestamp_summary.get("rows", []):
+        kernel = row.get("kernel")
+        if kernel not in totals:
+            continue
+        totals[kernel] += float(row.get("duration_ns_sum", 0)) / 1.0e6
+        counts[kernel] += int(row.get("count", 0))
+    return totals, counts
+
+
+def _is_group_correct(group: dict[str, Any]) -> bool:
+    correctness = group["correctness"]
+    if correctness.get("all_rows_performance_valid") is not True:
+        return False
+    if correctness.get("all_rows_bridge_sanity_passed") is False:
+        return False
+    return True
+
+
+def _comparison_classification(
+    group: dict[str, Any],
+    baseline: dict[str, Any] | None,
+) -> dict[str, Any]:
+    comparison: dict[str, Any] = {
+        "baseline_id": baseline.get("id") if baseline else None,
+        "noise_band_ms": TIMESTAMP_RUN_NOISE_BAND_MS,
+        "classification": "insufficient_noise_band",
+        "device_resident_mean_delta_ms": None,
+        "conv_plan_total_delta_ms": None,
+    }
+    if not _is_group_correct(group):
+        comparison["classification"] = "correctness_blocked"
+        return comparison
+    if baseline is None or not _is_group_correct(baseline):
+        return comparison
+    group_mean = group.get("timing", {}).get("device_resident_mean_ms")
+    baseline_mean = baseline.get("timing", {}).get("device_resident_mean_ms")
+    if group_mean is None or baseline_mean is None:
+        return comparison
+    row_delta = float(group_mean) - float(baseline_mean)
+    conv_delta = float(group["conv_plan_total_ms"]) - float(
+        baseline["conv_plan_total_ms"]
+    )
+    comparison["device_resident_mean_delta_ms"] = row_delta
+    comparison["conv_plan_total_delta_ms"] = conv_delta
+    if (
+        row_delta < -TIMESTAMP_RUN_NOISE_BAND_MS
+        and conv_delta < -TIMESTAMP_RUN_NOISE_BAND_MS
+    ):
+        comparison["classification"] = "locally_improved"
+    elif row_delta > TIMESTAMP_RUN_NOISE_BAND_MS or conv_delta > TIMESTAMP_RUN_NOISE_BAND_MS:
+        comparison["classification"] = "locally_rejected_slower"
+    return comparison
+
+
+def _load_run_status_rows(run_status_path: Path) -> list[dict[str, Any]]:
+    payload = load_json(run_status_path)
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = payload.get("rows", payload.get("runs"))
+    else:
+        rows = None
+    if not isinstance(rows, list):
+        raise ValueError(f"{run_status_path} must contain a list or rows list")
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError(f"{run_status_path} rows must be objects")
+    return rows
+
+
+def _run_group_id(device: Any, model: Any, plan: Any) -> str:
+    return f"device={device}|model={model}|plan={plan}"
+
+
+def _finalize_timestamp_run_groups(
+    groups: dict[tuple[str, str, str], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    finalized = []
+    for key in sorted(groups):
+        group = groups[key]
+        timing_values = group.pop("_timing_values")
+        timing_counts = group.pop("_timing_counts")
+        conv_plan_totals = group.pop("_conv_plan_totals")
+        group["timing"] = {
+            "device_resident_mean_ms": (
+                sum(timing_values) / len(timing_values) if timing_values else None
+            ),
+            "device_resident_mean_ms_values": timing_values,
+            "device_resident_sample_count": sum(timing_counts),
+        }
+        group["conv_plan_total_ms"] = sum(conv_plan_totals)
+        finalized.append(group)
+    return finalized
+
+
+def _timestamp_run_groups_from_run_status(
+    run_status_path: Path,
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in _load_run_status_rows(run_status_path):
+        row_json_path = _first_resolved_path(
+            run_status_path,
+            row,
+            ("json", "row_json", "result_json"),
+        )
+        if row_json_path is None or not row_json_path.exists():
+            raise ValueError(f"run_status row {row.get('label')} has no row JSON")
+        row_payload = load_json(row_json_path)
+        timestamp_summary = _load_timestamp_summary_for_run(
+            run_status_path,
+            row,
+            row_json_path,
+        )
+        device = str(row.get("device", row.get("device_index", "unknown")))
+        model = str(row.get("model", row_payload.get("encoder", "unknown")))
+        plan = str(row.get("plan", "unknown"))
+        group_key = (device, model, plan)
+        group = groups.setdefault(
+            group_key,
+            {
+                "id": _run_group_id(device, model, plan),
+                "device": device,
+                "model": model,
+                "plan": plan,
+                "source_rows": [],
+                "row_json": [],
+                "timestamp_logs": [],
+                "correctness": {
+                    "all_rows_performance_valid": True,
+                    "all_rows_bridge_sanity_passed": True,
+                    "rows": [],
+                },
+                "cpu_fallback": 0,
+                "sync_readback": 0,
+                "kernel_totals_ms": {
+                    kernel: 0.0 for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS
+                },
+                "kernel_event_counts": {
+                    kernel: 0 for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS
+                },
+                "capability_profiles": [],
+                "_timing_values": [],
+                "_timing_counts": [],
+                "_conv_plan_totals": [],
+            },
+        )
+        group["source_rows"].append(row.get("label", row_json_path.stem))
+        group["row_json"].append(str(row_json_path))
+        group["timestamp_logs"].append(str(timestamp_summary.get("source_log")))
+        correctness = _bridge_sanity(row, row_payload)
+        group["correctness"]["rows"].append(correctness)
+        if correctness["performance_valid"] is not True:
+            group["correctness"]["all_rows_performance_valid"] = False
+        if correctness["bridge_sanity_passed"] is False:
+            group["correctness"]["all_rows_bridge_sanity_passed"] = False
+        group["cpu_fallback"] += _counter_from_sources(
+            row,
+            row_payload,
+            row_key="cpu_fallback",
+            debug_key="cpu_fallback_count",
+        ) or 0
+        group["sync_readback"] += _counter_from_sources(
+            row,
+            row_payload,
+            row_key="sync_readback",
+            debug_key="sync_readback_count",
+        ) or 0
+        timing_ms = _device_resident_mean_ms(row, row_payload)
+        if timing_ms is not None:
+            group["_timing_values"].append(timing_ms)
+        sample_count = _device_resident_sample_count(row_payload)
+        if sample_count is not None:
+            group["_timing_counts"].append(sample_count)
+        total_ms = float(timestamp_summary["total_conv_plan_duration_ns"]) / 1.0e6
+        group["_conv_plan_totals"].append(total_ms)
+        kernel_totals, kernel_counts = _kernel_totals_from_timestamp_summary(
+            timestamp_summary
+        )
+        for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS:
+            group["kernel_totals_ms"][kernel] += kernel_totals[kernel]
+            group["kernel_event_counts"][kernel] += kernel_counts[kernel]
+        for profile in _capability_profiles_from_row(row_payload):
+            if profile not in group["capability_profiles"]:
+                group["capability_profiles"].append(profile)
+    return _finalize_timestamp_run_groups(groups)
+
+
+def build_timestamp_run_summary_from_run_status(
+    run_status_path: Path,
+    *,
+    baseline_run_status_path: Path | None = None,
+) -> dict[str, Any]:
+    groups = _timestamp_run_groups_from_run_status(run_status_path)
+    baseline_groups: list[dict[str, Any]] = []
+    baseline_by_device_model: dict[tuple[str, str], dict[str, Any]] = {}
+    if baseline_run_status_path is not None:
+        baseline_groups = _timestamp_run_groups_from_run_status(baseline_run_status_path)
+        for group in baseline_groups:
+            if group["plan"] == "default":
+                baseline_by_device_model[(group["device"], group["model"])] = group
+        for group in groups:
+            if group["plan"] == "default":
+                group["baseline_role"] = "default"
+                continue
+            baseline = baseline_by_device_model.get((group["device"], group["model"]))
+            group["baseline_comparison"] = _comparison_classification(group, baseline)
+
+    payload = {
+        "schema": TIMESTAMP_RUN_SCHEMA,
+        "source_kind": "benchmark_run_status",
+        "source_run_status": str(run_status_path),
+        "baseline_run_status": (
+            str(baseline_run_status_path) if baseline_run_status_path else None
+        ),
+        "runtime_defaults_changed": False,
+        "noise_band_ms": TIMESTAMP_RUN_NOISE_BAND_MS,
+        "group_count": len(groups),
+        "baseline_group_count": len(baseline_groups),
+        "groups": groups,
+    }
+    errors = validate_timestamp_run_summary(payload)
+    if errors:
+        raise ValueError("invalid timestamp run summary:\n" + "\n".join(errors))
+    return payload
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     payload = load_json(Path(args.path))
     errors = validate_payload(payload)
@@ -697,6 +1161,17 @@ def cmd_from_sweep(args: argparse.Namespace) -> int:
 
 def cmd_from_timestamp_log(args: argparse.Namespace) -> int:
     payload = build_timestamp_summary_from_log(Path(args.log))
+    write_json(Path(args.out), payload)
+    print(f"wrote {args.out}")
+    return 0
+
+
+def cmd_from_timestamp_run_status(args: argparse.Namespace) -> int:
+    baseline = Path(args.baseline_run_status) if args.baseline_run_status else None
+    payload = build_timestamp_run_summary_from_run_status(
+        Path(args.run_status),
+        baseline_run_status_path=baseline,
+    )
     write_json(Path(args.out), payload)
     print(f"wrote {args.out}")
     return 0
@@ -854,6 +1329,12 @@ def main(argv: list[str] | None = None) -> int:
     from_timestamp_log.add_argument("--log", required=True)
     from_timestamp_log.add_argument("--out", required=True)
     from_timestamp_log.set_defaults(func=cmd_from_timestamp_log)
+
+    from_timestamp_run_status = subparsers.add_parser("from-timestamp-run-status")
+    from_timestamp_run_status.add_argument("--run-status", required=True)
+    from_timestamp_run_status.add_argument("--out", required=True)
+    from_timestamp_run_status.add_argument("--baseline-run-status")
+    from_timestamp_run_status.set_defaults(func=cmd_from_timestamp_run_status)
 
     self_test = subparsers.add_parser("self-test")
     self_test.set_defaults(func=cmd_self_test)
