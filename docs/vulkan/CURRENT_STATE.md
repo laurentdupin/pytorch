@@ -87,6 +87,26 @@ phase, stack phase, and recent op, while joining the same benchmark phase's
 CPU fallback, sync readback, buffer-copy, submit-origin, and retire-drain
 counters. This is measurement infrastructure only; it does not change execution
 routes, shader selection, copies, readbacks, submits, or fallback policy.
+The benchmark can also dump CPU timeline summaries at measurement-phase begin
+and end when `PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG` is set. The begin dump
+clears setup/warmup attribution and the end dump captures the timed phase; this
+is reporting-only and does not affect execution.
+
+The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the safe
+performance baseline: a focused 12-repeat run measured about 76.1 ms mean /
+74.2 ms median device-resident forward with zero timed CPU fallback, sync
+readback, and buffer copies. A phase-isolated GPU timestamp profile showed
+about 43-47 ms of kernel work per forward. The largest GPU row is still the FP32
+`fc2` linear family (`mm_buffer_float_bias`, about 13.9 ms/forward), followed by
+decoder/other convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm.
+Sub-50 work therefore needs both control-plane reduction and a parity-proven
+FP32 linear plan; the current tiled fc2 canary is not promoted.
+
+`PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is now an
+opt-in stack-owned external recording pool-lease experiment. It is not enabled
+by default because focused `vits_140` evidence showed it was slower than the
+retained persistent-pool path and it did not fix the
+`compiled_session_bridge` Windows stack-overflow exit `-1073741571`.
 
 A focused 18-row timestamp sweep over DAv2 `vits_140` and `vitb_140` on RX
 9070, GTX 1080, and RX 6700 XT kept both `3x3_s1p1_16x4` and

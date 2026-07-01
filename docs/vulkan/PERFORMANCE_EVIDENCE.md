@@ -286,6 +286,20 @@ The initial catalog records the current `vits_140` performance lane:
   phase, and recent op while reporting the same phase's fallback/readback/copy,
   submit-origin, and retire-drain counters. This is not timing evidence by
   itself and must not be used as a production route table;
+- benchmark CPU timeline phase summaries: accepted measurement infrastructure.
+  When `PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG` is set, the Depth Anything V2
+  benchmark emits a summary dump at the begin and end of each selected
+  measurement phase. The begin dump clears setup/warmup rows; the end dump is
+  the useful timed-phase CPU submission/copy attribution. This does not change
+  model execution, synchronization, copy, fallback, or route selection;
+- stack-region external recording pool lease:
+  `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is an
+  opt-in ownership experiment for stack-owned external recording. A focused
+  `vits_140` wide4 RX 9070 probe remained correctness-clean, but the lease was
+  slower than the retained persistent-pool default and did not fix the
+  `compiled_session_bridge` Windows stack-overflow exit `-1073741571`. Keep it
+  as ownership/lifetime evidence only; do not enable it on the hot path without
+  new proof that it fixes a concrete lifetime bug or improves timing;
 - conv-plan timestamp sweep over DAv2 `vits_140`/`vitb_140` on RX 9070, GTX
   1080, and RX 6700 XT: rejected broad promotion of both `3x3_s1p1_16x4` and
   `3x3_s1p1_16x8`. Both candidates were correctness-clean and hit expected
@@ -314,6 +328,16 @@ The initial catalog records the current `vits_140` performance lane:
   to about 93.5 ms mean versus the 64.3 ms wide4 baseline. Keep the tile
   metadata/correctness guard as canary evidence; do not promote this tiled fc2
   route without a faster kernel or tuning policy;
+- latest `vits_140` RX 9070 attribution after recovery-flush gating and
+  retained-pool wide4 recording: the safe bridge remains valid with zero timed
+  CPU fallback, sync readback, and buffer copies. A 12-repeat run measured about
+  76.1 ms mean / 74.2 ms median device-resident forward, while the phase GPU
+  timestamp profile showed about 43-47 ms of kernel work per forward. The top
+  GPU rows were `fc2` (`mm_buffer_float_bias`, about 13.9 ms/forward),
+  decoder/other convs, `fc1_gelu`, `qkv_linear`, `proj_linear`, attention BMM,
+  and LayerNorm. Sub-50 work therefore needs both control-plane reduction
+  (submit/retire/sync variance) and a parity-proven FP32 linear plan; the
+  existing tiled fc2 canary remains non-promoted evidence;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

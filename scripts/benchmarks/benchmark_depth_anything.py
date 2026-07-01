@@ -452,6 +452,26 @@ def set_vulkan_timed_region(torch_module: Any, enabled: bool) -> None:
         setter(bool(enabled))
 
 
+def dump_vulkan_cpu_timeline_summary_phase(
+    torch_module: Any,
+    device_kind: str,
+    phase: str,
+) -> None:
+    ops = getattr(getattr(torch_module, "ops", None), "vulkan_prepack", None)
+    dump = (
+        getattr(ops, "dump_cpu_timeline_summary", None)
+        if ops is not None
+        else None
+    )
+    if device_kind != "vulkan" or dump is None:
+        return
+    summary_log = os.environ.get("PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG")
+    if summary_log:
+        with open(summary_log, "a", encoding="utf-8") as out:
+            out.write(f"benchmark_cpu_timeline_summary_phase phase={phase}\n")
+    dump()
+
+
 @contextlib.contextmanager
 def vulkan_fallback_phase(torch_module: Any, phase: int) -> Any:
     set_vulkan_fallback_phase(torch_module, phase)
@@ -2930,6 +2950,11 @@ def run() -> None:
             if _measurement_phase_enabled(
                 args, "single_image_end_to_end_with_readback"
             ):
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_end_to_end_with_readback.begin",
+                )
                 for _ in range(args.repeats):
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
@@ -2946,6 +2971,11 @@ def run() -> None:
                     end_to_end_with_readback_durations.append(
                         time.perf_counter() - start
                     )
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_end_to_end_with_readback.end",
+                )
                 measurement_phase_start = _append_measurement_phase_delta(
                     measurement_phase_counters,
                     name="single_image_end_to_end_with_readback",
@@ -2958,6 +2988,11 @@ def run() -> None:
             if legacy_forward_output_mode != OUTPUT_MODE_READBACK and (
                 _measurement_phase_enabled(args, "single_image_end_to_end_legacy_alias")
             ):
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_end_to_end_legacy_alias.begin",
+                )
                 for _ in range(args.repeats):
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
@@ -2972,6 +3007,11 @@ def run() -> None:
                             legacy_forward_output_mode,
                         )
                     legacy_end_to_end_durations.append(time.perf_counter() - start)
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_end_to_end_legacy_alias.end",
+                )
                 measurement_phase_start = _append_measurement_phase_delta(
                     measurement_phase_counters,
                     name="single_image_end_to_end_legacy_alias",
@@ -2984,6 +3024,11 @@ def run() -> None:
             if _measurement_phase_enabled(
                 args, "single_image_forward_device_resident"
             ):
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_forward_device_resident.begin",
+                )
                 for _ in range(args.repeats):
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
@@ -3004,6 +3049,11 @@ def run() -> None:
                     forward_device_resident_durations.append(
                         time.perf_counter() - start
                     )
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_forward_device_resident.end",
+                )
                 measurement_phase_start = _append_measurement_phase_delta(
                     measurement_phase_counters,
                     name="single_image_forward_device_resident",
@@ -3014,6 +3064,11 @@ def run() -> None:
                 )
 
             if _measurement_phase_enabled(args, "single_image_forward_with_readback"):
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_forward_with_readback.begin",
+                )
                 for _ in range(args.repeats):
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
@@ -3032,6 +3087,11 @@ def run() -> None:
                             OUTPUT_MODE_READBACK,
                         )
                     forward_with_readback_durations.append(time.perf_counter() - start)
+                dump_vulkan_cpu_timeline_summary_phase(
+                    torch,
+                    device_kind,
+                    "single_image_forward_with_readback.end",
+                )
                 _append_measurement_phase_delta(
                     measurement_phase_counters,
                     name="single_image_forward_with_readback",

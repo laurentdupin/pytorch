@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -130,6 +131,19 @@ class TORCH_API Context final {
   DescriptorPool descriptor_pool_;
   CommandPool persistent_command_pool_;
   DescriptorPool persistent_descriptor_pool_;
+  struct StackRegionExternalRecordingPoolLease final {
+    CommandPool command_pool;
+    DescriptorPool descriptor_pool;
+
+    StackRegionExternalRecordingPoolLease(
+        VkDevice device,
+        uint32_t queue_family_idx,
+        const ContextConfig& config)
+        : command_pool(device, queue_family_idx, config.cmdPoolConfig),
+          descriptor_pool(device, config.descriptorPoolConfig) {}
+  };
+  std::shared_ptr<StackRegionExternalRecordingPoolLease>
+      stack_region_external_recording_pool_lease_;
   FencePool fences_;
   // Diagnostics
   bool enable_op_profiling_{false};
@@ -229,6 +243,9 @@ class TORCH_API Context final {
   void retire_bridge_private_capture_pending_retire_handoff_batch_locked(
       const VulkanSubmission& submission);
   void flush_persistent_external_recording_pools_if_idle();
+  void retire_stack_region_external_recording_pool_lease(
+      const VulkanSubmission& submission);
+  void release_stack_region_external_recording_pool_lease_now();
   bool transfer_pending_retires_to_stack_region_handoff_locked(
       VulkanRetireCallSite callsite,
       const std::string& target_allocation_signature);
