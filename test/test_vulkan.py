@@ -5838,6 +5838,52 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 any("kernel=conv2d_buffer_float_3x3_s2p1" in row
                     for row in aggregate),
                 msg="\n".join(aggregate))
+            plan_keys = torch.ops.vulkan_prepack.conv_plan_key_snapshot()
+            self.assertTrue(
+                any(
+                    "schema=VulkanConvPlanKey.v0" in row
+                    and "kernel=conv2d_buffer_float_3x3_s2p1" in row
+                    and "local=[8,8,1]" in row
+                    and "tunable=1" in row
+                    for row in plan_keys),
+                msg="\n".join(plan_keys))
+
+    def test_vulkan_pointwise_conv_plan_key_records_contract_candidate(self):
+        torch.manual_seed(1753)
+        x_cpu = torch.randn(1, 384, 10, 15) * 0.1
+        module_cpu = torch.nn.Conv2d(
+            384,
+            192,
+            kernel_size=1,
+            bias=True).eval()
+        module_vulkan = torch.nn.Conv2d(
+            384,
+            192,
+            kernel_size=1,
+            bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        torch.ops.vulkan_prepack.reset_conv_aggregate()
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        plan_keys = torch.ops.vulkan_prepack.conv_plan_key_snapshot()
+        self.assertTrue(
+            any(
+                "schema=VulkanConvPlanKey.v0" in row
+                and "selected=FloatBufferPointwise1x1AsLinear" in row
+                and "kernel=conv2d_buffer_float_1x1_as_linear" in row
+                and "contract=SmallSpatialPointwiseConvContract" in row
+                and "contract_family=DepthVisionProjection" in row
+                and "candidate_count=2" in row
+                and "local=[16,4,1]" in row
+                for row in plan_keys),
+            msg="\n".join(plan_keys))
 
     def test_repeated_accuracy_linear_algebra_and_attention_matrix(self):
         def make_mm(variant):

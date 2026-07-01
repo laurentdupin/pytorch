@@ -299,6 +299,8 @@ TORCH_API std::vector<int64_t> pointwise_conv_route_counters_snapshot();
 
 TORCH_API std::vector<std::string> conv_aggregate_snapshot();
 
+TORCH_API std::vector<std::string> conv_plan_key_snapshot();
+
 TORCH_API void reset_conv_plan_counters();
 
 TORCH_API void reset_pointwise_conv_route_counters();

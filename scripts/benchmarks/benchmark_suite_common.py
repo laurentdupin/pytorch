@@ -91,6 +91,7 @@ VULKAN_COUNTER_NAMES = (
     "conv_plan_counters",
     "pointwise_conv_route_counters",
     "conv_aggregate_snapshot",
+    "conv_plan_key_snapshot",
     "buffer_copy_counters",
     "buffer_copy_aggregate_snapshot",
     "clone_requirement_snapshot",

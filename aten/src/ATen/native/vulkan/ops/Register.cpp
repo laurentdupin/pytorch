@@ -1779,6 +1779,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::conv_aggregate_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::conv_plan_key_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_conv_aggregate() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::attention_plan_counters() -> int[]"));
@@ -2154,6 +2156,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv_aggregate_snapshot"),
       TORCH_FN(conv_aggregate_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::conv_plan_key_snapshot"),
+      TORCH_FN(conv_plan_key_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_conv_aggregate"),
       TORCH_FN(reset_conv_aggregate));

@@ -216,6 +216,92 @@ struct VulkanConvAggregateValue final {
   uint64_t weight_bytes{0};
 };
 
+struct VulkanConvPlanKey final {
+  VulkanConvAggregateKey aggregate;
+  std::string contract_name;
+  std::string contract_family;
+  std::string contract_tuple_id;
+  int64_t input_dtype{0};
+  int64_t weight_dtype{0};
+  int64_t output_dtype{0};
+  int64_t input_storage{0};
+  int64_t weight_storage{0};
+  int64_t output_storage{0};
+  int64_t input_layout{0};
+  int64_t weight_layout{0};
+  int64_t output_layout{0};
+  int64_t input_offset{0};
+  int64_t weight_offset{0};
+  int64_t output_offset{0};
+  uint32_t global_x{0u};
+  uint32_t global_y{0u};
+  uint32_t global_z{0u};
+  uint32_t local_x{0u};
+  uint32_t local_y{0u};
+  uint32_t local_z{0u};
+  uint32_t candidate_count{1u};
+  bool cacheable{true};
+  bool tunable{false};
+
+  bool operator==(const VulkanConvPlanKey& other) const {
+    return aggregate == other.aggregate &&
+        contract_name == other.contract_name &&
+        contract_family == other.contract_family &&
+        contract_tuple_id == other.contract_tuple_id &&
+        input_dtype == other.input_dtype && weight_dtype == other.weight_dtype &&
+        output_dtype == other.output_dtype &&
+        input_storage == other.input_storage &&
+        weight_storage == other.weight_storage &&
+        output_storage == other.output_storage &&
+        input_layout == other.input_layout &&
+        weight_layout == other.weight_layout &&
+        output_layout == other.output_layout &&
+        input_offset == other.input_offset &&
+        weight_offset == other.weight_offset &&
+        output_offset == other.output_offset && global_x == other.global_x &&
+        global_y == other.global_y && global_z == other.global_z &&
+        local_x == other.local_x && local_y == other.local_y &&
+        local_z == other.local_z &&
+        candidate_count == other.candidate_count &&
+        cacheable == other.cacheable && tunable == other.tunable;
+  }
+};
+
+struct VulkanConvPlanKeyHash final {
+  size_t operator()(const VulkanConvPlanKey& key) const {
+    size_t seed = VulkanConvAggregateKeyHash{}(key.aggregate);
+    auto combine = [&seed](const auto& value) {
+      seed ^= std::hash<std::decay_t<decltype(value)>>{}(value) + 0x9e3779b9 +
+          (seed << 6) + (seed >> 2);
+    };
+    combine(key.contract_name);
+    combine(key.contract_family);
+    combine(key.contract_tuple_id);
+    combine(key.input_dtype);
+    combine(key.weight_dtype);
+    combine(key.output_dtype);
+    combine(key.input_storage);
+    combine(key.weight_storage);
+    combine(key.output_storage);
+    combine(key.input_layout);
+    combine(key.weight_layout);
+    combine(key.output_layout);
+    combine(key.input_offset);
+    combine(key.weight_offset);
+    combine(key.output_offset);
+    combine(key.global_x);
+    combine(key.global_y);
+    combine(key.global_z);
+    combine(key.local_x);
+    combine(key.local_y);
+    combine(key.local_z);
+    combine(key.candidate_count);
+    combine(key.cacheable);
+    combine(key.tunable);
+    return seed;
+  }
+};
+
 class VulkanConvAggregateProfiler final {
  public:
   void record(
@@ -256,6 +342,46 @@ class VulkanConvAggregateProfiler final {
       entries_;
 };
 
+class VulkanConvPlanKeyProfiler final {
+ public:
+  void record(
+      const VulkanConvPlanKey& key,
+      const uint64_t input_bytes,
+      const uint64_t output_bytes,
+      const uint64_t weight_bytes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    VulkanConvAggregateValue& value = entries_[key];
+    value.count += 1u;
+    value.input_bytes += input_bytes;
+    value.output_bytes += output_bytes;
+    value.weight_bytes += weight_bytes;
+  }
+
+  std::vector<std::pair<VulkanConvPlanKey, VulkanConvAggregateValue>>
+  snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::pair<VulkanConvPlanKey, VulkanConvAggregateValue>> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+      out.emplace_back(entry.first, entry.second);
+    }
+    return out;
+  }
+
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::unordered_map<
+      VulkanConvPlanKey,
+      VulkanConvAggregateValue,
+      VulkanConvPlanKeyHash>
+      entries_;
+};
+
 VulkanConvPlanCounters& conv_plan_counters() {
   static VulkanConvPlanCounters counters;
   return counters;
@@ -268,6 +394,11 @@ VulkanPointwiseConvRouteCounters& pointwise_conv_route_counters() {
 
 VulkanConvAggregateProfiler& conv_aggregate_profiler() {
   static VulkanConvAggregateProfiler profiler;
+  return profiler;
+}
+
+VulkanConvPlanKeyProfiler& conv_plan_key_profiler() {
+  static VulkanConvPlanKeyProfiler profiler;
   return profiler;
 }
 
@@ -522,7 +653,7 @@ VulkanConvPlanSelected selected_from_conv_kernel_name(
   return VulkanConvPlanSelected::FloatBufferConv;
 }
 
-void record_float_buffer_conv2d_aggregate(
+VulkanConvAggregateKey make_float_buffer_conv2d_aggregate_key(
     const char* kernel_name,
     const vTensor& v_input,
     const vTensor& v_output,
@@ -561,9 +692,108 @@ void record_float_buffer_conv2d_aggregate(
   key.pointwise = key.kh == 1 && key.kw == 1;
   key.depthwise = groups == key.cin && groups == key.cout && groups > 1;
   key.sliding_window = !key.pointwise && !key.depthwise;
+  return key;
+}
+
+void record_float_buffer_conv2d_aggregate(
+    const char* kernel_name,
+    const vTensor& v_input,
+    const vTensor& v_output,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups) {
+  const VulkanConvAggregateKey key = make_float_buffer_conv2d_aggregate_key(
+      kernel_name,
+      v_input,
+      v_output,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups);
 
   const vTensor v_weight = packed_weight.weight_vtensor();
   conv_aggregate_profiler().record(
+      key,
+      static_cast<uint64_t>(v_input.gpu_nbytes()),
+      static_cast<uint64_t>(v_output.gpu_nbytes()),
+      static_cast<uint64_t>(v_weight.gpu_nbytes()));
+}
+
+uint32_t conv_plan_candidate_count(
+    const VulkanConvPlanDecision* decision,
+    const VulkanConvAggregateKey& key) {
+  if (!decision || !key.pointwise) {
+    return 1u;
+  }
+  if (
+      decision->contract_name != nullptr &&
+      std::strcmp(decision->contract_name, "SmallSpatialPointwiseConvContract") ==
+          0) {
+    return 2u;
+  }
+  return 1u;
+}
+
+bool conv_plan_key_tunable(const VulkanConvAggregateKey& key) {
+  return key.pointwise || key.sliding_window;
+}
+
+void record_float_buffer_conv2d_plan_key(
+    const char* kernel_name,
+    const vTensor& v_input,
+    const vTensor& v_output,
+    const PackedWeightHandle& packed_weight,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size,
+    const VulkanConvPlanDecision* decision) {
+  VulkanConvPlanKey key;
+  key.aggregate = make_float_buffer_conv2d_aggregate_key(
+      kernel_name,
+      v_input,
+      v_output,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups);
+  key.contract_name =
+      decision && decision->contract_name ? decision->contract_name : "none";
+  key.contract_family =
+      decision && decision->contract_family ? decision->contract_family :
+                                             "none";
+  key.contract_tuple_id =
+      decision && decision->contract_tuple_id ? decision->contract_tuple_id :
+                                                "none";
+  const vTensor v_weight = packed_weight.weight_vtensor();
+  key.input_dtype = static_cast<int64_t>(v_input.dtype());
+  key.weight_dtype = static_cast<int64_t>(v_weight.dtype());
+  key.output_dtype = static_cast<int64_t>(v_output.dtype());
+  key.input_storage = static_cast<int64_t>(v_input.storage_type());
+  key.weight_storage = static_cast<int64_t>(v_weight.storage_type());
+  key.output_storage = static_cast<int64_t>(v_output.storage_type());
+  key.input_layout = static_cast<int64_t>(v_input.gpu_memory_layout());
+  key.weight_layout = static_cast<int64_t>(v_weight.gpu_memory_layout());
+  key.output_layout = static_cast<int64_t>(v_output.gpu_memory_layout());
+  key.input_offset = v_input.storage_offset();
+  key.weight_offset = v_weight.storage_offset();
+  key.output_offset = v_output.storage_offset();
+  key.global_x = global_size.data[0u];
+  key.global_y = global_size.data[1u];
+  key.global_z = global_size.data[2u];
+  key.local_x = local_size.data[0u];
+  key.local_y = local_size.data[1u];
+  key.local_z = local_size.data[2u];
+  key.candidate_count = conv_plan_candidate_count(decision, key.aggregate);
+  key.tunable = conv_plan_key_tunable(key.aggregate);
+
+  conv_plan_key_profiler().record(
       key,
       static_cast<uint64_t>(v_input.gpu_nbytes()),
       static_cast<uint64_t>(v_output.gpu_nbytes()),
@@ -580,7 +810,8 @@ void log_float_buffer_conv2d_submit(
     const IntArrayRef dilation,
     const int64_t groups,
     const api::utils::uvec3& global_size,
-    const api::utils::uvec3& local_size) {
+    const api::utils::uvec3& local_size,
+    const VulkanConvPlanDecision* decision = nullptr) {
   std::ostringstream stream;
   stream << "aten::convolution.submit"
          << " kernel=" << kernel_name
@@ -610,6 +841,18 @@ void log_float_buffer_conv2d_submit(
       padding,
       dilation,
       groups);
+  record_float_buffer_conv2d_plan_key(
+      kernel_name,
+      v_input,
+      v_output,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups,
+      global_size,
+      local_size,
+      decision);
 }
 
 //
@@ -2738,7 +2981,8 @@ Tensor run_float_buffer_pointwise_conv2d_as_linear_impl(
       dilation,
       groups,
       global_size,
-      local_size);
+      local_size,
+      &plan_decision);
 
   if (packed_weight.has_bias()) {
     context->submit_compute_job(
@@ -3053,7 +3297,8 @@ Tensor run_float_buffer_conv2d_impl(
       dilation,
       groups,
       global_size,
-      local_size);
+      local_size,
+      &plan_decision);
   context->submit_compute_job(
       shader,
       pipeline_barrier,
@@ -4611,8 +4856,90 @@ std::vector<std::string> conv_aggregate_snapshot() {
   return out;
 }
 
+std::vector<std::string> conv_plan_key_snapshot() {
+  std::vector<std::pair<VulkanConvPlanKey, VulkanConvAggregateValue>> entries =
+      conv_plan_key_profiler().snapshot();
+  std::sort(
+      entries.begin(),
+      entries.end(),
+      [](const auto& lhs, const auto& rhs) {
+        const uint64_t lhs_bytes =
+            lhs.second.input_bytes + lhs.second.output_bytes +
+            lhs.second.weight_bytes;
+        const uint64_t rhs_bytes =
+            rhs.second.input_bytes + rhs.second.output_bytes +
+            rhs.second.weight_bytes;
+        if (lhs_bytes != rhs_bytes) {
+          return lhs_bytes > rhs_bytes;
+        }
+        return lhs.second.count > rhs.second.count;
+      });
+
+  std::vector<std::string> out;
+  out.reserve(entries.size());
+  for (const auto& entry : entries) {
+    const VulkanConvPlanKey& key = entry.first;
+    const VulkanConvAggregateValue& value = entry.second;
+    const VulkanConvAggregateKey& aggregate = key.aggregate;
+    std::ostringstream stream;
+    stream << "schema=VulkanConvPlanKey.v0"
+           << " selected=" << conv_plan_selected_name(aggregate.selected)
+           << " reject=" << conv_reject_reason_name(aggregate.reject)
+           << " kernel=" << aggregate.kernel_name
+           << " role=" << aggregate.role
+           << " contract=" << key.contract_name
+           << " contract_family=" << key.contract_family
+           << " contract_tuple=" << key.contract_tuple_id
+           << " count=" << value.count
+           << " input=[" << aggregate.n << ',' << aggregate.cin << ','
+           << aggregate.h << ',' << aggregate.w << ']'
+           << " output_channels=" << aggregate.cout
+           << " weight=[" << aggregate.cout << ',' << aggregate.cin << ','
+           << aggregate.kh << ',' << aggregate.kw << ']'
+           << " stride=[" << aggregate.stride_h << ','
+           << aggregate.stride_w << ']'
+           << " padding=[" << aggregate.pad_h << ',' << aggregate.pad_w
+           << ']'
+           << " dilation=[" << aggregate.dilation_h << ','
+           << aggregate.dilation_w << ']'
+           << " groups=" << aggregate.groups
+           << " input_dtype=" << key.input_dtype
+           << " weight_dtype=" << key.weight_dtype
+           << " output_dtype=" << key.output_dtype
+           << " input_storage=" << key.input_storage
+           << " weight_storage=" << key.weight_storage
+           << " output_storage=" << key.output_storage
+           << " input_layout=" << key.input_layout
+           << " weight_layout=" << key.weight_layout
+           << " output_layout=" << key.output_layout
+           << " input_direct=" << (aggregate.input_direct ? 1 : 0)
+           << " output_direct=" << (aggregate.output_direct ? 1 : 0)
+           << " weight_packed=" << (aggregate.weight_packed ? 1 : 0)
+           << " bias=" << (aggregate.bias ? 1 : 0)
+           << " pointwise=" << (aggregate.pointwise ? 1 : 0)
+           << " depthwise=" << (aggregate.depthwise ? 1 : 0)
+           << " sliding_window=" << (aggregate.sliding_window ? 1 : 0)
+           << " input_offset=" << key.input_offset
+           << " weight_offset=" << key.weight_offset
+           << " output_offset=" << key.output_offset
+           << " global=[" << key.global_x << ',' << key.global_y << ','
+           << key.global_z << ']'
+           << " local=[" << key.local_x << ',' << key.local_y << ','
+           << key.local_z << ']'
+           << " candidate_count=" << key.candidate_count
+           << " cacheable=" << (key.cacheable ? 1 : 0)
+           << " tunable=" << (key.tunable ? 1 : 0)
+           << " input_bytes=" << value.input_bytes
+           << " output_bytes=" << value.output_bytes
+           << " weight_bytes=" << value.weight_bytes;
+    out.emplace_back(stream.str());
+  }
+  return out;
+}
+
 void reset_conv_aggregate() {
   conv_aggregate_profiler().reset();
+  conv_plan_key_profiler().reset();
 }
 
 void reset_conv_plan_counters() {

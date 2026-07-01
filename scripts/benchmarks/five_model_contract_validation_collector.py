@@ -740,6 +740,10 @@ def summarize_model_suite_evidence(
         "conv_aggregate_sample": sample_rows(
             list_counter_field(total_delta, "conv_aggregate_snapshot")
         ),
+        "conv_plan_key_rows": len(list_counter_field(total_delta, "conv_plan_key_snapshot")),
+        "conv_plan_key_sample": sample_rows(
+            list_counter_field(total_delta, "conv_plan_key_snapshot")
+        ),
         "linear_aggregate_rows": len(list_counter_field(total_delta, "linear_aggregate_snapshot")),
         "linear_aggregate_sample": sample_rows(
             list_counter_field(total_delta, "linear_aggregate_snapshot")
@@ -815,6 +819,9 @@ def bool_field(fields: dict[str, str], name: str) -> bool | str:
 
 
 def infer_conv_candidate_contract(fields: dict[str, str]) -> str:
+    contract_family = fields.get("contract_family")
+    if contract_family and contract_family != "none":
+        return contract_family
     role = fields.get("role") or ""
     if "depth_vision_projection" in role or role == "small_spatial_pointwise_conv":
         return "SmallSpatialPointwiseConvContract"
@@ -836,6 +843,8 @@ def conv_plan_key(fields: dict[str, str]) -> str:
         f"|selected={fields.get('selected', PLAN_NOT_AVAILABLE)}"
         f"|kernel={fields.get('kernel', PLAN_NOT_AVAILABLE)}"
         f"|role={fields.get('role', PLAN_NOT_AVAILABLE)}"
+        f"|contract={fields.get('contract', PLAN_NOT_AVAILABLE)}"
+        f"|family={fields.get('contract_family', PLAN_NOT_AVAILABLE)}"
         f"|input={fields.get('input', PLAN_NOT_AVAILABLE)}"
         f"|weight={fields.get('weight', PLAN_NOT_AVAILABLE)}"
         f"|out={fields.get('output_channels', PLAN_NOT_AVAILABLE)}"
@@ -844,6 +853,7 @@ def conv_plan_key(fields: dict[str, str]) -> str:
         f"|dilation={fields.get('dilation', PLAN_NOT_AVAILABLE)}"
         f"|groups={fields.get('groups', PLAN_NOT_AVAILABLE)}"
         f"|bias={fields.get('bias', PLAN_NOT_AVAILABLE)}"
+        f"|local={fields.get('local', PLAN_NOT_AVAILABLE)}"
     )
 
 
@@ -880,6 +890,11 @@ def normalize_conv_plan_evidence(
     row_counters: dict[str, Any],
 ) -> dict[str, Any]:
     fields = key_value_fields(row)
+    source_kind = (
+        "conv_plan_key_snapshot"
+        if fields.get("schema") == "VulkanConvPlanKey.v0"
+        else "conv_aggregate_snapshot"
+    )
     count = int_field(fields, "count")
     input_bytes = int_field(fields, "input_bytes")
     output_bytes = int_field(fields, "output_bytes")
@@ -891,9 +906,13 @@ def normalize_conv_plan_evidence(
         "schema_version": 0,
         "source_row": row_id,
         "source_model": model,
-        "source_kind": "conv_aggregate_snapshot",
+        "source_kind": source_kind,
         "op_family": "conv2d",
-        "contract_name": PLAN_NOT_AVAILABLE,
+        "contract_name": (
+            fields.get("contract")
+            if fields.get("contract") and fields.get("contract") != "none"
+            else PLAN_NOT_AVAILABLE
+        ),
         "candidate_contract_family": infer_conv_candidate_contract(fields),
         "plan_key": conv_plan_key(fields),
         "selected_route": fields.get("selected") or PLAN_NOT_AVAILABLE,
@@ -919,6 +938,25 @@ def normalize_conv_plan_evidence(
             "input_direct": bool_field(fields, "input_direct"),
             "output_direct": bool_field(fields, "output_direct"),
             "weight_packed": bool_field(fields, "weight_packed"),
+            "input_dtype": int_field(fields, "input_dtype"),
+            "weight_dtype": int_field(fields, "weight_dtype"),
+            "output_dtype": int_field(fields, "output_dtype"),
+            "input_storage": int_field(fields, "input_storage"),
+            "weight_storage": int_field(fields, "weight_storage"),
+            "output_storage": int_field(fields, "output_storage"),
+            "input_layout": int_field(fields, "input_layout"),
+            "weight_layout": int_field(fields, "weight_layout"),
+            "output_layout": int_field(fields, "output_layout"),
+            "input_offset": int_field(fields, "input_offset"),
+            "weight_offset": int_field(fields, "weight_offset"),
+            "output_offset": int_field(fields, "output_offset"),
+        },
+        "execution_plan": {
+            "global": parse_int_list(fields.get("global")),
+            "local": parse_int_list(fields.get("local")),
+            "candidate_count": int_field(fields, "candidate_count"),
+            "cacheable": bool_field(fields, "cacheable"),
+            "tunable": bool_field(fields, "tunable"),
         },
         "evidence_counters": {
             "dispatch_count": count,
@@ -1024,6 +1062,9 @@ def summarize_execution_plan_evidence(
         list_counter_field(total_delta, "linear_plan_counters"),
         LINEAR_PLAN_COUNTER_FIELDS,
     )
+    conv_snapshot_rows = list_counter_field(total_delta, "conv_plan_key_snapshot")
+    if not conv_snapshot_rows:
+        conv_snapshot_rows = list_counter_field(total_delta, "conv_aggregate_snapshot")
     conv_rows = [
         normalize_conv_plan_evidence(
             row_id,
@@ -1033,7 +1074,7 @@ def summarize_execution_plan_evidence(
             pointwise_counters,
             row_counters,
         )
-        for row in list_counter_field(total_delta, "conv_aggregate_snapshot")
+        for row in conv_snapshot_rows
     ]
     linear_rows = [
         normalize_linear_plan_evidence(
@@ -1078,6 +1119,9 @@ def summarize_execution_plan_evidence(
         "behavior_change": False,
         "summary": {
             "conv_plan_rows": len(conv_rows),
+            "conv_plan_key_rows": len(
+                list_counter_field(total_delta, "conv_plan_key_snapshot")
+            ),
             "linear_plan_rows": len(linear_rows),
             "pointwise_counter_rows": 1 if pointwise_summary else 0,
             "top_plan_rows": len(top_rows),
@@ -2432,6 +2476,26 @@ def validate_execution_plan_evidence() -> None:
                 "output_bytes=8192 weight_bytes=2048 count=2"
             )
         ],
+        "conv_plan_key_snapshot": [
+            (
+                "schema=VulkanConvPlanKey.v0 selected=FloatBufferPointwise1x1AsLinear "
+                "reject=None kernel=conv2d_buffer_float_1x1_as_linear "
+                "role=small_spatial_pointwise_conv "
+                "contract=SmallSpatialPointwiseConvContract "
+                "contract_family=DepthVisionProjection "
+                "contract_tuple=depth_vision_factorized_projection_144 "
+                "count=2 input=[1,384,10,15] output_channels=192 "
+                "weight=[192,384,1,1] stride=[1,1] padding=[0,0] "
+                "dilation=[1,1] groups=1 input_dtype=6 weight_dtype=6 "
+                "output_dtype=6 input_storage=1 weight_storage=1 output_storage=1 "
+                "input_layout=2 weight_layout=2 output_layout=2 input_direct=1 "
+                "output_direct=1 weight_packed=1 bias=1 pointwise=1 depthwise=0 "
+                "sliding_window=0 input_offset=0 weight_offset=0 output_offset=0 "
+                "global=[192,150,1] local=[16,4,1] candidate_count=2 "
+                "cacheable=1 tunable=1 input_bytes=230400 output_bytes=115200 "
+                "weight_bytes=294912"
+            )
+        ],
         "linear_aggregate_snapshot": [
             (
                 "linear_aggregate role=fc1_gelu kernel=mm_buffer_float_gelu "
@@ -2484,8 +2548,14 @@ def validate_execution_plan_evidence() -> None:
     if not conv_rows:
         raise AssertionError("conv evidence row missing")
     conv_row = conv_rows[0]
-    if conv_row["shapes"]["input"] != [1, 16, 8, 8]:
+    if conv_row["source_kind"] != "conv_plan_key_snapshot":
+        raise AssertionError("conv plan-key snapshot was not preferred")
+    if conv_row["contract_name"] != "SmallSpatialPointwiseConvContract":
+        raise AssertionError("conv contract name was not parsed")
+    if conv_row["shapes"]["input"] != [1, 384, 10, 15]:
         raise AssertionError("conv input shape was not parsed")
+    if conv_row["execution_plan"]["local"] != [16, 4, 1]:
+        raise AssertionError("conv local workgroup was not parsed")
     if conv_row["evidence_counters"]["conv_plan_counters"]["pointwise_1x1_hit"] != 2:
         raise AssertionError("conv plan counters were not named")
     linear_rows = [

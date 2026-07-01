@@ -175,6 +175,11 @@ The initial catalog records the current `vits_140` performance lane:
   gaps are dominated by buffer conv families, so the next useful work is a
   `VulkanConvPlanKey`/candidate-plan tuning path rather than another graph
   diagnostic;
+- `VulkanConvPlanKey.v0` snapshot rows: accepted reporting infrastructure for
+  float-buffer conv submissions. The rows include selected kernel, contract
+  provenance, layout/storage/dtype classes, offsets, global/local workgroup,
+  candidate count, cacheability, and tunability. This is not a behavior change
+  and does not promote a new conv plan;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;
