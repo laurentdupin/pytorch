@@ -29,6 +29,18 @@ reason counts, dispatch-budget counts, and sampled segment rows for the
 measured model/input. Promote durable decisions from that artifact into the
 manifest instead of leaving them only in ignored `agent_space` files.
 
+Conv workgroup tuning evidence uses a separate offline ladder. GPU timestamp
+labels first become `VulkanConvPlanExactLabelEvidence.v0` rows by joining
+per-kernel timing to `VulkanConvPlanKey.v0` snapshots. The optional
+`VulkanConvPlanTuningTable.v0` artifact is then built only from exact-label
+rows with a unique plan-key match, a matched default label, and a
+`locally_improved` decision. The table is intentionally offline review memory:
+`runtime_loader_enabled` must remain false until a separate runtime loader
+contract and repeat-stability evidence exist.
+When more than one candidate improves the same match key and capability
+profile, the table keeps only the best delta as the active row and preserves the
+other candidates in that row's evidence.
+
 ## Status Values
 
 - `accepted_default_fix`: behavior has been accepted as the normal safe path.

@@ -2266,6 +2266,10 @@ class TestVulkanGovernance(TestCase):
             TEST_FILE_DIR,
             "vulkan_conv_plan_timestamp_exact_labels.json",
         )
+        tuning_table_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_tuning_table.json",
+        )
         def plan_key_row(kernel, local):
             return (
                 "schema=VulkanConvPlanKey.v0 selected=FloatBufferConv reject=None "
@@ -2444,10 +2448,34 @@ class TestVulkanGovernance(TestCase):
                 capture_output=True,
                 text=True,
             )
+            subprocess.run(
+                [
+                    sys.executable,
+                    script_path,
+                    "from-exact-label-evidence",
+                    "--evidence",
+                    exact_out_path,
+                    "--out",
+                    tuning_table_path,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [sys.executable, script_path, "validate", tuning_table_path],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             with open(out_path, encoding="utf-8") as handle:
                 summary = json.load(handle)
             with open(exact_out_path, encoding="utf-8") as handle:
                 exact_summary = json.load(handle)
+            with open(tuning_table_path, encoding="utf-8") as handle:
+                tuning_table = json.load(handle)
         finally:
             for path in (
                 baseline_status_path,
@@ -2458,6 +2486,7 @@ class TestVulkanGovernance(TestCase):
                 candidate_log_path,
                 out_path,
                 exact_out_path,
+                tuning_table_path,
             ):
                 if os.path.exists(path):
                     os.remove(path)
@@ -2527,6 +2556,21 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(exact_main["plan_key"]["candidate"], "3x3_s1p1_16x4")
         self.assertEqual(
             exact_main["plan_key_capability_profile"]["vendor_id"], "4098"
+        )
+        self.assertEqual(tuning_table["schema"], "VulkanConvPlanTuningTable.v0")
+        self.assertFalse(tuning_table["runtime_loader_enabled"])
+        self.assertEqual(tuning_table["row_count"], 1)
+        table_row = tuning_table["rows"][0]
+        self.assertEqual(table_row["candidate_local"], "16x4x1")
+        self.assertEqual(table_row["expected_default_local"], "8x8x1")
+        self.assertEqual(table_row["evidence"]["decision"], "locally_improved")
+        self.assertEqual(
+            table_row["match_key"]["kernel"],
+            "conv2d_buffer_float_3x3_s1p1",
+        )
+        self.assertEqual(
+            table_row["capability_profile"]["vendor_id"],
+            "4098",
         )
         self.assertEqual(
             exact_main["plan_key_matches"][0]["plan_key"]["kernel"],

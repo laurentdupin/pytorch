@@ -12,6 +12,7 @@ SCHEMA = "VulkanConvPlanTuningResult.v0"
 TIMESTAMP_SCHEMA = "VulkanConvPlanTimestampSummary.v0"
 TIMESTAMP_RUN_SCHEMA = "VulkanConvPlanTimestampRunSummary.v0"
 EXACT_LABEL_SCHEMA = "VulkanConvPlanExactLabelEvidence.v0"
+TUNING_TABLE_SCHEMA = "VulkanConvPlanTuningTable.v0"
 PLAN_KEY_SCHEMA = "VulkanConvPlanKey.v0"
 VALID_DECISIONS = {
     "accepted",
@@ -129,6 +130,18 @@ CONV_PLAN_TIMESTAMP_TARGET_KERNELS = (
 )
 CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS = CONV_PLAN_TIMESTAMP_MATCH_FIELDS
 TIMESTAMP_RUN_NOISE_BAND_MS = 1.0
+TUNING_TABLE_POLICY = {
+    "requires_plan_key_match_status": "matched",
+    "requires_default_match_status": "default_label_matched",
+    "requires_decision": "locally_improved",
+    "requires_decision_blocker": "none",
+    "rejects_whole_row_classifications": [
+        "correctness_blocked",
+        "locally_rejected_slower",
+    ],
+    "match_key_excludes": ["local"],
+    "requires_expected_default_local_match": True,
+}
 
 
 def parse_plan_key_snapshot_row(row: str) -> dict[str, str]:
@@ -515,6 +528,93 @@ def validate_exact_label_evidence(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_tuning_table(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if payload.get("schema") != TUNING_TABLE_SCHEMA:
+        errors.append(f"schema must be {TUNING_TABLE_SCHEMA}")
+    if payload.get("source_schema") != EXACT_LABEL_SCHEMA:
+        errors.append(f"source_schema must be {EXACT_LABEL_SCHEMA}")
+    if not payload.get("source"):
+        errors.append("source is required")
+    if payload.get("runtime_defaults_changed") is not False:
+        errors.append("runtime_defaults_changed must be false")
+    if payload.get("runtime_loader_enabled") is not False:
+        errors.append("runtime_loader_enabled must be false")
+    if payload.get("policy") != TUNING_TABLE_POLICY:
+        errors.append("policy does not match the fail-closed tuning table policy")
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        errors.append("rows must be a list")
+        return errors
+    if payload.get("row_count") != len(rows):
+        errors.append("row_count must match len(rows)")
+    seen_ids: set[str] = set()
+    seen_lookup_keys: set[str] = set()
+    for index, row in enumerate(rows):
+        prefix = f"rows[{index}]"
+        row_id = row.get("id")
+        if not isinstance(row_id, str) or not row_id:
+            errors.append(f"{prefix}.id must be a non-empty string")
+        elif row_id in seen_ids:
+            errors.append(f"{prefix}.id is duplicated")
+        else:
+            seen_ids.add(row_id)
+        if row.get("status") != "accepted_for_tuning_table":
+            errors.append(f"{prefix}.status must be accepted_for_tuning_table")
+        for field in ("match_key", "candidate_plan_key", "timestamp_label"):
+            if not isinstance(row.get(field), dict):
+                errors.append(f"{prefix}.{field} must be an object")
+        if isinstance(row.get("match_key"), dict) and isinstance(
+            row.get("capability_profile"), dict
+        ):
+            lookup_key = json.dumps(
+                {
+                    "match_key": row["match_key"],
+                    "capability_profile": row["capability_profile"],
+                },
+                sort_keys=True,
+            )
+            if lookup_key in seen_lookup_keys:
+                errors.append(f"{prefix} duplicates a tuning table lookup key")
+            seen_lookup_keys.add(lookup_key)
+        capability_profile = row.get("capability_profile")
+        if not isinstance(capability_profile, dict):
+            errors.append(f"{prefix}.capability_profile must be an object")
+        else:
+            for field in REQUIRED_CAPABILITY_PROFILE_FIELDS:
+                value = capability_profile.get(field)
+                if value in (None, "", CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT):
+                    errors.append(
+                        f"{prefix}.capability_profile.{field} is required"
+                    )
+        for field in ("expected_default_local", "candidate_local"):
+            if row.get(field) in (None, ""):
+                errors.append(f"{prefix}.{field} is required")
+        evidence = row.get("evidence")
+        if not isinstance(evidence, dict):
+            errors.append(f"{prefix}.evidence must be an object")
+        else:
+            if evidence.get("decision") != "locally_improved":
+                errors.append(f"{prefix}.evidence.decision must be locally_improved")
+            if evidence.get("decision_blocker") != "none":
+                errors.append(f"{prefix}.evidence.decision_blocker must be none")
+            for field in (
+                "candidate_duration_ms",
+                "default_duration_ms",
+                "delta_ms",
+            ):
+                if not isinstance(evidence.get(field), (int, float)):
+                    errors.append(f"{prefix}.evidence.{field} must be numeric")
+            if not isinstance(evidence.get("source_rows"), list):
+                errors.append(f"{prefix}.evidence.source_rows must be a list")
+            if not isinstance(evidence.get("timestamp_logs"), list):
+                errors.append(f"{prefix}.evidence.timestamp_logs must be a list")
+        competing = row.get("competing_candidates")
+        if not isinstance(competing, list) or not competing:
+            errors.append(f"{prefix}.competing_candidates must be a non-empty list")
+    return errors
+
+
 def validate_payload(payload: dict[str, Any]) -> list[str]:
     schema = payload.get("schema")
     if schema == SCHEMA:
@@ -525,9 +625,12 @@ def validate_payload(payload: dict[str, Any]) -> list[str]:
         return validate_timestamp_run_summary(payload)
     if schema == EXACT_LABEL_SCHEMA:
         return validate_exact_label_evidence(payload)
+    if schema == TUNING_TABLE_SCHEMA:
+        return validate_tuning_table(payload)
     return [
         f"schema must be {SCHEMA}, {TIMESTAMP_SCHEMA}, "
-        f"{TIMESTAMP_RUN_SCHEMA}, or {EXACT_LABEL_SCHEMA}"
+        f"{TIMESTAMP_RUN_SCHEMA}, {EXACT_LABEL_SCHEMA}, "
+        f"or {TUNING_TABLE_SCHEMA}"
     ]
 
 
@@ -1782,6 +1885,167 @@ def build_exact_label_evidence_from_run_status(
     return payload
 
 
+def _tuning_table_match_key(plan_key: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema": plan_key.get("schema"),
+        "selected": plan_key.get("selected"),
+        "reject": plan_key.get("reject"),
+        "kernel": plan_key.get("kernel"),
+        "role": plan_key.get("role"),
+        "contract": plan_key.get("contract"),
+        "contract_family": plan_key.get("contract_family"),
+        "contract_tuple": plan_key.get("contract_tuple"),
+        "shape": plan_key.get("shape"),
+        "layout": plan_key.get("layout"),
+        "global": plan_key.get("global"),
+        "candidate_count": plan_key.get("candidate_count"),
+        "cacheable": plan_key.get("cacheable"),
+        "tunable": plan_key.get("tunable"),
+    }
+
+
+def _exact_label_timestamp_key(label: dict[str, Any]) -> dict[str, Any]:
+    timestamp_label = {
+        field: label.get(field, CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT)
+        for field in CONV_PLAN_TIMESTAMP_MATCH_FIELDS
+    }
+    timestamp_label["candidate_local"] = label.get("candidate_local")
+    return timestamp_label
+
+
+def _capability_profile_complete(profile: dict[str, Any]) -> bool:
+    return all(
+        profile.get(field) not in (None, "", CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT)
+        for field in REQUIRED_CAPABILITY_PROFILE_FIELDS
+    )
+
+
+def _exact_label_accepted_for_tuning_table(label: dict[str, Any]) -> bool:
+    if label.get("plan_key_match_status") != "matched":
+        return False
+    if len(label.get("plan_key_matches", [])) != 1:
+        return False
+    if label.get("default_match_status") != "default_label_matched":
+        return False
+    if label.get("decision") != "locally_improved":
+        return False
+    if label.get("decision_blocker") != "none":
+        return False
+    if not isinstance(label.get("plan_key"), dict):
+        return False
+    profile = label.get("plan_key_capability_profile")
+    if not isinstance(profile, dict) or not _capability_profile_complete(profile):
+        return False
+    return True
+
+
+def _tuning_table_row_from_exact_label(label: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": label["id"],
+        "status": "accepted_for_tuning_table",
+        "match_key": _tuning_table_match_key(label["plan_key"]),
+        "capability_profile": label["plan_key_capability_profile"],
+        "expected_default_local": label["default_local"],
+        "candidate_local": label["candidate_local"],
+        "candidate_plan_key": label["plan_key"],
+        "timestamp_label": _exact_label_timestamp_key(label),
+        "evidence": {
+            "decision": label["decision"],
+            "decision_blocker": label["decision_blocker"],
+            "delta_ms": label["delta_ms"],
+            "candidate_duration_ms": label["candidate_duration_ms"],
+            "default_duration_ms": label["default_duration_ms"],
+            "candidate_event_count": label["candidate_event_count"],
+            "default_event_count": label["default_event_count"],
+            "source_rows": label["source_rows"],
+            "row_json": label["row_json"],
+            "timestamp_logs": label["timestamp_logs"],
+            "capability_profiles": label["capability_profiles"],
+        },
+        "competing_candidate_count": 1,
+        "competing_candidates": [
+            {
+                "candidate_local": label["candidate_local"],
+                "delta_ms": label["delta_ms"],
+                "decision": label["decision"],
+                "source_label_id": label["id"],
+            }
+        ],
+    }
+
+
+def _tuning_table_lookup_key(row: dict[str, Any]) -> str:
+    return json.dumps(
+        {
+            "match_key": row["match_key"],
+            "capability_profile": row["capability_profile"],
+        },
+        sort_keys=True,
+    )
+
+
+def _dedupe_tuning_table_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(_tuning_table_lookup_key(row), []).append(row)
+
+    selected_rows = []
+    for candidates in grouped.values():
+        ranked = sorted(
+            candidates,
+            key=lambda row: (
+                float(row["evidence"]["delta_ms"]),
+                str(row["candidate_local"]),
+                str(row["id"]),
+            ),
+        )
+        selected = ranked[0]
+        selected["competing_candidate_count"] = len(ranked)
+        selected["competing_candidates"] = [
+            {
+                "candidate_local": row["candidate_local"],
+                "delta_ms": row["evidence"]["delta_ms"],
+                "decision": row["evidence"]["decision"],
+                "source_label_id": row["id"],
+            }
+            for row in ranked
+        ]
+        selected_rows.append(selected)
+    return sorted(selected_rows, key=lambda row: row["id"])
+
+
+def build_tuning_table_from_exact_label_evidence(path: Path) -> dict[str, Any]:
+    evidence = load_json(path)
+    errors = validate_exact_label_evidence(evidence)
+    if errors:
+        raise ValueError("invalid exact label evidence:\n" + "\n".join(errors))
+    if evidence.get("runtime_defaults_changed") is not False:
+        raise ValueError("exact label evidence changed runtime defaults")
+
+    rows = _dedupe_tuning_table_rows(
+        [
+            _tuning_table_row_from_exact_label(label)
+            for label in evidence["labels"]
+            if _exact_label_accepted_for_tuning_table(label)
+        ]
+    )
+    payload = {
+        "schema": TUNING_TABLE_SCHEMA,
+        "source_schema": EXACT_LABEL_SCHEMA,
+        "source": str(path),
+        "runtime_defaults_changed": False,
+        "runtime_loader_enabled": False,
+        "noise_band_ms": evidence.get("noise_band_ms"),
+        "policy": TUNING_TABLE_POLICY,
+        "row_count": len(rows),
+        "rows": rows,
+    }
+    table_errors = validate_tuning_table(payload)
+    if table_errors:
+        raise ValueError("invalid tuning table:\n" + "\n".join(table_errors))
+    return payload
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     payload = load_json(Path(args.path))
     errors = validate_payload(payload)
@@ -1830,6 +2094,13 @@ def cmd_from_timestamp_exact_labels(args: argparse.Namespace) -> int:
         Path(args.run_status),
         baseline_run_status_path=baseline,
     )
+    write_json(Path(args.out), payload)
+    print(f"wrote {args.out}")
+    return 0
+
+
+def cmd_from_exact_label_evidence(args: argparse.Namespace) -> int:
+    payload = build_tuning_table_from_exact_label_evidence(Path(args.evidence))
     write_json(Path(args.out), payload)
     print(f"wrote {args.out}")
     return 0
@@ -1999,6 +2270,11 @@ def main(argv: list[str] | None = None) -> int:
     from_timestamp_exact_labels.add_argument("--out", required=True)
     from_timestamp_exact_labels.add_argument("--baseline-run-status")
     from_timestamp_exact_labels.set_defaults(func=cmd_from_timestamp_exact_labels)
+
+    from_exact_label_evidence = subparsers.add_parser("from-exact-label-evidence")
+    from_exact_label_evidence.add_argument("--evidence", required=True)
+    from_exact_label_evidence.add_argument("--out", required=True)
+    from_exact_label_evidence.set_defaults(func=cmd_from_exact_label_evidence)
 
     self_test = subparsers.add_parser("self-test")
     self_test.set_defaults(func=cmd_self_test)
