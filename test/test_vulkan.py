@@ -2245,6 +2245,24 @@ class TestVulkanGovernance(TestCase):
             TEST_FILE_DIR,
             "vulkan_conv_plan_timestamp_run_summary.json",
         )
+        exact_out_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_exact_labels.json",
+        )
+        snapshot_row = (
+            "schema=VulkanConvPlanKey.v0 selected=FloatBufferConv reject=None "
+            "kernel=conv2d_buffer_float_3x3_s1p1 role=other_3x3_s1p1 "
+            "contract=none contract_family=none contract_tuple=none "
+            "input=[1,128,10,15] output_channels=128 "
+            "weight=[128,128,3,3] stride=[1,1] padding=[1,1] "
+            "dilation=[1,1] groups=1 context_device_index=0 "
+            "vendor_id=4098 device_id=29631 driver_version=252313600 "
+            "api_version=4206831 subgroup_size=64 min_subgroup_size=32 "
+            "max_subgroup_size=64 max_compute_workgroup_subgroups=8 "
+            "has_subgroup_size_control=1 has_compute_full_subgroups=1 "
+            "has_cooperative_matrix=0 cooperative_matrix_property_count=0 "
+            "has_timeline_semaphore=1 has_synchronization2=1"
+        )
 
         def write_result_json(path, mean_s):
             with open(path, "w", encoding="utf-8") as handle:
@@ -2263,12 +2281,13 @@ class TestVulkanGovernance(TestCase):
                         "vulkan_debug_counters": {
                             "cpu_fallback_count": 0,
                             "sync_readback_count": 0,
+                            "conv_plan_key_snapshot": [snapshot_row],
                         },
                     },
                     handle,
                 )
 
-        def write_timestamp_log(path, main_duration_ns, add_duration_ns):
+        def write_timestamp_log(path, local, main_duration_ns, add_duration_ns):
             lines = [
                 (
                     "gpu_timestamp reason=submit name=conv "
@@ -2276,7 +2295,7 @@ class TestVulkanGovernance(TestCase):
                     "|input=[1x128x10x15]|output_channels=128"
                     "|weight=[128x128x3x3]|stride=[1x1]|padding=[1x1]"
                     "|dilation=[1x1]|groups=1|global=15x10x128"
-                    f"|local=16x4x1 duration_ns={main_duration_ns}"
+                    f"|local={local} duration_ns={main_duration_ns}"
                 ),
                 (
                     "gpu_timestamp reason=submit name=conv "
@@ -2284,7 +2303,7 @@ class TestVulkanGovernance(TestCase):
                     "|input=[1x128x10x15]|output_channels=128"
                     "|weight=[128x128x3x3]|stride=[1x1]|padding=[1x1]"
                     "|dilation=[1x1]|groups=1|global=15x10x128"
-                    f"|local=16x4x1 duration_ns={add_duration_ns}"
+                    f"|local={local} duration_ns={add_duration_ns}"
                 ),
                 (
                     "gpu_timestamp reason=submit name=attention "
@@ -2298,8 +2317,8 @@ class TestVulkanGovernance(TestCase):
         try:
             write_result_json(baseline_row_path, 0.100)
             write_result_json(candidate_row_path, 0.080)
-            write_timestamp_log(baseline_log_path, 10_000_000, 5_000_000)
-            write_timestamp_log(candidate_log_path, 7_000_000, 4_000_000)
+            write_timestamp_log(baseline_log_path, "8x8x1", 10_000_000, 5_000_000)
+            write_timestamp_log(candidate_log_path, "16x4x1", 7_000_000, 4_000_000)
             with open(baseline_status_path, "w", encoding="utf-8") as handle:
                 json.dump(
                     [
@@ -2354,8 +2373,34 @@ class TestVulkanGovernance(TestCase):
                 capture_output=True,
                 text=True,
             )
+            subprocess.run(
+                [
+                    sys.executable,
+                    script_path,
+                    "from-timestamp-exact-labels",
+                    "--run-status",
+                    candidate_status_path,
+                    "--baseline-run-status",
+                    baseline_status_path,
+                    "--out",
+                    exact_out_path,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [sys.executable, script_path, "validate", exact_out_path],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             with open(out_path, encoding="utf-8") as handle:
                 summary = json.load(handle)
+            with open(exact_out_path, encoding="utf-8") as handle:
+                exact_summary = json.load(handle)
         finally:
             for path in (
                 baseline_status_path,
@@ -2365,6 +2410,7 @@ class TestVulkanGovernance(TestCase):
                 baseline_log_path,
                 candidate_log_path,
                 out_path,
+                exact_out_path,
             ):
                 if os.path.exists(path):
                     os.remove(path)
@@ -2397,6 +2443,30 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(
             group["baseline_comparison"]["conv_plan_total_delta_ms"], -4.0
         )
+        self.assertEqual(len(group["exact_label_totals"]), 2)
+        self.assertEqual(summary["exact_label_comparison_count"], 2)
+        main_label = next(
+            label for label in summary["exact_label_comparisons"]
+            if label["key"]["kernel"] == "conv2d_buffer_float_3x3_s1p1"
+        )
+        self.assertEqual(main_label["candidate_local"], "16x4x1")
+        self.assertEqual(main_label["baseline_local"], "8x8x1")
+        self.assertEqual(main_label["duration_delta_ms"], -3.0)
+        self.assertEqual(main_label["classification"], "locally_improved")
+        self.assertEqual(
+            exact_summary["schema"],
+            "VulkanConvPlanExactLabelEvidence.v0",
+        )
+        exact_main = next(
+            label for label in exact_summary["labels"]
+            if label["kernel"] == "conv2d_buffer_float_3x3_s1p1"
+        )
+        self.assertEqual(exact_main["default_match_status"], "default_label_matched")
+        self.assertEqual(exact_main["candidate_local"], "16x4x1")
+        self.assertEqual(exact_main["default_local"], "8x8x1")
+        self.assertEqual(exact_main["delta_ms"], -3.0)
+        self.assertEqual(exact_main["decision"], "locally_improved")
+        self.assertEqual(exact_main["capability_profiles"][0]["vendor_id"], "4098")
 
     def test_vulkan_stack_region_segment_plan_manifest_schema(self):
         manifest_path = os.path.join(

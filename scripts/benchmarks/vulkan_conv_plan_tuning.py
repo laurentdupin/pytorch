@@ -11,6 +11,7 @@ from typing import Any
 SCHEMA = "VulkanConvPlanTuningResult.v0"
 TIMESTAMP_SCHEMA = "VulkanConvPlanTimestampSummary.v0"
 TIMESTAMP_RUN_SCHEMA = "VulkanConvPlanTimestampRunSummary.v0"
+EXACT_LABEL_SCHEMA = "VulkanConvPlanExactLabelEvidence.v0"
 PLAN_KEY_SCHEMA = "VulkanConvPlanKey.v0"
 VALID_DECISIONS = {
     "accepted",
@@ -84,9 +85,31 @@ CONV_PLAN_TIMESTAMP_GROUP_FIELDS = (
     "global",
     "local",
 )
+CONV_PLAN_TIMESTAMP_MATCH_FIELDS = (
+    "kernel",
+    "input",
+    "output_channels",
+    "weight",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "global",
+)
 CONV_PLAN_TIMESTAMP_TARGET_KERNELS = (
     "conv2d_buffer_float_3x3_s1p1",
     "conv2d_buffer_float_3x3_s1p1_add",
+)
+CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS = (
+    "kernel",
+    "input",
+    "output_channels",
+    "weight",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "global",
 )
 TIMESTAMP_RUN_NOISE_BAND_MS = 1.0
 
@@ -322,6 +345,13 @@ def validate_timestamp_run_summary(payload: dict[str, Any]) -> list[str]:
         return errors
     if payload.get("group_count") != len(groups):
         errors.append("group_count must match len(groups)")
+    exact_label_comparisons = payload.get("exact_label_comparisons")
+    if not isinstance(exact_label_comparisons, list):
+        errors.append("exact_label_comparisons must be a list")
+    elif payload.get("exact_label_comparison_count") != len(exact_label_comparisons):
+        errors.append(
+            "exact_label_comparison_count must match len(exact_label_comparisons)"
+        )
     seen_ids: set[str] = set()
     for index, group in enumerate(groups):
         prefix = f"groups[{index}]"
@@ -365,6 +395,9 @@ def validate_timestamp_run_summary(payload: dict[str, Any]) -> list[str]:
         capability_profiles = group.get("capability_profiles")
         if not isinstance(capability_profiles, list):
             errors.append(f"{prefix}.capability_profiles must be a list")
+        exact_label_totals = group.get("exact_label_totals")
+        if not isinstance(exact_label_totals, list):
+            errors.append(f"{prefix}.exact_label_totals must be a list")
         comparison = group.get("baseline_comparison")
         if comparison is not None:
             if not isinstance(comparison, dict):
@@ -379,6 +412,58 @@ def validate_timestamp_run_summary(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_exact_label_evidence(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if payload.get("schema") != EXACT_LABEL_SCHEMA:
+        errors.append(f"schema must be {EXACT_LABEL_SCHEMA}")
+    if payload.get("runtime_defaults_changed") is not False:
+        errors.append("runtime_defaults_changed must be false")
+    if not payload.get("source_run_status"):
+        errors.append("source_run_status is required")
+    labels = payload.get("labels")
+    if not isinstance(labels, list):
+        errors.append("labels must be a list")
+        return errors
+    if payload.get("label_count") != len(labels):
+        errors.append("label_count must match len(labels)")
+    seen_ids: set[str] = set()
+    for index, label in enumerate(labels):
+        prefix = f"labels[{index}]"
+        label_id = label.get("id")
+        if not isinstance(label_id, str) or not label_id:
+            errors.append(f"{prefix}.id must be a non-empty string")
+        elif label_id in seen_ids:
+            errors.append(f"{prefix}.id is duplicated")
+        else:
+            seen_ids.add(label_id)
+        for field in ("device", "model", "plan", "candidate_local", "decision"):
+            if label.get(field) in (None, ""):
+                errors.append(f"{prefix}.{field} is required")
+        decision = label.get("decision")
+        if decision not in VALID_TIMESTAMP_RUN_CLASSIFICATIONS:
+            errors.append(
+                f"{prefix}.decision must be one of "
+                f"{sorted(VALID_TIMESTAMP_RUN_CLASSIFICATIONS)}"
+            )
+        for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS:
+            if label.get(field) in (None, ""):
+                errors.append(f"{prefix}.{field} is required")
+        capability_profiles = label.get("capability_profiles")
+        if not isinstance(capability_profiles, list):
+            errors.append(f"{prefix}.capability_profiles must be a list")
+        for field in (
+            "candidate_duration_ms",
+            "default_duration_ms",
+            "delta_ms",
+        ):
+            value = label.get(field)
+            if value is not None and not isinstance(value, (int, float)):
+                errors.append(f"{prefix}.{field} must be numeric or null")
+        if not isinstance(label.get("source_rows"), list) or not label["source_rows"]:
+            errors.append(f"{prefix}.source_rows must be a non-empty list")
+    return errors
+
+
 def validate_payload(payload: dict[str, Any]) -> list[str]:
     schema = payload.get("schema")
     if schema == SCHEMA:
@@ -387,7 +472,12 @@ def validate_payload(payload: dict[str, Any]) -> list[str]:
         return validate_timestamp_summary(payload)
     if schema == TIMESTAMP_RUN_SCHEMA:
         return validate_timestamp_run_summary(payload)
-    return [f"schema must be {SCHEMA}, {TIMESTAMP_SCHEMA}, or {TIMESTAMP_RUN_SCHEMA}"]
+    if schema == EXACT_LABEL_SCHEMA:
+        return validate_exact_label_evidence(payload)
+    return [
+        f"schema must be {SCHEMA}, {TIMESTAMP_SCHEMA}, "
+        f"{TIMESTAMP_RUN_SCHEMA}, or {EXACT_LABEL_SCHEMA}"
+    ]
 
 
 def load_json(path: Path) -> Any:
@@ -919,6 +1009,60 @@ def _kernel_totals_from_timestamp_summary(
     return totals, counts
 
 
+def _timestamp_label_id(row: dict[str, Any]) -> str:
+    return "|".join(
+        f"{field}={row.get(field, 'unknown')}"
+        for field in CONV_PLAN_TIMESTAMP_MATCH_FIELDS
+    )
+
+
+def _timestamp_label_totals_from_summary(
+    timestamp_summary: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    totals: dict[str, dict[str, Any]] = {}
+    for row in timestamp_summary.get("rows", []):
+        if not isinstance(row, dict):
+            continue
+        if row.get("kernel") not in CONV_PLAN_TIMESTAMP_TARGET_KERNELS:
+            continue
+        label_id = _timestamp_label_id(row)
+        label = totals.setdefault(
+            label_id,
+            {
+                "id": label_id,
+                "key": {
+                    field: row.get(field, "unknown")
+                    for field in CONV_PLAN_TIMESTAMP_MATCH_FIELDS
+                },
+                "local": row.get("local", "unknown"),
+                "duration_ms": 0.0,
+                "event_count": 0,
+            },
+        )
+        label["duration_ms"] += float(row.get("duration_ns_sum", 0) or 0) / 1.0e6
+        label["event_count"] += int(row.get("count", 0) or 0)
+    return totals
+
+
+def _merge_timestamp_label_totals(
+    destination: dict[str, dict[str, Any]],
+    source: dict[str, dict[str, Any]],
+) -> None:
+    for label_id, label in source.items():
+        existing = destination.setdefault(
+            label_id,
+            {
+                "id": label["id"],
+                "key": dict(label["key"]),
+                "local": label["local"],
+                "duration_ms": 0.0,
+                "event_count": 0,
+            },
+        )
+        existing["duration_ms"] += float(label["duration_ms"])
+        existing["event_count"] += int(label["event_count"])
+
+
 def _is_group_correct(group: dict[str, Any]) -> bool:
     correctness = group["correctness"]
     if correctness.get("all_rows_performance_valid") is not True:
@@ -992,6 +1136,7 @@ def _finalize_timestamp_run_groups(
         timing_values = group.pop("_timing_values")
         timing_counts = group.pop("_timing_counts")
         conv_plan_totals = group.pop("_conv_plan_totals")
+        exact_label_totals = group.pop("_exact_label_totals")
         group["timing"] = {
             "device_resident_mean_ms": (
                 sum(timing_values) / len(timing_values) if timing_values else None
@@ -1000,6 +1145,9 @@ def _finalize_timestamp_run_groups(
             "device_resident_sample_count": sum(timing_counts),
         }
         group["conv_plan_total_ms"] = sum(conv_plan_totals)
+        group["exact_label_totals"] = [
+            exact_label_totals[label_id] for label_id in sorted(exact_label_totals)
+        ]
         finalized.append(group)
     return finalized
 
@@ -1050,6 +1198,7 @@ def _timestamp_run_groups_from_run_status(
                     kernel: 0 for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS
                 },
                 "capability_profiles": [],
+                "_exact_label_totals": {},
                 "_timing_values": [],
                 "_timing_counts": [],
                 "_conv_plan_totals": [],
@@ -1090,10 +1239,98 @@ def _timestamp_run_groups_from_run_status(
         for kernel in CONV_PLAN_TIMESTAMP_TARGET_KERNELS:
             group["kernel_totals_ms"][kernel] += kernel_totals[kernel]
             group["kernel_event_counts"][kernel] += kernel_counts[kernel]
+        _merge_timestamp_label_totals(
+            group["_exact_label_totals"],
+            _timestamp_label_totals_from_summary(timestamp_summary),
+        )
         for profile in _capability_profiles_from_row(row_payload):
             if profile not in group["capability_profiles"]:
                 group["capability_profiles"].append(profile)
     return _finalize_timestamp_run_groups(groups)
+
+
+def _exact_label_classification(
+    *,
+    label_delta_ms: float | None,
+    row_classification: str,
+) -> str:
+    if row_classification == "correctness_blocked":
+        return "correctness_blocked"
+    if row_classification == "locally_rejected_slower":
+        return "locally_rejected_slower"
+    if label_delta_ms is None:
+        return "insufficient_noise_band"
+    if label_delta_ms < -TIMESTAMP_RUN_NOISE_BAND_MS:
+        return "locally_improved"
+    if label_delta_ms > TIMESTAMP_RUN_NOISE_BAND_MS:
+        return "locally_rejected_slower"
+    return "insufficient_noise_band"
+
+
+def _build_exact_label_comparisons(
+    groups: list[dict[str, Any]],
+    baseline_groups: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    baseline_source = baseline_groups if baseline_groups is not None else groups
+    baselines = {
+        (group["device"], group["model"]): {
+            label["id"]: label for label in group.get("exact_label_totals", [])
+        }
+        for group in baseline_source
+        if group["plan"] == "default"
+    }
+    comparisons = []
+    for group in groups:
+        if group["plan"] == "default":
+            continue
+        row_comparison = group.get("baseline_comparison") or {}
+        row_classification = row_comparison.get(
+            "classification", "insufficient_noise_band"
+        )
+        baseline_labels = baselines.get((group["device"], group["model"]), {})
+        for label in group.get("exact_label_totals", []):
+            baseline_label = baseline_labels.get(label["id"])
+            label_delta = (
+                float(label["duration_ms"]) - float(baseline_label["duration_ms"])
+                if baseline_label is not None
+                else None
+            )
+            comparisons.append(
+                {
+                    "group_id": group["id"],
+                    "device": group["device"],
+                    "model": group["model"],
+                    "plan": group["plan"],
+                    "capability_profiles": group.get("capability_profiles", []),
+                    "label_id": label["id"],
+                    "key": label["key"],
+                    "candidate_local": label["local"],
+                    "baseline_local": (
+                        baseline_label["local"]
+                        if baseline_label is not None
+                        else None
+                    ),
+                    "candidate_duration_ms": label["duration_ms"],
+                    "baseline_duration_ms": (
+                        baseline_label["duration_ms"]
+                        if baseline_label is not None
+                        else None
+                    ),
+                    "duration_delta_ms": label_delta,
+                    "candidate_event_count": label["event_count"],
+                    "baseline_event_count": (
+                        baseline_label["event_count"]
+                        if baseline_label is not None
+                        else None
+                    ),
+                    "row_level_classification": row_classification,
+                    "classification": _exact_label_classification(
+                        label_delta_ms=label_delta,
+                        row_classification=row_classification,
+                    ),
+                }
+            )
+    return comparisons
 
 
 def build_timestamp_run_summary_from_run_status(
@@ -1116,6 +1353,10 @@ def build_timestamp_run_summary_from_run_status(
             baseline = baseline_by_device_model.get((group["device"], group["model"]))
             group["baseline_comparison"] = _comparison_classification(group, baseline)
 
+    exact_label_comparisons = _build_exact_label_comparisons(
+        groups,
+        baseline_groups=baseline_groups if baseline_run_status_path else None,
+    )
     payload = {
         "schema": TIMESTAMP_RUN_SCHEMA,
         "source_kind": "benchmark_run_status",
@@ -1128,10 +1369,245 @@ def build_timestamp_run_summary_from_run_status(
         "group_count": len(groups),
         "baseline_group_count": len(baseline_groups),
         "groups": groups,
+        "exact_label_comparison_count": len(exact_label_comparisons),
+        "exact_label_comparisons": exact_label_comparisons,
     }
     errors = validate_timestamp_run_summary(payload)
     if errors:
         raise ValueError("invalid timestamp run summary:\n" + "\n".join(errors))
+    return payload
+
+
+def _exact_label_base_key(
+    device: str,
+    model: str,
+    row: dict[str, Any],
+) -> tuple[str, ...]:
+    return (device, model) + tuple(
+        str(row[field]) for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
+    )
+
+
+def _exact_label_group_id(
+    *,
+    device: str,
+    model: str,
+    plan: str,
+    row: dict[str, Any],
+) -> str:
+    fields = [f"device={device}", f"model={model}", f"plan={plan}"]
+    fields.extend(
+        f"{field}={row[field]}" for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
+    )
+    fields.append(f"local={row['local']}")
+    return "|".join(fields)
+
+
+def _empty_exact_label_group(
+    *,
+    device: str,
+    model: str,
+    plan: str,
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    label = {
+        "id": _exact_label_group_id(
+            device=device,
+            model=model,
+            plan=plan,
+            row=row,
+        ),
+        "device": device,
+        "model": model,
+        "plan": plan,
+        **{field: row[field] for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS},
+        "candidate_local": row["local"],
+        "candidate_event_count": 0,
+        "candidate_duration_ms": 0.0,
+        "default_local": None,
+        "default_event_count": 0,
+        "default_duration_ms": None,
+        "delta_ms": None,
+        "decision": "insufficient_noise_band",
+        "default_match_status": "default_label_not_evaluated",
+        "source_rows": [],
+        "row_json": [],
+        "timestamp_logs": [],
+        "capability_profiles": [],
+    }
+    return label
+
+
+def _append_unique(target: list[Any], value: Any) -> None:
+    if value not in target:
+        target.append(value)
+
+
+def _timestamp_exact_label_groups_from_run_status(
+    run_status_path: Path,
+) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+    groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for row in _load_run_status_rows(run_status_path):
+        row_json_path = _first_resolved_path(
+            run_status_path,
+            row,
+            ("json", "row_json", "result_json"),
+        )
+        if row_json_path is None or not row_json_path.exists():
+            raise ValueError(f"run_status row {row.get('label')} has no row JSON")
+        row_payload = load_json(row_json_path)
+        timestamp_summary = _load_timestamp_summary_for_run(
+            run_status_path,
+            row,
+            row_json_path,
+        )
+        device = str(row.get("device", row.get("device_index", "unknown")))
+        model = str(row.get("model", row_payload.get("encoder", "unknown")))
+        plan = str(row.get("plan", "unknown"))
+        source_row = row.get("label", row_json_path.stem)
+        capability_profiles = _capability_profiles_from_row(row_payload)
+        for timestamp_row in timestamp_summary.get("rows", []):
+            if timestamp_row.get("kernel") not in CONV_PLAN_TIMESTAMP_TARGET_KERNELS:
+                continue
+            key = (
+                device,
+                model,
+                plan,
+                _exact_label_group_id(
+                    device=device,
+                    model=model,
+                    plan=plan,
+                    row=timestamp_row,
+                ),
+            )
+            group = groups.setdefault(
+                key,
+                _empty_exact_label_group(
+                    device=device,
+                    model=model,
+                    plan=plan,
+                    row=timestamp_row,
+                ),
+            )
+            group["candidate_event_count"] += int(timestamp_row.get("count", 0))
+            group["candidate_duration_ms"] += (
+                float(timestamp_row.get("duration_ns_sum", 0)) / 1.0e6
+            )
+            _append_unique(group["source_rows"], source_row)
+            _append_unique(group["row_json"], str(row_json_path))
+            _append_unique(group["timestamp_logs"], str(timestamp_summary["source_log"]))
+            for profile in capability_profiles:
+                _append_unique(group["capability_profiles"], profile)
+    return groups
+
+
+def _is_row_comparison_rejected(group: dict[str, Any] | None) -> str | None:
+    if group is None:
+        return None
+    if not _is_group_correct(group):
+        return "correctness_blocked"
+    comparison = group.get("baseline_comparison")
+    if isinstance(comparison, dict):
+        classification = comparison.get("classification")
+        if classification in ("correctness_blocked", "locally_rejected_slower"):
+            return str(classification)
+    return None
+
+
+def _exact_label_decision(
+    *,
+    label: dict[str, Any],
+    candidate_group: dict[str, Any] | None,
+    default_matches: list[dict[str, Any]],
+) -> None:
+    row_rejection = _is_row_comparison_rejected(candidate_group)
+    if row_rejection is not None:
+        label["decision"] = row_rejection
+        label["default_match_status"] = "not_evaluated_row_rejected"
+        return
+    if not default_matches:
+        label["decision"] = "insufficient_noise_band"
+        label["default_match_status"] = "default_label_missing"
+        return
+    if len(default_matches) > 1:
+        label["decision"] = "insufficient_noise_band"
+        label["default_match_status"] = "default_label_ambiguous"
+        return
+
+    default = default_matches[0]
+    label["default_match_status"] = "default_label_matched"
+    label["default_local"] = default["candidate_local"]
+    label["default_event_count"] = default["candidate_event_count"]
+    label["default_duration_ms"] = default["candidate_duration_ms"]
+    delta_ms = label["candidate_duration_ms"] - default["candidate_duration_ms"]
+    label["delta_ms"] = delta_ms
+    if delta_ms < -TIMESTAMP_RUN_NOISE_BAND_MS:
+        label["decision"] = "locally_improved"
+    elif delta_ms > TIMESTAMP_RUN_NOISE_BAND_MS:
+        label["decision"] = "locally_rejected_slower"
+    else:
+        label["decision"] = "insufficient_noise_band"
+
+
+def build_exact_label_evidence_from_run_status(
+    run_status_path: Path,
+    *,
+    baseline_run_status_path: Path | None = None,
+) -> dict[str, Any]:
+    summary = build_timestamp_run_summary_from_run_status(
+        run_status_path,
+        baseline_run_status_path=baseline_run_status_path or run_status_path,
+    )
+    group_by_key = {
+        (group["device"], group["model"], group["plan"]): group
+        for group in summary["groups"]
+    }
+    candidate_groups = _timestamp_exact_label_groups_from_run_status(run_status_path)
+    baseline_groups = _timestamp_exact_label_groups_from_run_status(
+        baseline_run_status_path or run_status_path
+    )
+    default_by_base_key: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for group in baseline_groups.values():
+        if group["plan"] != "default":
+            continue
+        default_by_base_key.setdefault(
+            _exact_label_base_key(group["device"], group["model"], group),
+            [],
+        ).append(group)
+
+    labels = []
+    for group in sorted(candidate_groups.values(), key=lambda item: item["id"]):
+        if group["plan"] == "default":
+            continue
+        candidate_group = group_by_key.get(
+            (group["device"], group["model"], group["plan"])
+        )
+        default_matches = default_by_base_key.get(
+            _exact_label_base_key(group["device"], group["model"], group),
+            [],
+        )
+        _exact_label_decision(
+            label=group,
+            candidate_group=candidate_group,
+            default_matches=default_matches,
+        )
+        labels.append(group)
+
+    payload = {
+        "schema": EXACT_LABEL_SCHEMA,
+        "source_kind": "benchmark_run_status",
+        "source_run_status": str(run_status_path),
+        "baseline_run_status": (
+            str(baseline_run_status_path) if baseline_run_status_path else None
+        ),
+        "runtime_defaults_changed": False,
+        "noise_band_ms": TIMESTAMP_RUN_NOISE_BAND_MS,
+        "label_count": len(labels),
+        "labels": labels,
+    }
+    errors = validate_exact_label_evidence(payload)
+    if errors:
+        raise ValueError("invalid exact label evidence:\n" + "\n".join(errors))
     return payload
 
 
@@ -1169,6 +1645,17 @@ def cmd_from_timestamp_log(args: argparse.Namespace) -> int:
 def cmd_from_timestamp_run_status(args: argparse.Namespace) -> int:
     baseline = Path(args.baseline_run_status) if args.baseline_run_status else None
     payload = build_timestamp_run_summary_from_run_status(
+        Path(args.run_status),
+        baseline_run_status_path=baseline,
+    )
+    write_json(Path(args.out), payload)
+    print(f"wrote {args.out}")
+    return 0
+
+
+def cmd_from_timestamp_exact_labels(args: argparse.Namespace) -> int:
+    baseline = Path(args.baseline_run_status) if args.baseline_run_status else None
+    payload = build_exact_label_evidence_from_run_status(
         Path(args.run_status),
         baseline_run_status_path=baseline,
     )
@@ -1335,6 +1822,12 @@ def main(argv: list[str] | None = None) -> int:
     from_timestamp_run_status.add_argument("--out", required=True)
     from_timestamp_run_status.add_argument("--baseline-run-status")
     from_timestamp_run_status.set_defaults(func=cmd_from_timestamp_run_status)
+
+    from_timestamp_exact_labels = subparsers.add_parser("from-timestamp-exact-labels")
+    from_timestamp_exact_labels.add_argument("--run-status", required=True)
+    from_timestamp_exact_labels.add_argument("--out", required=True)
+    from_timestamp_exact_labels.add_argument("--baseline-run-status")
+    from_timestamp_exact_labels.set_defaults(func=cmd_from_timestamp_exact_labels)
 
     self_test = subparsers.add_parser("self-test")
     self_test.set_defaults(func=cmd_self_test)
