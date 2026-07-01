@@ -1367,6 +1367,70 @@
       ]
     },
     {
+      "id": "conv3x3_s1p1_bounded_exact_16x4_policy_rejected_2026_07_01",
+      "status": "rejected_mixed",
+      "head": "85396699f815+bounded_policy_experiment",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variants": [
+          "vits",
+          "vitb"
+        ],
+        "input": "140x210"
+      },
+      "device_notes": "Focused post-policy default check on device indices 0=RX 9070, 1=GTX 1080, 2=RX 6700 XT. Device names are evidence provenance only; the attempted policy matched exact conv plan labels and was backed out before commit.",
+      "contract_or_topology_scope": [
+        "VulkanConvPlanKey.v0",
+        "VulkanConvPlanTimestampSummary.v0",
+        "Kernel3x3Stride1Pad1",
+        "conv2d_buffer_float_3x3_s1p1",
+        "conv2d_buffer_float_3x3_s1p1_add",
+        "bounded exact conv plan rowset"
+      ],
+      "candidate": "Promote a finite seven-label exact 16x4 policy for conv labels whose timestamp deltas improved on all three sweep devices.",
+      "correctness": {
+        "status": "passed",
+        "max_abs_by_row": {
+          "rx9070_vits_140": 1.6391277313232422e-06,
+          "rx9070_vitb_140": 3.5762786865234375e-06,
+          "gtx1080_vits_140": 7.62939453125e-06,
+          "gtx1080_vitb_140": 2.1457672119140625e-05,
+          "rx6700xt_vits_140": 3.0174851417541504e-06,
+          "rx6700xt_vitb_140": 5.4836273193359375e-06
+        },
+        "tests": [
+          "TestVulkanEagerRuntime.test_vulkan_conv_plan_bounded_workgroup_policy_records_candidate during uncommitted experiment",
+          "DAv2 bridge sanity embedded in focused post-policy default rows"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "performance_valid": true,
+        "accepted_exact_labels_routed_to_16x4": true,
+        "adjacent_labels_kept_default": true,
+        "default_behavior_changed": false
+      },
+      "timing_ms": {
+        "rx9070_vits_140_delta_mean": 20.024,
+        "rx9070_vitb_140_delta_mean": -8.609,
+        "gtx1080_vits_140_delta_mean": 30.569,
+        "gtx1080_vitb_140_delta_mean": 3.275,
+        "rx6700xt_vits_140_delta_mean": 16.367,
+        "rx6700xt_vitb_140_delta_mean": 21.453
+      },
+      "artifacts": [
+        "agent_space/conv_plan_bounded_policy_check_85396699_dirty/summary.json",
+        "agent_space/conv_plan_bounded_policy_check_85396699_dirty/summary.md",
+        "agent_space/bounded_conv_policy_rejected_cmd.patch"
+      ],
+      "decision": "Do not promote the finite exact 16x4 rowset. It routed only accepted exact labels and left adjacent labels at the old local size, but post-policy default validation still regressed whole-row timing on GTX 1080 and RX 6700 XT vitb_140, and vits_140 timing moved despite no promoted labels. The policy was backed out before commit.",
+      "revisit_conditions": [
+        "When a runtime tuning cache can validate full-row behavior before selecting exact plan locals.",
+        "When longer repeat-count measurements show the vits timing movement was noise and vitb remains improved on every device.",
+        "When the 3x3 stride-1 pad-1 shader implementation changes enough to invalidate this exact-row comparison."
+      ]
+    },
+    {
       "id": "decoder_tail_relu_via_conv_clamp_dav2_vits140_2026_06_30",
       "status": "rejected_slower",
       "head": "49f93e81e81",

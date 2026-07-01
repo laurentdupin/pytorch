@@ -84,6 +84,14 @@ device for several labels. The next promotion path is therefore a
 device/driver/capability-keyed tuning cache or a narrower exact-plan policy,
 not a static workgroup default.
 
+An attempted seven-row exact 16x4 policy for labels that improved on all three
+timestamp-sweep devices was also rejected and backed out before commit. It
+routed only the accepted exact labels to 16x4 and left adjacent labels at 8x8,
+but the post-policy default check regressed whole-row timing on GTX 1080 and RX
+6700 XT `vitb_140`, while `vits_140` timing moved despite no promoted labels.
+Keep this as rejected evidence; the next runtime promotion mechanism should be a
+tuning cache that can validate the full row before selecting per-plan locals.
+
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
 plane by default. Direct native callers with deeper stack-output bridge contexts

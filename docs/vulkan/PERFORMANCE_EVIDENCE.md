@@ -210,6 +210,11 @@ The initial catalog records the current `vits_140` performance lane:
   local workgroups, but each had three improved and three regressed model/device
   rows. `16x8` is promising for `vitb_140`, yet exact-label deltas are still
   device-mixed, so promotion needs a tuning cache or narrower exact-plan policy;
+- bounded exact 16x4 conv policy attempt: rejected before commit. The finite
+  seven-label policy routed only exact labels that had improved on all three
+  timestamp-sweep devices, but default post-policy validation still regressed
+  whole-row timing on GTX 1080 and RX 6700 XT `vitb_140`; keep it as evidence
+  for a future full-row tuning cache rather than a static exact rowset;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;
