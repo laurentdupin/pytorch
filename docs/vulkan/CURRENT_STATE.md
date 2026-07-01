@@ -53,6 +53,12 @@ promotion: all rows were correctness-clean and hit the expected plan-key
 workgroup, but both candidates had mixed timing wins/regressions across models
 and adapters.
 
+`scripts/benchmarks/vulkan_conv_plan_tuning.py` is the first offline tuning
+result tool for these rows. It consumes candidate-sweep JSON, emits
+`VulkanConvPlanTuningResult.v0`, and validates decisions keyed by
+`VulkanConvPlanKey.v0` plus the recorded device/capability profile. It is
+behavior-neutral and does not load tuning results into runtime route selection.
+
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
 plane by default. Direct native callers with deeper stack-output bridge contexts

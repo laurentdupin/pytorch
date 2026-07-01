@@ -181,7 +181,9 @@ The initial catalog records the current `vits_140` performance lane:
   classes, offsets, global/local workgroup, candidate count, cacheability,
   tunability, and device/capability profile fields needed for future
   device/driver-keyed plan tuning. This is not a behavior change and does not
-  promote a new conv plan;
+  promote a new conv plan. Offline tuning result artifacts should use
+  `scripts/benchmarks/vulkan_conv_plan_tuning.py` and remain keyed by
+  `VulkanConvPlanKey.v0` fields plus capability-profile fields, not GPU names;
 - `PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY`: accepted opt-in canary for
   `Kernel3x3Stride1Pad1` workgroup candidates `3x3_s1p1_16x4` and
   `3x3_s1p1_16x8`. Defaults remain `8x8x1`; any default promotion still needs
@@ -190,6 +192,10 @@ The initial catalog records the current `vits_140` performance lane:
   XT also rejected promoting either canary globally: `16x4` helped `vitb_140`
   on RX 9070/GTX 1080 but regressed `vits_140` and RX 6700 XT rows, while
   `16x8` had a different mixed win/regression pattern;
+- `VulkanConvPlanTuningResult.v0`: accepted offline evidence format produced by
+  `scripts/benchmarks/vulkan_conv_plan_tuning.py`. It records candidate
+  decisions by plan-key and capability-profile evidence, but it is not consumed
+  by runtime route selection yet;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

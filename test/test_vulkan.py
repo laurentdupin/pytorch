@@ -231,6 +231,23 @@ class TestVulkanGovernance(TestCase):
             elif previous_cv2 is not None:
                 sys.modules["cv2"] = previous_cv2
 
+    @staticmethod
+    def _vulkan_conv_plan_tuning_module():
+        module_path = os.path.join(
+            REPO_ROOT,
+            "scripts",
+            "benchmarks",
+            "vulkan_conv_plan_tuning.py",
+        )
+        spec = importlib.util.spec_from_file_location(
+            "vulkan_conv_plan_tuning_for_test",
+            module_path,
+        )
+        module = importlib.util.module_from_spec(spec)
+        self_loader = spec.loader
+        self_loader.exec_module(module)
+        return module
+
     def test_vulkan_backend_availability_api_matches_top_level(self):
         self.assertTrue(hasattr(torch.backends, "vulkan"))
         self.assertEqual(
@@ -419,6 +436,83 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(
             canary_plan["unsafe_blocker"],
             "python_private_baton_canary_stack_overflow_at_private_capture_debug",
+        )
+
+    def test_vulkan_conv_plan_tuning_result_schema(self):
+        tuning = self._vulkan_conv_plan_tuning_module()
+        plan_key_row = (
+            "schema=VulkanConvPlanKey.v0 selected=FloatBufferConv reject=None "
+            "kernel=conv2d_buffer_float_3x3_s1p1 role=other_3x3_s1p1 "
+            "contract=none contract_family=none contract_tuple=none count=4 "
+            "input=[1,32,140,210] output_channels=32 weight=[32,32,3,3] "
+            "stride=[1,1] padding=[1,1] dilation=[1,1] groups=1 "
+            "input_dtype=5 weight_dtype=5 output_dtype=5 "
+            "input_storage=0 weight_storage=0 output_storage=0 "
+            "input_layout=0 weight_layout=0 output_layout=0 "
+            "input_direct=0 output_direct=0 weight_packed=1 bias=1 "
+            "pointwise=0 depthwise=0 sliding_window=1 "
+            "input_offset=0 weight_offset=0 output_offset=0 "
+            "global=[210,140,32] local=[16,4,1] candidate_count=3 "
+            "context_device_index=0 vendor_id=4098 device_id=29822 "
+            "driver_version=123 api_version=4206845 subgroup_size=64 "
+            "min_subgroup_size=32 max_subgroup_size=64 "
+            "max_compute_workgroup_subgroups=4 has_subgroup_size_control=1 "
+            "has_compute_full_subgroups=1 has_cooperative_matrix=0 "
+            "cooperative_matrix_property_count=0 has_timeline_semaphore=1 "
+            "has_synchronization2=1 cacheable=1 tunable=1 "
+            "input_bytes=3763200 output_bytes=3763200 weight_bytes=36864"
+        )
+        fields = tuning.parse_plan_key_snapshot_row(plan_key_row)
+        result = {
+            "id": "conv2d_buffer_float_3x3_s1p1:3x3_s1p1_16x4:rejected_mixed",
+            "decision": "rejected_mixed",
+            "plan_key": tuning.plan_key_from_snapshot(
+                fields,
+                candidate="3x3_s1p1_16x4",
+            ),
+            "capability_profile": tuning.capability_profile_from_snapshot(fields),
+            "evidence": {
+                "source": "synthetic governance fixture",
+                "improved_rows": ["row_a"],
+                "regressed_rows": ["row_b"],
+            },
+            "revisit_conditions": [
+                "Re-evaluate when capability-profile fields change.",
+            ],
+        }
+        payload = {
+            "schema": tuning.SCHEMA,
+            "runtime_defaults_changed": False,
+            "result_count": 1,
+            "results": [result],
+        }
+
+        self.assertEqual(tuning.validate_tuning_result(payload), [])
+        self.assertEqual(
+            result["plan_key"]["kernel"],
+            "conv2d_buffer_float_3x3_s1p1",
+        )
+        self.assertEqual(result["plan_key"]["local"], "[16,4,1]")
+        self.assertEqual(result["capability_profile"]["vendor_id"], "4098")
+
+        invalid_decision = json.loads(json.dumps(payload))
+        invalid_decision["results"][0]["decision"] = "fast_on_one_gpu"
+        self.assertTrue(
+            any(
+                "decision must be one of" in error
+                for error in tuning.validate_tuning_result(invalid_decision)
+            )
+        )
+
+        keyed_by_name = json.loads(json.dumps(payload))
+        keyed_by_name["results"][0]["capability_profile"]["device_name"] = (
+            "Example GPU"
+        )
+        self.assertTrue(
+            any(
+                "must not key by device_name" in error
+                for error in tuning.validate_tuning_result(keyed_by_name)
+            )
         )
 
     def test_execution_contract_tuple_matches_carry_metadata(self):
@@ -2013,6 +2107,22 @@ class TestVulkanGovernance(TestCase):
             self.assertGreater(len(entry["artifacts"]), 0)
             self.assertIsInstance(entry["revisit_conditions"], list)
             self.assertGreater(len(entry["revisit_conditions"]), 0)
+
+    def test_vulkan_conv_plan_tuning_result_self_test(self):
+        script_path = os.path.join(
+            REPO_ROOT,
+            "scripts",
+            "benchmarks",
+            "vulkan_conv_plan_tuning.py",
+        )
+        result = subprocess.run(
+            [sys.executable, script_path, "self-test"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertIn("validated Vulkan conv plan tuning result", result.stdout)
 
     def test_vulkan_stack_region_segment_plan_manifest_schema(self):
         manifest_path = os.path.join(
