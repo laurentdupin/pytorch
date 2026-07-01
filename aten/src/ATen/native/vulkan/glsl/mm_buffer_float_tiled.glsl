@@ -1,3 +1,6 @@
+/*
+ * TILE_SIZE = (8, 8, 1)
+ */
 #version 450 core
 
 #define PRECISION ${PRECISION}

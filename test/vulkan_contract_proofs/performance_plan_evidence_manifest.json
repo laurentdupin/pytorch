@@ -1888,6 +1888,58 @@
         "Require a LinearPlanKey-style exact evidence row with correctness passing before any timing comparison.",
         "Do not reintroduce a broad vision-backbone force-tiled env gate."
       ]
+    },
+    {
+      "id": "linear_float_tiled_fc2_exact_canary_rejected_2026_07_01",
+      "status": "rejected_slower",
+      "head": "local_fc2_exact_tiled_canary",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused probe. The canary is exact-shape gated by env and is not a default route.",
+      "contract_or_topology_scope": [
+        "Vulkan linear buffer execution",
+        "VulkanLinearOrMatmulPlanKey.v0 evidence",
+        "StackRegionSegmentPlan.v0 wide4 bridge evidence"
+      ],
+      "candidate": "Route only exact float bias/no-post-op [151,1536] -> [151,384] fc2-shaped rows to aten::linear.buffer_float_tiled_bias after adding tiled shader TILE_SIZE metadata.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.6391277313232422e-06,
+        "mean_abs": 7.301201776499511e-08,
+        "tests": [
+          "TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_linear_canary",
+          "Depth Anything V2 vits_140 bridge sanity embedded in benchmark run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_count": 0,
+        "tiled_fc2_rows_observed": true,
+        "tiled_fc1_gelu_rows_observed": false
+      },
+      "timing_ms": {
+        "baseline_device_resident_mean": 64.282,
+        "candidate_device_resident_mean": 93.508,
+        "candidate_device_resident_median": 97.166,
+        "candidate_device_resident_p95": 110.42,
+        "repeat_count": 5
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_context_fix_5repeat/vits140_wide4_5repeat.json",
+        "agent_space/dav2_vits140_fc2_tiled_canary_probe/vits140_fc2_tiled_exactshape_5repeat.json",
+        "agent_space/dav2_vits140_fc2_tiled_canary_probe/vits140_fc2_tiled_canary_exactshape_1repeat_logs.json",
+        "agent_space/dav2_vits140_fc2_tiled_canary_probe/fc2_tiled_op_hits.log"
+      ],
+      "decision": "Do not promote the current exact fc2 tiled route. It is correct and reproducible but materially slower than the wide4 baseline. Keep the TILE_SIZE metadata and focused canary coverage as evidence for future kernel replacement or tuning, not as a default plan.",
+      "revisit_conditions": [
+        "If the tiled bias shader is replaced or retuned.",
+        "If a device/driver-specific linear tuning cache can validate full-row timing before selecting the tiled plan.",
+        "If a cooperative-matrix or subgroup implementation provides a new candidate for the same exact plan key."
+      ]
     }
   ]
 }

@@ -274,6 +274,15 @@ The initial catalog records the current `vits_140` performance lane:
   about 71.1 ms mean. Do not reintroduce a broad force-tiled linear gate; a
   future linear plan needs a parity-proven kernel or narrower contract before
   timing;
+- exact `vits_140` fc2 float-buffer tiled linear canary:
+  `PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384`
+  correctly routed only the `[151,1536] -> [151,384]` bias/no-post-op rows to
+  `aten::linear.buffer_float_tiled_bias` after adding tiled shader output-tile
+  metadata. Bridge sanity passed with `max_abs=1.6391277313232422e-06`, CPU
+  fallback and sync readback stayed zero, but device-resident timing regressed
+  to about 93.5 ms mean versus the 64.3 ms wide4 baseline. Keep the tile
+  metadata/correctness guard as canary evidence; do not promote this tiled fc2
+  route without a faster kernel or tuning policy;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

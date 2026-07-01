@@ -25,6 +25,7 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 namespace at {
@@ -457,6 +458,15 @@ const char* linear_role_from_label(
     return "patch_embed";
   }
   return label.empty() || label == "unlabeled" ? "unknown" : "other";
+}
+
+bool linear_tiled_canary_vision_fc2_enabled() {
+  const char* const env = std::getenv("PYTORCH_VULKAN_LINEAR_TILED_CANARY");
+  if (env == nullptr || env[0] == '\0') {
+    return false;
+  }
+  const std::string_view value(env);
+  return value == "vision_fc2_exact_151x1536x384";
 }
 
 const char* linear_kernel_kind_from_name(const char* kernel_name) {
@@ -1317,21 +1327,20 @@ bool can_run_float_buffer_bmm(const Tensor& mat1, const Tensor& mat2) {
 bool should_use_tiled_buffer_linear_kernel(
     const utils::VulkanRuntimePolicy& runtime_policy,
     const Tensor& input_arg_2d,
-    IntArrayRef output_sizes) {
+    IntArrayRef output_sizes,
+    const LinearPostOp post_op,
+    const bool bias_defined) {
   const int64_t input_height = input_arg_2d.size(Layout::Parameter::height);
   const int64_t input_width = input_arg_2d.size(Layout::Parameter::width);
   const int64_t output_width = output_sizes[Layout::Parameter::width];
 
-  const bool runtime_labeled_vision_backbone =
-      runtime_policy.linear_kernel_family ==
-          utils::VulkanLinearKernelFamily::CooperativeMatrix &&
-      runtime_policy.request.fixed_shape_graph_input_sizes.has_value() &&
-      runtime_policy.request.model_domain ==
-          utils::VulkanModelDomain::Vision &&
-      runtime_policy.request.execution_phase ==
-          utils::VulkanExecutionPhase::Backbone;
-  if (runtime_labeled_vision_backbone) {
-    return output_width >= 64 && input_height >= 64 && input_width >= 64;
+  const bool exact_vision_fc2_canary =
+      linear_tiled_canary_vision_fc2_enabled() &&
+      input_arg_2d.scalar_type() == kFloat && bias_defined &&
+      post_op == LinearPostOp::None && input_height == 151 &&
+      input_width == 1536 && output_width == 384;
+  if (exact_vision_fc2_canary) {
+    return true;
   }
 
   const bool generic_large_buffer_matmul =
@@ -1346,8 +1355,8 @@ bool should_use_tiled_buffer_linear_kernel(
 
   // The generic tiled buffer-linear shader family corrupts diffusion-style
   // transformer linears such as [384,1280] x [1280,1280] on multiple devices.
-  // Keep vision-labeled tiled linears enabled above, but route generic linears
-  // through the older Vulkan buffer kernel until the tiled family is repaired.
+  // Route generic and broad vision-labeled linears through the older Vulkan
+  // buffer kernel until a contract-bounded tiled route is proven.
   return false;
 }
 
@@ -1379,7 +1388,11 @@ Tensor run_float_buffer_linear(
   };
   const bool should_use_tiled_kernel =
       should_use_tiled_buffer_linear_kernel(
-          runtime_policy, input_tensor, output_sizes);
+          runtime_policy,
+          input_tensor,
+          output_sizes,
+          post_op,
+          packed_state.bias_defined);
   const vTensor& v_input_view = convert(input_tensor);
   if (
       v_input_view.storage_type() == api::StorageType::BUFFER &&
@@ -1425,14 +1438,6 @@ Tensor run_float_buffer_linear(
   Tensor fused_bias_tensor;
   bool fuse_buffer_bias_gelu = false;
   bool fuse_buffer_bias = false;
-  const bool use_specialized_tiled_kernel =
-      should_use_tiled_buffer_linear_kernel(
-          runtime_policy, input_tensor, output_sizes);
-  const bool use_vec2_tiled_kernel =
-      use_specialized_tiled_kernel &&
-      output_sizes[Layout::Parameter::width] >= 384 &&
-      input_arg_2d.size(Layout::Parameter::height) >= 512 &&
-      input_arg_2d.size(Layout::Parameter::width) % 16 == 0;
   if (packed_state.bias_defined && alpha == 1.0f && beta == 1.0f) {
     fused_bias_tensor = packed_state.packed_weight.bias();
     const vTensor& v_bias = convert(fused_bias_tensor);
@@ -1447,22 +1452,29 @@ Tensor run_float_buffer_linear(
     fuse_buffer_bias =
         can_fuse_buffer_bias && post_op == LinearPostOp::None;
   }
+  const bool use_specialized_tiled_kernel =
+      should_use_tiled_kernel &&
+      (!packed_state.bias_defined || fuse_buffer_bias || fuse_buffer_bias_gelu);
+  const bool use_vec2_tiled_kernel =
+      use_specialized_tiled_kernel &&
+      output_sizes[Layout::Parameter::width] >= 384 &&
+      input_arg_2d.size(Layout::Parameter::height) >= 512 &&
+      input_arg_2d.size(Layout::Parameter::width) % 16 == 0;
 
   api::UniformParamsBuffer params(context, block);
   api::PipelineBarrier pipeline_barrier{};
   const api::utils::uvec3 global_size{
       api::utils::safe_downcast<uint32_t>(
-          use_vec2_tiled_kernel
-              ? div_up(
-                    packed_state.logical_weight_sizes[Layout::Parameter::width],
-                    INT64_C(2))
-              : packed_state.logical_weight_sizes[Layout::Parameter::width]),
+          packed_state.logical_weight_sizes[Layout::Parameter::width]),
       api::utils::safe_downcast<uint32_t>(
           input_arg_2d.size(Layout::Parameter::height)),
       1u,
   };
 
   if (fuse_buffer_bias_gelu || fuse_buffer_bias) {
+    const api::utils::uvec3 local_size =
+        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
+                                     : api::utils::uvec3{16u, 4u, 1u};
     vTensor& v_bias = convert(fused_bias_tensor);
     const char* kernel_hit_name =
         use_vec2_tiled_kernel
@@ -1500,8 +1512,7 @@ Tensor run_float_buffer_linear(
         packed_state,
         output_sizes,
         global_size,
-        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
-                                     : api::utils::uvec3{16u, 4u, 1u},
+        local_size,
         post_op);
     utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
@@ -1516,8 +1527,7 @@ Tensor run_float_buffer_linear(
                                      : VK_KERNEL(mm_buffer_float_bias)),
         pipeline_barrier,
         global_size,
-        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
-                                     : api::utils::uvec3{16u, 4u, 1u},
+        local_size,
         VK_NULL_HANDLE,
         v_output.buffer(
             pipeline_barrier,
@@ -1532,6 +1542,9 @@ Tensor run_float_buffer_linear(
         v_bias.buffer_metadata(),
         params.buffer());
   } else {
+    const api::utils::uvec3 local_size =
+        use_specialized_tiled_kernel ? api::utils::uvec3{8u, 8u, 1u}
+                                     : api::utils::uvec3{16u, 4u, 1u};
     const char* kernel_hit_name =
         use_specialized_tiled_kernel ? "aten::linear.buffer_float_tiled"
                                      : "aten::linear.buffer_float";
@@ -1560,8 +1573,7 @@ Tensor run_float_buffer_linear(
         packed_state,
         output_sizes,
         global_size,
-        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
-                                     : api::utils::uvec3{16u, 4u, 1u},
+        local_size,
         post_op);
     utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
@@ -1569,8 +1581,7 @@ Tensor run_float_buffer_linear(
                                      : VK_KERNEL(mm_buffer_float),
         pipeline_barrier,
         global_size,
-        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
-                                     : api::utils::uvec3{16u, 4u, 1u},
+        local_size,
         VK_NULL_HANDLE,
         v_output.buffer(
             pipeline_barrier,

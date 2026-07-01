@@ -116,6 +116,17 @@ probe did hit `aten::linear.buffer_float_tiled_bias[_gelu]` rows but failed
 linear gate. A future linear plan needs a parity-proven kernel or narrower
 contract before timing.
 
+A narrower exact fc2 tiled-linear canary is now recorded as slower-but-correct
+evidence rather than a promotion. With
+`PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384`, the
+`vits_140` bridge route hits only `aten::linear.buffer_float_tiled_bias` for the
+`[151,1536] -> [151,384]` bias/no-post-op rows, bridge sanity remains clean at
+`max_abs=1.6391277313232422e-06`, and CPU fallback/sync readback remain zero.
+However, the clean five-repeat RX 9070 run regressed to about 93.5 ms
+device-resident mean versus the 64.3 ms wide4 baseline. Keep this as rejected
+linear plan evidence; sub-50 work should not promote the current tiled fc2
+kernel.
+
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
 plane by default. Direct native callers with deeper stack-output bridge contexts
