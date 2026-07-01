@@ -190,6 +190,13 @@ The initial catalog records the current `vits_140` performance lane:
 - the first `vits_182` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 74.8 ms mean device-resident forward;
+- a benchmark-only `vits_140` compiled-session bridge canary was exposed through
+  `--vulkan-stack-output-device-bridge-mode=compiled_session_bridge`. The default
+  `stack_capture_decoder_preprocess` mode remains unchanged and measured about
+  68.9 ms in a one-repeat sanity run; the compiled-session canary exited with Windows stack
+  overflow `-1073741571` before writing a result JSON, so it is not a viable
+  performance path until the replay/compiled-session stack-overflow failure is
+  fixed;
 - the first `vits_280` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 91.9 ms mean device-resident forward;

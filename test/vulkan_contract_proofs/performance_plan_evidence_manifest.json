@@ -2050,6 +2050,50 @@
         "When an opt-in command-replay canary consumes the proof row and keeps bridge sanity, CPU fallback, sync readback, and copy counters clean.",
         "When CPU-side descriptor/command-recording attribution shows command replay is no longer the top control-plane bottleneck."
       ]
+    },
+    {
+      "id": "dav2_vits140_compiled_session_bridge_canary_2026_07_01",
+      "status": "blocked_stack_overflow",
+      "head": "local_compiled_session_bridge_benchmark_canary",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "Benchmark-only canary. This records the existing DAv2 compiled/replay bridge behavior and is not a production route or a default benchmark path.",
+      "contract_or_topology_scope": [
+        "StackOutputToDeviceConsumerBridgeContract",
+        "run_depth_anything_v2_compiled_session_bridge",
+        "run_vision_backbone_stack_norm_replay_bundle_bridge",
+        "VisionDecoderPreprocessHeadContext",
+        "ReplayHangRisk guard"
+      ],
+      "candidate": "Expose `--vulkan-stack-output-device-bridge-mode=compiled_session_bridge` so the existing compiled/replay bridge can be measured against the current private device bridge without changing default routing.",
+      "correctness": {
+        "status": "not_established_for_canary",
+        "failure": "compiled-session bridge process exited before result JSON was written"
+      },
+      "counters": {
+        "execution_behavior_changed": false,
+        "default_bridge_mode_changed": false,
+        "compiled_session_canary_exit_code": -1073741571,
+        "failure_class": "windows_stack_overflow"
+      },
+      "timing_ms": {
+        "stack_capture_decoder_preprocess_one_repeat_device_resident": 68.878,
+        "compiled_session_canary": null,
+        "performance_claim": false
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_bridge_mode_stack_capture_1repeat.json",
+        "agent_space/dav2_vits140_bridge_mode_compiled_session_bridge_1repeat.json"
+      ],
+      "decision": "Do not use the existing compiled-session bridge as a DAv2 performance path yet. The benchmark-only canary reaches the same Windows stack-overflow failure class seen in earlier replay/compiled-session scaling work, even for vits_140. Fix the replay/compiled-session stack-overflow failure before measuring this path again.",
+      "revisit_conditions": [
+        "After the compiled/replay bridge stack-overflow failure is isolated and fixed.",
+        "After the canary writes a result JSON with bridge sanity, CPU fallback, sync readback, and copy counters clean.",
+        "After StackProgramOwnedTempSlotIdentity.v0 is joined to exact live descriptor/update rows or an equivalent replay-owned temp allocator proof exists."
+      ]
     }
   ]
 }

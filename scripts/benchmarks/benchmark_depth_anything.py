@@ -122,6 +122,14 @@ VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES = frozenset(
 VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES = frozenset(
     (VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,)
 )
+VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE = (
+    "stack_capture_decoder_preprocess"
+)
+VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION = "compiled_session_bridge"
+VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES = (
+    VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,
+    VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION,
+)
 
 
 def vulkan_stack_output_bridge_deep_split_mode() -> str:
@@ -893,12 +901,23 @@ class VulkanStackOutputDeviceBridge:
         stack_owner: VulkanDAv2BackboneStackOwner,
         bridge_contexts: dict[str, Any],
         label: str,
+        bridge_mode: str,
     ) -> None:
         self.torch = torch_module
         self.model = model
         self.pretrained = getattr(model, "pretrained")
         self.stack_owner = stack_owner
         self.original_forward = model.forward
+        if bridge_mode not in VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES:
+            raise ValueError(
+                f"Unsupported Vulkan stack output bridge mode: {bridge_mode}"
+            )
+        self.bridge_mode = bridge_mode
+        self.backend_op_name = (
+            "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge"
+            if bridge_mode == VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
+            else "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge"
+        )
         self.capture_indices = [
             int(index)
             for index in getattr(model, "intermediate_layer_idx")[
@@ -980,21 +999,40 @@ class VulkanStackOutputDeviceBridge:
             self.torch,
             SUBMIT_PHASE_STACK_OWNER,
         ), vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
-            depth = (
-                self.torch.ops.vulkan_prepack
-                .run_vision_stack_captures_decoder_preprocess_bridge(
-                    tokens,
-                    self.stack_owner.stack_context,
-                    self.capture_indices,
-                    self.normalized_shape,
-                    self.norm_context,
-                    self.strip_prefix_tokens,
-                    patch_h,
-                    patch_w,
-                    output_size,
-                    self.decoder_context,
+            if (
+                self.bridge_mode
+                == VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
+            ):
+                depth = (
+                    self.torch.ops.vulkan_prepack
+                    .run_depth_anything_v2_compiled_session_bridge(
+                        tokens,
+                        self.stack_owner.block_contexts,
+                        self.capture_indices,
+                        self.normalized_shape,
+                        self.norm_context,
+                        patch_h,
+                        patch_w,
+                        output_size,
+                        self.decoder_context,
+                    )
                 )
-            )
+            else:
+                depth = (
+                    self.torch.ops.vulkan_prepack
+                    .run_vision_stack_captures_decoder_preprocess_bridge(
+                        tokens,
+                        self.stack_owner.stack_context,
+                        self.capture_indices,
+                        self.normalized_shape,
+                        self.norm_context,
+                        self.strip_prefix_tokens,
+                        patch_h,
+                        patch_w,
+                        output_size,
+                        self.decoder_context,
+                    )
+                )
         return self.torch.relu(depth).squeeze(1)
 
 
@@ -1006,6 +1044,7 @@ def install_vulkan_stack_output_device_bridge(
     torch_module: Any,
     model: Any,
     bridge_contexts: dict[str, Any] | None,
+    bridge_mode: str = VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,
 ) -> dict[str, Any]:
     pretrained = getattr(model, "pretrained", None)
     stack_owner = (
@@ -1018,7 +1057,13 @@ def install_vulkan_stack_output_device_bridge(
     if bridge_contexts is None:
         return {"enabled": False, "reason": "missing_bridge_contexts"}
     if getattr(model, "_vulkan_stack_output_device_bridge_enabled", False):
-        return {"enabled": True, "already_installed": True}
+        existing_bridge = getattr(model, "_vulkan_stack_output_device_bridge", None)
+        return {
+            "enabled": True,
+            "already_installed": True,
+            "mode": getattr(existing_bridge, "bridge_mode", bridge_mode),
+            "backend_op": getattr(existing_bridge, "backend_op_name", None),
+        }
 
     bridge = VulkanStackOutputDeviceBridge(
         torch_module,
@@ -1026,6 +1071,7 @@ def install_vulkan_stack_output_device_bridge(
         stack_owner,
         bridge_contexts,
         "vision.stack_output_device_bridge",
+        bridge_mode,
     )
     model._vulkan_stack_output_device_bridge = bridge
     model._vulkan_original_forward_for_stack_output_device_bridge = model.forward
@@ -1034,7 +1080,8 @@ def install_vulkan_stack_output_device_bridge(
     return {
         "enabled": True,
         "contract_name": STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT,
-        "backend_op": "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge",
+        "mode": bridge.bridge_mode,
+        "backend_op": bridge.backend_op_name,
         "capture_indices": bridge.capture_indices,
         "consumer_id": bridge.bridge_consumer_id,
         "consumer_context": bridge.bridge_consumer_context,
@@ -2552,6 +2599,18 @@ def run() -> None:
             "diagnostics."
         ),
     )
+    parser.add_argument(
+        "--vulkan-stack-output-device-bridge-mode",
+        choices=VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES,
+        default=VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,
+        help=(
+            "Select the opt-in Vulkan stack output bridge implementation. "
+            "stack_capture_decoder_preprocess preserves the current private "
+            "capture to decoder path; compiled_session_bridge routes through "
+            "the existing DAv2 "
+            "compiled/replay bridge for measurement only."
+        ),
+    )
     args = parser.parse_args()
     failure_context: dict[str, Any] = {}
     original_excepthook = install_failure_artifact_hook(args, failure_context)
@@ -2691,6 +2750,7 @@ def run() -> None:
     vulkan_stack_output_device_bridge: dict[str, Any] = {
         "enabled": False,
         "requested": bool(args.vulkan_stack_output_device_bridge),
+        "mode": args.vulkan_stack_output_device_bridge_mode,
     }
     if (
         device_kind == "vulkan"
@@ -2702,11 +2762,13 @@ def run() -> None:
                 torch,
                 model,
                 vulkan_stack_output_device_bridge_contexts,
+                args.vulkan_stack_output_device_bridge_mode,
             )
     elif args.vulkan_stack_output_device_bridge and disable_owner_programs:
         vulkan_stack_output_device_bridge = {
             "enabled": False,
             "requested": True,
+            "mode": args.vulkan_stack_output_device_bridge_mode,
             "reason": "disabled_by_owner_program_probe_option",
         }
     failure_context["vulkan_stack_output_device_bridge"] = (
