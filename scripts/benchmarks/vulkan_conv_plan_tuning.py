@@ -73,7 +73,7 @@ REQUIRED_CAPABILITY_PROFILE_FIELDS = (
     "has_timeline_semaphore",
     "has_synchronization2",
 )
-CONV_PLAN_TIMESTAMP_GROUP_FIELDS = (
+CONV_PLAN_TIMESTAMP_REQUIRED_GROUP_FIELDS = (
     "kernel",
     "input",
     "output_channels",
@@ -85,32 +85,49 @@ CONV_PLAN_TIMESTAMP_GROUP_FIELDS = (
     "global",
     "local",
 )
-CONV_PLAN_TIMESTAMP_MATCH_FIELDS = (
-    "kernel",
-    "input",
-    "output_channels",
-    "weight",
-    "stride",
-    "padding",
-    "dilation",
-    "groups",
-    "global",
+CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS = (
+    "selected",
+    "reject",
+    "role",
+    "contract",
+    "contract_family",
+    "contract_tuple",
+    "input_dtype",
+    "weight_dtype",
+    "output_dtype",
+    "input_storage",
+    "weight_storage",
+    "output_storage",
+    "input_layout",
+    "weight_layout",
+    "output_layout",
+    "input_direct",
+    "output_direct",
+    "weight_packed",
+    "bias",
+    "pointwise",
+    "depthwise",
+    "sliding_window",
+    "input_offset",
+    "weight_offset",
+    "output_offset",
 )
+CONV_PLAN_TIMESTAMP_GROUP_FIELDS = (
+    CONV_PLAN_TIMESTAMP_REQUIRED_GROUP_FIELDS
+    + CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS
+)
+CONV_PLAN_TIMESTAMP_MATCH_FIELDS = tuple(
+    field for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS if field != "local"
+)
+CONV_PLAN_TIMESTAMP_REQUIRED_MATCH_FIELDS = tuple(
+    field for field in CONV_PLAN_TIMESTAMP_REQUIRED_GROUP_FIELDS if field != "local"
+)
+CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT = "not_available"
 CONV_PLAN_TIMESTAMP_TARGET_KERNELS = (
     "conv2d_buffer_float_3x3_s1p1",
     "conv2d_buffer_float_3x3_s1p1_add",
 )
-CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS = (
-    "kernel",
-    "input",
-    "output_channels",
-    "weight",
-    "stride",
-    "padding",
-    "dilation",
-    "groups",
-    "global",
-)
+CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS = CONV_PLAN_TIMESTAMP_MATCH_FIELDS
 TIMESTAMP_RUN_NOISE_BAND_MS = 1.0
 
 
@@ -135,12 +152,15 @@ def parse_conv_plan_runtime_label(label: str) -> dict[str, str] | None:
         key, value = part.split("=", 1)
         fields[key] = value
     missing = [
-        field for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS if field not in fields
+        field for field in CONV_PLAN_TIMESTAMP_REQUIRED_GROUP_FIELDS
+        if field not in fields
     ]
     if missing:
         raise ValueError(
             "conv_plan timestamp label missing fields: " + ",".join(missing)
         )
+    for field in CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS:
+        fields.setdefault(field, CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT)
     return fields
 
 
@@ -296,11 +316,21 @@ def validate_timestamp_summary(payload: dict[str, Any]) -> list[str]:
     for index, row in enumerate(rows):
         prefix = f"rows[{index}]"
         key = []
-        for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS:
+        for field in CONV_PLAN_TIMESTAMP_REQUIRED_GROUP_FIELDS:
             value = row.get(field)
             if not isinstance(value, str) or not value:
                 errors.append(f"{prefix}.{field} is required")
                 value = ""
+            key.append(value)
+        for field in CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS:
+            value = row.get(field, CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT)
+            if value is None:
+                value = CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT
+            elif not isinstance(value, str):
+                errors.append(f"{prefix}.{field} must be a string when present")
+                value = str(value)
+            elif not value:
+                value = CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT
             key.append(value)
         key_tuple = tuple(key)
         if key_tuple in seen_keys:
@@ -462,9 +492,13 @@ def validate_exact_label_evidence(payload: dict[str, Any]) -> list[str]:
                 f"{prefix}.decision must be one of "
                 f"{sorted(VALID_TIMESTAMP_RUN_CLASSIFICATIONS)}"
             )
-        for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS:
+        for field in CONV_PLAN_TIMESTAMP_REQUIRED_MATCH_FIELDS:
             if label.get(field) in (None, ""):
                 errors.append(f"{prefix}.{field} is required")
+        for field in CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS:
+            value = label.get(field)
+            if value is not None and not isinstance(value, str):
+                errors.append(f"{prefix}.{field} must be a string when present")
         capability_profiles = label.get("capability_profiles")
         if not isinstance(capability_profiles, list):
             errors.append(f"{prefix}.capability_profiles must be a list")
@@ -1028,9 +1062,15 @@ def _kernel_totals_from_timestamp_summary(
 
 def _timestamp_label_id(row: dict[str, Any]) -> str:
     return "|".join(
-        f"{field}={row.get(field, 'unknown')}"
+        f"{field}={_timestamp_row_field(row, field)}"
         for field in CONV_PLAN_TIMESTAMP_MATCH_FIELDS
     )
+
+
+def _timestamp_row_field(row: dict[str, Any], field: str) -> Any:
+    if field in CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS:
+        return row.get(field, CONV_PLAN_TIMESTAMP_OPTIONAL_DEFAULT)
+    return row.get(field, "unknown")
 
 
 def _timestamp_label_totals_from_summary(
@@ -1048,7 +1088,7 @@ def _timestamp_label_totals_from_summary(
             {
                 "id": label_id,
                 "key": {
-                    field: row.get(field, "unknown")
+                    field: _timestamp_row_field(row, field)
                     for field in CONV_PLAN_TIMESTAMP_MATCH_FIELDS
                 },
                 "local": row.get("local", "unknown"),
@@ -1401,7 +1441,8 @@ def _exact_label_base_key(
     row: dict[str, Any],
 ) -> tuple[str, ...]:
     return (device, model) + tuple(
-        str(row[field]) for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
+        str(_timestamp_row_field(row, field))
+        for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
     )
 
 
@@ -1414,7 +1455,8 @@ def _exact_label_group_id(
 ) -> str:
     fields = [f"device={device}", f"model={model}", f"plan={plan}"]
     fields.extend(
-        f"{field}={row[field]}" for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
+        f"{field}={_timestamp_row_field(row, field)}"
+        for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
     )
     fields.append(f"local={row['local']}")
     return "|".join(fields)
@@ -1437,7 +1479,10 @@ def _empty_exact_label_group(
         "device": device,
         "model": model,
         "plan": plan,
-        **{field: row[field] for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS},
+        **{
+            field: _timestamp_row_field(row, field)
+            for field in CONV_PLAN_EXACT_LABEL_BASELINE_FIELDS
+        },
         "candidate_local": row["local"],
         "candidate_event_count": 0,
         "candidate_duration_ms": 0.0,
@@ -1490,6 +1535,12 @@ def _plan_key_matches_timestamp_row(
         if _normalized_numeric_tuple(fields.get(field)) != _normalized_numeric_tuple(
             timestamp_row.get(field)
         ):
+            return False
+    for field in CONV_PLAN_TIMESTAMP_OPTIONAL_PLAN_KEY_FIELDS:
+        timestamp_value = timestamp_row.get(field)
+        if timestamp_value in (None, "not_available"):
+            continue
+        if fields.get(field) != str(timestamp_value):
             return False
     return True
 

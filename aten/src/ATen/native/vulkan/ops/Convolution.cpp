@@ -881,10 +881,35 @@ std::string format_float_buffer_conv2d_profile_label(
     const IntArrayRef dilation,
     const int64_t groups,
     const api::utils::uvec3& global_size,
-    const api::utils::uvec3& local_size) {
+    const api::utils::uvec3& local_size,
+    const VulkanConvPlanDecision* decision = nullptr) {
+  const vTensor v_weight = packed_weight.weight_vtensor();
+  const VulkanConvAggregateKey aggregate = make_float_buffer_conv2d_aggregate_key(
+      kernel_name,
+      v_input,
+      v_output,
+      packed_weight,
+      stride,
+      padding,
+      dilation,
+      groups);
+  const char* const contract_name =
+      decision && decision->contract_name ? decision->contract_name : "none";
+  const char* const contract_family = decision && decision->contract_family
+      ? decision->contract_family
+      : "none";
+  const char* const contract_tuple =
+      decision && decision->contract_tuple_id ? decision->contract_tuple_id
+                                              : "none";
   std::ostringstream stream;
   stream << "conv_plan"
          << "|kernel=" << kernel_name
+         << "|selected=" << conv_plan_selected_name(aggregate.selected)
+         << "|reject=" << conv_reject_reason_name(aggregate.reject)
+         << "|role=" << aggregate.role
+         << "|contract=" << contract_name
+         << "|contract_family=" << contract_family
+         << "|contract_tuple=" << contract_tuple
          << "|input=" << format_conv_sizes(v_input.sizes())
          << "|output_channels=" << v_output.sizes()[1]
          << "|weight=" << format_conv_sizes(packed_weight.logical_weight_sizes())
@@ -892,6 +917,27 @@ std::string format_float_buffer_conv2d_profile_label(
          << "|padding=" << format_conv_sizes(padding)
          << "|dilation=" << format_conv_sizes(dilation)
          << "|groups=" << groups
+         << "|input_dtype=" << static_cast<int64_t>(v_input.dtype())
+         << "|weight_dtype=" << static_cast<int64_t>(v_weight.dtype())
+         << "|output_dtype=" << static_cast<int64_t>(v_output.dtype())
+         << "|input_storage=" << static_cast<int64_t>(v_input.storage_type())
+         << "|weight_storage=" << static_cast<int64_t>(v_weight.storage_type())
+         << "|output_storage=" << static_cast<int64_t>(v_output.storage_type())
+         << "|input_layout=" << static_cast<int64_t>(v_input.gpu_memory_layout())
+         << "|weight_layout="
+         << static_cast<int64_t>(v_weight.gpu_memory_layout())
+         << "|output_layout="
+         << static_cast<int64_t>(v_output.gpu_memory_layout())
+         << "|input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+         << "|output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+         << "|weight_packed=1"
+         << "|bias=" << (packed_weight.has_bias() ? 1 : 0)
+         << "|pointwise=" << (aggregate.pointwise ? 1 : 0)
+         << "|depthwise=" << (aggregate.depthwise ? 1 : 0)
+         << "|sliding_window=" << (aggregate.sliding_window ? 1 : 0)
+         << "|input_offset=" << v_input.storage_offset()
+         << "|weight_offset=" << v_weight.storage_offset()
+         << "|output_offset=" << v_output.storage_offset()
          << "|global=" << global_size.data[0u] << 'x' << global_size.data[1u]
          << 'x' << global_size.data[2u]
          << "|local=" << local_size.data[0u] << 'x' << local_size.data[1u]
@@ -3424,7 +3470,8 @@ Tensor run_float_buffer_conv2d_impl(
             dilation,
             groups,
             global_size,
-            local_size));
+            local_size,
+            &plan_decision));
   }
   context->submit_compute_job(
       shader,

@@ -2136,6 +2136,16 @@ class TestVulkanGovernance(TestCase):
             TEST_FILE_DIR,
             "vulkan_conv_plan_timestamp_test_summary.json",
         )
+        runtime_plan_fields = (
+            "|selected=FloatBufferConv|reject=None|role=other_3x3_s1p1"
+            "|contract=none|contract_family=none|contract_tuple=none"
+            "|input_dtype=6|weight_dtype=6|output_dtype=6"
+            "|input_storage=1|weight_storage=1|output_storage=1"
+            "|input_layout=2|weight_layout=2|output_layout=2"
+            "|input_direct=1|output_direct=1|weight_packed=1"
+            "|bias=1|pointwise=0|depthwise=0|sliding_window=1"
+            "|input_offset=0|weight_offset=0|output_offset=0"
+        )
         log_text = "\n".join(
             [
                 (
@@ -2143,7 +2153,8 @@ class TestVulkanGovernance(TestCase):
                     "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
                     "|input=[1x64x140x210]|output_channels=32"
                     "|weight=[32x64x3x3]|stride=[1x1]|padding=[1x1]"
-                    "|dilation=[1x1]|groups=1|global=210x140x32"
+                    f"|dilation=[1x1]|groups=1{runtime_plan_fields}"
+                    "|global=210x140x32"
                     "|local=16x4x1 start_ns=10 end_ns=30 duration_ns=20 "
                     "global=[210,140,32] local=[16,4,1]"
                 ),
@@ -2152,7 +2163,8 @@ class TestVulkanGovernance(TestCase):
                     "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
                     "|input=[1x64x140x210]|output_channels=32"
                     "|weight=[32x64x3x3]|stride=[1x1]|padding=[1x1]"
-                    "|dilation=[1x1]|groups=1|global=210x140x32"
+                    f"|dilation=[1x1]|groups=1{runtime_plan_fields}"
+                    "|global=210x140x32"
                     "|local=16x4x1 start_ns=40 end_ns=90 duration_ns=50 "
                     "global=[210,140,32] local=[16,4,1]"
                 ),
@@ -2205,6 +2217,11 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(row["input"], "[1x64x140x210]")
         self.assertEqual(row["global"], "210x140x32")
         self.assertEqual(row["local"], "16x4x1")
+        self.assertEqual(row["selected"], "FloatBufferConv")
+        self.assertEqual(row["contract"], "none")
+        self.assertEqual(row["input_dtype"], "6")
+        self.assertEqual(row["input_layout"], "2")
+        self.assertEqual(row["input_offset"], "0")
         self.assertEqual(row["count"], 2)
         self.assertEqual(row["duration_ns_sum"], 70)
         self.assertEqual(row["duration_ns_mean"], 35)
@@ -2256,7 +2273,14 @@ class TestVulkanGovernance(TestCase):
                 "contract=none contract_family=none contract_tuple=none "
                 "input=[1,128,10,15] output_channels=128 "
                 "weight=[128,128,3,3] stride=[1,1] padding=[1,1] "
-                "dilation=[1,1] groups=1 global=[15,10,128] "
+                "dilation=[1,1] groups=1 "
+                "input_dtype=6 weight_dtype=6 output_dtype=6 "
+                "input_storage=1 weight_storage=1 output_storage=1 "
+                "input_layout=2 weight_layout=2 output_layout=2 "
+                "input_direct=1 output_direct=1 weight_packed=1 "
+                "bias=1 pointwise=0 depthwise=0 sliding_window=1 "
+                "input_offset=0 weight_offset=0 output_offset=0 "
+                "global=[15,10,128] "
                 f"local=[{local.replace('x', ',')}] context_device_index=0 "
                 "vendor_id=4098 device_id=29631 driver_version=252313600 "
                 "api_version=4206831 subgroup_size=64 min_subgroup_size=32 "
@@ -2299,13 +2323,24 @@ class TestVulkanGovernance(TestCase):
                 )
 
         def write_timestamp_log(path, local, main_duration_ns, add_duration_ns):
+            runtime_plan_fields = (
+                "|selected=FloatBufferConv|reject=None|role=other_3x3_s1p1"
+                "|contract=none|contract_family=none|contract_tuple=none"
+                "|input_dtype=6|weight_dtype=6|output_dtype=6"
+                "|input_storage=1|weight_storage=1|output_storage=1"
+                "|input_layout=2|weight_layout=2|output_layout=2"
+                "|input_direct=1|output_direct=1|weight_packed=1"
+                "|bias=1|pointwise=0|depthwise=0|sliding_window=1"
+                "|input_offset=0|weight_offset=0|output_offset=0"
+            )
             lines = [
                 (
                     "gpu_timestamp reason=submit name=conv "
                     "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
                     "|input=[1x128x10x15]|output_channels=128"
                     "|weight=[128x128x3x3]|stride=[1x1]|padding=[1x1]"
-                    "|dilation=[1x1]|groups=1|global=15x10x128"
+                    f"|dilation=[1x1]|groups=1{runtime_plan_fields}"
+                    "|global=15x10x128"
                     f"|local={local} duration_ns={main_duration_ns}"
                 ),
                 (
@@ -2313,7 +2348,8 @@ class TestVulkanGovernance(TestCase):
                     "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1_add"
                     "|input=[1x128x10x15]|output_channels=128"
                     "|weight=[128x128x3x3]|stride=[1x1]|padding=[1x1]"
-                    "|dilation=[1x1]|groups=1|global=15x10x128"
+                    f"|dilation=[1x1]|groups=1{runtime_plan_fields}"
+                    "|global=15x10x128"
                     f"|local={local} duration_ns={add_duration_ns}"
                 ),
                 (
@@ -2475,6 +2511,11 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(exact_main["default_match_status"], "default_label_matched")
         self.assertEqual(exact_main["candidate_local"], "16x4x1")
         self.assertEqual(exact_main["default_local"], "8x8x1")
+        self.assertEqual(exact_main["selected"], "FloatBufferConv")
+        self.assertEqual(exact_main["contract"], "none")
+        self.assertEqual(exact_main["input_dtype"], "6")
+        self.assertEqual(exact_main["input_layout"], "2")
+        self.assertEqual(exact_main["input_offset"], "0")
         self.assertEqual(exact_main["plan_key_match_status"], "matched")
         self.assertEqual(
             exact_main["plan_key"]["kernel"],
