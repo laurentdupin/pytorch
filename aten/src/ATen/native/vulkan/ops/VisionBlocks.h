@@ -457,6 +457,8 @@ std::vector<std::string> stack_program_owned_temp_stability_snapshot();
 
 std::vector<std::string> stack_program_owned_temp_live_identity_snapshot();
 
+std::vector<std::string> stack_program_owned_temp_slot_identity_snapshot();
+
 std::vector<int64_t> stack_planned_recording_readiness_snapshot();
 
 std::vector<int64_t> stack_planned_recording_counters_snapshot();

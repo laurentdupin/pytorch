@@ -1855,6 +1855,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_program_owned_temp_live_identity() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::stack_program_owned_temp_slot_identity() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_planned_recording_readiness() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_planned_recording_counters() -> int[]"));
@@ -2281,6 +2283,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_program_owned_temp_live_identity"),
       TORCH_FN(stack_program_owned_temp_live_identity_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::stack_program_owned_temp_slot_identity"),
+      TORCH_FN(stack_program_owned_temp_slot_identity_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_planned_recording_readiness"),

@@ -20654,11 +20654,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         temp_live_identity = (
             torch.ops.vulkan_prepack.stack_program_owned_temp_live_identity()
         )
+        temp_slot_identity = (
+            torch.ops.vulkan_prepack.stack_program_owned_temp_slot_identity()
+        )
         replay_counters = torch.ops.vulkan_prepack.stack_replay_counters()
 
         self.assertGreater(len(manifest), 0)
         self.assertGreater(len(temp_stability), 0)
         self.assertGreater(len(temp_live_identity), 0)
+        self.assertGreater(len(temp_slot_identity), 0)
         self.assertTrue(any("role=runtime_input" in row for row in manifest))
         self.assertTrue(any("role=packed_weight" in row for row in manifest))
         self.assertTrue(any("role=query" in row for row in manifest))
@@ -20694,6 +20698,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "live_identity_join_ready=0" in row
                 and "command_replay_authorized=0" in row
                 for row in temp_live_identity
+            )
+        )
+        self.assertTrue(
+            any(
+                "schema=StackProgramOwnedTempSlotIdentity.v0" in row
+                and "stable_plan_slot_id_available=1" in row
+                and "stable_allocator_identity_available=0" in row
+                and "command_replay_authorized=0" in row
+                for row in temp_slot_identity
             )
         )
         self.assertGreaterEqual(replay_counters[4], 1)
@@ -34814,6 +34827,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for actual, expected in zip(y1_norm_cpu, expected1_norm):
                     if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
                         raise RuntimeError("Backbone stack norm replay bundle replay output mismatch")
+
+                temp_slot_identity = (
+                    torch.ops.vulkan_prepack.stack_program_owned_temp_slot_identity()
+                )
+                if not any(
+                    "schema=StackProgramOwnedTempSlotIdentity.v0" in row
+                    and "slot_identity_source=replay_program_owned_tensor" in row
+                    and "stable_replay_program_slot_id_available=1" in row
+                    and "stable_live_descriptor_slot_join_available=0" in row
+                    and "command_replay_authorized=0" in row
+                    for row in temp_slot_identity
+                ):
+                    raise RuntimeError("Missing replay-owned temp slot identity row")
 
                 print(float(
                     sum(t.sum() for t in y0_cpu)

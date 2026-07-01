@@ -183,8 +183,10 @@ The initial catalog records the current `vits_140` performance lane:
   treating the replay blocker as an unknown gap. The companion
   `StackProgramOwnedTempLiveIdentityJoin.v0` row shows that broad
   `(phase, block, binding)` live descriptor matches are observable but
-  overbroad/unstable, so the next proof needs a stable low-level program-temp
-  slot id or replay-owned temp allocator;
+  overbroad/unstable. `StackProgramOwnedTempSlotIdentity.v0` now proves the
+  planner can name stable program-owned temp plan slots with descriptor indices
+  and shapes, but replay remains blocked until those slots have allocator-backed
+  identity or exact live descriptor-slot joins;
 - the first `vits_182` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 74.8 ms mean device-resident forward;

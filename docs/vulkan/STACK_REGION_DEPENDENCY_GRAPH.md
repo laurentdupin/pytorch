@@ -1518,6 +1518,16 @@ but not sufficient: a single planned temp slot can map to multiple low-level
 allocation identities and shader labels in the current topology. The next
 replay-enabling primitive is therefore a stable program-temp slot id or
 replay-owned temp allocator that is carried into live descriptor rows.
+`StackProgramOwnedTempSlotIdentity.v0` separates the plan-owned slot namespace
+from that live allocator proof. It reports stable plan slot ids, descriptor
+indices, and shapes for program-owned internal temps from the descriptor table,
+but keeps replay unauthorized until those plan slots are joined to exact
+allocator identity and live descriptor update generation evidence.
+When an existing replay-program path is observed, the same schema also reports
+`replay_program_owned_tensor` slots with stable program-local slot ids and
+allocation identity. These rows are behavior-neutral: they do not authorize
+command replay until a later proof joins the replay-owned slot namespace to the
+stack planned-recording descriptor table and live descriptor update generation.
 
 ## Validation Gates
 

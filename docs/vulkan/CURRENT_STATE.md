@@ -215,6 +215,16 @@ join is stable enough for replay. Current `vits_140` evidence shows the broad
 join exists, but allocation identities are unstable and overbroad, so command
 replay still requires a stable low-level program-temp slot id or replay-owned
 temp allocator before it can be authorized.
+`StackProgramOwnedTempSlotIdentity.v0` now reports the planner-owned temp slot
+namespace directly from the stack descriptor table. Current rows prove stable
+plan slot ids, descriptor indices, and shapes for program-owned temps, but keep
+command replay fail-closed because those plan slots are not yet backed by stable
+allocator identity or exact live descriptor-slot joins across forwards.
+The same snapshot now also reports replay-program-owned tensor slots when an
+existing `VisionBackboneProgram`/replay-bundle path is observed. Those rows have
+stable replay-program slot ids and allocation identity, but remain
+non-authorizing because they are not yet joined to the stack planned-recording
+descriptor/live binding rows.
 `Context` now has an empty-by-default bridge-private capture pending-retire
 handoff batch scaffold with clear/restore/retire helpers. No producer moves
 entries into that batch yet, so it is behavior-neutral and does not change

@@ -299,6 +299,12 @@ stack_program_owned_temp_stability_rows() {
   return rows;
 }
 
+std::unordered_map<std::string, std::string>&
+stack_program_owned_temp_slot_identity_rows() {
+  static std::unordered_map<std::string, std::string> rows;
+  return rows;
+}
+
 using StackFieldMap = std::unordered_map<std::string, std::string>;
 
 StackFieldMap parse_stack_row_fields(const std::string& row) {
@@ -3563,6 +3569,78 @@ void copy_bridge_identity_to_decoder_input(
   record.decoder_input_allocation_label = identity.allocation_label;
 }
 
+void record_stack_program_owned_temp_slot_identity(
+    const std::string& source,
+    const std::string& program_label,
+    const VisionBackboneBlockContext* const context,
+    utils::VisionBackboneProgram& program) {
+  if (!program.defined()) {
+    return;
+  }
+  struct ProgramTempSlot final {
+    const char* role = "unknown";
+    const char* phase = "unknown";
+    uint32_t slot_index = 0u;
+    Tensor* tensor = nullptr;
+  };
+  std::array<ProgramTempSlot, 7u> slots{{
+      {"norm1_output", "norm1", 0u, &program.norm1_output()},
+      {"qkv_output", "qkv_linear", 1u, &program.qkv_output()},
+      {"merge_output", "attention", 2u, &program.merge_output()},
+      {"proj_output", "proj_linear", 3u, &program.proj_output()},
+      {"norm2_output", "norm2", 4u, &program.norm2_output()},
+      {"fc1_output", "fc1_gelu", 5u, &program.fc1_output()},
+      {"fc2_output", "fc2", 6u, &program.fc2_output()},
+  }};
+  const auto program_token = static_cast<unsigned long long>(
+      reinterpret_cast<uintptr_t>(program.identity()));
+  std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+  auto& rows = stack_program_owned_temp_slot_identity_rows();
+  for (const auto& slot : slots) {
+    const BridgeTensorIdentity identity = bridge_tensor_identity(*slot.tensor);
+    const bool allocation_identity_available =
+        identity.status == "allocation_identity_available";
+    const std::string row_key = std::to_string(program_token) + ":" + slot.role;
+    std::ostringstream out;
+    out << "stack_program_owned_temp_slot_identity"
+        << " schema=StackProgramOwnedTempSlotIdentity.v0"
+        << " slot_identity_source=replay_program_owned_tensor"
+        << " source=" << source
+        << " program_label=" << program_label
+        << " program_identity_token=" << program_token
+        << " block_context_id="
+        << (context ? static_cast<unsigned long long>(context->cache_id()) : 0u)
+        << " slot_index=" << slot.slot_index
+        << " slot_role=" << slot.role
+        << " phase=" << slot.phase
+        << " program_temp_slot_id=vision_backbone_program:" << program_token
+        << ":slot:" << slot.slot_index << ":" << slot.role
+        << " program_persistent=" << (program.persistent() ? 1 : 0)
+        << " stable_replay_program_slot_id_available=1"
+        << " stable_across_forwards_by_program_cache="
+        << (program.persistent() ? 1 : 0)
+        << " allocation_identity_status=" << identity.status
+        << " storage_kind=" << identity.storage_kind
+        << " layout=" << identity.layout
+        << " allocation_id=" << identity.allocation_id
+        << " allocation_generation=" << identity.allocation_generation
+        << " byte_offset=" << identity.byte_offset
+        << " byte_range=" << identity.byte_range
+        << " allocation_identity_available="
+        << (allocation_identity_available ? 1 : 0)
+        << " shape=" << stack_plan_shape_string(identity.shape)
+        << " stack_descriptor_table_join_status="
+        << "not_joined_to_stack_planned_recording_descriptor_table"
+        << " stable_live_descriptor_slot_join_available=0"
+        << " command_replay_behavior_enabled=0"
+        << " command_replay_authorized=0"
+        << " ready_for_command_replay=0"
+        << " fail_closed_reason="
+        << "replay_program_slot_not_joined_to_stack_descriptor_live_identity";
+    rows[row_key] = out.str();
+  }
+}
+
 Tensor prepare_buffer_attention_tensor(const Tensor& tensor) {
   TORCH_CHECK(
       tensor.is_vulkan(),
@@ -4298,8 +4376,10 @@ utils::VisionBackboneProgram prime_vision_backbone_program(
             }()
           : std::nullopt;
 
-  return utils::lookup_or_create_labeled_vision_backbone_program(
-      vision_backbone_program_label(context->allocation_label(), context.get()),
+  const std::string program_label =
+      vision_backbone_program_label(context->allocation_label(), context.get());
+  auto program = utils::lookup_or_create_labeled_vision_backbone_program(
+      program_label,
       input.scalar_type(),
       batch_size,
       token_count,
@@ -4308,6 +4388,9 @@ utils::VisionBackboneProgram prime_vision_backbone_program(
       context->num_heads(),
       scratch_spec,
       *runtime_policy.execution_program_plan);
+  record_stack_program_owned_temp_slot_identity(
+      "vision_backbone_program", program_label, context.get(), program);
+  return program;
 }
 
 VisionDecoderRunOutputs reserve_vision_decoder_graph_outputs(
@@ -8416,6 +8499,7 @@ void reset_stack_resource_binding_manifest() {
   stack_descriptor_binding_table_rows().clear();
   stack_descriptor_binding_validation_rows().clear();
   stack_program_owned_temp_stability_rows().clear();
+  stack_program_owned_temp_slot_identity_rows().clear();
 }
 
 std::vector<std::string> stack_descriptor_binding_table_snapshot() {
@@ -8559,6 +8643,84 @@ std::vector<std::string> stack_program_owned_temp_live_identity_snapshot() {
               ? "program_owned_temp_slot_identity_missing_or_overbroad"
               : "program_owned_temp_live_identity_join_incomplete");
   return {out.str()};
+}
+
+std::vector<std::string> stack_program_owned_temp_slot_identity_snapshot() {
+  std::unordered_map<std::string, uint64_t> plan_slot_counts;
+  std::unordered_map<std::string, uint64_t> descriptor_index_counts;
+  std::unordered_map<std::string, uint64_t> shape_counts;
+  std::unordered_map<std::string, std::string> token_by_plan;
+  uint64_t total_plan_slots = 0u;
+
+  for (const auto& row : stack_descriptor_binding_table_snapshot()) {
+    const StackFieldMap fields = parse_stack_row_fields(row);
+    if (
+        stack_row_field(fields, "lifetime") != "internal_temp" ||
+        stack_row_field(fields, "mode") != "program_owned_temp") {
+      continue;
+    }
+    const std::string plan_key = stack_row_field(fields, "plan_key");
+    if (plan_key.empty()) {
+      continue;
+    }
+    ++total_plan_slots;
+    ++plan_slot_counts[plan_key];
+    token_by_plan[plan_key] = stack_row_field(fields, "tokens");
+    if (
+        !stack_row_field(fields, "ordinal").empty() &&
+        !stack_row_field(fields, "set").empty() &&
+        !stack_row_field(fields, "binding").empty()) {
+      ++descriptor_index_counts[plan_key];
+    }
+    if (
+        !stack_row_field(fields, "shape").empty() &&
+        !stack_row_field(fields, "dtype").empty()) {
+      ++shape_counts[plan_key];
+    }
+  }
+
+  std::vector<std::string> rows;
+  rows.reserve(plan_slot_counts.size());
+  for (const auto& entry : plan_slot_counts) {
+    const std::string& plan_key = entry.first;
+    const uint64_t slot_count = entry.second;
+    const bool all_descriptor_indices_known =
+        descriptor_index_counts[plan_key] == slot_count;
+    const bool all_shapes_known = shape_counts[plan_key] == slot_count;
+    const bool plan_slot_identity_available =
+        slot_count > 0u && all_descriptor_indices_known && all_shapes_known;
+    std::ostringstream out;
+    out << "stack_program_owned_temp_slot_identity"
+        << " schema=StackProgramOwnedTempSlotIdentity.v0"
+        << " plan_key=" << plan_key
+        << " tokens=" << token_by_plan[plan_key]
+        << " program_owned_temp_plan_slots=" << slot_count
+        << " total_program_owned_temp_plan_slots=" << total_plan_slots
+        << " stable_plan_slot_id_available="
+        << (plan_slot_identity_available ? 1 : 0)
+        << " plan_slot_descriptor_indices_known="
+        << (all_descriptor_indices_known ? 1 : 0)
+        << " plan_slot_shapes_known=" << (all_shapes_known ? 1 : 0)
+        << " stable_allocator_identity_available=0"
+        << " stable_live_descriptor_slot_join_available=0"
+        << " command_replay_behavior_enabled=0"
+        << " command_replay_authorized=0"
+        << " fail_closed_reason="
+        << (plan_slot_identity_available
+                ? "plan_slot_identity_available_allocator_identity_unproven"
+                : "program_owned_temp_plan_slot_identity_incomplete");
+    rows.emplace_back(out.str());
+  }
+  {
+    std::lock_guard<std::mutex> lock(stack_resource_binding_manifest_mutex());
+    rows.reserve(
+        rows.size() + stack_program_owned_temp_slot_identity_rows().size());
+    for (const auto& entry : stack_program_owned_temp_slot_identity_rows()) {
+      rows.emplace_back(entry.second);
+    }
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
 }
 
 void reset_stack_descriptor_binding_table() {
@@ -9349,6 +9511,11 @@ Tensor run_vision_backbone_block_context(
         context->num_heads(),
         *runtime_policy.execution_program_plan);
     if (vision_replay.defined()) {
+      record_stack_program_owned_temp_slot_identity(
+          "vision_backbone_block_context_replay",
+          backbone_program_label,
+          context.get(),
+          vision_replay.program());
       copy_tensor_for_replay(vision_replay.input_slot(), input);
       api::context()->flush_pending_cmds();
 
@@ -9456,6 +9623,11 @@ Tensor run_vision_backbone_block_context(
              : prime_vision_backbone_program(
                    input, context, runtime_policy, graph_scratch.has_value()));
   if (vision_program.defined()) {
+    record_stack_program_owned_temp_slot_identity(
+        "vision_backbone_block_context_program",
+        backbone_program_label,
+        context.get(),
+        vision_program);
     if (!graph_scratch.has_value() && vision_program.scratch_arena().has_value()) {
       vision_program.scratch_arena()->reset();
     }
@@ -11822,6 +11994,12 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
       backbone_hidden_dim,
       backbone_context->num_heads(),
       *backbone_runtime_policy.execution_program_plan);
+  record_stack_program_owned_temp_slot_identity(
+      "vision_backbone_decoder_replay_bundle",
+      vision_backbone_program_label(
+          backbone_context->allocation_label(), backbone_context.get()),
+      backbone_context.get(),
+      backbone_replay.program());
 
   const std::vector<int64_t> decoder_target_sizes =
       resolve_decoder_target_sizes(decoder_input_buffer, decoder_size);
@@ -12136,6 +12314,11 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
           "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge.skip.no_replay");
       return sequential_fallback();
     }
+    record_stack_program_owned_temp_slot_identity(
+        "vision_backbone_stack_replay_bundle",
+        vision_backbone_program_label(context->allocation_label(), context.get()),
+        context.get(),
+        replay.program());
     graph_scratches.push_back(std::move(graph_scratch));
     replays.push_back(std::move(replay));
   }
