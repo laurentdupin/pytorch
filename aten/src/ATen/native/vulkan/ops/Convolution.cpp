@@ -240,6 +240,21 @@ struct VulkanConvPlanKey final {
   uint32_t local_y{0u};
   uint32_t local_z{0u};
   uint32_t candidate_count{1u};
+  int64_t context_device_index{-1};
+  uint32_t vendor_id{0u};
+  uint32_t device_id{0u};
+  uint32_t driver_version{0u};
+  uint32_t api_version{0u};
+  uint32_t subgroup_size{0u};
+  uint32_t min_subgroup_size{0u};
+  uint32_t max_subgroup_size{0u};
+  uint32_t max_compute_workgroup_subgroups{0u};
+  uint32_t cooperative_matrix_property_count{0u};
+  bool has_subgroup_size_control{false};
+  bool has_compute_full_subgroups{false};
+  bool has_cooperative_matrix{false};
+  bool has_timeline_semaphore{false};
+  bool has_synchronization2{false};
   bool cacheable{true};
   bool tunable{false};
 
@@ -263,6 +278,22 @@ struct VulkanConvPlanKey final {
         local_x == other.local_x && local_y == other.local_y &&
         local_z == other.local_z &&
         candidate_count == other.candidate_count &&
+        context_device_index == other.context_device_index &&
+        vendor_id == other.vendor_id && device_id == other.device_id &&
+        driver_version == other.driver_version &&
+        api_version == other.api_version &&
+        subgroup_size == other.subgroup_size &&
+        min_subgroup_size == other.min_subgroup_size &&
+        max_subgroup_size == other.max_subgroup_size &&
+        max_compute_workgroup_subgroups ==
+            other.max_compute_workgroup_subgroups &&
+        cooperative_matrix_property_count ==
+            other.cooperative_matrix_property_count &&
+        has_subgroup_size_control == other.has_subgroup_size_control &&
+        has_compute_full_subgroups == other.has_compute_full_subgroups &&
+        has_cooperative_matrix == other.has_cooperative_matrix &&
+        has_timeline_semaphore == other.has_timeline_semaphore &&
+        has_synchronization2 == other.has_synchronization2 &&
         cacheable == other.cacheable && tunable == other.tunable;
   }
 };
@@ -296,6 +327,21 @@ struct VulkanConvPlanKeyHash final {
     combine(key.local_y);
     combine(key.local_z);
     combine(key.candidate_count);
+    combine(key.context_device_index);
+    combine(key.vendor_id);
+    combine(key.device_id);
+    combine(key.driver_version);
+    combine(key.api_version);
+    combine(key.subgroup_size);
+    combine(key.min_subgroup_size);
+    combine(key.max_subgroup_size);
+    combine(key.max_compute_workgroup_subgroups);
+    combine(key.cooperative_matrix_property_count);
+    combine(key.has_subgroup_size_control);
+    combine(key.has_compute_full_subgroups);
+    combine(key.has_cooperative_matrix);
+    combine(key.has_timeline_semaphore);
+    combine(key.has_synchronization2);
     combine(key.cacheable);
     combine(key.tunable);
     return seed;
@@ -795,6 +841,27 @@ void record_float_buffer_conv2d_plan_key(
   key.local_z = local_size.data[2u];
   key.candidate_count = conv_plan_candidate_count(decision, key.aggregate);
   key.tunable = conv_plan_key_tunable(key.aggregate);
+  api::Context* const context = api::context();
+  api::Adapter* const adapter = context->adapter_ptr();
+  const VkPhysicalDeviceProperties& properties =
+      adapter->physical_device().properties;
+  key.context_device_index = static_cast<int64_t>(context->device_index());
+  key.vendor_id = properties.vendorID;
+  key.device_id = properties.deviceID;
+  key.driver_version = properties.driverVersion;
+  key.api_version = adapter->api_version();
+  key.subgroup_size = adapter->subgroup_size();
+  key.min_subgroup_size = adapter->min_subgroup_size();
+  key.max_subgroup_size = adapter->max_subgroup_size();
+  key.max_compute_workgroup_subgroups =
+      adapter->max_compute_workgroup_subgroups();
+  key.cooperative_matrix_property_count =
+      adapter->cooperative_matrix_property_count();
+  key.has_subgroup_size_control = adapter->has_subgroup_size_control();
+  key.has_compute_full_subgroups = adapter->has_compute_full_subgroups();
+  key.has_cooperative_matrix = adapter->has_cooperative_matrix();
+  key.has_timeline_semaphore = adapter->has_timeline_semaphore();
+  key.has_synchronization2 = adapter->has_synchronization2();
 
   conv_plan_key_profiler().record(
       key,
@@ -4957,6 +5024,28 @@ std::vector<std::string> conv_plan_key_snapshot() {
            << " local=[" << key.local_x << ',' << key.local_y << ','
            << key.local_z << ']'
            << " candidate_count=" << key.candidate_count
+           << " context_device_index=" << key.context_device_index
+           << " vendor_id=" << key.vendor_id
+           << " device_id=" << key.device_id
+           << " driver_version=" << key.driver_version
+           << " api_version=" << key.api_version
+           << " subgroup_size=" << key.subgroup_size
+           << " min_subgroup_size=" << key.min_subgroup_size
+           << " max_subgroup_size=" << key.max_subgroup_size
+           << " max_compute_workgroup_subgroups="
+           << key.max_compute_workgroup_subgroups
+           << " has_subgroup_size_control="
+           << (key.has_subgroup_size_control ? 1 : 0)
+           << " has_compute_full_subgroups="
+           << (key.has_compute_full_subgroups ? 1 : 0)
+           << " has_cooperative_matrix="
+           << (key.has_cooperative_matrix ? 1 : 0)
+           << " cooperative_matrix_property_count="
+           << key.cooperative_matrix_property_count
+           << " has_timeline_semaphore="
+           << (key.has_timeline_semaphore ? 1 : 0)
+           << " has_synchronization2="
+           << (key.has_synchronization2 ? 1 : 0)
            << " cacheable=" << (key.cacheable ? 1 : 0)
            << " tunable=" << (key.tunable ? 1 : 0)
            << " input_bytes=" << value.input_bytes

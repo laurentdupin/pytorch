@@ -853,6 +853,12 @@ def conv_plan_key(fields: dict[str, str]) -> str:
         f"|dilation={fields.get('dilation', PLAN_NOT_AVAILABLE)}"
         f"|groups={fields.get('groups', PLAN_NOT_AVAILABLE)}"
         f"|bias={fields.get('bias', PLAN_NOT_AVAILABLE)}"
+        f"|vendor={fields.get('vendor_id', PLAN_NOT_AVAILABLE)}"
+        f"|device_id={fields.get('device_id', PLAN_NOT_AVAILABLE)}"
+        f"|driver={fields.get('driver_version', PLAN_NOT_AVAILABLE)}"
+        f"|api={fields.get('api_version', PLAN_NOT_AVAILABLE)}"
+        f"|subgroup={fields.get('subgroup_size', PLAN_NOT_AVAILABLE)}"
+        f"|coop={fields.get('has_cooperative_matrix', PLAN_NOT_AVAILABLE)}"
         f"|local={fields.get('local', PLAN_NOT_AVAILABLE)}"
     )
 
@@ -957,6 +963,35 @@ def normalize_conv_plan_evidence(
             "candidate_count": int_field(fields, "candidate_count"),
             "cacheable": bool_field(fields, "cacheable"),
             "tunable": bool_field(fields, "tunable"),
+        },
+        "capability_profile": {
+            "context_device_index": int_field(fields, "context_device_index"),
+            "vendor_id": int_field(fields, "vendor_id"),
+            "device_id": int_field(fields, "device_id"),
+            "driver_version": int_field(fields, "driver_version"),
+            "api_version": int_field(fields, "api_version"),
+            "subgroup_size": int_field(fields, "subgroup_size"),
+            "min_subgroup_size": int_field(fields, "min_subgroup_size"),
+            "max_subgroup_size": int_field(fields, "max_subgroup_size"),
+            "max_compute_workgroup_subgroups": int_field(
+                fields,
+                "max_compute_workgroup_subgroups",
+            ),
+            "has_subgroup_size_control": bool_field(
+                fields,
+                "has_subgroup_size_control",
+            ),
+            "has_compute_full_subgroups": bool_field(
+                fields,
+                "has_compute_full_subgroups",
+            ),
+            "has_cooperative_matrix": bool_field(fields, "has_cooperative_matrix"),
+            "cooperative_matrix_property_count": int_field(
+                fields,
+                "cooperative_matrix_property_count",
+            ),
+            "has_timeline_semaphore": bool_field(fields, "has_timeline_semaphore"),
+            "has_synchronization2": bool_field(fields, "has_synchronization2"),
         },
         "evidence_counters": {
             "dispatch_count": count,
@@ -2492,6 +2527,13 @@ def validate_execution_plan_evidence() -> None:
                 "output_direct=1 weight_packed=1 bias=1 pointwise=1 depthwise=0 "
                 "sliding_window=0 input_offset=0 weight_offset=0 output_offset=0 "
                 "global=[192,150,1] local=[16,4,1] candidate_count=2 "
+                "context_device_index=0 vendor_id=4098 device_id=29631 "
+                "driver_version=252313600 api_version=4206831 subgroup_size=64 "
+                "min_subgroup_size=32 max_subgroup_size=64 "
+                "max_compute_workgroup_subgroups=8 "
+                "has_subgroup_size_control=1 has_compute_full_subgroups=1 "
+                "has_cooperative_matrix=0 cooperative_matrix_property_count=0 "
+                "has_timeline_semaphore=1 has_synchronization2=1 "
                 "cacheable=1 tunable=1 input_bytes=230400 output_bytes=115200 "
                 "weight_bytes=294912"
             )
@@ -2556,6 +2598,10 @@ def validate_execution_plan_evidence() -> None:
         raise AssertionError("conv input shape was not parsed")
     if conv_row["execution_plan"]["local"] != [16, 4, 1]:
         raise AssertionError("conv local workgroup was not parsed")
+    if conv_row["capability_profile"]["vendor_id"] != 4098:
+        raise AssertionError("conv capability profile was not parsed")
+    if conv_row["capability_profile"]["subgroup_size"] != 64:
+        raise AssertionError("conv subgroup profile was not parsed")
     if conv_row["evidence_counters"]["conv_plan_counters"]["pointwise_1x1_hit"] != 2:
         raise AssertionError("conv plan counters were not named")
     linear_rows = [

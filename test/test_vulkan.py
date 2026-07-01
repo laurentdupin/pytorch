@@ -5844,6 +5844,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "schema=VulkanConvPlanKey.v0" in row
                     and "kernel=conv2d_buffer_float_3x3_s2p1" in row
                     and "local=[8,8,1]" in row
+                    and "vendor_id=" in row
+                    and "driver_version=" in row
+                    and "subgroup_size=" in row
                     and "tunable=1" in row
                     for row in plan_keys),
                 msg="\n".join(plan_keys))
@@ -5882,6 +5885,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "contract_family=DepthVisionProjection" in row
                 and "candidate_count=2" in row
                 and "local=[16,4,1]" in row
+                and "has_cooperative_matrix=" in row
                 for row in plan_keys),
             msg="\n".join(plan_keys))
 
@@ -5929,6 +5933,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "kernel=conv2d_buffer_float_3x3_s1p1" in row
                 and "local=[16,4,1]" in row
                 and "candidate_count=3" in row
+                and "context_device_index=" in row
                 for row in plan_keys),
             msg="\n".join(plan_keys))
 
