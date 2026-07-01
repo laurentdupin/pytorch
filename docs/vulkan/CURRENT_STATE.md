@@ -69,7 +69,9 @@ records the selected kernel, input shape, output channel count, weight shape,
 conv attrs, and global/local workgroup so per-kernel timing can be joined back
 to exact `VulkanConvPlanKey.v0` rows. This is reporting-only infrastructure:
 route selection, shader selection, workgroup selection, descriptor binding, and
-fallback/readback behavior remain unchanged.
+fallback/readback behavior remain unchanged. The offline tuning tool can parse
+these logs into `VulkanConvPlanTimestampSummary.v0` grouped by the normalized
+conv-plan label fields.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control

@@ -201,7 +201,9 @@ The initial catalog records the current `vits_140` performance lane:
 - conv-plan GPU timestamp labels: accepted reporting infrastructure that tags
   float-buffer conv timestamp rows with selected kernel, shape, attrs, and
   workgroup fields. This makes per-kernel timing joinable to
-  `VulkanConvPlanKey.v0` rows but does not change routing or promote a plan;
+  `VulkanConvPlanKey.v0` rows. The offline tuning tool can emit
+  `VulkanConvPlanTimestampSummary.v0` from a timestamp log, but this does not
+  change routing or promote a plan;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

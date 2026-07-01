@@ -2124,6 +2124,92 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("validated Vulkan conv plan tuning result", result.stdout)
 
+    def test_vulkan_conv_plan_timestamp_summary_cli(self):
+        script_path = os.path.join(
+            REPO_ROOT,
+            "scripts",
+            "benchmarks",
+            "vulkan_conv_plan_tuning.py",
+        )
+        log_path = os.path.join(TEST_FILE_DIR, "vulkan_conv_plan_timestamp_test.log")
+        out_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_conv_plan_timestamp_test_summary.json",
+        )
+        log_text = "\n".join(
+            [
+                (
+                    "gpu_timestamp reason=submit name=conv "
+                    "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
+                    "|input=[1x64x140x210]|output_channels=32"
+                    "|weight=[32x64x3x3]|stride=[1x1]|padding=[1x1]"
+                    "|dilation=[1x1]|groups=1|global=210x140x32"
+                    "|local=16x4x1 start_ns=10 end_ns=30 duration_ns=20 "
+                    "global=[210,140,32] local=[16,4,1]"
+                ),
+                (
+                    "gpu_timestamp reason=submit name=conv "
+                    "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
+                    "|input=[1x64x140x210]|output_channels=32"
+                    "|weight=[32x64x3x3]|stride=[1x1]|padding=[1x1]"
+                    "|dilation=[1x1]|groups=1|global=210x140x32"
+                    "|local=16x4x1 start_ns=40 end_ns=90 duration_ns=50 "
+                    "global=[210,140,32] local=[16,4,1]"
+                ),
+                (
+                    "gpu_timestamp reason=submit name=attention "
+                    "runtime=attention start_ns=100 end_ns=110 duration_ns=10"
+                ),
+            ]
+        )
+        try:
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(log_text)
+                handle.write("\n")
+            subprocess.run(
+                [
+                    sys.executable,
+                    script_path,
+                    "from-timestamp-log",
+                    "--log",
+                    log_path,
+                    "--out",
+                    out_path,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [sys.executable, script_path, "validate", out_path],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with open(out_path, encoding="utf-8") as handle:
+                summary = json.load(handle)
+        finally:
+            for path in (log_path, out_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+        self.assertEqual(summary["schema"], "VulkanConvPlanTimestampSummary.v0")
+        self.assertEqual(summary["conv_plan_event_count"], 2)
+        self.assertEqual(summary["ignored_line_count"], 1)
+        self.assertEqual(summary["total_conv_plan_duration_ns"], 70)
+        self.assertEqual(summary["row_count"], 1)
+        row = summary["rows"][0]
+        self.assertEqual(row["kernel"], "conv2d_buffer_float_3x3_s1p1")
+        self.assertEqual(row["input"], "[1x64x140x210]")
+        self.assertEqual(row["global"], "210x140x32")
+        self.assertEqual(row["local"], "16x4x1")
+        self.assertEqual(row["count"], 2)
+        self.assertEqual(row["duration_ns_sum"], 70)
+        self.assertEqual(row["duration_ns_mean"], 35)
+        self.assertEqual(row["duration_ns_max"], 50)
+
     def test_vulkan_stack_region_segment_plan_manifest_schema(self):
         manifest_path = os.path.join(
             REPO_ROOT,

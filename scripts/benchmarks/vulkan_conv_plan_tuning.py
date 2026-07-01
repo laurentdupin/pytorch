@@ -9,6 +9,7 @@ from typing import Any
 
 
 SCHEMA = "VulkanConvPlanTuningResult.v0"
+TIMESTAMP_SCHEMA = "VulkanConvPlanTimestampSummary.v0"
 PLAN_KEY_SCHEMA = "VulkanConvPlanKey.v0"
 VALID_DECISIONS = {
     "accepted",
@@ -64,6 +65,18 @@ REQUIRED_CAPABILITY_PROFILE_FIELDS = (
     "has_timeline_semaphore",
     "has_synchronization2",
 )
+CONV_PLAN_TIMESTAMP_GROUP_FIELDS = (
+    "kernel",
+    "input",
+    "output_channels",
+    "weight",
+    "stride",
+    "padding",
+    "dilation",
+    "groups",
+    "global",
+    "local",
+)
 
 
 def parse_plan_key_snapshot_row(row: str) -> dict[str, str]:
@@ -74,6 +87,50 @@ def parse_plan_key_snapshot_row(row: str) -> dict[str, str]:
         key, value = token.split("=", 1)
         fields[key] = value
     return fields
+
+
+def parse_conv_plan_runtime_label(label: str) -> dict[str, str] | None:
+    parts = label.split("|")
+    if not parts or parts[0] != "conv_plan":
+        return None
+    fields: dict[str, str] = {}
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        fields[key] = value
+    missing = [
+        field for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS if field not in fields
+    ]
+    if missing:
+        raise ValueError(
+            "conv_plan timestamp label missing fields: " + ",".join(missing)
+        )
+    return fields
+
+
+def parse_conv_plan_timestamp_log_line(line: str) -> dict[str, Any] | None:
+    fields = parse_plan_key_snapshot_row(line)
+    runtime = fields.get("runtime")
+    if runtime is None:
+        return None
+    label_fields = parse_conv_plan_runtime_label(runtime)
+    if label_fields is None:
+        return None
+    try:
+        duration_ns = int(fields["duration_ns"])
+    except KeyError as exc:
+        raise ValueError("conv_plan timestamp row missing duration_ns") from exc
+    except ValueError as exc:
+        raise ValueError(
+            f"conv_plan timestamp row has invalid duration_ns={fields.get('duration_ns')}"
+        ) from exc
+    if duration_ns < 0:
+        raise ValueError("conv_plan timestamp row has negative duration_ns")
+    return {
+        "fields": label_fields,
+        "duration_ns": duration_ns,
+    }
 
 
 def plan_key_from_snapshot(
@@ -184,6 +241,68 @@ def validate_tuning_result(payload: dict[str, Any]) -> list[str]:
             errors.append(f"{prefix}.revisit_conditions entries must be strings")
 
     return errors
+
+
+def validate_timestamp_summary(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if payload.get("schema") != TIMESTAMP_SCHEMA:
+        errors.append(f"schema must be {TIMESTAMP_SCHEMA}")
+    if not payload.get("source_log"):
+        errors.append("source_log is required")
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        errors.append("rows must be a list")
+        return errors
+    if payload.get("row_count") != len(rows):
+        errors.append("row_count must match len(rows)")
+    total_duration = 0
+    total_count = 0
+    seen_keys: set[tuple[str, ...]] = set()
+    for index, row in enumerate(rows):
+        prefix = f"rows[{index}]"
+        key = []
+        for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS:
+            value = row.get(field)
+            if not isinstance(value, str) or not value:
+                errors.append(f"{prefix}.{field} is required")
+                value = ""
+            key.append(value)
+        key_tuple = tuple(key)
+        if key_tuple in seen_keys:
+            errors.append(f"{prefix} duplicates a normalized conv-plan label")
+        seen_keys.add(key_tuple)
+        count = row.get("count")
+        duration_sum = row.get("duration_ns_sum")
+        duration_mean = row.get("duration_ns_mean")
+        duration_max = row.get("duration_ns_max")
+        if not isinstance(count, int) or count <= 0:
+            errors.append(f"{prefix}.count must be a positive integer")
+            count = 0
+        if not isinstance(duration_sum, int) or duration_sum < 0:
+            errors.append(f"{prefix}.duration_ns_sum must be a non-negative integer")
+            duration_sum = 0
+        if not isinstance(duration_max, int) or duration_max < 0:
+            errors.append(f"{prefix}.duration_ns_max must be a non-negative integer")
+        if not isinstance(duration_mean, (int, float)) or duration_mean < 0:
+            errors.append(f"{prefix}.duration_ns_mean must be non-negative")
+        elif count and abs(float(duration_mean) - (duration_sum / count)) > 1.0e-6:
+            errors.append(f"{prefix}.duration_ns_mean does not match sum/count")
+        total_count += count
+        total_duration += duration_sum
+    if payload.get("conv_plan_event_count") != total_count:
+        errors.append("conv_plan_event_count must match row counts")
+    if payload.get("total_conv_plan_duration_ns") != total_duration:
+        errors.append("total_conv_plan_duration_ns must match row sums")
+    return errors
+
+
+def validate_payload(payload: dict[str, Any]) -> list[str]:
+    schema = payload.get("schema")
+    if schema == SCHEMA:
+        return validate_tuning_result(payload)
+    if schema == TIMESTAMP_SCHEMA:
+        return validate_timestamp_summary(payload)
+    return [f"schema must be {SCHEMA} or {TIMESTAMP_SCHEMA}"]
 
 
 def load_json(path: Path) -> Any:
@@ -496,9 +615,65 @@ def build_plan_key_result_from_sweep_summary(
     return payload
 
 
+def build_timestamp_summary_from_log(log_path: Path) -> dict[str, Any]:
+    groups: dict[tuple[str, ...], dict[str, Any]] = {}
+    ignored_line_count = 0
+    with log_path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = parse_conv_plan_timestamp_log_line(line)
+            except ValueError as exc:
+                raise ValueError(f"{log_path}:{line_number}: {exc}") from exc
+            if parsed is None:
+                ignored_line_count += 1
+                continue
+            fields = parsed["fields"]
+            key = tuple(fields[field] for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS)
+            group = groups.setdefault(
+                key,
+                {
+                    **{field: fields[field] for field in CONV_PLAN_TIMESTAMP_GROUP_FIELDS},
+                    "count": 0,
+                    "duration_ns_sum": 0,
+                    "duration_ns_max": 0,
+                },
+            )
+            duration_ns = parsed["duration_ns"]
+            group["count"] += 1
+            group["duration_ns_sum"] += duration_ns
+            group["duration_ns_max"] = max(group["duration_ns_max"], duration_ns)
+
+    rows = []
+    total_duration = 0
+    total_count = 0
+    for key in sorted(groups):
+        row = groups[key]
+        row["duration_ns_mean"] = row["duration_ns_sum"] / row["count"]
+        total_duration += row["duration_ns_sum"]
+        total_count += row["count"]
+        rows.append(row)
+
+    payload = {
+        "schema": TIMESTAMP_SCHEMA,
+        "source_log": str(log_path),
+        "conv_plan_event_count": total_count,
+        "ignored_line_count": ignored_line_count,
+        "total_conv_plan_duration_ns": total_duration,
+        "row_count": len(rows),
+        "rows": rows,
+    }
+    errors = validate_timestamp_summary(payload)
+    if errors:
+        raise ValueError("invalid timestamp summary:\n" + "\n".join(errors))
+    return payload
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     payload = load_json(Path(args.path))
-    errors = validate_tuning_result(payload)
+    errors = validate_payload(payload)
     if errors:
         for error in errors:
             print(error)
@@ -515,6 +690,13 @@ def cmd_from_sweep(args: argparse.Namespace) -> int:
         candidates=candidates,
         granularity=args.granularity,
     )
+    write_json(Path(args.out), payload)
+    print(f"wrote {args.out}")
+    return 0
+
+
+def cmd_from_timestamp_log(args: argparse.Namespace) -> int:
+    payload = build_timestamp_summary_from_log(Path(args.log))
     write_json(Path(args.out), payload)
     print(f"wrote {args.out}")
     return 0
@@ -603,6 +785,45 @@ def cmd_self_test(args: argparse.Namespace) -> int:
             raise AssertionError("self-test candidate should be accepted")
         if payload["results"][0]["capability_profile"]["vendor_id"] != "4098":
             raise AssertionError("capability profile was not captured")
+        timestamp_log = root / "gpu_timestamps.log"
+        timestamp_log.write_text(
+            "\n".join(
+                [
+                    (
+                        "gpu_timestamp reason=submit name=conv "
+                        "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
+                        "|input=[1x64x140x210]|output_channels=32"
+                        "|weight=[32x64x3x3]|stride=[1x1]|padding=[1x1]"
+                        "|dilation=[1x1]|groups=1|global=210x140x32"
+                        "|local=16x4x1 start_ns=10 end_ns=40 duration_ns=30 "
+                        "global=[210,140,32] local=[16,4,1]"
+                    ),
+                    (
+                        "gpu_timestamp reason=submit name=conv "
+                        "runtime=conv_plan|kernel=conv2d_buffer_float_3x3_s1p1"
+                        "|input=[1x64x140x210]|output_channels=32"
+                        "|weight=[32x64x3x3]|stride=[1x1]|padding=[1x1]"
+                        "|dilation=[1x1]|groups=1|global=210x140x32"
+                        "|local=16x4x1 start_ns=50 end_ns=90 duration_ns=40 "
+                        "global=[210,140,32] local=[16,4,1]"
+                    ),
+                    (
+                        "gpu_timestamp reason=submit name=other "
+                        "runtime=attention start_ns=100 end_ns=105 duration_ns=5"
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        timestamp_summary = build_timestamp_summary_from_log(timestamp_log)
+        timestamp_errors = validate_timestamp_summary(timestamp_summary)
+        if timestamp_errors:
+            raise AssertionError("\n".join(timestamp_errors))
+        if timestamp_summary["total_conv_plan_duration_ns"] != 70:
+            raise AssertionError("timestamp duration sum was not captured")
+        if timestamp_summary["rows"][0]["duration_ns_mean"] != 35:
+            raise AssertionError("timestamp duration mean was not captured")
     print("validated Vulkan conv plan tuning result")
     return 0
 
@@ -628,6 +849,11 @@ def main(argv: list[str] | None = None) -> int:
         default="candidate",
     )
     from_sweep.set_defaults(func=cmd_from_sweep)
+
+    from_timestamp_log = subparsers.add_parser("from-timestamp-log")
+    from_timestamp_log.add_argument("--log", required=True)
+    from_timestamp_log.add_argument("--out", required=True)
+    from_timestamp_log.set_defaults(func=cmd_from_timestamp_log)
 
     self_test = subparsers.add_parser("self-test")
     self_test.set_defaults(func=cmd_self_test)
