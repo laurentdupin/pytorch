@@ -1,7 +1,8 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-01 after DAv2 multi-GPU conv workgroup evidence and
-vitl native private-baton deep-split bridge work.
+Last refreshed: 2026-07-01 after DAv2 multi-GPU conv workgroup evidence,
+vitl native private-baton deep-split bridge work, and segment-completion
+retire-handoff evidence.
 
 ## Repo State Summary
 
@@ -73,6 +74,20 @@ fallback/readback behavior remain unchanged. The offline tuning tool can parse
 these logs into `VulkanConvPlanTimestampSummary.v0` grouped by the normalized
 conv-plan label fields.
 
+`VulkanRuntimeAttributionReport.v0` is now the general benchmark attribution
+tool for separating timestamped GPU shader work from submit, retire, copy,
+readback, and fallback counters. Depth Anything V2 benchmark runs can set
+`--vulkan-gpu-profile-phase single_image_forward_device_resident` with
+`PYTORCH_VULKAN_GPU_TIMESTAMP_LOG=<path>` to synchronize after warmup, truncate
+the timestamp log, and run only the selected measurement phase. Timestamp rows
+record dispatch-time `recent_op`, `submit_phase`, `stack_phase`, and
+`stack_block` fields, including stack-owned external recording dispatches.
+The attribution script groups GPU time by kernel class, runtime label, submit
+phase, stack phase, and recent op, while joining the same benchmark phase's
+CPU fallback, sync readback, buffer-copy, submit-origin, and retire-drain
+counters. This is measurement infrastructure only; it does not change execution
+routes, shader selection, copies, readbacks, submits, or fallback policy.
+
 A focused 18-row timestamp sweep over DAv2 `vits_140` and `vitb_140` on RX
 9070, GTX 1080, and RX 6700 XT kept both `3x3_s1p1_16x4` and
 `3x3_s1p1_16x8` rejected as broad default promotions. Both candidates were
@@ -91,6 +106,15 @@ but the post-policy default check regressed whole-row timing on GTX 1080 and RX
 6700 XT `vitb_140`, while `vits_140` timing moved despite no promoted labels.
 Keep this as rejected evidence; the next runtime promotion mechanism should be a
 tuning cache that can validate the full row before selecting per-plan locals.
+
+An attempted forced float-buffer tiled linear canary for label-inferred
+vision-backbone linears was rejected and backed out before commit. The first
+probe did not hit tiled kernels; after fixing the activation predicate, the
+probe did hit `aten::linear.buffer_float_tiled_bias[_gelu]` rows but failed
+`vits_140` bridge sanity at `max_abs=0.21523737907409668` and measured about
+71.1 ms mean device-resident forward. Do not reintroduce a broad force-tiled
+linear gate. A future linear plan needs a parity-proven kernel or narrower
+contract before timing.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
@@ -112,19 +136,59 @@ plan candidates, correctness-blocked paths, and unsafe topologies so later
 agents do not repeat the same diagnostics as if they were new work.
 The latest segment-mode evidence keeps `segmented_stack_wide4_to_exit` as the
 best current `vits_140` bridge canary. The wide3 and prefix-tail modes are
-valid in the recorded three-repeat sweep but slower than wide4, while repeated
-context-owned stack-output bridge timing remains unsafe because it can hit
-Windows stack overflow after a one-repeat sanity pass.
+valid in the recorded three-repeat sweep but slower than wide4. The later
+`segmented_stack_wide6_to_exit` probe is also valid and contract-visible for
+`vits_140`: after the Context canary-admission fix, a focused five-repeat RX
+9070 run selected two full segments covering blocks 0-5 and 6-11 at 62/72
+planned dispatches each, kept bridge sanity clean at max_abs
+`1.6391277313232422e-06`, and kept CPU fallback, sync readback, and buffer
+copies at zero. It is not promoted because reducing stack-planned submits from
+20 to 15 over five repeats did not improve latency: wide6 measured about
+79.9 ms mean device-resident forward while the matching wide4 run measured
+about 64.3 ms, with both modes still reporting 15 stack-owner retire-drain
+submits. Repeated context-owned stack-output bridge timing remains unsafe
+because it can hit Windows stack overflow after a one-repeat sanity pass.
 The DAv2 benchmark now fails this unsafe repeated context-owned bridge topology
 before native execution and writes a JSON failure artifact pointing to the
 performance evidence manifest. One-repeat bridge sanity checks and bounded
 segmented stack-owned modes remain allowed.
+Three stack-exit pending-retire handoff probes are also cataloged as rejected
+`vits_140` evidence. `private_bridge_capture_handoff` kept bridge sanity clean
+and preserved zero CPU fallback, sync readback, and copy counters, but measured
+about 69.0 ms mean and still reported 15 stack-owner retire-drain submits. It
+is also the wrong release boundary for promotion: private bridge captures must
+release after decoder bridge consumer completion, not at backbone stack exit.
+`residual2_norm1_carry_handoff` likewise preserved correctness and zero
+fallback/readback/copy counters, but measured about 73.2 ms mean and did not
+reduce the timed retire-drain submits. The segment-completion cleanup handoff
+canary moved exact external-recording cleanup pending-retire entries into the
+stack-exit handoff batch under
+`StackRegionSegmentCompletionRetireHandoffContract.v0`, but it also kept the
+same 15 stack-owner retire-drain submits and regressed to about 75.3 ms mean
+device-resident forward. Do not repeat stack-exit pending-retire handoff as a
+standalone latency path unless a later submit-plan change makes the transfer
+reduce actual queue submits. The next ownership task is segment-local
+completion ownership or a bridge-scoped private capture release owner, not
+another stack-exit handoff.
+A focused bridge-release probe at the post-decoder-consumer boundary was also
+valid but did not transfer pending retires: the release-owner rows remained
+`transfers_pending_retires=0`, and the five-repeat run measured about 70.3 ms
+mean. That result is cataloged as a no-op/rejected path. A future behavior
+canary needs a distinct bridge-scoped handoff batch with explicit restore and
+close-submit retire ownership before it moves entries.
+`Context` now has an empty-by-default bridge-private capture pending-retire
+handoff batch scaffold with clear/restore/retire helpers. No producer moves
+entries into that batch yet, so it is behavior-neutral and does not change
+submit, fallback, readback, copy, or lifetime behavior.
 Depth Anything V2 benchmark artifacts now also include a compact
 `vulkan_stack_region_segment_plan` summary when `StackRegionSegmentPlan.v0`
-rows are present in the debug snapshot. This summary records the observed
-segment-plan modes, statuses, fail reasons, dispatch budgets, and sampled
-segment rows for the measured shape/topology. It is evidence lookup metadata
-only and must not be used as a production route table.
+rows are present in the debug snapshot. Segmented stack-owned recording modes
+now enable the recording-domain observation rows automatically, so opt-in
+canary artifacts carry the segment-plan evidence without requiring a separate
+graph-dump path. This summary records the observed segment-plan modes,
+statuses, fail reasons, dispatch budgets, and sampled segment rows for the
+measured shape/topology. It is evidence lookup metadata only and must not be
+used as a production route table.
 `tools/vulkan_contract_codegen/query_performance_evidence.py` searches the
 checked-in performance evidence manifest and can summarize this per-run
 segment-plan field from benchmark artifacts before a diagnostic sweep is

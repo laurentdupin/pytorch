@@ -112,6 +112,131 @@
           "artifact": "agent_space/dav2_vits140_segment_compare_wide3_3repeat.json"
         },
         {
+          "mode": "segmented_stack_wide6_to_exit",
+          "status": "valid_but_slower_than_wide4_after_context_admission_fix",
+          "device_resident_mean_ms": 79.928,
+          "device_resident_median_ms": 83.857,
+          "device_resident_p95_ms": 85.681,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "buffer_copy_count": 0,
+          "repeat_count": 5,
+          "stack_planned_recording_submit_count": 15,
+          "stack_owner_retire_queue_drain_submit_count": 15,
+          "compared_to_wide4": {
+            "device_resident_mean_ms": 64.282,
+            "stack_planned_recording_submit_count": 20,
+            "stack_owner_retire_queue_drain_submit_count": 15
+          },
+          "segment_plan": {
+            "segments": [
+              {
+                "segment_start": 0,
+                "segment_end": 5,
+                "segment_planned_dispatch_count": 62,
+                "segment_planned_dispatch_limit": 72
+              },
+              {
+                "segment_start": 6,
+                "segment_end": 11,
+                "segment_planned_dispatch_count": 62,
+                "segment_planned_dispatch_limit": 72
+              }
+            ]
+          },
+          "artifact": "agent_space/dav2_vits140_wide6_context_fix_5repeat/vits140_wide6_5repeat.json"
+        },
+    {
+      "mode": "private_bridge_capture_handoff",
+      "status": "valid_but_slower_than_wide4_wrong_release_boundary_for_promotion",
+          "device_resident_mean_ms": 69.016,
+          "device_resident_median_ms": 69.506,
+          "device_resident_p95_ms": 70.695,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "buffer_copy_count": 0,
+          "repeat_count": 5,
+          "stack_planned_recording_submit_count": 20,
+          "stack_owner_retire_queue_drain_submit_count": 15,
+          "compared_to_wide4": {
+            "device_resident_mean_ms": 64.282,
+            "stack_planned_recording_submit_count": 20,
+            "stack_owner_retire_queue_drain_submit_count": 15
+          },
+      "decision": "Do not promote the stack-exit private bridge capture handoff path. Private bridge captures must release after decoder bridge consumer completion, not at backbone stack exit.",
+      "artifact": "agent_space/dav2_vits140_wide4_private_bridge_handoff_probe/vits140_wide4_private_bridge_handoff_5repeat.json"
+    },
+    {
+      "mode": "bridge_private_capture_release_handoff_probe",
+      "status": "valid_but_slower_than_wide4_no_transferable_source_observed",
+      "device_resident_mean_ms": 70.26,
+      "device_resident_median_ms": 69.685,
+      "device_resident_p95_ms": 74.686,
+      "max_abs": 1.6391277313232422e-06,
+      "cpu_fallback": 0,
+      "sync_readback": 0,
+      "buffer_copy_count": 0,
+      "repeat_count": 5,
+      "bridge_private_capture_release_owner_rows": 20,
+      "transfers_pending_retires": 0,
+      "compared_to_wide4": {
+        "device_resident_mean_ms": 64.282,
+        "stack_planned_recording_submit_count": 20,
+        "stack_owner_retire_queue_drain_submit_count": 15
+      },
+      "decision": "Do not promote the quick bridge-release handoff probe. It used the correct post-decoder-consumer release boundary but observed no transferable pending-retire source; a future canary needs a distinct bridge-scoped handoff batch and release/restore owner before moving entries.",
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_bridge_release_handoff_probe/vits140_wide4_bridge_release_handoff_5repeat.json",
+        "agent_space/dav2_vits140_wide4_bridge_release_handoff_probe/vits140_bridge_release_handoff_graph.json"
+      ]
+    },
+    {
+      "mode": "stack_owner_poll_only_retire_drain_deferral",
+      "status": "valid_but_slower_than_wide4_retire_count_reduction_not_latency_bottleneck",
+      "device_resident_mean_ms": 67.047,
+      "device_resident_median_ms": 66.818,
+      "device_resident_p95_ms": 68.032,
+      "max_abs": 1.6391277313232422e-06,
+      "cpu_fallback": 0,
+      "sync_readback": 0,
+      "buffer_copy_count": 0,
+      "repeat_count": 5,
+      "retire_drain_count": 20,
+      "retire_drain_poll_only_count": 5,
+      "stack_owner_retire_queue_drain_submit_count": 15,
+      "compared_to_wide4": {
+        "device_resident_mean_ms": 64.282,
+        "retire_drain_count": 140,
+        "retire_drain_poll_only_count": 125,
+        "stack_owner_retire_queue_drain_submit_count": 15
+      },
+      "decision": "Do not promote stack-owner poll-only retire-drain deferral for vits_140. It proves most poll-only retire-drain accounting can be skipped under the canary, but latency regressed and queue-submit count did not improve.",
+      "artifact": "agent_space/dav2_vits140_wide4_poll_only_deferral_probe/vits140_wide4_poll_only_deferral_5repeat.json"
+    },
+    {
+      "mode": "residual2_norm1_carry_handoff",
+      "status": "valid_but_slower_than_wide4_no_retire_drain_reduction",
+          "device_resident_mean_ms": 73.244,
+          "device_resident_median_ms": 71.056,
+          "device_resident_p95_ms": 81.3,
+          "max_abs": 1.6391277313232422e-06,
+          "cpu_fallback": 0,
+          "sync_readback": 0,
+          "buffer_copy_count": 0,
+          "repeat_count": 5,
+          "stack_planned_recording_submit_count": 20,
+          "stack_owner_retire_queue_drain_submit_count": 15,
+          "compared_to_wide4": {
+            "device_resident_mean_ms": 64.282,
+            "stack_planned_recording_submit_count": 20,
+            "stack_owner_retire_queue_drain_submit_count": 15
+          },
+          "decision": "Do not promote a residual2-to-next-Norm1 stack-exit handoff for vits_140. It preserved correctness but did not reduce timed retire-drain submits and was slower than the wide4 baseline.",
+          "artifact": "agent_space/dav2_vits140_wide4_residual_carry_handoff_probe/vits140_wide4_residual_carry_handoff_5repeat.json"
+        },
+        {
           "mode": "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
           "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
           "device_resident_mean_ms": 79.299,
@@ -1591,6 +1716,63 @@
       ]
     },
     {
+      "id": "dav2_vits140_segment_completion_retire_handoff_rejected_2026_07_01",
+      "status": "rejected_slower",
+      "head": "local_segment_completion_retire_handoff_canary",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused five-repeat probe on the existing segmented wide4 stack-owned recording canary. The candidate is generic segment-completion retire ownership, not a DAv2 production route.",
+      "contract_or_topology_scope": [
+        "StackRegionSegmentCompletionRetireHandoffContract.v0",
+        "StackRegionExternalRecordingCleanupRetire.v0",
+        "StackRegionOwnedCommandBuffer segmented stack wide4 canary",
+        "stack-exit pending-retire handoff batch"
+      ],
+      "candidate": "Move exact external-recording cleanup pending-retire entries into the stack-region pending-retire handoff batch at segment completion, then retire them on the existing stack-exit submission timeline.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.6391277313232422e-06,
+        "mean_abs": 7.301201776499511e-08,
+        "tests": [
+          "TestVulkanEagerRuntime.test_vulkan_stack_region_segment_completion_retire_handoff_canary",
+          "focused DAv2 vits_140 five-repeat bridge sanity run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_count": 0,
+        "submit_elision": 0,
+        "deferred_submit": 0,
+        "stack_owner_retire_queue_drain_submit_count": 15,
+        "performance_valid": true
+      },
+      "timing_ms": {
+        "baseline_device_resident_mean": 64.282,
+        "baseline_device_resident_median": 64.41,
+        "baseline_device_resident_p95": 65.506,
+        "candidate_device_resident_mean": 75.263,
+        "candidate_device_resident_median": 69.072,
+        "candidate_device_resident_p95": 91.336,
+        "repeat_count": 5
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide4_context_fix_5repeat/vits140_wide4_5repeat.json",
+        "agent_space/dav2_vits140_segment_completion_handoff_probe/vits140_segment_completion_handoff_5repeat.json",
+        "agent_space/dav2_vits140_segment_completion_handoff_probe/summary.json",
+        "agent_space/dav2_vits140_segment_completion_handoff_probe/summary.md"
+      ],
+      "decision": "Do not promote the segment-completion retire handoff canary. It proves exact cleanup pending-retire entries can be transferred safely to stack-exit timeline ownership, but it does not reduce the measured stack-owner retire-drain submit count and regresses vits_140 latency.",
+      "revisit_conditions": [
+        "Only revisit if the stack-exit pending-retire handoff batch starts reducing queue submits after a separate submit-plan change.",
+        "Only revisit if external-recording cleanup retire ownership moves to a segment-local completion timeline instead of the same stack-exit submission timeline.",
+        "Do not repeat this canary as a latency optimization while stack_owner_retire_queue_drain_submit_count remains unchanged."
+      ]
+    },
+    {
       "id": "conv3x3_s1p1_plan_key_timestamp_table_evidence_2026_07_01",
       "status": "accepted_reporting_infrastructure",
       "head": "4a3d9293be04/398586828dee",
@@ -1658,6 +1840,53 @@
         "If RX 9070 or RX 6700 XT repeat-stability evidence shows a whole-row win for a matched exact key.",
         "If shader code, capability profile fields, or VulkanConvPlanKey.v0 changes.",
         "If GTX 1080 vits_140 16x8 evidence is repeated across processes and remains whole-row positive."
+      ]
+    },
+    {
+      "id": "linear_float_tiled_vision_backbone_canary_rejected_2026_07_01",
+      "status": "correctness_blocked",
+      "head": "local_linear_tiled_canary_backed_out",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused probe. The canary was generic vision-backbone label gated, not a DAv2 production route, and was backed out after the failed probe.",
+      "contract_or_topology_scope": [
+        "Vulkan linear buffer execution",
+        "LinearGeluBridgeContract evidence rows",
+        "vision-backbone runtime policy"
+      ],
+      "candidate": "Force existing float-buffer tiled linear kernels for label-inferred vision-backbone linears with m/k/n above the existing tiled-shape guard.",
+      "correctness": {
+        "status": "failed",
+        "max_abs": 0.21523737907409668,
+        "tests": [
+          "Depth Anything V2 vits_140 bridge sanity embedded in benchmark run"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_count": 0,
+        "performance_valid": false,
+        "tiled_linear_rows_observed": true
+      },
+      "timing_ms": {
+        "device_resident_mean": 71.129,
+        "device_resident_median": 71.037,
+        "device_resident_p95": 77.33,
+        "repeat_count": 5
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_linear_tiled_canary_probe/vits140_linear_tiled_canary_5repeat.json",
+        "agent_space/dav2_vits140_linear_tiled_canary_probe2/vits140_linear_tiled_canary_5repeat.json"
+      ],
+      "decision": "Do not promote or keep the forced float-tiled linear canary. The first activation attempt did not hit tiled kernels; the corrected label-inferred probe did hit tiled kernels but failed correctness and was slower than the wide4 baseline. A future linear plan must add a parity-proven kernel or narrower contract before timing it.",
+      "revisit_conditions": [
+        "Only revisit after the float tiled linear shader family is corrected or replaced.",
+        "Require a LinearPlanKey-style exact evidence row with correctness passing before any timing comparison.",
+        "Do not reintroduce a broad vision-backbone force-tiled env gate."
       ]
     }
   ]

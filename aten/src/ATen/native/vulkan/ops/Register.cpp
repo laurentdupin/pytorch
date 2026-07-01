@@ -1760,6 +1760,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::linear_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::linear_aggregate_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::linear_plan_key_snapshot() -> str[]"));
   m.def("linear_pack_residency_snapshot() -> str[]");
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_linear_aggregate() -> ()"));
@@ -2116,6 +2118,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::linear_aggregate_snapshot"),
       TORCH_FN(linear_aggregate_snapshot));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::linear_plan_key_snapshot"),
+      TORCH_FN(linear_plan_key_snapshot));
   m.impl(
       "linear_pack_residency_snapshot",
       TORCH_FN(linear_pack_residency_snapshot));

@@ -2585,6 +2585,186 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(exact_main["decision_blocker"], "none")
         self.assertEqual(exact_main["capability_profiles"][0]["vendor_id"], "4098")
 
+    def test_vulkan_runtime_attribution_report_cli(self):
+        script_path = os.path.join(
+            REPO_ROOT,
+            "scripts",
+            "benchmarks",
+            "vulkan_runtime_attribution.py",
+        )
+        benchmark_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_runtime_attribution_benchmark.json",
+        )
+        log_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_runtime_attribution.gpu_timestamp.log",
+        )
+        out_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_runtime_attribution_report.json",
+        )
+        markdown_path = os.path.join(
+            TEST_FILE_DIR,
+            "vulkan_runtime_attribution_report.md",
+        )
+        submit_origin_counters = [0] * len(VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES)
+        submit_origin_counters[0] = 8
+        submit_origin_counters[1] = 3
+        submit_origin_counters[5] = 2
+        submit_origin_counters[8] = 1
+        retire_drain_counters = [0] * 18
+        retire_drain_counters[0] = 4
+        retire_drain_counters[1] = 1
+        retire_drain_counters[13] = 3
+        buffer_copy_counters = [0] * 15
+        buffer_copy_counters[0] = 2
+        buffer_copy_counters[1] = 4096
+        try:
+            with open(benchmark_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "benchmark_name": "benchmark_depth_anything",
+                        "device": "vulkan",
+                        "encoder": "vits",
+                        "input_size": 140,
+                        "performance_valid": True,
+                        "single_image_forward_device_resident": {"count": 2},
+                        "vulkan_gpu_timestamp_profile": {
+                            "target_phase": "single_image_forward_device_resident",
+                            "phase_filter_quality": "isolated_after_warmup",
+                        },
+                        "vulkan_debug_counters": {
+                            "cpu_fallback_count": 0,
+                            "sync_readback_count": 0,
+                            "submit_origin_counters": submit_origin_counters,
+                            "retire_drain_counters": retire_drain_counters,
+                            "buffer_copy_counters": buffer_copy_counters,
+                        },
+                        "vulkan_measurement_phase_counters": [
+                            {
+                                "name": "single_image_forward_device_resident",
+                                "delta": {
+                                    "cpu_fallback_count": 0,
+                                    "sync_readback_count": 0,
+                                    "submit_origin_counters": submit_origin_counters,
+                                    "retire_drain_counters": retire_drain_counters,
+                                    "buffer_copy_counters": buffer_copy_counters,
+                                },
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "\n".join(
+                        [
+                            (
+                                "gpu_timestamp reason=submit name=conv "
+                                "runtime=conv_plan|kernel=conv2d_buffer_float"
+                                "|input=[1x64x10x15]|output_channels=64"
+                                "|weight=[64x64x3x3]|stride=[1x1]"
+                                "|padding=[1x1]|dilation=[1x1]|groups=1"
+                                "|global=15x10x64|local=8x8x1 "
+                                "recent_op=aten::conv2d submit_phase=stack_owner "
+                                "stack_phase=attention stack_block=1 "
+                                "duration_ns=1000000"
+                            ),
+                            (
+                                "gpu_timestamp reason=submit name=conv "
+                                "runtime=conv_plan|kernel=conv2d_buffer_float"
+                                "|input=[1x64x10x15]|output_channels=64"
+                                "|weight=[64x64x3x3]|stride=[1x1]"
+                                "|padding=[1x1]|dilation=[1x1]|groups=1"
+                                "|global=15x10x64|local=8x8x1 "
+                                "recent_op=aten::conv2d submit_phase=stack_owner "
+                                "stack_phase=attention stack_block=1 "
+                                "duration_ns=3000000"
+                            ),
+                            (
+                                "gpu_timestamp reason=submit name=upsample "
+                                "runtime=upsample recent_op=aten::upsample "
+                                "submit_phase=decoder stack_phase=decoder "
+                                "stack_block=-1 duration_ns=2000000"
+                            ),
+                            "not_a_timestamp duration_ns=999",
+                        ]
+                    )
+                )
+                handle.write("\n")
+            subprocess.run(
+                [
+                    sys.executable,
+                    script_path,
+                    "--benchmark-json",
+                    benchmark_path,
+                    "--timestamp-log",
+                    log_path,
+                    "--out",
+                    out_path,
+                    "--markdown",
+                    markdown_path,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with open(out_path, encoding="utf-8") as handle:
+                report = json.load(handle)
+            with open(markdown_path, encoding="utf-8") as handle:
+                markdown = handle.read()
+        finally:
+            for path in (benchmark_path, log_path, out_path, markdown_path):
+                if os.path.exists(path):
+                    os.remove(path)
+
+        self.assertEqual(report["schema"], "VulkanRuntimeAttributionReport.v0")
+        self.assertFalse(report["runtime_behavior_changed"])
+        self.assertEqual(report["timed_iteration_count"], 2)
+        self.assertEqual(report["timestamp_event_count"], 3)
+        self.assertEqual(report["ignored_timestamp_line_count"], 1)
+        self.assertEqual(report["timestamp_total_gpu_ms"], 6.0)
+        self.assertEqual(report["phase_filter_quality"], "isolated_after_warmup")
+        conv_group = next(
+            group for group in report["groups"] if group["category"] == "conv_plan"
+        )
+        self.assertEqual(conv_group["kernel"], "conv2d_buffer_float")
+        self.assertEqual(conv_group["count"], 2)
+        self.assertEqual(conv_group["total_gpu_ms"], 4.0)
+        self.assertEqual(conv_group["estimated_per_timed_iteration_gpu_ms"], 2.0)
+        self.assertEqual(
+            report["counters"]["submit_origin_counters"][
+                "normal_cmd_submit_frequency"
+            ],
+            3,
+        )
+        self.assertEqual(
+            report["counters"]["retire_drain_counters"]["stack_scope_end"],
+            3,
+        )
+        self.assertEqual(report["counters"]["buffer_copy_counters"]["total"], 2)
+        self.assertEqual(
+            report["measurement_counters"]["submit_origin_counters"][
+                "normal_cmd_submit_frequency"
+            ],
+            3,
+        )
+        kernel_class = next(
+            group
+            for group in report["kernel_class_groups"]
+            if group["key"] == "conv"
+        )
+        self.assertEqual(kernel_class["total_gpu_ms"], 4.0)
+        submit_phase = next(
+            group
+            for group in report["submit_phase_groups"]
+            if group["key"] == "stack_owner"
+        )
+        self.assertEqual(submit_phase["count"], 2)
+        self.assertIn("GPU Time By Kernel Class", markdown)
+
     def test_vulkan_stack_region_segment_plan_manifest_schema(self):
         manifest_path = os.path.join(
             REPO_ROOT,
@@ -2828,7 +3008,7 @@ class TestVulkanGovernance(TestCase):
                         "StackRegionSegmentPlan.v0 schema=StackRegionSegmentPlan.v0 "
                         "row_kind=segment "
                         "owned_command_buffer_mode=segmented_stack_wide4_to_exit "
-                        "segment_index=0 segment_start=0 segment_end=4 "
+                        "segment_index=0 segment_start_block=0 segment_end_block=4 "
                         "segment_plan_coverage=prefix "
                         "segment_plan_status=wide4_segment_plan_available_behavior_canary "
                         "segment_plan_fail_reason=none "
@@ -2877,6 +3057,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(summary["max_planned_dispatch_count"], 96)
         self.assertEqual(summary["max_segment_planned_dispatch_count"], 48)
         self.assertEqual(len(summary["segments"]), 1)
+        self.assertEqual(summary["segments"][0]["segment_start"], "0")
         self.assertEqual(summary["segments"][0]["segment_end"], "4")
         self.assertEqual(
             summary["segments"][0]["owned_command_buffer_mode"],
@@ -6421,6 +6602,62 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "tunable=1" in row
                     for row in plan_keys),
                 msg="\n".join(plan_keys))
+
+    def test_vulkan_linear_plan_key_snapshot_records_capability_profile(self):
+        torch.manual_seed(1752)
+        x_cpu = torch.randn(8, 16)
+        module_cpu = torch.nn.Linear(16, 32).eval()
+        module_vulkan = torch.nn.Linear(16, 32).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+        x_vulkan = x_cpu.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        torch.ops.vulkan_prepack.reset_linear_aggregate()
+        with torch.inference_mode():
+            expected = module_cpu(x_cpu)
+            context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                module_vulkan.weight,
+                module_vulkan.bias,
+                "test_linear_plan_key.fc1")
+            actual = torch.ops.vulkan_prepack.run_linear_context(
+                x_vulkan,
+                context).cpu()
+
+        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        plan_keys = torch.ops.vulkan_prepack.linear_plan_key_snapshot()
+        self.assertTrue(
+            any(
+                "schema=VulkanLinearOrMatmulPlanKey.v0" in row
+                and "source=linear_aggregate_snapshot" in row
+                and "role=fc1" in row
+                and "op_family=linear" in row
+                and "selected=FloatBufferLinear" in row
+                and "m=8" in row
+                and "k=16" in row
+                and "n=32" in row
+                and "input=[8,16]" in row
+                and "weight=[16,32]" in row
+                and "output=[8,32]" in row
+                and "input_storage=" in row
+                and "weight_storage=" in row
+                and "output_storage=" in row
+                and "input_layout=" in row
+                and "weight_layout=" in row
+                and "output_layout=" in row
+                and "weight_direct=" in row
+                and "global=[32,8,1]" in row
+                and "local=[16,4,1]" in row
+                and "candidate_count=1" in row
+                and "cacheable=1" in row
+                and "tunable=1" in row
+                and "vendor_id=" in row
+                and "driver_version=" in row
+                and "subgroup_size=" in row
+                and "has_cooperative_matrix=" in row
+                for row in plan_keys),
+            msg="\n".join(plan_keys))
 
     def test_vulkan_pointwise_conv_plan_key_records_contract_candidate(self):
         torch.manual_seed(1753)
@@ -29183,6 +29420,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["persistent_descriptor_pool_reset_performed"] == "0"
                     and row["persistent_pool_reset_proven"] == "1"
                     and row["external_pool_reset_blocker"] == "none"
+                    and row["segment_completion_contract"]
+                    == "StackRegionSegmentCompletion.v0"
+                    and row["segment_metadata_observed"] == "1"
+                    and row["segment_completion_available"] == "1"
+                    and row["segment_completion_owner"]
+                    == "stack_exit_submission_timeline"
+                    and row["segment_completion_id"] != "none"
+                    for row in cleanup_retire_rows
+                )
+            )
+            self.assertEqual(
+                {row["segment_index"] for row in cleanup_retire_rows},
+                {"0", "1"},
+            )
+            self.assertTrue(
+                all(
+                    int(row["segment_planned_dispatch_count"]) <= 24
                     for row in cleanup_retire_rows
                 )
             )
@@ -30433,6 +30687,269 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in cleanup_retire_rows
                 )
             )
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
+    def test_vulkan_stack_region_segment_completion_retire_handoff_canary(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=12,
+            label_prefix=(
+                "vision.synthetic.stack.segment_completion_handoff"
+            ),
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [2, 5],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": os.path.join(
+                TEST_FILE_DIR,
+                "vulkan_stack_region_segment_completion_handoff_test.json",
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "segmented_stack_wide4_to_exit"
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF": (
+                "external_recording_cleanup"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            for _ in range(2):
+                with torch.inference_mode():
+                    actual = (
+                        torch.ops.vulkan_prepack
+                        .run_vision_backbone_stack_private_capture_debug(
+                            x,
+                            stack_context,
+                            [2, 5],
+                            True,
+                        )
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                self.assertEqual(actual[0].cpu(), expected[0].cpu())
+                self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            cleanup_retire_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_retire_rows"
+                ]
+            ]
+            transferred_rows = [
+                row for row in cleanup_retire_rows
+                if row["transfer_behavior_enabled"] == "1"
+            ]
+            self.assertGreater(
+                sum(int(row["count"]) for row in transferred_rows),
+                0,
+            )
+            self.assertTrue(
+                all(
+                    row["schema"] == "StackRegionExternalRecordingCleanupRetire.v0"
+                    and row["segment_completion_retire_handoff_contract"]
+                    == "StackRegionSegmentCompletionRetireHandoffContract.v0"
+                    and row["external_cleanup_retire_action"]
+                    == "handoff_to_stack_exit_pending_retire_batch"
+                    and row["transfers_pending_retires"] == "1"
+                    and int(row["pending_retire_handoff_moved_count"]) > 0
+                    and row["external_cleanup_timeline_valid"] == "1"
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    and row["top_blocker"] == "none"
+                    for row in transferred_rows
+                )
+            )
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+
+    def test_vulkan_stack_region_owned_command_buffer_wide6_canary(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=12,
+            label_prefix=(
+                "vision.synthetic.stack.owned_command_buffer_wide6"
+            ),
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [2, 5],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        settings = {
+            "PYTORCH_VULKAN_STACK_DEP_GRAPH": os.path.join(
+                TEST_FILE_DIR,
+                "vulkan_stack_region_owned_command_buffer_wide6_test.json",
+            ),
+            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
+                "segmented_stack_wide6_to_exit"
+            ),
+        }
+        previous = {key: os.environ.get(key) for key in settings}
+        os.environ.update(settings)
+        try:
+            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
+            if os.path.exists(graph_path):
+                os.remove(graph_path)
+            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
+            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
+            for _ in range(2):
+                with torch.inference_mode():
+                    actual = (
+                        torch.ops.vulkan_prepack
+                        .run_vision_backbone_stack_private_capture_debug(
+                            x,
+                            stack_context,
+                            [2, 5],
+                            True,
+                        )
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                self.assertEqual(actual[0].cpu(), expected[0].cpu())
+                self.assertEqual(actual[1].cpu(), expected[1].cpu())
+            self.assertTrue(os.path.exists(graph_path))
+            with open(graph_path, encoding="utf-8") as handle:
+                graph = json.load(handle)
+            recording_domain_rows = [
+                row["fields"] for row in graph["stack_region_recording_domain_rows"]
+            ]
+            self.assertTrue(
+                any(
+                    row["event"] == "active_cmd_external"
+                    and row["recording_domain_mode"]
+                    == "stack_region_owned_external_recording"
+                    and row["command_buffer_owner_scope"]
+                    == "stack_region_owned_command_buffer"
+                    for row in recording_domain_rows
+                )
+            )
+            segment_plan_rows = [
+                row["fields"] for row in graph["stack_region_segment_plan_rows"]
+            ]
+            summary_rows = [
+                row
+                for row in segment_plan_rows
+                if row["row_kind"] == "summary"
+                and row["owned_command_buffer_mode"]
+                == "segmented_stack_wide6_to_exit"
+            ]
+            self.assertTrue(
+                any(
+                    row["segmented_canary_selected"] == "1"
+                    and row["selected_segment_count"] == "2"
+                    and row["segment_scope_limit"] == "2"
+                    and row["segment_block_limit"] == "6"
+                    and row["segment_planned_dispatch_limit"] == "72"
+                    and row["segment_ends"] == "5_11"
+                    and row["segment_plan_status"]
+                    == "wide6_segment_plan_available_behavior_canary"
+                    for row in summary_rows
+                )
+            )
+            segment_rows = [
+                row for row in segment_plan_rows if row["row_kind"] == "segment"
+            ]
+            selected_segment_rows = [
+                row
+                for row in segment_rows
+                if row["owned_command_buffer_mode"]
+                == "segmented_stack_wide6_to_exit"
+                and row["segment_selected_for_recording"] == "1"
+            ]
+            unselected_segment_rows = [
+                row
+                for row in segment_rows
+                if row["owned_command_buffer_mode"]
+                == "segmented_stack_wide6_to_exit"
+                and row["segment_selected_for_recording"] == "0"
+            ]
+            self.assertEqual(len(selected_segment_rows), 2)
+            self.assertEqual(len(unselected_segment_rows), 0)
+            self.assertEqual(
+                {
+                    (row["segment_start_block"], row["segment_end_block"])
+                    for row in selected_segment_rows
+                },
+                {("0", "5"), ("6", "11")},
+            )
+            self.assertTrue(
+                all(
+                    int(row["segment_planned_dispatch_count"]) <= 72
+                    and int(row["segment_block_count"]) <= 6
+                    and row["submit_elision_enabled"] == "0"
+                    and row["deferred_submit_enabled"] == "0"
+                    for row in selected_segment_rows
+                )
+            )
+            cleanup_retire_rows = [
+                row["fields"]
+                for row in graph[
+                    "stack_region_external_recording_cleanup_retire_rows"
+                ]
+            ]
+            if cleanup_retire_rows:
+                self.assertLessEqual(
+                    max(
+                        int(row["external_command_buffer_acquires_after_scope"])
+                        for row in cleanup_retire_rows
+                    ),
+                    2,
+                )
+                self.assertEqual(
+                    {row["segment_index"] for row in cleanup_retire_rows},
+                    {"0", "1"},
+                )
+                self.assertTrue(
+                    all(
+                        row["transfer_behavior_enabled"] == "0"
+                        and row["submit_elision_enabled"] == "0"
+                        and row["deferred_submit_enabled"] == "0"
+                        and row["external_cleanup_retire_action"]
+                        == "scheduled_on_stack_exit_submission"
+                        and row["segment_completion_contract"]
+                        == "StackRegionSegmentCompletion.v0"
+                        and row["segment_completion_available"] == "1"
+                        and row["segment_completion_owner"]
+                        == "stack_exit_submission_timeline"
+                        for row in cleanup_retire_rows
+                    )
+                )
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -38928,6 +39445,56 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["fields"].get("transfers_pending_retires") == "0"
                     and row["fields"].get("submit_elision_enabled") == "0"
                     for row in private_handoffs
+                )
+            )
+            self.assertGreater(
+                graph["summary"]["bridge_private_capture_release_owner_rows"],
+                0,
+            )
+            release_owners = graph["bridge_private_capture_release_owners"]
+            self.assertTrue(release_owners)
+            self.assertTrue(
+                any(
+                    row["fields"].get("schema")
+                    == "BridgePrivateCaptureReleaseOwner.v0"
+                    and row["fields"].get("behavior_neutral") == "1"
+                    and row["fields"].get("transfers_pending_retires") == "0"
+                    and row["fields"].get("submit_elision_enabled") == "0"
+                    and row["fields"].get("decoder_consumer_completed_before_bridge_exit")
+                    == "1"
+                    and row["fields"].get(
+                        "decoder_bridge_recording_scope_closed_before_release"
+                    )
+                    == "1"
+                    and row["fields"].get("raw_capture_identity_status")
+                    == "allocation_identity_available"
+                    and row["fields"].get("normalized_identity_status")
+                    == "allocation_identity_available"
+                    and row["fields"].get("decoder_input_identity_status")
+                    == "allocation_identity_available"
+                    and row["fields"].get("python_public_boundary_before_release")
+                    == "0"
+                    and row["fields"].get("requested_output_before_release")
+                    == "0"
+                    and row["fields"].get("final_output_before_release") == "0"
+                    and row["fields"].get("host_visible_boundary_before_release")
+                    == "0"
+                    and row["fields"].get("host_visible_access_before_release")
+                    == "0"
+                    and row["fields"].get("host_readback_before_release") == "0"
+                    and row["fields"].get(
+                        "public_final_host_readback_requested_blocker"
+                    )
+                    == "0"
+                    and row["fields"].get("release_owner_available") == "0"
+                    and row["fields"].get("release_status")
+                    == (
+                        "bridge_private_capture_release_owner_scaffold_present_"
+                        "behavior_disabled_fail_closed"
+                    )
+                    and row["fields"].get("top_blocker")
+                    == "bridge_private_capture_release_owner_behavior_disabled"
+                    for row in release_owners
                 )
             )
             capture_contract = graph["capture_output_boundary_contract"]

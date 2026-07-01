@@ -1475,6 +1475,7 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
       mode == "segmented_stack_dispatch_budget_prefix6_tail_to_exit" ||
       mode == "segmented_stack_wide3_to_exit" ||
       mode == "segmented_stack_wide4_to_exit" ||
+      mode == "segmented_stack_wide6_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
@@ -1511,6 +1512,9 @@ constexpr uint64_t kSegmentedOwnedCommandBufferWide3DispatchLimit = 36u;
 constexpr size_t kSegmentedOwnedCommandBufferWide4BlockLimit = 4u;
 constexpr size_t kSegmentedOwnedCommandBufferWide4ScopeLimit = 3u;
 constexpr uint64_t kSegmentedOwnedCommandBufferWide4DispatchLimit = 48u;
+constexpr size_t kSegmentedOwnedCommandBufferWide6BlockLimit = 6u;
+constexpr size_t kSegmentedOwnedCommandBufferWide6ScopeLimit = 2u;
+constexpr uint64_t kSegmentedOwnedCommandBufferWide6DispatchLimit = 72u;
 constexpr size_t kStackOutputDeviceBridgeMaxProvenBlocks = 12u;
 
 bool stack_output_bridge_deep_split_native_baton_enabled() {
@@ -1568,6 +1572,11 @@ bool stack_owned_command_buffer_wide3_canary_enabled() {
 bool stack_owned_command_buffer_wide4_canary_enabled() {
   return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
       "segmented_stack_wide4_to_exit";
+}
+
+bool stack_owned_command_buffer_wide6_canary_enabled() {
+  return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
+      "segmented_stack_wide6_to_exit";
 }
 
 bool stack_owned_command_buffer_segmented_canary_enabled() {
@@ -1969,6 +1978,20 @@ StackOwnedCommandBufferSegmentPlan stack_wide4_segment_plan(
       "wide4_segment_dispatch_limit_exceeded",
       "wide4_segment_scope_limit_exceeded",
       "wide4_segment_plan_available_behavior_canary");
+}
+
+StackOwnedCommandBufferSegmentPlan stack_wide6_segment_plan(
+    const size_t block_count,
+    const VulkanVisionStackShapePlan* const plan) {
+  return stack_fixed_width_segment_plan(
+      block_count,
+      plan,
+      kSegmentedOwnedCommandBufferWide6BlockLimit,
+      kSegmentedOwnedCommandBufferWide6ScopeLimit,
+      kSegmentedOwnedCommandBufferWide6DispatchLimit,
+      "wide6_segment_dispatch_limit_exceeded",
+      "wide6_segment_scope_limit_exceeded",
+      "wide6_segment_plan_available_behavior_canary");
 }
 
 StackOwnedCommandBufferSegmentPlan
@@ -9293,6 +9316,8 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       stack_owned_command_buffer_wide3_canary_enabled();
   const bool wide4_canary_requested =
       stack_owned_command_buffer_wide4_canary_enabled();
+  const bool wide6_canary_requested =
+      stack_owned_command_buffer_wide6_canary_enabled();
   const size_t dispatch_budget_tail_scope_limit =
       stack_owned_command_buffer_dispatch_budget_tail_scope_limit();
   const bool dispatch_budget_tail_to_exit_canary_requested =
@@ -9333,6 +9358,10 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
               stack_shape_plan)
         : wide4_canary_requested
         ? stack_wide4_segment_plan(
+              context->blocks().size(),
+              stack_shape_plan)
+        : wide6_canary_requested
+        ? stack_wide6_segment_plan(
               context->blocks().size(),
               stack_shape_plan)
         : dispatch_budget_prefix_canary_requested
@@ -12378,6 +12407,59 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     handoff.host_readback_before_consumption = false;
     return handoff;
   };
+  const auto make_bridge_release_owner_record =
+      [](const api::VulkanPrivateBridgeCaptureHandoffRecord& handoff)
+      -> api::VulkanBridgePrivateCaptureReleaseOwnerRecord {
+    api::VulkanBridgePrivateCaptureReleaseOwnerRecord owner;
+    owner.capture_slot = handoff.capture_slot;
+    owner.captured_block_index = handoff.captured_block_index;
+    owner.captured_substep = handoff.captured_substep;
+    owner.output_role = handoff.output_role;
+    owner.stack_context_id = handoff.stack_context_id;
+    owner.stack_session_id = handoff.stack_session_id;
+    owner.stack_plan_id = handoff.stack_plan_id;
+    owner.raw_capture_identity_status = handoff.raw_capture_identity_status;
+    owner.raw_capture_allocation_id = handoff.raw_capture_allocation_id;
+    owner.raw_capture_allocation_generation =
+        handoff.raw_capture_allocation_generation;
+    owner.raw_capture_byte_offset = handoff.raw_capture_byte_offset;
+    owner.raw_capture_byte_range = handoff.raw_capture_byte_range;
+    owner.normalized_identity_status = handoff.normalized_identity_status;
+    owner.normalized_allocation_id = handoff.normalized_allocation_id;
+    owner.normalized_allocation_generation =
+        handoff.normalized_allocation_generation;
+    owner.normalized_byte_offset = handoff.normalized_byte_offset;
+    owner.normalized_byte_range = handoff.normalized_byte_range;
+    owner.decoder_input_identity_status =
+        handoff.decoder_input_identity_status;
+    owner.decoder_input_allocation_id = handoff.decoder_input_allocation_id;
+    owner.decoder_input_allocation_generation =
+        handoff.decoder_input_allocation_generation;
+    owner.decoder_input_byte_offset = handoff.decoder_input_byte_offset;
+    owner.decoder_input_byte_range = handoff.decoder_input_byte_range;
+    owner.normalized_same_allocation_as_raw_capture =
+        handoff.normalized_same_allocation_as_raw_capture;
+    owner.decoder_input_aliases_normalized_capture =
+        handoff.decoder_input_aliases_normalized_capture;
+    owner.decoder_consumer_completed_before_bridge_exit =
+        handoff.decoder_consumer_completed_before_bridge_exit;
+    owner.decoder_bridge_recording_scope_closed_before_release =
+        handoff.decoder_bridge_recording_scope_closed_before_release;
+    owner.python_public_boundary_before_release =
+        handoff.python_public_boundary_before_consumption;
+    owner.requested_output_before_release = false;
+    owner.final_output_before_release = false;
+    owner.host_visible_boundary_before_release =
+        handoff.host_visible_boundary_before_consumption;
+    owner.host_visible_access_before_release =
+        handoff.host_visible_access_before_consumption;
+    owner.host_readback_before_release = handoff.host_readback_before_consumption;
+    owner.release_owner_available = false;
+    owner.release_status =
+        "bridge_private_capture_release_owner_scaffold_present_behavior_disabled_fail_closed";
+    owner.top_blocker = "bridge_private_capture_release_owner_behavior_disabled";
+    return owner;
+  };
   for (const auto capture_slot : c10::irange(decoder_inputs.size())) {
     api::VulkanPrivateBridgeCaptureHandoffRecord handoff =
         make_bridge_handoff_record(
@@ -12405,6 +12487,8 @@ Tensor run_vision_stack_captures_decoder_preprocess_bridge(
     handoff.handoff_status =
         "private_bridge_capture_decoder_consumer_completed_behavior_neutral";
     api::note_private_bridge_capture_handoff(handoff);
+    api::note_bridge_private_capture_release_owner(
+        make_bridge_release_owner_record(handoff));
   }
   utils::log_vulkan_op_hit(
       "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge");

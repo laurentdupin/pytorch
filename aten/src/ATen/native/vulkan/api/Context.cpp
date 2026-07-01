@@ -124,6 +124,7 @@ bool stack_region_owned_command_buffer_canary_enabled() {
       value == "segmented_stack_dispatch_budget_prefix6_tail_to_exit" ||
       value == "segmented_stack_wide3_to_exit" ||
       value == "segmented_stack_wide4_to_exit" ||
+      value == "segmented_stack_wide6_to_exit" ||
       value == "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 
@@ -143,6 +144,25 @@ bool stack_region_pending_retire_transfer_owner_preserved_phase_handoff_enabled(
     return false;
   }
   return std::string(env) == "preserved_phase_submit_handoff";
+}
+
+bool stack_region_segment_completion_retire_handoff_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  const std::string value(env);
+  return value == "1" || value == "external_recording_cleanup";
+}
+
+bool stack_owner_poll_only_retire_drain_defer_enabled() {
+  const char* env =
+      std::getenv("PYTORCH_VULKAN_STACK_RETIRE_POLL_DEFERRAL");
+  if (env == nullptr || *env == '\0') {
+    return false;
+  }
+  return std::string(env) == "stack_owner_poll_only";
 }
 
 const char* stack_region_single_recording_plan_state_name(
@@ -2517,6 +2537,10 @@ void Context::dump_gpu_profile_log(const char* reason) {
     stream << "gpu_timestamp reason=" << (reason ? reason : "unspecified")
            << " name=" << entry.kernel_name
            << " runtime=" << entry.runtime_label
+           << " recent_op=" << entry.recent_op_label
+           << " submit_phase=" << entry.submit_phase
+           << " stack_phase=" << entry.stack_phase
+           << " stack_block=" << entry.stack_block
            << " start_ns=" << entry.start_time_ns
            << " end_ns=" << entry.end_time_ns
            << " duration_ns=" << entry.execution_duration_ns
@@ -2673,6 +2697,7 @@ void Context::synchronize_stream(const c10::Stream& stream) {
       vk_stream.last_submitted_value.load(std::memory_order_acquire);
   vulkan_stream_pool().wait_complete(vk_stream, value);
   poll_retire_queue();
+  dump_gpu_profile_log("synchronize_stream");
   if (synchronized_current_stream) {
     std::unique_lock<std::mutex> cleanup_lock(dispatch_lock());
     flush_persistent_external_recording_pools_if_idle();
@@ -2712,6 +2737,7 @@ void Context::synchronize_device() {
   submit_count_ = 0u;
   command_buffer_recording_id_ = 0u;
   clear_pending_retire_resources_locked();
+  dump_gpu_profile_log("synchronize_device");
 }
 
 std::string Context::format_submit_failure_diagnostics(
@@ -2956,10 +2982,16 @@ void Context::retire_deferred_cleanup(
 
 void Context::retire_external_recording_cleanup_resources(
     const VulkanSubmission submission,
-    std::vector<VulkanBuffer>& buffers,
-    std::vector<VulkanImage>& images,
+    std::vector<PendingRetireBuffer>& buffers,
+    std::vector<PendingRetireImage>& images,
     const uint64_t command_buffer_recording_id,
-    const uint64_t pending_dispatch_count) {
+    const uint64_t pending_dispatch_count,
+    const bool segment_metadata_observed,
+    const uint64_t segment_count,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_planned_dispatch_count) {
   const uint64_t buffer_count = buffers.size();
   const uint64_t image_count = images.size();
   const uint64_t resource_count = buffer_count + image_count;
@@ -2980,18 +3012,19 @@ void Context::retire_external_recording_cleanup_resources(
       ? descriptor_sets_after_scope - descriptor_sets_before_scope
       : 0u;
   uint64_t resource_bytes = 0u;
-  for (const VulkanBuffer& buffer : buffers) {
-    if (buffer.owns_memory()) {
-      resource_bytes += static_cast<uint64_t>(buffer.allocated_size());
-    }
+  for (const PendingRetireBuffer& pending : buffers) {
+    resource_bytes += pending.bytes;
   }
-  for (const VulkanImage& image : images) {
-    if (image.owns_memory()) {
-      resource_bytes += static_cast<uint64_t>(image.allocated_size());
-    }
+  for (const PendingRetireImage& pending : images) {
+    resource_bytes += pending.bytes;
   }
   const bool timeline_valid =
       submission.timeline != VK_NULL_HANDLE && submission.timeline_value != 0u;
+  const bool transfer_enabled =
+      stack_region_segment_completion_retire_handoff_enabled() &&
+      timeline_valid && segment_metadata_observed &&
+      stack_region_owned_command_buffer_active_.load(
+          std::memory_order_acquire);
   if (resource_count > 0u) {
     note_stack_region_external_recording_cleanup_retire(
         stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
@@ -3000,6 +3033,12 @@ void Context::retire_external_recording_cleanup_resources(
         command_buffer_recording_id,
         submission.timeline_value,
         pending_dispatch_count,
+        segment_metadata_observed,
+        segment_count,
+        segment_index,
+        segment_start_block,
+        segment_end_block,
+        segment_planned_dispatch_count,
         buffer_count,
         image_count,
         resource_count,
@@ -3011,31 +3050,58 @@ void Context::retire_external_recording_cleanup_resources(
         descriptor_sets_after_scope,
         descriptor_sets_in_scope,
         timeline_valid,
-        timeline_valid ? "scheduled_on_stack_exit_submission"
-                       : "cleared_missing_submission_timeline");
+        transfer_enabled ? "handoff_to_stack_exit_pending_retire_batch"
+                         : (timeline_valid
+                                ? "scheduled_on_stack_exit_submission"
+                                : "cleared_missing_submission_timeline"),
+        transfer_enabled,
+        transfer_enabled,
+        transfer_enabled ? resource_count : 0u,
+        transfer_enabled
+            ? "none"
+            : "external_recording_cleanup_transfer_unimplemented");
   }
   if (!timeline_valid) {
     buffers.clear();
     images.clear();
     return;
   }
-  for (VulkanBuffer& buffer : buffers) {
+  if (transfer_enabled) {
+    {
+      std::lock_guard<std::mutex> handoff_lock(
+          stack_region_pending_retire_handoff_batch_mutex_);
+      for (PendingRetireBuffer& pending : buffers) {
+        stack_region_pending_retire_handoff_buffers_.push_back(
+            std::move(pending));
+      }
+      for (PendingRetireImage& pending : images) {
+        stack_region_pending_retire_handoff_images_.push_back(
+            std::move(pending));
+      }
+    }
+    stack_region_pending_retire_transfer_owner_state_.store(
+        4u, std::memory_order_release);
+    buffers.clear();
+    images.clear();
+    return;
+  }
+  for (PendingRetireBuffer& pending : buffers) {
     retire_queue_.retire(RetiredResource{
         submission.stream_id,
         submission.timeline,
         submission.timeline_value,
         [buffer = std::make_shared<VulkanBuffer>(
-             std::move(buffer))]() {},
+             std::move(pending.buffer))]() {},
     });
   }
   buffers.clear();
-  for (VulkanImage& image : images) {
+  for (PendingRetireImage& pending : images) {
     retire_queue_.retire(RetiredResource{
         submission.stream_id,
         submission.timeline,
         submission.timeline_value,
         [image = std::make_shared<VulkanImage>(
-             std::move(image))]() {},
+             std::move(pending.image))]() {},
     });
   }
   images.clear();
@@ -3048,6 +3114,23 @@ void Context::poll_retire_queue() {
 void Context::submit_pending_work_and_poll_retire(
     const PendingWorkRetireDrainPolicy policy) {
   const uint64_t pending_bytes = pending_retire_bytes();
+  const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
+  const VulkanSubmitPhase phase = current_submit_phase();
+  constexpr uint64_t kStackOwnerPollOnlyDeferralBudgetBytes =
+      128u * 1024u * 1024u;
+  if (
+      stack_owner_poll_only_retire_drain_defer_enabled() &&
+      phase == VulkanSubmitPhase::StackOwner &&
+      pending_bytes <= kStackOwnerPollOnlyDeferralBudgetBytes) {
+    bool has_pending_command_work = false;
+    {
+      std::unique_lock<std::mutex> context_lock(dispatch_lock());
+      has_pending_command_work = has_pending_work_for_current_stream();
+    }
+    if (!has_pending_command_work) {
+      return;
+    }
+  }
   uint64_t pending_resource_count = 0u;
   uint64_t qkv_hypothetical_count = 0u;
   uint64_t qkv_hypothetical_bytes = 0u;
@@ -3060,8 +3143,6 @@ void Context::submit_pending_work_and_poll_retire(
   std::set<std::string> copresent_blockers;
   std::vector<RegionLifetimeSubmitResourceAttribution>
       region_lifetime_resource_attributions;
-  const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
-  const VulkanSubmitPhase phase = current_submit_phase();
   const bool record_subresource_lifetime_dry_run =
       phase == VulkanSubmitPhase::StackOwner &&
       callsite == VulkanRetireCallSite::StackOwnerNorm2;
@@ -3904,6 +3985,18 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
       : context_pending_dispatch_count;
   VulkanSubmission submission{};
   if (stack_region_owned_close_submit) {
+    const bool segment_metadata_observed =
+        g_external_command_recording_state.segment_metadata_observed;
+    const uint64_t segment_count =
+        g_external_command_recording_state.segment_count;
+    const uint64_t segment_index =
+        g_external_command_recording_state.segment_index;
+    const uint64_t segment_start_block =
+        g_external_command_recording_state.segment_start_block;
+    const uint64_t segment_end_block =
+        g_external_command_recording_state.segment_end_block;
+    const uint64_t segment_planned_dispatch_count =
+        g_external_command_recording_state.segment_planned_dispatch_count;
     end_external_command_recording();
     take_external_recording_cleanup_resources(
         stack_region_owned_recording_retained_buffers_,
@@ -3923,7 +4016,13 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
         stack_region_owned_recording_retained_buffers_,
         stack_region_owned_recording_retained_images_,
         command_buffer_recording_id,
-        pending_dispatch_count);
+        pending_dispatch_count,
+        segment_metadata_observed,
+        segment_count,
+        segment_index,
+        segment_start_block,
+        segment_end_block,
+        segment_planned_dispatch_count);
     stack_region_owned_command_buffer_active_.store(
         false, std::memory_order_release);
     stack_region_owned_recording_dispatch_count_ = 0u;
@@ -4153,6 +4252,7 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
       3u);
   restore_stack_internal_temp_retire_batch_to_pending_locked();
   restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
+  restore_bridge_private_capture_pending_retire_handoff_batch_to_pending_locked();
   if (stack_region_owned_command_buffer_active_.load(
           std::memory_order_acquire)) {
     end_external_command_recording();
@@ -4292,24 +4392,42 @@ void Context::submit_prepared_command_buffer(
 }
 
 void Context::take_external_recording_cleanup_resources(
-    std::vector<VulkanBuffer>& buffers,
-    std::vector<VulkanImage>& images) {
+    std::vector<PendingRetireBuffer>& buffers,
+    std::vector<PendingRetireImage>& images) {
   buffers.clear();
   buffers.reserve(
       g_external_command_recording_state.buffers_to_keep_alive.size());
   for (auto& pending :
        g_external_command_recording_state.buffers_to_keep_alive) {
-    buffers.emplace_back(std::move(pending.buffer));
+    buffers.emplace_back(std::move(pending));
   }
   images.clear();
   images.reserve(
       g_external_command_recording_state.images_to_keep_alive.size());
   for (auto& pending :
        g_external_command_recording_state.images_to_keep_alive) {
-    images.emplace_back(std::move(pending.image));
+    images.emplace_back(std::move(pending));
   }
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
+}
+
+void Context::take_external_recording_cleanup_resources(
+    std::vector<VulkanBuffer>& buffers,
+    std::vector<VulkanImage>& images) {
+  std::vector<PendingRetireBuffer> pending_buffers;
+  std::vector<PendingRetireImage> pending_images;
+  take_external_recording_cleanup_resources(pending_buffers, pending_images);
+  buffers.clear();
+  buffers.reserve(pending_buffers.size());
+  for (auto& pending : pending_buffers) {
+    buffers.emplace_back(std::move(pending.buffer));
+  }
+  images.clear();
+  images.reserve(pending_images.size());
+  for (auto& pending : pending_images) {
+    images.emplace_back(std::move(pending.image));
+  }
 }
 
 void Context::note_external_recording_cleanup_logical_boundary(
@@ -4393,6 +4511,7 @@ void Context::clear_pending_retire_resources_locked() {
     pending_retire_images_.clear();
   }
   clear_stack_region_pending_retire_handoff_batch_locked();
+  clear_bridge_private_capture_pending_retire_handoff_batch_locked();
   pending_retire_bytes_.store(0u, std::memory_order_relaxed);
 }
 
@@ -4408,6 +4527,13 @@ void Context::clear_stack_region_pending_retire_handoff_batch_locked() {
       stack_region_pending_retire_handoff_batch_mutex_);
   stack_region_pending_retire_handoff_buffers_.clear();
   stack_region_pending_retire_handoff_images_.clear();
+}
+
+void Context::clear_bridge_private_capture_pending_retire_handoff_batch_locked() {
+  std::lock_guard<std::mutex> handoff_lock(
+      bridge_private_capture_pending_retire_handoff_batch_mutex_);
+  bridge_private_capture_pending_retire_handoff_buffers_.clear();
+  bridge_private_capture_pending_retire_handoff_images_.clear();
 }
 
 bool Context::has_stack_region_pending_retire_handoff_batch_locked() {
@@ -4738,6 +4864,40 @@ void Context::restore_stack_region_pending_retire_handoff_batch_to_pending_locke
   }
 }
 
+void Context::restore_bridge_private_capture_pending_retire_handoff_batch_to_pending_locked() {
+  std::vector<PendingRetireBuffer> handoff_buffers;
+  std::vector<PendingRetireImage> handoff_images;
+  {
+    std::lock_guard<std::mutex> handoff_lock(
+        bridge_private_capture_pending_retire_handoff_batch_mutex_);
+    if (
+        bridge_private_capture_pending_retire_handoff_buffers_.empty() &&
+        bridge_private_capture_pending_retire_handoff_images_.empty()) {
+      return;
+    }
+    handoff_buffers.swap(
+        bridge_private_capture_pending_retire_handoff_buffers_);
+    handoff_images.swap(
+        bridge_private_capture_pending_retire_handoff_images_);
+  }
+  {
+    std::lock_guard<std::mutex> bufferlist_lock(pending_retire_buffers_mutex_);
+    for (auto& pending : handoff_buffers) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+      pending_retire_buffers_.push_back(std::move(pending));
+    }
+  }
+  {
+    std::lock_guard<std::mutex> imagelist_lock(pending_retire_images_mutex_);
+    for (auto& pending : handoff_images) {
+      pending_retire_bytes_.fetch_add(
+          pending.bytes, std::memory_order_relaxed);
+      pending_retire_images_.push_back(std::move(pending));
+    }
+  }
+}
+
 void Context::retire_stack_internal_temp_retire_batch_locked(
     const VulkanSubmission& submission) {
   if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
@@ -4849,6 +5009,64 @@ void Context::retire_stack_region_pending_retire_handoff_batch_locked(
     });
   }
   stack_region_pending_retire_handoff_images_.clear();
+  if (batch_bytes > 0u) {
+    note_stack_internal_temp_retire_batch_submitted(batch_bytes);
+  }
+}
+
+void Context::retire_bridge_private_capture_pending_retire_handoff_batch_locked(
+    const VulkanSubmission& submission) {
+  if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
+    restore_bridge_private_capture_pending_retire_handoff_batch_to_pending_locked();
+    return;
+  }
+  std::lock_guard<std::mutex> handoff_lock(
+      bridge_private_capture_pending_retire_handoff_batch_mutex_);
+  uint64_t batch_bytes = 0u;
+  for (PendingRetireBuffer& pending :
+       bridge_private_capture_pending_retire_handoff_buffers_) {
+    note_vulkan_retired_resource(
+        pending.kind,
+        pending.role,
+        pending.phase,
+        VulkanRetireCallSite::StackPlannedRecordingEnd,
+        pending.bytes,
+        /*queue_submit=*/true,
+        /*blocking_wait=*/false,
+        /*poll_only=*/false,
+        pending.stack_provenance);
+    batch_bytes += pending.bytes;
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [buffer = std::make_shared<VulkanBuffer>(
+             std::move(pending.buffer))]() {},
+    });
+  }
+  bridge_private_capture_pending_retire_handoff_buffers_.clear();
+  for (PendingRetireImage& pending :
+       bridge_private_capture_pending_retire_handoff_images_) {
+    note_vulkan_retired_resource(
+        pending.kind,
+        pending.role,
+        pending.phase,
+        VulkanRetireCallSite::StackPlannedRecordingEnd,
+        pending.bytes,
+        /*queue_submit=*/true,
+        /*blocking_wait=*/false,
+        /*poll_only=*/false,
+        pending.stack_provenance);
+    batch_bytes += pending.bytes;
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [image = std::make_shared<VulkanImage>(
+             std::move(pending.image))]() {},
+    });
+  }
+  bridge_private_capture_pending_retire_handoff_images_.clear();
   if (batch_bytes > 0u) {
     note_stack_internal_temp_retire_batch_submitted(batch_bytes);
   }

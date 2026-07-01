@@ -151,8 +151,8 @@ class TORCH_API Context final {
   uint64_t stack_region_external_descriptor_set_count_;
   uint64_t stack_region_external_command_buffer_acquire_at_begin_;
   uint64_t stack_region_external_descriptor_set_count_at_begin_;
-  std::vector<VulkanBuffer> stack_region_owned_recording_retained_buffers_;
-  std::vector<VulkanImage> stack_region_owned_recording_retained_images_;
+  std::vector<PendingRetireBuffer> stack_region_owned_recording_retained_buffers_;
+  std::vector<PendingRetireImage> stack_region_owned_recording_retained_images_;
   std::atomic<uint64_t> stack_region_single_recording_plan_id_;
   std::atomic<uint64_t> next_stack_region_single_recording_plan_id_;
   std::atomic<uint32_t> stack_region_single_recording_plan_state_;
@@ -207,17 +207,26 @@ class TORCH_API Context final {
   std::mutex stack_region_pending_retire_handoff_batch_mutex_;
   std::vector<PendingRetireBuffer> stack_region_pending_retire_handoff_buffers_;
   std::vector<PendingRetireImage> stack_region_pending_retire_handoff_images_;
+  std::mutex bridge_private_capture_pending_retire_handoff_batch_mutex_;
+  std::vector<PendingRetireBuffer>
+      bridge_private_capture_pending_retire_handoff_buffers_;
+  std::vector<PendingRetireImage>
+      bridge_private_capture_pending_retire_handoff_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
 
   void clear_pending_retire_resources_locked();
   void clear_stack_internal_temp_retire_batch_locked();
   void clear_stack_region_pending_retire_handoff_batch_locked();
+  void clear_bridge_private_capture_pending_retire_handoff_batch_locked();
   void restore_stack_internal_temp_retire_batch_to_pending_locked();
   void restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
+  void restore_bridge_private_capture_pending_retire_handoff_batch_to_pending_locked();
   void retire_stack_internal_temp_retire_batch_locked(
       const VulkanSubmission& submission);
   void retire_stack_region_pending_retire_handoff_batch_locked(
+      const VulkanSubmission& submission);
+  void retire_bridge_private_capture_pending_retire_handoff_batch_locked(
       const VulkanSubmission& submission);
   void flush_persistent_external_recording_pools_if_idle();
   bool transfer_pending_retires_to_stack_region_handoff_locked(
@@ -269,10 +278,16 @@ class TORCH_API Context final {
   void retire_deferred_cleanup(VulkanSubmission, VulkanSubmitOrigin);
   void retire_external_recording_cleanup_resources(
       VulkanSubmission,
-      std::vector<VulkanBuffer>&,
-      std::vector<VulkanImage>&,
+      std::vector<PendingRetireBuffer>&,
+      std::vector<PendingRetireImage>&,
       uint64_t command_buffer_recording_id,
-      uint64_t pending_dispatch_count);
+      uint64_t pending_dispatch_count,
+      bool segment_metadata_observed,
+      uint64_t segment_count,
+      uint64_t segment_index,
+      uint64_t segment_start_block,
+      uint64_t segment_end_block,
+      uint64_t segment_planned_dispatch_count);
 
  public:
   // Adapter access
@@ -611,6 +626,9 @@ class TORCH_API Context final {
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false,
       const char* profile_label = nullptr);
+  void take_external_recording_cleanup_resources(
+      std::vector<PendingRetireBuffer>& buffers,
+      std::vector<PendingRetireImage>& images);
   void take_external_recording_cleanup_resources(
       std::vector<VulkanBuffer>& buffers,
       std::vector<VulkanImage>& images);
@@ -1167,7 +1185,7 @@ inline bool Context::submit_compute_job(
   CommandBuffer& cmd = active_cmd();
 
   uint32_t log_idx = UINT32_MAX;
-  if (enable_op_profiling_ && !external_recording) {
+  if (enable_op_profiling_) {
     log_idx = gpu_profile_begin(
         cmd,
         shader.kernel_name,
@@ -1232,7 +1250,7 @@ inline bool Context::submit_compute_job(
     }
   }
 
-  if (enable_op_profiling_ && !external_recording) {
+  if (enable_op_profiling_) {
     gpu_profile_end(cmd, log_idx);
   }
 

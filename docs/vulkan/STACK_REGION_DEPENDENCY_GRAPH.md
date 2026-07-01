@@ -1010,6 +1010,12 @@ pending-retire owner handoff field. This keeps the source snapshot and the
 ownership handoff distinct: a report can say that the source is known while the
 region owner remains behavior-disabled, or that the owner is waiting on the
 transfer plan itself.
+The bridge-private capture release path now has an empty pending-retire handoff
+batch scaffold in `Context`. The scaffold has clear, restore, and timeline-gated
+retire helpers, but no source mover and no behavior change. A future bridge
+canary must arm this batch from the post-decoder-consumer release owner and
+retire it with the decoder bridge close submission, not with the backbone stack
+exit.
 The row now carries `ContextStackRegionPendingRetireTransferOwnerState.v0`
 lifecycle id/state/status/source. This mirrors the close-submit,
 reset-deferral, and retire-timeline owner surfaces: the owner is observed from
@@ -1380,6 +1386,22 @@ budget. It exists only to test the next smaller segment-submit count after
 retires, defer submits, or enable submit elision. Initial `vits_140` evidence
 shows it reduces the device-resident forward's stack-planned submit count by
 one versus `wide3` while keeping bridge sanity and zero fallback/readback.
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide6_to_exit`
+is the wider two-segment probe for 12-block private-bridge stacks. It selects
+blocks 0-5 and 6-11 with a 72-dispatch per-segment budget and keeps submit
+elision, deferred submit, and pending-retire transfer disabled. Current
+`vits_140` RX 9070 evidence keeps it unpromoted: the mode is correct and
+copy/readback/fallback-clean, and after the Context canary-admission fix it
+does reduce stack-planned submit count versus wide4, but it still loses on
+device-resident forward time while leaving stack-owner retire-drain submits
+unchanged. Do not add a wider fixed segment mode until the remaining
+retire/capture ownership and per-segment overhead have bounded reduction
+contracts.
+Any non-empty segmented stack-owned command-buffer mode also enables the
+recording-domain observation rows that feed `StackRegionSegmentPlan.v0`. This
+is diagnostics only; it makes opt-in canary artifacts self-describing without
+changing route selection, command recording behavior, submit count, or retire
+policy.
 `PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
 private-bridge canary for the post-stack decoder-preprocess island exposed by
 `StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope
@@ -1409,6 +1431,17 @@ recording does not retain per-iteration recording state across benchmark
 repeats. The reset is skipped while an external recording scope is active. If
 recovery is pending, the helper still takes the full flush path before clearing
 the recovery flag.
+GPU timestamp profiling now follows the same measurement boundary: stack-owned
+external recording dispatches can emit timestamp begin/end rows, and successful
+`vulkan_prepack::synchronize()` stream waits dump the completed timestamp rows
+without requiring a full context flush. Depth Anything V2 can isolate the
+device-resident forward with
+`--vulkan-gpu-profile-phase single_image_forward_device_resident`, which
+truncates `PYTORCH_VULKAN_GPU_TIMESTAMP_LOG` after warmup and skips unrelated
+measurement loops. The resulting runtime attribution report separates
+timestamped shader time from submit, retire, copy, fallback, and readback
+counters for the same phase; it is a measurement aid, not a graph-contract
+authorization to remove synchronization.
 Stack-scoped LayerNorm statistic buffers are now represented by the same
 shape-plan proof surface. `[tokens,1]` `stack_norm1_output` and
 `stack_norm2_output` TensorAllocation rows can report formal last-use proof and
@@ -1444,6 +1477,17 @@ performed at cleanup-retire emission itself. A valid row with
 to the existing retire queue under the stack-exit submission. It does not
 transfer pending retires, remove phase-boundary submits, defer submits, or prove
 that larger external-recording segments are repeat-stable.
+`PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF=external_recording_cleanup`
+enables the opt-in `StackRegionSegmentCompletionRetireHandoffContract.v0`
+canary. Under that flag, exact external-recording cleanup pending-retire
+entries can move into the stack-region pending-retire handoff batch and retire
+on the existing stack-exit submission timeline. The canary remains fail-closed
+on missing segment metadata or timeline ownership, keeps submit elision and
+deferred submit disabled, and preserves the default path when the flag is not
+set. The first `vits_140` probe preserved correctness but did not reduce the
+measured stack-owner retire-drain submit count and was slower than the wide4
+baseline, so this is cataloged as rejected performance evidence rather than a
+promotion path.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

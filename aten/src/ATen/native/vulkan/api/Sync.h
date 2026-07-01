@@ -417,6 +417,48 @@ struct VulkanPrivateBridgeCaptureHandoffRecord final {
       "private_bridge_capture_handoff_observed_behavior_neutral";
 };
 
+struct VulkanBridgePrivateCaptureReleaseOwnerRecord final {
+  int64_t capture_slot = -1;
+  int64_t captured_block_index = -1;
+  std::string captured_substep = "unknown";
+  std::string output_role = "unknown";
+  std::string stack_context_id = "missing_stack_context_id";
+  std::string stack_session_id = "missing_bridge_session_id";
+  std::string stack_plan_id = "missing_stack_plan_id";
+  std::string raw_capture_identity_status = "not_recorded";
+  uint64_t raw_capture_allocation_id = 0u;
+  uint64_t raw_capture_allocation_generation = 0u;
+  uint64_t raw_capture_byte_offset = 0u;
+  uint64_t raw_capture_byte_range = 0u;
+  std::string normalized_identity_status = "not_recorded";
+  uint64_t normalized_allocation_id = 0u;
+  uint64_t normalized_allocation_generation = 0u;
+  uint64_t normalized_byte_offset = 0u;
+  uint64_t normalized_byte_range = 0u;
+  std::string decoder_input_identity_status = "not_recorded";
+  uint64_t decoder_input_allocation_id = 0u;
+  uint64_t decoder_input_allocation_generation = 0u;
+  uint64_t decoder_input_byte_offset = 0u;
+  uint64_t decoder_input_byte_range = 0u;
+  bool normalized_same_allocation_as_raw_capture = false;
+  bool decoder_input_aliases_normalized_capture = false;
+  bool decoder_consumer_completed_before_bridge_exit = false;
+  bool decoder_bridge_recording_scope_closed_before_release = false;
+  bool python_public_boundary_before_release = true;
+  bool requested_output_before_release = true;
+  bool final_output_before_release = true;
+  bool host_visible_boundary_before_release = true;
+  bool host_visible_access_before_release = true;
+  bool host_readback_before_release = true;
+  bool behavior_neutral = true;
+  bool transfers_pending_retires = false;
+  bool release_owner_available = false;
+  std::string release_status =
+      "bridge_private_capture_release_owner_scaffold_present_fail_closed";
+  std::string top_blocker =
+      "bridge_private_capture_release_owner_behavior_disabled";
+};
+
 struct VulkanStackPlannedRegionContext final {
   std::string region_id = "missing_region_id";
   std::string stack_context_id = "missing_stack_context_id";
@@ -2448,6 +2490,12 @@ TORCH_API void note_stack_region_external_recording_cleanup_retire(
     uint64_t command_buffer_recording_id,
     uint64_t submit_epoch_after,
     uint64_t pending_dispatch_count,
+    bool segment_metadata_observed,
+    uint64_t segment_count,
+    uint64_t segment_index,
+    uint64_t segment_start_block,
+    uint64_t segment_end_block,
+    uint64_t segment_planned_dispatch_count,
     uint64_t buffer_count,
     uint64_t image_count,
     uint64_t resource_count,
@@ -2459,7 +2507,12 @@ TORCH_API void note_stack_region_external_recording_cleanup_retire(
     uint64_t external_descriptor_sets_after_scope,
     uint64_t external_descriptor_sets_in_scope,
     bool timeline_valid,
-    const char* retire_action);
+    const char* retire_action,
+    bool transfer_behavior_enabled = false,
+    bool transfers_pending_retires = false,
+    uint64_t pending_retire_handoff_moved_count = 0u,
+    const char* top_blocker =
+        "external_recording_cleanup_transfer_unimplemented");
 TORCH_API void note_stack_region_segment_plan(
     const char* row_kind,
     uint64_t region_id,
@@ -2612,11 +2665,15 @@ TORCH_API void note_stack_output_device_consumer_registration(
     const VulkanStackOutputDeviceConsumerRegistration& registration);
 TORCH_API void note_private_bridge_capture_handoff(
     const VulkanPrivateBridgeCaptureHandoffRecord& record);
+TORCH_API void note_bridge_private_capture_release_owner(
+    const VulkanBridgePrivateCaptureReleaseOwnerRecord& record);
 TORCH_API std::vector<std::string> stack_dispatch_aggregate_snapshot();
 TORCH_API std::vector<std::string> stack_allocation_aggregate_snapshot();
 TORCH_API std::vector<std::string>
 stack_output_device_consumer_registration_snapshot();
 TORCH_API std::vector<std::string> private_bridge_capture_handoff_snapshot();
+TORCH_API std::vector<std::string>
+bridge_private_capture_release_owner_snapshot();
 TORCH_API std::vector<std::string>
 stack_dispatch_dependency_dry_run_snapshot();
 TORCH_API void reset_stack_dispatch_aggregate();

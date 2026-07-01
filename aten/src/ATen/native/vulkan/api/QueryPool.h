@@ -31,6 +31,10 @@ struct ShaderDuration final {
   // Execution Properties
   std::string kernel_name;
   std::string runtime_label;
+  std::string recent_op_label;
+  std::string submit_phase;
+  std::string stack_phase;
+  int64_t stack_block;
   VkExtent3D global_workgroup_size;
   VkExtent3D local_workgroup_size;
 

@@ -445,6 +445,16 @@ private_bridge_capture_handoffs() {
   return rows;
 }
 
+struct BridgePrivateCaptureReleaseOwnerValue final {
+  uint64_t count = 0u;
+};
+
+std::map<std::string, BridgePrivateCaptureReleaseOwnerValue>&
+bridge_private_capture_release_owners() {
+  static std::map<std::string, BridgePrivateCaptureReleaseOwnerValue> rows;
+  return rows;
+}
+
 struct StackDispatchDependencyDispatchValue final {
   uint64_t count = 0u;
   uint64_t first_position = 0u;
@@ -2646,6 +2656,12 @@ void record_stack_region_external_recording_cleanup_retire(
     const uint64_t command_buffer_recording_id,
     const uint64_t submit_epoch_after,
     const uint64_t pending_dispatch_count,
+    const bool segment_metadata_observed,
+    const uint64_t segment_count,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_planned_dispatch_count,
     const uint64_t buffer_count,
     const uint64_t image_count,
     const uint64_t resource_count,
@@ -2657,7 +2673,11 @@ void record_stack_region_external_recording_cleanup_retire(
     const uint64_t external_descriptor_sets_after_scope,
     const uint64_t external_descriptor_sets_in_scope,
     const bool timeline_valid,
-    const char* const retire_action) {
+    const char* const retire_action,
+    const bool transfer_behavior_enabled,
+    const bool transfers_pending_retires,
+    const uint64_t pending_retire_handoff_moved_count,
+    const char* const top_blocker) {
   std::ostringstream key;
   key << "stack_region_external_recording_cleanup_retire=1"
       << " schema=StackRegionExternalRecordingCleanupRetire.v0"
@@ -2669,6 +2689,23 @@ void record_stack_region_external_recording_cleanup_retire(
       << " command_buffer_recording_id=" << command_buffer_recording_id
       << " submit_epoch_after=" << submit_epoch_after
       << " pending_dispatch_count=" << pending_dispatch_count
+      << " segment_completion_contract=StackRegionSegmentCompletion.v0"
+      << " segment_metadata_observed=" << (segment_metadata_observed ? 1 : 0)
+      << " segment_count=" << segment_count
+      << " segment_index=" << segment_index
+      << " segment_start_block=" << segment_start_block
+      << " segment_end_block=" << segment_end_block
+      << " segment_planned_dispatch_count="
+      << segment_planned_dispatch_count
+      << " segment_completion_id="
+      << "recording_" << command_buffer_recording_id << "_segment_"
+      << segment_index << "_timeline_" << submit_epoch_after
+      << " segment_completion_available="
+      << (timeline_valid && segment_metadata_observed ? 1 : 0)
+      << " segment_completion_owner="
+      << (timeline_valid && segment_metadata_observed
+              ? "stack_exit_submission_timeline"
+              : "missing_segment_metadata_or_timeline")
       << " external_cleanup_buffer_count=" << buffer_count
       << " external_cleanup_image_count=" << image_count
       << " external_cleanup_resource_count=" << resource_count
@@ -2701,13 +2738,19 @@ void record_stack_region_external_recording_cleanup_retire(
       << " external_cleanup_retire_action="
       << (retire_action && retire_action[0] != '\0' ? retire_action
                                                      : "unknown")
-      << " behavior_neutral=1 default_behavior_unchanged=1"
-      << " metadata_only=1"
-      << " transfer_behavior_enabled=0"
-      << " transfers_pending_retires=0"
+      << " segment_completion_retire_handoff_contract="
+      << "StackRegionSegmentCompletionRetireHandoffContract.v0"
+      << " behavior_neutral=" << (transfer_behavior_enabled ? 0 : 1)
+      << " default_behavior_unchanged=" << (transfer_behavior_enabled ? 0 : 1)
+      << " metadata_only=" << (transfer_behavior_enabled ? 0 : 1)
+      << " transfer_behavior_enabled=" << (transfer_behavior_enabled ? 1 : 0)
+      << " transfers_pending_retires=" << (transfers_pending_retires ? 1 : 0)
       << " submit_elision_enabled=0"
       << " deferred_submit_enabled=0"
-      << " top_blocker=external_recording_cleanup_transfer_unimplemented";
+      << " pending_retire_handoff_moved_count="
+      << pending_retire_handoff_moved_count
+      << " top_blocker="
+      << (top_blocker && top_blocker[0] != '\0' ? top_blocker : "unknown");
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   stack_region_external_recording_cleanup_retire_rows()[key.str()].count += 1u;
 }
@@ -24254,6 +24297,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       stack_output_device_consumer_registration_snapshot();
   const std::vector<std::string> private_bridge_capture_handoff_rows =
       private_bridge_capture_handoff_snapshot();
+  const std::vector<std::string> bridge_private_capture_release_owner_rows =
+      bridge_private_capture_release_owner_snapshot();
   const std::vector<std::string> lifetime_rows =
       stack_subresource_lifetime_dry_run_snapshot();
   const std::vector<std::string> region_rows =
@@ -24489,6 +24534,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "bridge_private_capture_release_owner_rows",
+      bridge_private_capture_release_owner_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "stack_region_boundary_submit_plan_rows",
       boundary_submit_plan_rows.size(),
       summary_first);
@@ -24710,6 +24760,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         private_bridge_capture_handoff_rows,
         "private_bridge_capture_handoff",
         first);
+    append_graph_array(
+        out,
+        "bridge_private_capture_release_owners",
+        bridge_private_capture_release_owner_rows,
+        "bridge_private_capture_release_owner",
+        first);
     append_json_string_array(
         out,
         "unproven_or_missing_metadata_fields",
@@ -24848,6 +24904,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "private_bridge_capture_handoffs",
       private_bridge_capture_handoff_rows,
       "private_bridge_capture_handoff",
+      first);
+  append_graph_array(
+      out,
+      "bridge_private_capture_release_owners",
+      bridge_private_capture_release_owner_rows,
+      "bridge_private_capture_release_owner",
       first);
   append_capture_output_boundary_contract_json(
       out,
@@ -25034,6 +25096,12 @@ void note_stack_region_external_recording_cleanup_retire(
     const uint64_t command_buffer_recording_id,
     const uint64_t submit_epoch_after,
     const uint64_t pending_dispatch_count,
+    const bool segment_metadata_observed,
+    const uint64_t segment_count,
+    const uint64_t segment_index,
+    const uint64_t segment_start_block,
+    const uint64_t segment_end_block,
+    const uint64_t segment_planned_dispatch_count,
     const uint64_t buffer_count,
     const uint64_t image_count,
     const uint64_t resource_count,
@@ -25045,7 +25113,11 @@ void note_stack_region_external_recording_cleanup_retire(
     const uint64_t external_descriptor_sets_after_scope,
     const uint64_t external_descriptor_sets_in_scope,
     const bool timeline_valid,
-    const char* const retire_action) {
+    const char* const retire_action,
+    const bool transfer_behavior_enabled,
+    const bool transfers_pending_retires,
+    const uint64_t pending_retire_handoff_moved_count,
+    const char* const top_blocker) {
   if (stack_region_dependency_graph_path() == nullptr) {
     return;
   }
@@ -25055,6 +25127,12 @@ void note_stack_region_external_recording_cleanup_retire(
       command_buffer_recording_id,
       submit_epoch_after,
       pending_dispatch_count,
+      segment_metadata_observed,
+      segment_count,
+      segment_index,
+      segment_start_block,
+      segment_end_block,
+      segment_planned_dispatch_count,
       buffer_count,
       image_count,
       resource_count,
@@ -25066,7 +25144,11 @@ void note_stack_region_external_recording_cleanup_retire(
       external_descriptor_sets_after_scope,
       external_descriptor_sets_in_scope,
       timeline_valid,
-      retire_action);
+      retire_action,
+      transfer_behavior_enabled,
+      transfers_pending_retires,
+      pending_retire_handoff_moved_count,
+      top_blocker);
 }
 
 void note_stack_region_segment_plan(
@@ -25136,7 +25218,12 @@ void note_stack_region_segment_plan(
 }
 
 bool stack_region_recording_domain_observation_enabled() {
+  const char* const owned_command_buffer_mode =
+      std::getenv("PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER");
   return stack_region_dependency_graph_path() != nullptr ||
+      (owned_command_buffer_mode != nullptr &&
+       owned_command_buffer_mode[0] != '\0' &&
+       std::string(owned_command_buffer_mode) != "none") ||
       stack_region_single_recording_canary_target_selected(
              stack_region_single_recording_canary_target());
 }
@@ -33261,6 +33348,83 @@ void note_private_bridge_capture_handoff(
   maybe_write_stack_region_dependency_graph_dump();
 }
 
+void note_bridge_private_capture_release_owner(
+    const VulkanBridgePrivateCaptureReleaseOwnerRecord& record) {
+  const bool public_final_host_readback_requested_blocker =
+      record.python_public_boundary_before_release ||
+      record.requested_output_before_release ||
+      record.final_output_before_release ||
+      record.host_visible_boundary_before_release ||
+      record.host_visible_access_before_release ||
+      record.host_readback_before_release;
+  std::ostringstream key;
+  key << "bridge_private_capture_release_owner=1"
+      << " schema=BridgePrivateCaptureReleaseOwner.v0"
+      << " behavior_neutral=" << (record.behavior_neutral ? 1 : 0)
+      << " transfers_pending_retires="
+      << (record.transfers_pending_retires ? 1 : 0)
+      << " submit_elision_enabled=0"
+      << " capture_slot=" << record.capture_slot
+      << " captured_block=" << record.captured_block_index
+      << " captured_substep=" << record.captured_substep
+      << " output_role=" << record.output_role
+      << " stack_context_id=" << record.stack_context_id
+      << " stack_session_id=" << record.stack_session_id
+      << " stack_plan_id=" << record.stack_plan_id
+      << " raw_capture_identity_status="
+      << record.raw_capture_identity_status
+      << " raw_capture_allocation_id=" << record.raw_capture_allocation_id
+      << " raw_capture_allocation_generation="
+      << record.raw_capture_allocation_generation
+      << " raw_capture_byte_offset=" << record.raw_capture_byte_offset
+      << " raw_capture_byte_range=" << record.raw_capture_byte_range
+      << " normalized_identity_status=" << record.normalized_identity_status
+      << " normalized_allocation_id=" << record.normalized_allocation_id
+      << " normalized_allocation_generation="
+      << record.normalized_allocation_generation
+      << " normalized_byte_offset=" << record.normalized_byte_offset
+      << " normalized_byte_range=" << record.normalized_byte_range
+      << " decoder_input_identity_status="
+      << record.decoder_input_identity_status
+      << " decoder_input_allocation_id=" << record.decoder_input_allocation_id
+      << " decoder_input_allocation_generation="
+      << record.decoder_input_allocation_generation
+      << " decoder_input_byte_offset=" << record.decoder_input_byte_offset
+      << " decoder_input_byte_range=" << record.decoder_input_byte_range
+      << " normalized_same_allocation_as_raw_capture="
+      << (record.normalized_same_allocation_as_raw_capture ? 1 : 0)
+      << " decoder_input_aliases_normalized_capture="
+      << (record.decoder_input_aliases_normalized_capture ? 1 : 0)
+      << " decoder_consumer_completed_before_bridge_exit="
+      << (record.decoder_consumer_completed_before_bridge_exit ? 1 : 0)
+      << " decoder_bridge_recording_scope_closed_before_release="
+      << (record.decoder_bridge_recording_scope_closed_before_release ? 1 : 0)
+      << " python_public_boundary_before_release="
+      << (record.python_public_boundary_before_release ? 1 : 0)
+      << " requested_output_before_release="
+      << (record.requested_output_before_release ? 1 : 0)
+      << " final_output_before_release="
+      << (record.final_output_before_release ? 1 : 0)
+      << " host_visible_boundary_before_release="
+      << (record.host_visible_boundary_before_release ? 1 : 0)
+      << " host_visible_access_before_release="
+      << (record.host_visible_access_before_release ? 1 : 0)
+      << " host_readback_before_release="
+      << (record.host_readback_before_release ? 1 : 0)
+      << " public_final_host_readback_requested_blocker="
+      << (public_final_host_readback_requested_blocker ? 1 : 0)
+      << " release_owner_available="
+      << (record.release_owner_available ? 1 : 0)
+      << " release_status=" << record.release_status
+      << " top_blocker=" << record.top_blocker;
+  {
+    std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+    auto& value = bridge_private_capture_release_owners()[key.str()];
+    value.count += 1u;
+  }
+  maybe_write_stack_region_dependency_graph_dump();
+}
+
 std::vector<std::string> stack_dispatch_aggregate_snapshot() {
   std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
   std::vector<std::string> rows;
@@ -33306,6 +33470,18 @@ std::vector<std::string> private_bridge_capture_handoff_snapshot() {
   std::vector<std::string> rows;
   rows.reserve(private_bridge_capture_handoffs().size());
   for (const auto& item : private_bridge_capture_handoffs()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
+  return rows;
+}
+
+std::vector<std::string> bridge_private_capture_release_owner_snapshot() {
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(bridge_private_capture_release_owners().size());
+  for (const auto& item : bridge_private_capture_release_owners()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
@@ -33574,6 +33750,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();
   private_bridge_capture_handoffs().clear();
+  bridge_private_capture_release_owners().clear();
 }
 
 void note_vulkan_queue_wait_idle() {

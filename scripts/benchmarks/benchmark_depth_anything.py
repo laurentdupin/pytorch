@@ -36,6 +36,14 @@ from vulkan_model_probe import create_vulkan_model_probe
 
 OUTPUT_MODE_DEVICE_RESIDENT = "device_resident"
 OUTPUT_MODE_READBACK = "readback"
+VULKAN_GPU_PROFILE_PHASE_ALL = "all"
+VULKAN_GPU_PROFILE_PHASES = (
+    VULKAN_GPU_PROFILE_PHASE_ALL,
+    "single_image_end_to_end_with_readback",
+    "single_image_end_to_end_legacy_alias",
+    "single_image_forward_device_resident",
+    "single_image_forward_with_readback",
+)
 
 FALLBACK_PHASE_UNKNOWN = 0
 FALLBACK_PHASE_MODEL_SETUP = 1
@@ -99,6 +107,7 @@ VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES = frozenset(
         "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
         "segmented_stack_wide3_to_exit",
         "segmented_stack_wide4_to_exit",
+        "segmented_stack_wide6_to_exit",
     )
 )
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS = 12
@@ -1290,6 +1299,7 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "attention_plan_counters",
         "linear_plan_counters",
         "linear_aggregate_snapshot",
+        "linear_plan_key_snapshot",
         "linear_pack_residency_snapshot",
         "vulkan_memory_residency_snapshot",
         "last_allocation_failure_snapshot",
@@ -1459,6 +1469,47 @@ def _append_measurement_phase_delta(
     return end
 
 
+def _measurement_phase_enabled(args: argparse.Namespace, name: str) -> bool:
+    return args.vulkan_gpu_profile_phase in (VULKAN_GPU_PROFILE_PHASE_ALL, name)
+
+
+def _prepare_vulkan_gpu_timestamp_profile(
+    *,
+    args: argparse.Namespace,
+    torch_module: Any,
+    device_kind: str,
+) -> dict[str, Any]:
+    log_path = os.environ.get("PYTORCH_VULKAN_GPU_TIMESTAMP_LOG", "")
+    result: dict[str, Any] = {
+        "schema": "VulkanGpuTimestampMeasurementProfile.v0",
+        "target_phase": args.vulkan_gpu_profile_phase,
+        "timestamp_log": log_path,
+        "isolated_target_phase": (
+            args.vulkan_gpu_profile_phase != VULKAN_GPU_PROFILE_PHASE_ALL
+        ),
+        "truncated_after_warmup": False,
+        "phase_filter_quality": "mixed_process_log",
+    }
+    if (
+        device_kind != "vulkan"
+        or not log_path
+        or args.vulkan_gpu_profile_phase == VULKAN_GPU_PROFILE_PHASE_ALL
+    ):
+        return result
+
+    synchronize = getattr(
+        getattr(torch_module.ops, "vulkan_prepack", None),
+        "synchronize",
+        None,
+    )
+    if synchronize is not None:
+        synchronize()
+    Path(log_path).write_text("", encoding="utf-8")
+    result["truncated_after_warmup"] = True
+    result["phase_filter_quality"] = "isolated_after_warmup"
+    return result
+
+
 def _parse_vulkan_snapshot_fields(row: Any) -> dict[str, str]:
     if not isinstance(row, str):
         return {}
@@ -1579,12 +1630,20 @@ def build_vulkan_stack_region_segment_plan_summary(
                 max_segment_planned_dispatch_count,
                 planned_dispatch_count,
             )
+            segment_start = fields.get(
+                "segment_start",
+                fields.get("segment_start_block", "unknown"),
+            )
+            segment_end = fields.get(
+                "segment_end",
+                fields.get("segment_end_block", "unknown"),
+            )
             segment_rows.append(
                 {
                     "owned_command_buffer_mode": mode,
                     "segment_index": fields.get("segment_index", "unknown"),
-                    "segment_start": fields.get("segment_start", "unknown"),
-                    "segment_end": fields.get("segment_end", "unknown"),
+                    "segment_start": segment_start,
+                    "segment_end": segment_end,
                     "segment_plan_coverage": coverage,
                     "segment_plan_status": status,
                     "segment_plan_fail_reason": fail_reason,
@@ -2469,6 +2528,18 @@ def run() -> None:
         ),
     )
     parser.add_argument(
+        "--vulkan-gpu-profile-phase",
+        choices=VULKAN_GPU_PROFILE_PHASES,
+        default=VULKAN_GPU_PROFILE_PHASE_ALL,
+        help=(
+            "When PYTORCH_VULKAN_GPU_TIMESTAMP_LOG is set, optionally isolate "
+            "one single-image measurement phase by truncating the timestamp "
+            "log after warmup and skipping the other single-image/corpus "
+            "measurement loops. This keeps GPU timestamp attribution from "
+            "mixing warmup, readback, and device-resident phases."
+        ),
+    )
+    parser.add_argument(
         "--vulkan-stack-output-device-bridge",
         action="store_true",
         help=(
@@ -2775,6 +2846,11 @@ def run() -> None:
         if vulkan_phase_tracker is not None:
             vulkan_phase_tracker.mark("warmup")
 
+        gpu_timestamp_profile = _prepare_vulkan_gpu_timestamp_profile(
+            args=args,
+            torch_module=torch,
+            device_kind=device_kind,
+        )
         end_to_end_with_readback_durations: list[float] = []
         legacy_end_to_end_durations: list[float] = []
         forward_device_resident_durations: list[float] = []
@@ -2786,30 +2862,37 @@ def run() -> None:
                 torch,
                 device_kind,
             )
-            for _ in range(args.repeats):
-                start = time.perf_counter()
-                with vulkan_timed_region(torch):
-                    _ = infer_image_on_device(
-                        model,
-                        raw_image,
-                        args.input_size,
-                        device,
-                        torch,
-                        F,
-                        device_kind,
-                        OUTPUT_MODE_READBACK,
+            if _measurement_phase_enabled(
+                args, "single_image_end_to_end_with_readback"
+            ):
+                for _ in range(args.repeats):
+                    start = time.perf_counter()
+                    with vulkan_timed_region(torch):
+                        _ = infer_image_on_device(
+                            model,
+                            raw_image,
+                            args.input_size,
+                            device,
+                            torch,
+                            F,
+                            device_kind,
+                            OUTPUT_MODE_READBACK,
+                        )
+                    end_to_end_with_readback_durations.append(
+                        time.perf_counter() - start
                     )
-                end_to_end_with_readback_durations.append(time.perf_counter() - start)
-            measurement_phase_start = _append_measurement_phase_delta(
-                measurement_phase_counters,
-                name="single_image_end_to_end_with_readback",
-                start=measurement_phase_start,
-                torch_module=torch,
-                device_kind=device_kind,
-                snapshot_mode=args.vulkan_debug_snapshot_mode,
-            )
+                measurement_phase_start = _append_measurement_phase_delta(
+                    measurement_phase_counters,
+                    name="single_image_end_to_end_with_readback",
+                    start=measurement_phase_start,
+                    torch_module=torch,
+                    device_kind=device_kind,
+                    snapshot_mode=args.vulkan_debug_snapshot_mode,
+                )
 
-            if legacy_forward_output_mode != OUTPUT_MODE_READBACK:
+            if legacy_forward_output_mode != OUTPUT_MODE_READBACK and (
+                _measurement_phase_enabled(args, "single_image_end_to_end_legacy_alias")
+            ):
                 for _ in range(args.repeats):
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
@@ -2833,65 +2916,74 @@ def run() -> None:
                     snapshot_mode=args.vulkan_debug_snapshot_mode,
                 )
 
-            for _ in range(args.repeats):
-                start = time.perf_counter()
-                with vulkan_timed_region(torch):
-                    depth = compute_depth_on_device(
-                        model,
-                        image_tensor,
-                        (height, width),
-                        F,
-                        torch,
+            if _measurement_phase_enabled(
+                args, "single_image_forward_device_resident"
+            ):
+                for _ in range(args.repeats):
+                    start = time.perf_counter()
+                    with vulkan_timed_region(torch):
+                        depth = compute_depth_on_device(
+                            model,
+                            image_tensor,
+                            (height, width),
+                            F,
+                            torch,
+                        )
+                        _ = consume_depth_output(
+                            depth,
+                            torch,
+                            device_kind,
+                            device,
+                            OUTPUT_MODE_DEVICE_RESIDENT,
+                        )
+                    forward_device_resident_durations.append(
+                        time.perf_counter() - start
                     )
-                    _ = consume_depth_output(
-                        depth,
-                        torch,
-                        device_kind,
-                        device,
-                        OUTPUT_MODE_DEVICE_RESIDENT,
-                    )
-                forward_device_resident_durations.append(time.perf_counter() - start)
-            measurement_phase_start = _append_measurement_phase_delta(
-                measurement_phase_counters,
-                name="single_image_forward_device_resident",
-                start=measurement_phase_start,
-                torch_module=torch,
-                device_kind=device_kind,
-                snapshot_mode=args.vulkan_debug_snapshot_mode,
-            )
+                measurement_phase_start = _append_measurement_phase_delta(
+                    measurement_phase_counters,
+                    name="single_image_forward_device_resident",
+                    start=measurement_phase_start,
+                    torch_module=torch,
+                    device_kind=device_kind,
+                    snapshot_mode=args.vulkan_debug_snapshot_mode,
+                )
 
-            for _ in range(args.repeats):
-                start = time.perf_counter()
-                with vulkan_timed_region(torch):
-                    depth = compute_depth_on_device(
-                        model,
-                        image_tensor,
-                        (height, width),
-                        F,
-                        torch,
-                    )
-                    _ = consume_depth_output(
-                        depth,
-                        torch,
-                        device_kind,
-                        device,
-                        OUTPUT_MODE_READBACK,
-                    )
-                forward_with_readback_durations.append(time.perf_counter() - start)
-            _append_measurement_phase_delta(
-                measurement_phase_counters,
-                name="single_image_forward_with_readback",
-                start=measurement_phase_start,
-                torch_module=torch,
-                device_kind=device_kind,
-                snapshot_mode=args.vulkan_debug_snapshot_mode,
-            )
+            if _measurement_phase_enabled(args, "single_image_forward_with_readback"):
+                for _ in range(args.repeats):
+                    start = time.perf_counter()
+                    with vulkan_timed_region(torch):
+                        depth = compute_depth_on_device(
+                            model,
+                            image_tensor,
+                            (height, width),
+                            F,
+                            torch,
+                        )
+                        _ = consume_depth_output(
+                            depth,
+                            torch,
+                            device_kind,
+                            device,
+                            OUTPUT_MODE_READBACK,
+                        )
+                    forward_with_readback_durations.append(time.perf_counter() - start)
+                _append_measurement_phase_delta(
+                    measurement_phase_counters,
+                    name="single_image_forward_with_readback",
+                    start=measurement_phase_start,
+                    torch_module=torch,
+                    device_kind=device_kind,
+                    snapshot_mode=args.vulkan_debug_snapshot_mode,
+                )
         if vulkan_phase_tracker is not None:
             vulkan_phase_tracker.mark("timed_forward")
 
         corpus_with_readback_durations: list[float] = []
         legacy_corpus_durations: list[float] = []
-        if not args.single_image_only:
+        if (
+            not args.single_image_only
+            and args.vulkan_gpu_profile_phase == VULKAN_GPU_PROFILE_PHASE_ALL
+        ):
             with inference_context(torch, device_kind):
                 for corpus_image_path in image_paths:
                     corpus_image = cv2.imread(str(corpus_image_path))
@@ -3023,7 +3115,12 @@ def run() -> None:
         "repeats": args.repeats,
         "image_count": len(image_paths),
         "single_image_only": bool(args.single_image_only),
-        "timed_corpus_image_count": 0 if args.single_image_only else len(image_paths),
+        "timed_corpus_image_count": (
+            0
+            if args.single_image_only
+            or args.vulkan_gpu_profile_phase != VULKAN_GPU_PROFILE_PHASE_ALL
+            else len(image_paths)
+        ),
         "torch_version": torch.__version__,
         "torch_vulkan_available": bool(
             getattr(torch, "is_vulkan_available", lambda: False)()
@@ -3048,6 +3145,7 @@ def run() -> None:
         "vulkan_debug_counters": result_debug_counters,
         "vulkan_phase_counters": result_phase_counters,
         "vulkan_measurement_phase_counters": measurement_phase_counters,
+        "vulkan_gpu_timestamp_profile": gpu_timestamp_profile,
         "vulkan_stack_output_device_bridge_dry_run": bridge_dry_run,
         "vulkan_stack_owner_planned_dependency_dry_run": (
             planned_dependency_dry_run

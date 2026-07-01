@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/api/QueryPool.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/api/Utils.h>
 #ifdef USE_KINETO
 #include <torch/csrc/autograd/profiler_kineto.h>
@@ -121,6 +122,10 @@ uint32_t QueryPool::shader_profile_begin(
       // Execution Properties
       kernel_name,
       current_runtime_label(),
+      recent_op_label().empty() ? std::string("none") : recent_op_label(),
+      submit_phase_name(current_submit_phase()),
+      vision_stack_phase_name(current_vision_stack_phase()),
+      current_vision_stack_block_index(),
       global_workgroup_size,
       local_workgroup_size,
       // Query indexes

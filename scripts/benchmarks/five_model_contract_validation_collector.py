@@ -748,6 +748,10 @@ def summarize_model_suite_evidence(
         "linear_aggregate_sample": sample_rows(
             list_counter_field(total_delta, "linear_aggregate_snapshot")
         ),
+        "linear_plan_key_rows": len(list_counter_field(total_delta, "linear_plan_key_snapshot")),
+        "linear_plan_key_sample": sample_rows(
+            list_counter_field(total_delta, "linear_plan_key_snapshot")
+        ),
         "clone_requirement_rows": len(list_counter_field(total_delta, "clone_requirement_snapshot")),
         "clone_requirement_sample": sample_rows(
             list_counter_field(total_delta, "clone_requirement_snapshot")
@@ -831,6 +835,9 @@ def infer_conv_candidate_contract(fields: dict[str, str]) -> str:
 
 
 def infer_linear_candidate_contract(fields: dict[str, str]) -> str:
+    contract_family = fields.get("contract_family")
+    if contract_family and contract_family != "none":
+        return contract_family
     role = fields.get("role") or ""
     if fields.get("post_op") == "1" or "gelu" in role:
         return "LinearGeluBridgeContract"
@@ -864,17 +871,45 @@ def conv_plan_key(fields: dict[str, str]) -> str:
 
 
 def linear_plan_key(fields: dict[str, str]) -> str:
+    op_family = fields.get("op_family", "linear")
     return (
-        "linear"
+        f"{op_family}"
+        f"|selected={fields.get('selected', PLAN_NOT_AVAILABLE)}"
+        f"|reject={fields.get('reject', PLAN_NOT_AVAILABLE)}"
         f"|kernel={fields.get('kernel', PLAN_NOT_AVAILABLE)}"
         f"|submit={fields.get('submit_kernel', PLAN_NOT_AVAILABLE)}"
         f"|role={fields.get('role', PLAN_NOT_AVAILABLE)}"
+        f"|contract={fields.get('contract', PLAN_NOT_AVAILABLE)}"
+        f"|family={fields.get('contract_family', PLAN_NOT_AVAILABLE)}"
+        f"|input={fields.get('input', PLAN_NOT_AVAILABLE)}"
+        f"|weight={fields.get('weight', PLAN_NOT_AVAILABLE)}"
+        f"|output={fields.get('output', PLAN_NOT_AVAILABLE)}"
+        f"|batch={fields.get('batch', PLAN_NOT_AVAILABLE)}"
         f"|m={fields.get('m', PLAN_NOT_AVAILABLE)}"
         f"|k={fields.get('k', PLAN_NOT_AVAILABLE)}"
         f"|n={fields.get('n', PLAN_NOT_AVAILABLE)}"
         f"|bias={fields.get('bias', PLAN_NOT_AVAILABLE)}"
         f"|post_op={fields.get('post_op', PLAN_NOT_AVAILABLE)}"
         f"|packed={fields.get('weight_packed', PLAN_NOT_AVAILABLE)}"
+        f"|input_dtype={fields.get('input_dtype', PLAN_NOT_AVAILABLE)}"
+        f"|weight_dtype={fields.get('weight_dtype', PLAN_NOT_AVAILABLE)}"
+        f"|output_dtype={fields.get('output_dtype', PLAN_NOT_AVAILABLE)}"
+        f"|input_storage={fields.get('input_storage', PLAN_NOT_AVAILABLE)}"
+        f"|weight_storage={fields.get('weight_storage', PLAN_NOT_AVAILABLE)}"
+        f"|output_storage={fields.get('output_storage', PLAN_NOT_AVAILABLE)}"
+        f"|input_layout={fields.get('input_layout', PLAN_NOT_AVAILABLE)}"
+        f"|weight_layout={fields.get('weight_layout', PLAN_NOT_AVAILABLE)}"
+        f"|output_layout={fields.get('output_layout', PLAN_NOT_AVAILABLE)}"
+        f"|input_offset={fields.get('input_offset', PLAN_NOT_AVAILABLE)}"
+        f"|weight_offset={fields.get('weight_offset', PLAN_NOT_AVAILABLE)}"
+        f"|output_offset={fields.get('output_offset', PLAN_NOT_AVAILABLE)}"
+        f"|vendor={fields.get('vendor_id', PLAN_NOT_AVAILABLE)}"
+        f"|device_id={fields.get('device_id', PLAN_NOT_AVAILABLE)}"
+        f"|driver={fields.get('driver_version', PLAN_NOT_AVAILABLE)}"
+        f"|api={fields.get('api_version', PLAN_NOT_AVAILABLE)}"
+        f"|subgroup={fields.get('subgroup_size', PLAN_NOT_AVAILABLE)}"
+        f"|coop={fields.get('has_cooperative_matrix', PLAN_NOT_AVAILABLE)}"
+        f"|local={fields.get('local', PLAN_NOT_AVAILABLE)}"
     )
 
 
@@ -1019,6 +1054,11 @@ def normalize_linear_plan_evidence(
     row_counters: dict[str, Any],
 ) -> dict[str, Any]:
     fields = key_value_fields(row)
+    source_kind = (
+        "linear_plan_key_snapshot"
+        if fields.get("schema") == "VulkanLinearOrMatmulPlanKey.v0"
+        else "linear_aggregate_snapshot"
+    )
     count = int_field(fields, "count")
     input_bytes = int_field(fields, "input_bytes")
     output_bytes = int_field(fields, "output_bytes")
@@ -1030,9 +1070,13 @@ def normalize_linear_plan_evidence(
         "schema_version": 0,
         "source_row": row_id,
         "source_model": model,
-        "source_kind": "linear_aggregate_snapshot",
-        "op_family": "linear",
-        "contract_name": PLAN_NOT_AVAILABLE,
+        "source_kind": source_kind,
+        "op_family": fields.get("op_family") or "linear",
+        "contract_name": (
+            fields.get("contract")
+            if fields.get("contract") and fields.get("contract") != "none"
+            else PLAN_NOT_AVAILABLE
+        ),
         "candidate_contract_family": infer_linear_candidate_contract(fields),
         "plan_key": linear_plan_key(fields),
         "selected_route": fields.get("submit_kernel") or PLAN_NOT_AVAILABLE,
@@ -1040,6 +1084,10 @@ def normalize_linear_plan_evidence(
         "route_label": fields.get("role") or PLAN_NOT_AVAILABLE,
         "reject_reason": PLAN_NOT_AVAILABLE,
         "shapes": {
+            "input": parse_int_list(fields.get("input")),
+            "weight": parse_int_list(fields.get("weight")),
+            "output": parse_int_list(fields.get("output")),
+            "batch": int_field(fields, "batch"),
             "m": int_field(fields, "m"),
             "k": int_field(fields, "k"),
             "n": int_field(fields, "n"),
@@ -1054,11 +1102,34 @@ def normalize_linear_plan_evidence(
         },
         "layout": {
             "input_direct": bool_field(fields, "input_direct"),
+            "weight_direct": bool_field(fields, "weight_direct"),
             "output_direct": bool_field(fields, "output_direct"),
             "weight_packed": bool_field(fields, "weight_packed"),
+            "input_storage": int_field(fields, "input_storage"),
+            "weight_storage": int_field(fields, "weight_storage"),
+            "output_storage": int_field(fields, "output_storage"),
+            "input_layout": int_field(fields, "input_layout"),
+            "weight_layout": int_field(fields, "weight_layout"),
+            "output_layout": int_field(fields, "output_layout"),
+            "input_execution_layout": int_field(
+                fields, "input_execution_layout"
+            ),
+            "weight_execution_layout": int_field(
+                fields, "weight_execution_layout"
+            ),
+            "output_execution_layout": int_field(
+                fields, "output_execution_layout"
+            ),
             "input_offset": int_field(fields, "input_offset"),
             "weight_offset": int_field(fields, "weight_offset"),
             "output_offset": int_field(fields, "output_offset"),
+        },
+        "execution_plan": {
+            "global": parse_int_list(fields.get("global")),
+            "local": parse_int_list(fields.get("local")),
+            "candidate_count": int_field(fields, "candidate_count"),
+            "cacheable": bool_field(fields, "cacheable"),
+            "tunable": bool_field(fields, "tunable"),
         },
         "evidence_counters": {
             "dispatch_count": count,
@@ -1074,6 +1145,35 @@ def normalize_linear_plan_evidence(
             "linear_prepack_upload_submits": PLAN_NOT_AVAILABLE,
         },
         "cache_counters": common_plan_availability(),
+        "capability_profile": {
+            "context_device_index": int_field(fields, "context_device_index"),
+            "vendor_id": int_field(fields, "vendor_id"),
+            "device_id": int_field(fields, "device_id"),
+            "driver_version": int_field(fields, "driver_version"),
+            "api_version": int_field(fields, "api_version"),
+            "subgroup_size": int_field(fields, "subgroup_size"),
+            "min_subgroup_size": int_field(fields, "min_subgroup_size"),
+            "max_subgroup_size": int_field(fields, "max_subgroup_size"),
+            "max_compute_workgroup_subgroups": int_field(
+                fields,
+                "max_compute_workgroup_subgroups",
+            ),
+            "has_subgroup_size_control": bool_field(
+                fields,
+                "has_subgroup_size_control",
+            ),
+            "has_compute_full_subgroups": bool_field(
+                fields,
+                "has_compute_full_subgroups",
+            ),
+            "has_cooperative_matrix": bool_field(fields, "has_cooperative_matrix"),
+            "cooperative_matrix_property_count": int_field(
+                fields,
+                "cooperative_matrix_property_count",
+            ),
+            "has_timeline_semaphore": bool_field(fields, "has_timeline_semaphore"),
+            "has_synchronization2": bool_field(fields, "has_synchronization2"),
+        },
     }
 
 
@@ -1111,6 +1211,9 @@ def summarize_execution_plan_evidence(
         )
         for row in conv_snapshot_rows
     ]
+    linear_snapshot_rows = list_counter_field(total_delta, "linear_plan_key_snapshot")
+    if not linear_snapshot_rows:
+        linear_snapshot_rows = list_counter_field(total_delta, "linear_aggregate_snapshot")
     linear_rows = [
         normalize_linear_plan_evidence(
             row_id,
@@ -1119,7 +1222,7 @@ def summarize_execution_plan_evidence(
             linear_plan_counters,
             row_counters,
         )
-        for row in list_counter_field(total_delta, "linear_aggregate_snapshot")
+        for row in linear_snapshot_rows
     ]
     pointwise_summary: dict[str, Any] = {}
     if any(pointwise_counters.values()):
@@ -2548,6 +2651,34 @@ def validate_execution_plan_evidence() -> None:
                 "input_bytes=4096 weight_bytes=4096 output_bytes=16384 count=5"
             )
         ],
+        "linear_plan_key_snapshot": [
+            (
+                "schema=VulkanLinearOrMatmulPlanKey.v0 "
+                "source=linear_aggregate_snapshot "
+                "linear_aggregate op_family=linear selected=FloatBufferLinear "
+                "reject=None role=fc1_gelu kernel=mm_buffer_float_gelu "
+                "submit_kernel=aten::linear.buffer_float_bias_gelu "
+                "label=test.fc1 contract=none contract_family=none "
+                "contract_tuple=none m=64 k=16 n=64 input=[64,16] "
+                "weight=[16,64] output=[64,64] input_dtype=6 weight_dtype=6 "
+                "bias_dtype=6 output_dtype=6 post_op=1 bias=1 input_storage=1 "
+                "weight_storage=1 output_storage=1 input_layout=2 "
+                "weight_layout=2 output_layout=2 input_execution_layout=1 "
+                "weight_execution_layout=1 output_execution_layout=1 "
+                "input_direct=1 weight_direct=1 output_direct=1 weight_packed=1 "
+                "input_offset=0 weight_offset=0 output_offset=0 "
+                "global=[64,64,1] local=[16,4,1] count=5 "
+                "input_bytes=4096 weight_bytes=4096 output_bytes=16384 "
+                "candidate_count=1 cacheable=1 tunable=1 "
+                "context_device_index=0 vendor_id=4098 device_id=29631 "
+                "driver_version=252313600 api_version=4206831 "
+                "subgroup_size=64 min_subgroup_size=32 max_subgroup_size=64 "
+                "max_compute_workgroup_subgroups=8 "
+                "has_subgroup_size_control=1 has_compute_full_subgroups=1 "
+                "has_cooperative_matrix=0 cooperative_matrix_property_count=0 "
+                "has_timeline_semaphore=1 has_synchronization2=1"
+            )
+        ],
     }
     with tempfile.TemporaryDirectory() as tmp_dir:
         result_path = Path(tmp_dir) / "result.json"
@@ -2609,8 +2740,19 @@ def validate_execution_plan_evidence() -> None:
     ]
     if not linear_rows:
         raise AssertionError("linear evidence row missing")
-    if linear_rows[0]["candidate_contract_family"] != "LinearGeluBridgeContract":
+    linear_row = linear_rows[0]
+    if linear_row["source_kind"] != "linear_plan_key_snapshot":
+        raise AssertionError("linear plan-key snapshot was not preferred")
+    if linear_row["candidate_contract_family"] != "LinearGeluBridgeContract":
         raise AssertionError("linear candidate contract family was not inferred")
+    if linear_row["shapes"]["input"] != [64, 16]:
+        raise AssertionError("linear input shape was not parsed")
+    if linear_row["execution_plan"]["local"] != [16, 4, 1]:
+        raise AssertionError("linear local workgroup was not parsed")
+    if linear_row["layout"]["weight_direct"] is not True:
+        raise AssertionError("linear weight direct layout was not parsed")
+    if linear_row["capability_profile"]["vendor_id"] != 4098:
+        raise AssertionError("linear capability profile was not parsed")
     aggregate_plans = aggregate["execution_plan_evidence"]["top_plan_key_clusters"]
     if not aggregate_plans:
         raise AssertionError("aggregate plan-key clusters were not emitted")

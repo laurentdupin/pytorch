@@ -131,6 +131,38 @@ The initial catalog records the current `vits_140` performance lane:
   accepted default control-plane fix;
 - wide3 and prefix-tail segment modes: valid in the latest `vits_140`
   three-repeat sweep, but slower than wide4 on the recorded RX 9070 lane;
+- wide6 segment mode: valid and evidence-visible for `vits_140`, but not
+  promoted. After the Context canary-admission fix, a focused RX 9070
+  five-repeat run selected two full segments covering blocks 0-5 and 6-11 at
+  62/72 planned dispatches each, kept bridge sanity at max_abs
+  `1.6391277313232422e-06`, and kept CPU fallback, sync readback, and buffer
+  copies at zero. It reduced stack-planned submits from 20 to 15 over five
+  repeats versus wide4, but measured about 79.9 ms mean device-resident forward
+  versus wide4 at about 64.3 ms, with both modes still reporting 15 stack-owner
+  retire-drain submits. The next performance path is not wider fixed segments;
+  it is retire/capture ownership or shader-plan tuning with exact evidence;
+- stack-exit pending-retire handoff variants are cataloged as rejected for the
+  current `vits_140` lane. `private_bridge_capture_handoff` preserved bridge
+  sanity and kept CPU fallback, sync readback, and copies at zero, but measured
+  about 69.0 ms mean and still reported 15 stack-owner retire-drain submits.
+  More importantly, private bridge captures must release after decoder bridge
+  consumer completion, not at backbone stack exit, so this is the wrong release
+  boundary for promotion. `residual2_norm1_carry_handoff` also preserved
+  correctness and zero fallback/readback/copy counters, but measured about
+  73.2 ms mean and did not reduce the timed retire-drain submits. The next
+  bridge-release probe used the correct post-decoder-consumer release boundary,
+  but it observed no transferable pending-retire source, kept
+  `transfers_pending_retires=0`, and measured about 70.3 ms mean. The next
+  segment-completion cleanup handoff probe moved exact external-recording
+  cleanup pending-retire entries into the stack-exit handoff batch under
+  `StackRegionSegmentCompletionRetireHandoffContract.v0`, preserved bridge
+  sanity and zero fallback/readback/copy counters, but still reported 15
+  stack-owner retire-drain submits and regressed to about 75.3 ms mean. Do not
+  repeat stack-exit handoff as a latency path unless a later submit-plan change
+  makes the moved entries reduce actual queue submits. The next ownership task
+  needs either segment-local completion ownership or a distinct bridge-scoped
+  handoff batch with release and restore ownership before moving entries, not
+  reuse of the same stack-exit batch as a standalone optimization;
 - the first `vits_182` wide4 graph-catalog and timing runs: bridge sanity and
   `StackRegionSegmentPlan.v0` evidence passed, and a separate no-graph
   three-repeat timing pass measured about 74.8 ms mean device-resident forward;
@@ -216,6 +248,13 @@ The initial catalog records the current `vits_140` performance lane:
   `VulkanConvPlanKey.v0` rows. The offline tuning tool can emit
   `VulkanConvPlanTimestampSummary.v0` from a timestamp log, but this does not
   change routing or promote a plan;
+- `VulkanRuntimeAttributionReport.v0`: accepted measurement infrastructure for
+  phase-isolated benchmark attribution. Depth Anything V2 can isolate
+  `single_image_forward_device_resident` timestamp rows after warmup and the
+  report splits GPU time by kernel class, runtime label, submit phase, stack
+  phase, and recent op while reporting the same phase's fallback/readback/copy,
+  submit-origin, and retire-drain counters. This is not timing evidence by
+  itself and must not be used as a production route table;
 - conv-plan timestamp sweep over DAv2 `vits_140`/`vitb_140` on RX 9070, GTX
   1080, and RX 6700 XT: rejected broad promotion of both `3x3_s1p1_16x4` and
   `3x3_s1p1_16x8`. Both candidates were correctness-clean and hit expected
@@ -227,6 +266,14 @@ The initial catalog records the current `vits_140` performance lane:
   timestamp-sweep devices, but default post-policy validation still regressed
   whole-row timing on GTX 1080 and RX 6700 XT `vitb_140`; keep it as evidence
   for a future full-row tuning cache rather than a static exact rowset;
+- forced float-buffer tiled linear canary for label-inferred vision-backbone
+  linears: correctness blocked and backed out. The first activation attempt did
+  not hit tiled kernels; the corrected probe did hit
+  `aten::linear.buffer_float_tiled_bias[_gelu]` rows, but `vits_140` bridge
+  sanity failed at `max_abs=0.21523737907409668` and device-resident timing was
+  about 71.1 ms mean. Do not reintroduce a broad force-tiled linear gate; a
+  future linear plan needs a parity-proven kernel or narrower contract before
+  timing;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

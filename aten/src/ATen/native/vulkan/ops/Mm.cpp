@@ -609,22 +609,36 @@ void note_linear_aggregate(
     const vTensor& v_output,
     const LinearPackedRunState& packed_state,
     IntArrayRef output_sizes,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size,
     const LinearPostOp post_op) {
   const std::string& label = api::current_allocation_label();
   const char* role = linear_role_from_label(label, post_op);
   const char* kernel = linear_kernel_kind_from_name(kernel_name);
   const bool bias =
       packed_bias_tensor.has_value() && packed_bias_tensor->defined();
+  const int64_t m = input_arg_2d.size(Layout::Parameter::height);
+  const int64_t k = input_arg_2d.size(Layout::Parameter::width);
+  const int64_t n = output_sizes[Layout::Parameter::width];
 
   std::ostringstream key;
   key << "linear_aggregate"
+      << " op_family=linear"
+      << " selected=FloatBufferLinear"
+      << " reject=None"
       << " role=" << role
       << " kernel=" << kernel
       << " submit_kernel=" << (kernel_name ? kernel_name : "unknown")
       << " label=" << (label.empty() ? "unlabeled" : label)
-      << " m=" << input_arg_2d.size(Layout::Parameter::height)
-      << " k=" << input_arg_2d.size(Layout::Parameter::width)
-      << " n=" << output_sizes[Layout::Parameter::width]
+      << " contract=none"
+      << " contract_family=none"
+      << " contract_tuple=none"
+      << " m=" << m
+      << " k=" << k
+      << " n=" << n
+      << " input=[" << m << ',' << k << ']'
+      << " weight=[" << k << ',' << n << ']'
+      << " output=[" << m << ',' << n << ']'
       << " input_dtype=" << static_cast<int>(input_arg_2d.scalar_type())
       << " weight_dtype=" << static_cast<int>(packed_weight_tensor.scalar_type())
       << " bias_dtype="
@@ -634,18 +648,114 @@ void note_linear_aggregate(
       << " output_dtype=" << static_cast<int>(output_tensor.scalar_type())
       << " post_op=" << (post_op == LinearPostOp::Gelu ? 1 : 0)
       << " bias=" << (bias ? 1 : 0)
+      << " input_storage=" << static_cast<int>(v_input.storage_type())
+      << " weight_storage="
+      << static_cast<int>(packed_state.packed_v_weight.storage_type())
+      << " output_storage=" << static_cast<int>(v_output.storage_type())
+      << " input_layout=" << static_cast<int>(v_input.gpu_memory_layout())
+      << " weight_layout="
+      << static_cast<int>(packed_state.packed_v_weight.gpu_memory_layout())
+      << " output_layout=" << static_cast<int>(v_output.gpu_memory_layout())
+      << " input_execution_layout="
+      << static_cast<int>(v_input.execution_layout())
+      << " weight_execution_layout="
+      << static_cast<int>(packed_state.packed_v_weight.execution_layout())
+      << " output_execution_layout="
+      << static_cast<int>(v_output.execution_layout())
       << " input_direct=" << (v_input.has_direct_buffer_layout() ? 1 : 0)
+      << " weight_direct="
+      << (packed_state.packed_v_weight.has_direct_buffer_layout() ? 1 : 0)
       << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
       << " weight_packed=1"
       << " input_offset=" << v_input.storage_offset()
       << " weight_offset=" << packed_state.packed_v_weight.storage_offset()
-      << " output_offset=" << v_output.storage_offset();
+      << " output_offset=" << v_output.storage_offset()
+      << " global=[" << global_size.data[0u] << ',' << global_size.data[1u]
+      << ',' << global_size.data[2u] << ']'
+      << " local=[" << local_size.data[0u] << ',' << local_size.data[1u]
+      << ',' << local_size.data[2u] << ']';
 
   std::lock_guard<std::mutex> guard(linear_aggregate_mutex());
   VulkanLinearAggregateValue& value = linear_aggregate()[key.str()];
   value.count += 1u;
   value.input_bytes += static_cast<uint64_t>(input_arg_2d.nbytes());
   value.weight_bytes += static_cast<uint64_t>(packed_weight_tensor.nbytes());
+  value.output_bytes += static_cast<uint64_t>(output_tensor.nbytes());
+}
+
+void note_bmm_aggregate(
+    const Tensor& mat1,
+    const Tensor& mat2,
+    const Tensor& output_tensor,
+    const vTensor& v_mat1,
+    const vTensor& v_mat2,
+    const vTensor& v_output,
+    const std::optional<Tensor>& bias,
+    const api::utils::uvec3& global_size,
+    const api::utils::uvec3& local_size) {
+  const std::string& label = api::current_allocation_label();
+  const bool bias_defined = bias && bias->defined();
+  const int64_t batch = mat1.size(Layout::BatchMatrices::batch);
+  const int64_t m = mat1.size(Layout::BatchMatrices::height);
+  const int64_t k = mat1.size(Layout::BatchMatrices::width);
+  const int64_t n = mat2.size(Layout::BatchMatrices::width);
+
+  std::ostringstream key;
+  key << "linear_aggregate"
+      << " op_family=bmm"
+      << " selected=FloatBufferBmm"
+      << " reject=None"
+      << " role=bmm"
+      << " kernel=bmm_buffer_float"
+      << " submit_kernel=aten::bmm.buffer_float"
+      << " label=" << (label.empty() ? "unlabeled" : label)
+      << " contract=none"
+      << " contract_family=none"
+      << " contract_tuple=none"
+      << " batch=" << batch
+      << " m=" << m
+      << " k=" << k
+      << " n=" << n
+      << " input=[" << batch << ',' << m << ',' << k << ']'
+      << " weight=[" << batch << ',' << k << ',' << n << ']'
+      << " output=[" << batch << ',' << m << ',' << n << ']'
+      << " input_dtype=" << static_cast<int>(mat1.scalar_type())
+      << " weight_dtype=" << static_cast<int>(mat2.scalar_type())
+      << " bias_dtype="
+      << static_cast<int>(
+             bias_defined ? bias->scalar_type() : ScalarType::Undefined)
+      << " output_dtype=" << static_cast<int>(output_tensor.scalar_type())
+      << " post_op=0"
+      << " bias=" << (bias_defined ? 1 : 0)
+      << " input_storage=" << static_cast<int>(v_mat1.storage_type())
+      << " weight_storage=" << static_cast<int>(v_mat2.storage_type())
+      << " output_storage=" << static_cast<int>(v_output.storage_type())
+      << " input_layout=" << static_cast<int>(v_mat1.gpu_memory_layout())
+      << " weight_layout=" << static_cast<int>(v_mat2.gpu_memory_layout())
+      << " output_layout=" << static_cast<int>(v_output.gpu_memory_layout())
+      << " input_execution_layout="
+      << static_cast<int>(v_mat1.execution_layout())
+      << " weight_execution_layout="
+      << static_cast<int>(v_mat2.execution_layout())
+      << " output_execution_layout="
+      << static_cast<int>(v_output.execution_layout())
+      << " input_direct=" << (v_mat1.has_direct_buffer_layout() ? 1 : 0)
+      << " weight_direct=" << (v_mat2.has_direct_buffer_layout() ? 1 : 0)
+      << " output_direct=" << (v_output.has_direct_buffer_layout() ? 1 : 0)
+      << " weight_packed=0"
+      << " input_offset=" << v_mat1.storage_offset()
+      << " weight_offset=" << v_mat2.storage_offset()
+      << " output_offset=" << v_output.storage_offset()
+      << " global=[" << global_size.data[0u] << ',' << global_size.data[1u]
+      << ',' << global_size.data[2u] << ']'
+      << " local=[" << local_size.data[0u] << ',' << local_size.data[1u]
+      << ',' << local_size.data[2u] << ']';
+
+  std::lock_guard<std::mutex> guard(linear_aggregate_mutex());
+  VulkanLinearAggregateValue& value = linear_aggregate()[key.str()];
+  value.count += 1u;
+  value.input_bytes += static_cast<uint64_t>(mat1.nbytes());
+  value.weight_bytes += static_cast<uint64_t>(mat2.nbytes());
   value.output_bytes += static_cast<uint64_t>(output_tensor.nbytes());
 }
 
@@ -1389,6 +1499,9 @@ Tensor run_float_buffer_linear(
         v_output,
         packed_state,
         output_sizes,
+        global_size,
+        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
+                                     : api::utils::uvec3{16u, 4u, 1u},
         post_op);
     utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
@@ -1446,6 +1559,9 @@ Tensor run_float_buffer_linear(
         v_output,
         packed_state,
         output_sizes,
+        global_size,
+        use_specialized_tiled_kernel ? api::utils::uvec3{16u, 16u, 1u}
+                                     : api::utils::uvec3{16u, 4u, 1u},
         post_op);
     utils::log_vulkan_op_hit(kernel_hit_name);
     context->submit_compute_job(
@@ -1712,12 +1828,23 @@ Tensor run_float_buffer_bmm(
       api::utils::safe_downcast<uint32_t>(
           mat1.size(Layout::BatchMatrices::batch)),
   };
+  const api::utils::uvec3 local_size{16u, 4u, 1u};
+  note_bmm_aggregate(
+      mat1,
+      mat2,
+      output_tensor,
+      v_mat1,
+      v_mat2,
+      v_output,
+      bias,
+      global_size,
+      local_size);
 
   context->submit_compute_job(
       VK_KERNEL(bmm_buffer_float),
       pipeline_barrier,
       global_size,
-      {16u, 4u, 1u},
+      local_size,
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -3737,6 +3864,96 @@ std::vector<std::string> linear_aggregate_snapshot() {
         << " input_bytes=" << row.second.input_bytes
         << " weight_bytes=" << row.second.weight_bytes
         << " output_bytes=" << row.second.output_bytes;
+    snapshot.emplace_back(out.str());
+  }
+  return snapshot;
+}
+
+std::vector<std::string> linear_plan_key_snapshot() {
+  std::vector<std::string> aggregate_rows = linear_aggregate_snapshot();
+  if (aggregate_rows.empty()) {
+    return {};
+  }
+  api::Context* const context = api::context();
+  api::Adapter* const adapter = context->adapter_ptr();
+  const VkPhysicalDeviceProperties& properties =
+      adapter->physical_device().properties;
+  const auto field_value = [](const std::string& row,
+                              const std::string& key) -> std::string {
+    const std::string needle = key + "=";
+    const size_t begin = row.find(needle);
+    if (begin == std::string::npos) {
+      return "unknown";
+    }
+    const size_t value_begin = begin + needle.size();
+    const size_t value_end = row.find(' ', value_begin);
+    return row.substr(
+        value_begin,
+        value_end == std::string::npos ? std::string::npos
+                                      : value_end - value_begin);
+  };
+
+  std::vector<std::string> snapshot;
+  snapshot.reserve(aggregate_rows.size());
+  for (const std::string& row : aggregate_rows) {
+    const bool tiled = row.find("buffer_float_tiled") != std::string::npos;
+    const bool float_buffer = row.find("buffer_float") != std::string::npos;
+    const std::string m = field_value(row, "m");
+    const std::string k = field_value(row, "k");
+    const std::string n = field_value(row, "n");
+    const std::string input_direct = field_value(row, "input_direct");
+    const std::string output_direct = field_value(row, "output_direct");
+    const std::string weight_packed = field_value(row, "weight_packed");
+    std::ostringstream out;
+    out << "schema=VulkanLinearOrMatmulPlanKey.v0"
+        << " source=linear_aggregate_snapshot"
+        << " op_family=linear"
+        << " selected="
+        << (tiled ? "FloatBufferTiledLinear"
+                  : (float_buffer ? "FloatBufferLinear" : "UnknownLinear"))
+        << ' ' << row
+        << " input=[" << m << ',' << k << ']'
+        << " weight=[" << k << ',' << n << ']'
+        << " output=[" << m << ',' << n << ']'
+        << " input_storage=DirectBuffer"
+        << " weight_storage="
+        << (weight_packed == "1" ? "PackedWeightBuffer" : "DirectBuffer")
+        << " output_storage=DirectBuffer"
+        << " input_layout="
+        << (input_direct == "1" ? "direct_buffer" : "unknown")
+        << " weight_layout="
+        << (weight_packed == "1" ? "packed_weight" : "direct_buffer")
+        << " output_layout="
+        << (output_direct == "1" ? "direct_buffer" : "unknown")
+        << " weight_direct=" << (weight_packed == "1" ? 0 : 1)
+        << " global=[" << n << ',' << m << ",1]"
+        << " local=[" << (tiled ? "16,16,1" : "16,4,1") << ']'
+        << " candidate_count=1"
+        << " cacheable=1"
+        << " tunable=" << (float_buffer ? 1 : 0)
+        << " context_device_index="
+        << static_cast<int64_t>(context->device_index())
+        << " vendor_id=" << properties.vendorID
+        << " device_id=" << properties.deviceID
+        << " driver_version=" << properties.driverVersion
+        << " api_version=" << adapter->api_version()
+        << " subgroup_size=" << adapter->subgroup_size()
+        << " min_subgroup_size=" << adapter->min_subgroup_size()
+        << " max_subgroup_size=" << adapter->max_subgroup_size()
+        << " max_compute_workgroup_subgroups="
+        << adapter->max_compute_workgroup_subgroups()
+        << " has_subgroup_size_control="
+        << (adapter->has_subgroup_size_control() ? 1 : 0)
+        << " has_compute_full_subgroups="
+        << (adapter->has_compute_full_subgroups() ? 1 : 0)
+        << " has_cooperative_matrix="
+        << (adapter->has_cooperative_matrix() ? 1 : 0)
+        << " cooperative_matrix_property_count="
+        << adapter->cooperative_matrix_property_count()
+        << " has_timeline_semaphore="
+        << (adapter->has_timeline_semaphore() ? 1 : 0)
+        << " has_synchronization2="
+        << (adapter->has_synchronization2() ? 1 : 0);
     snapshot.emplace_back(out.str());
   }
   return snapshot;

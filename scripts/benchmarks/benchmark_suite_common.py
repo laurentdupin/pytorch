@@ -84,6 +84,7 @@ VULKAN_COUNTER_NAMES = (
     "attention_plan_counters",
     "linear_plan_counters",
     "linear_aggregate_snapshot",
+    "linear_plan_key_snapshot",
     "linear_pack_residency_snapshot",
     "vulkan_memory_residency_snapshot",
     "last_allocation_failure_snapshot",
