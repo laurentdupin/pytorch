@@ -2697,13 +2697,10 @@ void Context::release_stack_planned_recording_descriptor_pool_lease_now() {
   stack_planned_recording_descriptor_pool_lease_.reset();
 }
 
-void Context::log_stack_region_retained_state_locked(
+Context::StackRegionRetainedStatePayload
+Context::capture_stack_region_retained_state_payload_locked(
     const char* event,
     const VulkanSubmission* submission) {
-  if (!stack_retained_state_logging_enabled()) {
-    return;
-  }
-
   const auto batch_bytes = [](const auto& resources) {
     uint64_t bytes = 0u;
     for (const auto& pending : resources) {
@@ -2792,83 +2789,147 @@ void Context::log_stack_region_retained_state_locked(
     external_image_bytes += pending.bytes;
   }
 
+  StackRegionRetainedStatePayload payload;
+  payload.captured = true;
+  payload.event = event ? event : "unknown";
+  payload.plan_id = stack_region_single_recording_plan_id_.load(
+      std::memory_order_acquire);
+  payload.owner_id = stack_region_single_recording_owner_id_.load(
+      std::memory_order_acquire);
+  payload.command_recording_id = command_buffer_recording_id_;
+  payload.submit_count = submit_count_;
+  payload.owned_command_buffer_active =
+      stack_region_owned_command_buffer_active_.load(
+          std::memory_order_acquire)
+      ? 1u
+      : 0u;
+  payload.external_recording_active =
+      g_external_command_recording_state.cmd != nullptr ? 1u : 0u;
+  payload.external_keepalive_buffers =
+      g_external_command_recording_state.buffers_to_keep_alive.size();
+  payload.external_keepalive_images =
+      g_external_command_recording_state.images_to_keep_alive.size();
+  payload.external_keepalive_buffer_bytes = external_buffer_bytes;
+  payload.external_keepalive_image_bytes = external_image_bytes;
+  payload.retained_buffers = stack_region_owned_recording_retained_buffers_.size();
+  payload.retained_images = stack_region_owned_recording_retained_images_.size();
+  payload.retained_buffer_bytes =
+      batch_bytes(stack_region_owned_recording_retained_buffers_);
+  payload.retained_image_bytes =
+      batch_bytes(stack_region_owned_recording_retained_images_);
+  payload.pending_retire_buffers = pending_buffer_count;
+  payload.pending_retire_images = pending_image_count;
+  payload.pending_retire_bytes = pending_bytes;
+  payload.stack_internal_temp_buffers = stack_internal_buffer_count;
+  payload.stack_internal_temp_images = stack_internal_image_count;
+  payload.stack_internal_temp_bytes = stack_internal_bytes;
+  payload.region_handoff_buffers = region_handoff_buffer_count;
+  payload.region_handoff_images = region_handoff_image_count;
+  payload.region_handoff_bytes = region_handoff_bytes;
+  payload.bridge_handoff_buffers = bridge_handoff_buffer_count;
+  payload.bridge_handoff_images = bridge_handoff_image_count;
+  payload.bridge_handoff_bytes = bridge_handoff_bytes;
+  payload.retire_queue_size = retire_queue_.size();
+  payload.external_pool_lease_active =
+      stack_region_external_recording_pool_lease_ ? 1u : 0u;
+  payload.stack_descriptor_pool_lease_active =
+      stack_planned_recording_descriptor_pool_lease_ ? 1u : 0u;
+  payload.external_cmd_acquire_count =
+      stack_region_external_command_buffer_acquire_count_;
+  payload.external_desc_set_count = stack_region_external_descriptor_set_count_;
+  payload.external_cmd_acquire_delta =
+      stack_region_external_command_buffer_acquire_count_ -
+      stack_region_external_command_buffer_acquire_at_begin_;
+  payload.external_desc_set_delta =
+      stack_region_external_descriptor_set_count_ -
+      stack_region_external_descriptor_set_count_at_begin_;
+  payload.recorded_dispatch_count = stack_region_owned_recording_dispatch_count_;
+  payload.transfer_source_count =
+      stack_region_pending_retire_transfer_source_count_.load(
+          std::memory_order_acquire);
+  payload.transfer_source_bytes =
+      stack_region_pending_retire_transfer_source_bytes_.load(
+          std::memory_order_acquire);
+  payload.transfer_source_map_count = transfer_source_map_count;
+  payload.transfer_source_by_state_count = transfer_source_by_state_count;
+  payload.transfer_source_signature_empty =
+      transfer_source_signature.empty() ? 1u : 0u;
+  payload.stream_last_submitted =
+      current_stream().last_submitted_value.load(std::memory_order_relaxed);
+  payload.submission_value = submission ? submission->timeline_value : 0u;
+  return payload;
+}
+
+void Context::publish_stack_region_retained_state_payload(
+    const StackRegionRetainedStatePayload& payload) {
+  if (!stack_retained_state_logging_enabled() || !payload.captured) {
+    return;
+  }
+
   std::ofstream out(stack_retained_state_log_path(), std::ios::app);
   out << "schema=StackRegionExecutionSessionRetainedState.v0"
-      << " event=" << (event ? event : "unknown")
-      << " plan_id="
-      << stack_region_single_recording_plan_id_.load(
-             std::memory_order_acquire)
-      << " owner_id="
-      << stack_region_single_recording_owner_id_.load(
-             std::memory_order_acquire)
-      << " command_recording_id=" << command_buffer_recording_id_
-      << " submit_count=" << submit_count_
+      << " event=" << payload.event
+      << " plan_id=" << payload.plan_id
+      << " owner_id=" << payload.owner_id
+      << " command_recording_id=" << payload.command_recording_id
+      << " submit_count=" << payload.submit_count
       << " owned_command_buffer_active="
-      << (stack_region_owned_command_buffer_active_.load(
-              std::memory_order_acquire)
-              ? 1
-              : 0)
-      << " external_recording_active="
-      << (g_external_command_recording_state.cmd != nullptr ? 1 : 0)
-      << " external_keepalive_buffers="
-      << g_external_command_recording_state.buffers_to_keep_alive.size()
-      << " external_keepalive_images="
-      << g_external_command_recording_state.images_to_keep_alive.size()
-      << " external_keepalive_buffer_bytes=" << external_buffer_bytes
-      << " external_keepalive_image_bytes=" << external_image_bytes
-      << " retained_buffers="
-      << stack_region_owned_recording_retained_buffers_.size()
-      << " retained_images="
-      << stack_region_owned_recording_retained_images_.size()
-      << " retained_buffer_bytes="
-      << batch_bytes(stack_region_owned_recording_retained_buffers_)
-      << " retained_image_bytes="
-      << batch_bytes(stack_region_owned_recording_retained_images_)
-      << " pending_retire_buffers=" << pending_buffer_count
-      << " pending_retire_images=" << pending_image_count
-      << " pending_retire_bytes=" << pending_bytes
-      << " stack_internal_temp_buffers=" << stack_internal_buffer_count
-      << " stack_internal_temp_images=" << stack_internal_image_count
-      << " stack_internal_temp_bytes=" << stack_internal_bytes
-      << " region_handoff_buffers=" << region_handoff_buffer_count
-      << " region_handoff_images=" << region_handoff_image_count
-      << " region_handoff_bytes=" << region_handoff_bytes
-      << " bridge_handoff_buffers=" << bridge_handoff_buffer_count
-      << " bridge_handoff_images=" << bridge_handoff_image_count
-      << " bridge_handoff_bytes=" << bridge_handoff_bytes
-      << " retire_queue_size=" << retire_queue_.size()
-      << " external_pool_lease_active="
-      << (stack_region_external_recording_pool_lease_ ? 1 : 0)
+      << payload.owned_command_buffer_active
+      << " external_recording_active=" << payload.external_recording_active
+      << " external_keepalive_buffers=" << payload.external_keepalive_buffers
+      << " external_keepalive_images=" << payload.external_keepalive_images
+      << " external_keepalive_buffer_bytes="
+      << payload.external_keepalive_buffer_bytes
+      << " external_keepalive_image_bytes="
+      << payload.external_keepalive_image_bytes
+      << " retained_buffers=" << payload.retained_buffers
+      << " retained_images=" << payload.retained_images
+      << " retained_buffer_bytes=" << payload.retained_buffer_bytes
+      << " retained_image_bytes=" << payload.retained_image_bytes
+      << " pending_retire_buffers=" << payload.pending_retire_buffers
+      << " pending_retire_images=" << payload.pending_retire_images
+      << " pending_retire_bytes=" << payload.pending_retire_bytes
+      << " stack_internal_temp_buffers="
+      << payload.stack_internal_temp_buffers
+      << " stack_internal_temp_images=" << payload.stack_internal_temp_images
+      << " stack_internal_temp_bytes=" << payload.stack_internal_temp_bytes
+      << " region_handoff_buffers=" << payload.region_handoff_buffers
+      << " region_handoff_images=" << payload.region_handoff_images
+      << " region_handoff_bytes=" << payload.region_handoff_bytes
+      << " bridge_handoff_buffers=" << payload.bridge_handoff_buffers
+      << " bridge_handoff_images=" << payload.bridge_handoff_images
+      << " bridge_handoff_bytes=" << payload.bridge_handoff_bytes
+      << " retire_queue_size=" << payload.retire_queue_size
+      << " external_pool_lease_active=" << payload.external_pool_lease_active
       << " stack_descriptor_pool_lease_active="
-      << (stack_planned_recording_descriptor_pool_lease_ ? 1 : 0)
+      << payload.stack_descriptor_pool_lease_active
       << " external_cmd_acquire_count="
-      << stack_region_external_command_buffer_acquire_count_
-      << " external_desc_set_count="
-      << stack_region_external_descriptor_set_count_
+      << payload.external_cmd_acquire_count
+      << " external_desc_set_count=" << payload.external_desc_set_count
       << " external_cmd_acquire_delta="
-      << (stack_region_external_command_buffer_acquire_count_ -
-          stack_region_external_command_buffer_acquire_at_begin_)
-      << " external_desc_set_delta="
-      << (stack_region_external_descriptor_set_count_ -
-          stack_region_external_descriptor_set_count_at_begin_)
-      << " recorded_dispatch_count="
-      << stack_region_owned_recording_dispatch_count_
-      << " transfer_source_count="
-      << stack_region_pending_retire_transfer_source_count_.load(
-             std::memory_order_acquire)
-      << " transfer_source_bytes="
-      << stack_region_pending_retire_transfer_source_bytes_.load(
-             std::memory_order_acquire)
-      << " transfer_source_map_count=" << transfer_source_map_count
-      << " transfer_source_by_state_count=" << transfer_source_by_state_count
+      << payload.external_cmd_acquire_delta
+      << " external_desc_set_delta=" << payload.external_desc_set_delta
+      << " recorded_dispatch_count=" << payload.recorded_dispatch_count
+      << " transfer_source_count=" << payload.transfer_source_count
+      << " transfer_source_bytes=" << payload.transfer_source_bytes
+      << " transfer_source_map_count=" << payload.transfer_source_map_count
+      << " transfer_source_by_state_count="
+      << payload.transfer_source_by_state_count
       << " transfer_source_signature_empty="
-      << (transfer_source_signature.empty() ? 1 : 0)
-      << " stream_last_submitted="
-      << current_stream().last_submitted_value.load(
-             std::memory_order_relaxed)
-      << " submission_value="
-      << (submission ? submission->timeline_value : 0u)
+      << payload.transfer_source_signature_empty
+      << " stream_last_submitted=" << payload.stream_last_submitted
+      << " submission_value=" << payload.submission_value
       << '\n';
+}
+
+void Context::log_stack_region_retained_state_locked(
+    const char* event,
+    const VulkanSubmission* submission) {
+  if (!stack_retained_state_logging_enabled()) {
+    return;
+  }
+  publish_stack_region_retained_state_payload(
+      capture_stack_region_retained_state_payload_locked(event, submission));
 }
 
 void Context::capture_external_recording_buffer_cleanup(
@@ -4836,6 +4897,12 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->stack_region_handoff_batch_bytes += pending.bytes;
     }
   }
+  if (stack_retained_state_logging_enabled()) {
+    batch->before_handoff_retained_state_payload =
+        capture_stack_region_retained_state_payload_locked(
+            "stack_exit_before_handoff_batches",
+            &batch->submission);
+  }
   batch->actions = {
       StackRegionExitWorkAction::LogBeforeHandoffBatches,
       StackRegionExitWorkAction::SnapshotPendingRetireTransferSource,
@@ -4866,7 +4933,10 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->executor_depth_after,
       batch->executor_reentry_rejected,
       batch->executor_reentry_status,
-      batch->executor_fail_closed_reason);
+      batch->executor_fail_closed_reason,
+      batch->retained_state_live_log_reread_count,
+      batch->before_handoff_retained_state_payload.captured,
+      batch->after_finalize_retained_state_payload.captured);
   return batch;
 }
 
@@ -4875,9 +4945,15 @@ void Context::drain_stack_region_exit_work_batch_locked(
   for (const StackRegionExitWorkAction action : batch.actions) {
     switch (action) {
       case StackRegionExitWorkAction::LogBeforeHandoffBatches:
-        log_stack_region_retained_state_locked(
-            "stack_exit_before_handoff_batches",
-            &batch.submission);
+        if (batch.before_handoff_retained_state_payload.captured) {
+          publish_stack_region_retained_state_payload(
+              batch.before_handoff_retained_state_payload);
+        } else {
+          ++batch.retained_state_live_log_reread_count;
+          log_stack_region_retained_state_locked(
+              "stack_exit_before_handoff_batches",
+              &batch.submission);
+        }
         break;
       case StackRegionExitWorkAction::SnapshotPendingRetireTransferSource:
         snapshot_stack_region_pending_retire_transfer_source_locked(
@@ -4928,10 +5004,21 @@ void Context::drain_stack_region_exit_work_batch_locked(
             std::memory_order_release);
         stack_planned_recording_owner_ = std::thread::id{};
         stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+        if (stack_retained_state_logging_enabled()) {
+          batch.after_finalize_retained_state_payload =
+              capture_stack_region_retained_state_payload_locked(
+                  "stack_exit_after_finalize");
+        }
         break;
       }
       case StackRegionExitWorkAction::LogAfterFinalize:
-        log_stack_region_retained_state_locked("stack_exit_after_finalize");
+        if (batch.after_finalize_retained_state_payload.captured) {
+          publish_stack_region_retained_state_payload(
+              batch.after_finalize_retained_state_payload);
+        } else {
+          ++batch.retained_state_live_log_reread_count;
+          log_stack_region_retained_state_locked("stack_exit_after_finalize");
+        }
         break;
     }
     ++batch.drained_action_count;
@@ -4959,7 +5046,10 @@ void Context::drain_stack_region_exit_work_batch_locked(
       batch.executor_depth_after,
       batch.executor_reentry_rejected,
       batch.executor_reentry_status,
-      batch.executor_fail_closed_reason);
+      batch.executor_fail_closed_reason,
+      batch.retained_state_live_log_reread_count,
+      batch.before_handoff_retained_state_payload.captured,
+      batch.after_finalize_retained_state_payload.captured);
 }
 
 void Context::execute_stack_region_exit_work_batch_locked(

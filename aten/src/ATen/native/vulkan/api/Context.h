@@ -249,6 +249,52 @@ class TORCH_API Context final {
     LogAfterFinalize,
   };
 
+  struct StackRegionRetainedStatePayload final {
+    bool captured = false;
+    std::string event;
+    uint64_t plan_id = 0u;
+    uint64_t owner_id = 0u;
+    uint64_t command_recording_id = 0u;
+    uint64_t submit_count = 0u;
+    uint64_t owned_command_buffer_active = 0u;
+    uint64_t external_recording_active = 0u;
+    uint64_t external_keepalive_buffers = 0u;
+    uint64_t external_keepalive_images = 0u;
+    uint64_t external_keepalive_buffer_bytes = 0u;
+    uint64_t external_keepalive_image_bytes = 0u;
+    uint64_t retained_buffers = 0u;
+    uint64_t retained_images = 0u;
+    uint64_t retained_buffer_bytes = 0u;
+    uint64_t retained_image_bytes = 0u;
+    uint64_t pending_retire_buffers = 0u;
+    uint64_t pending_retire_images = 0u;
+    uint64_t pending_retire_bytes = 0u;
+    uint64_t stack_internal_temp_buffers = 0u;
+    uint64_t stack_internal_temp_images = 0u;
+    uint64_t stack_internal_temp_bytes = 0u;
+    uint64_t region_handoff_buffers = 0u;
+    uint64_t region_handoff_images = 0u;
+    uint64_t region_handoff_bytes = 0u;
+    uint64_t bridge_handoff_buffers = 0u;
+    uint64_t bridge_handoff_images = 0u;
+    uint64_t bridge_handoff_bytes = 0u;
+    uint64_t retire_queue_size = 0u;
+    uint64_t external_pool_lease_active = 0u;
+    uint64_t stack_descriptor_pool_lease_active = 0u;
+    uint64_t external_cmd_acquire_count = 0u;
+    uint64_t external_desc_set_count = 0u;
+    uint64_t external_cmd_acquire_delta = 0u;
+    uint64_t external_desc_set_delta = 0u;
+    uint64_t recorded_dispatch_count = 0u;
+    uint64_t transfer_source_count = 0u;
+    uint64_t transfer_source_bytes = 0u;
+    uint64_t transfer_source_map_count = 0u;
+    uint64_t transfer_source_by_state_count = 0u;
+    uint64_t transfer_source_signature_empty = 0u;
+    uint64_t stream_last_submitted = 0u;
+    uint64_t submission_value = 0u;
+  };
+
   struct StackRegionExitWorkBatch final {
     VulkanSubmission submission;
     std::vector<StackRegionExitWorkAction> actions;
@@ -270,6 +316,9 @@ class TORCH_API Context final {
     bool executor_reentry_rejected = false;
     const char* executor_reentry_status = "not_entered";
     const char* executor_fail_closed_reason = "none";
+    uint64_t retained_state_live_log_reread_count = 0u;
+    StackRegionRetainedStatePayload before_handoff_retained_state_payload;
+    StackRegionRetainedStatePayload after_finalize_retained_state_payload;
   };
 
   void clear_pending_retire_resources_locked();
@@ -295,6 +344,12 @@ class TORCH_API Context final {
   void log_stack_region_retained_state_locked(
       const char* event,
       const VulkanSubmission* submission = nullptr);
+  StackRegionRetainedStatePayload
+  capture_stack_region_retained_state_payload_locked(
+      const char* event,
+      const VulkanSubmission* submission = nullptr);
+  void publish_stack_region_retained_state_payload(
+      const StackRegionRetainedStatePayload& payload);
   bool transfer_pending_retires_to_stack_region_handoff_locked(
       VulkanRetireCallSite callsite,
       const std::string& target_allocation_signature);

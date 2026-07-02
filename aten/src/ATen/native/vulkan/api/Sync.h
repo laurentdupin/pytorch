@@ -2648,7 +2648,10 @@ TORCH_API void note_stack_region_control_plane_work_batch(
     uint64_t executor_depth_after,
     bool executor_reentry_rejected,
     const char* executor_reentry_status,
-    const char* executor_fail_closed_reason);
+    const char* executor_fail_closed_reason,
+    uint64_t retained_state_live_log_reread_count,
+    bool before_handoff_retained_state_payload_captured,
+    bool after_finalize_retained_state_payload_captured);
 TORCH_API bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     uint32_t binding_idx,
     const char* shader_name,

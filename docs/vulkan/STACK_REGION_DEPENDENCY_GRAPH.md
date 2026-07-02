@@ -1334,11 +1334,15 @@ Rows distinguish the prepared state (`drain_mode=prepared_not_drained`,
 `drained_action_count=6`, `executor_mode=context_control_plane_inline`,
 `executor_depth_before=0`, `executor_depth=1`, `executor_depth_after=0`,
 `executor_reentry_status=not_reentrant`, `executor_reentry_rejected=0`,
-`executor_depth_guard=raii`). These fields prove the post-submit cleanup is a
-flat ordered action list owned by a named context control-plane executor whose
-depth is restored even if a future action fails. The executor can later move
-out of the stack-exit call path without changing route, shader, copy, readback,
-fallback, or shape contracts.
+`executor_depth_guard=raii`,
+`diagnostic_payload_publish_mode=captured_payload_inline`, and the before/after
+retained-state payload capture flags with `retained_state_live_log_reread_count=0`).
+These fields prove the post-submit cleanup is a flat ordered action list owned
+by a named context control-plane executor whose depth is restored even if a
+future action fails. The two retained-state log actions now publish captured
+payloads instead of rereading the live context at publication time. The executor
+can later move out of the stack-exit call path without changing route, shader,
+copy, readback, fallback, or shape contracts.
 Setting `PYTORCH_VULKAN_STACK_DEP_GRAPH` also enables detailed stack diagnostic
 rows for retire blockers, region-lifetime submit attribution, and subresource
 lifetime dry-runs. Runs that need those rows without writing a graph can set

@@ -21548,7 +21548,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         if os.path.exists(graph_path):
             os.remove(graph_path)
+        retained_state_path = os.path.join(
+            TEST_FILE_DIR, "vulkan_stack_region_retained_state_test.log"
+        )
+        if os.path.exists(retained_state_path):
+            os.remove(retained_state_path)
         previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
+        previous_retained_state = os.environ.get(
+            "PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG"
+        )
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
@@ -21559,6 +21567,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
+        os.environ["PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG"] = retained_state_path
         os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
         os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         os.environ.pop(
@@ -22061,6 +22070,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("executor_reentry_rejected") == "0"
                     and row.get("executor_fail_closed_reason") == "none"
                     and row.get("executor_depth_guard") == "raii"
+                    and row.get("diagnostic_payload_publish_mode")
+                    == "captured_payload_inline"
+                    and row.get("retained_state_live_log_reread_count") == "0"
                     for row in graph_batch_rows
                 )
             )
@@ -22074,6 +22086,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("executor_depth_before") == "0"
                     and row.get("executor_depth_after") == "0"
                     and row.get("executor_reentry_status") == "not_entered"
+                    and row.get("before_handoff_retained_state_payload_captured")
+                    == "1"
+                    and row.get("after_finalize_retained_state_payload_captured")
+                    == "0"
                     for row in graph_batch_rows
                 )
             )
@@ -22088,6 +22104,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("executor_depth_before") == "0"
                     and row.get("executor_depth_after") == "0"
                     and row.get("executor_reentry_status") == "not_reentrant"
+                    and row.get("before_handoff_retained_state_payload_captured")
+                    == "1"
+                    and row.get("after_finalize_retained_state_payload_captured")
+                    == "1"
                     for row in graph_batch_rows
                 )
             )
@@ -22127,6 +22147,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "executor_depth_before=0" in row
                     and "executor_depth_after=0" in row
                     and "executor_reentry_status=not_entered" in row
+                    and "retained_state_live_log_reread_count=0" in row
+                    and "before_handoff_retained_state_payload_captured=1"
+                    in row
+                    and "after_finalize_retained_state_payload_captured=0"
+                    in row
                     for row in batch_rows
                 )
             )
@@ -22143,17 +22168,38 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "executor_reentry_status=not_reentrant" in row
                     and "executor_fail_closed_reason=none" in row
                     and "executor_depth_guard=raii" in row
+                    and "diagnostic_payload_publish_mode=captured_payload_inline"
+                    in row
+                    and "retained_state_live_log_reread_count=0" in row
+                    and "before_handoff_retained_state_payload_captured=1"
+                    in row
+                    and "after_finalize_retained_state_payload_captured=1"
+                    in row
                     for row in batch_rows
                 )
             )
             self.assertTrue(
                 all("drain_action_count=6" in row for row in batch_rows)
             )
+            self.assertTrue(os.path.exists(retained_state_path))
+            with open(retained_state_path, encoding="utf-8") as handle:
+                retained_state_rows = handle.read()
+            self.assertIn(
+                "event=stack_exit_before_handoff_batches",
+                retained_state_rows,
+            )
+            self.assertIn("event=stack_exit_after_finalize", retained_state_rows)
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
             else:
                 os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
+            if previous_retained_state is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG"] = (
+                    previous_retained_state
+                )
             if previous_canary is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
             else:
@@ -22178,6 +22224,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ] = previous_single_recording_canary
             if os.path.exists(graph_path):
                 os.remove(graph_path)
+            if os.path.exists(retained_state_path):
+                os.remove(retained_state_path)
 
     def test_vulkan_stack_region_barrier_only_canary_inserts_real_barrier(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
@@ -31284,6 +31332,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("executor_reentry_rejected") == "0"
                     and row.get("executor_fail_closed_reason") == "none"
                     and row.get("executor_depth_guard") == "raii"
+                    and row.get("diagnostic_payload_publish_mode")
+                    == "captured_payload_inline"
+                    and row.get("retained_state_live_log_reread_count") == "0"
+                    and "before_handoff_retained_state_payload_captured" in row
+                    and "after_finalize_retained_state_payload_captured" in row
                     for row in control_plane_work_batch_rows
                 )
             )

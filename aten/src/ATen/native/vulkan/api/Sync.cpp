@@ -25161,7 +25161,10 @@ void note_stack_region_control_plane_work_batch(
     const uint64_t executor_depth_after,
     const bool executor_reentry_rejected,
     const char* const executor_reentry_status,
-    const char* const executor_fail_closed_reason) {
+    const char* const executor_fail_closed_reason,
+    const uint64_t retained_state_live_log_reread_count,
+    const bool before_handoff_retained_state_payload_captured,
+    const bool after_finalize_retained_state_payload_captured) {
   std::ostringstream key;
   key << "stack_region_control_plane_work_batch=1"
       << " schema=StackRegionControlPlaneWorkBatch.v0"
@@ -25196,6 +25199,13 @@ void note_stack_region_control_plane_work_batch(
       << " executor_fail_closed_reason="
       << (executor_fail_closed_reason ? executor_fail_closed_reason : "unknown")
       << " executor_depth_guard=raii"
+      << " before_handoff_retained_state_payload_captured="
+      << (before_handoff_retained_state_payload_captured ? "1" : "0")
+      << " after_finalize_retained_state_payload_captured="
+      << (after_finalize_retained_state_payload_captured ? "1" : "0")
+      << " retained_state_live_log_reread_count="
+      << retained_state_live_log_reread_count
+      << " diagnostic_payload_publish_mode=captured_payload_inline"
       << " behavior_neutral=1"
       << " submit_topology_preserved=1"
       << " phase_boundary_submits_preserved=1"
