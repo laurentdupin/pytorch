@@ -1260,6 +1260,20 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
     enabled = True
     limit = None
     installed = 0
+    pretrained = getattr(model, "pretrained", None)
+    if pretrained is not None and getattr(
+        pretrained,
+        "_vulkan_dav2_stack_owner_enabled",
+        False,
+    ):
+        stack_owner = getattr(pretrained, "_vulkan_dav2_stack_owner", None)
+        return {
+            "enabled": enabled,
+            "limit": "all",
+            "installed": len(getattr(stack_owner, "block_contexts", [])),
+            "already_installed": True,
+        }
+
     context_cache = VulkanDAv2OwnerContextCache(torch_module)
     flat_blocks: list[Any] = []
     for block_index, (_container, _slot, block) in enumerate(
@@ -1269,7 +1283,6 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
         context_cache.get_or_create(block, block_index)
         installed += 1
 
-    pretrained = getattr(model, "pretrained", None)
     if (
         pretrained is not None
         and flat_blocks
@@ -1285,6 +1298,7 @@ def install_vulkan_dav2_block_owner(torch_module: Any, model: Any) -> dict[str, 
             vulkan_dav2_stack_not_chunked,
             pretrained,
         )
+        pretrained._vulkan_dav2_stack_owner_enabled = True
 
     return {
         "enabled": enabled,

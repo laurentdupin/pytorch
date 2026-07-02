@@ -230,6 +230,81 @@
       ]
     },
     {
+      "id": "dav2_vits140_stream_sync_context_pool_recycle_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_pending_2026_07_02",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused evidence. Behavior is generic current-stream synchronization cleanup for the normal Vulkan context command and descriptor pools, not a model route, shader predicate, or shape admission.",
+      "contract_or_topology_scope": [
+        "Vulkan stream synchronize split",
+        "normal context command pool lifecycle",
+        "normal context descriptor pool lifecycle",
+        "device-resident repeated-forward stability"
+      ],
+      "candidate": "After a successful current-stream wait in synchronize_stream(), recycle the normal context command and descriptor pools and invalidate the consumed command buffer epoch.",
+      "correctness": {
+        "status": "stability_passed_no_output_readback_in_repeat30",
+        "tests": [
+          "Synthetic fixed-feature DPTHead Vulkan loop, repeats=32",
+          "Depth Anything V2 vits_140 device-resident benchmark, warmup=0, repeats=30, skip-output-copy"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "performance_valid": true,
+        "repeat_count": 30,
+        "measurement_phase_submit_origins": [
+          663,
+          119,
+          30,
+          30,
+          0,
+          30,
+          0,
+          0,
+          450,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0
+        ],
+        "measurement_phase_retire_drains": [
+          840,
+          450,
+          0,
+          390,
+          41348,
+          1558642592,
+          0,
+          0
+        ]
+      },
+      "timing_ms": {
+        "device_resident_mean": 62.314,
+        "device_resident_median": 60.92,
+        "device_resident_p95": 72.122,
+        "repeat_count": 30
+      },
+      "artifacts": [
+        "agent_space/synthetic_depth_head_after_stream_flush_repeat32.json",
+        "agent_space/dav2_vits140_after_stream_pool_flush_repeat30.json",
+        "agent_space/dav2_vits140_after_stream_pool_flush_repeat30.trace"
+      ],
+      "decision": "Keep as generic stream-sync cleanup. It fixes the repeated fixed-feature decoder stack-overflow failure by recycling completed normal context command/descriptor pools at the public synchronization boundary, without broad recovery flushes, shape changes, route changes, submit elision, fallback, or readback behavior.",
+      "revisit_conditions": [
+        "If a future region/session owner replaces normal context pool ownership at synchronize_stream().",
+        "If another adapter shows command/descriptor pool recycle after stream wait regresses latency or lifetime behavior.",
+        "If repeated fixed-feature decoder or compiled-session bridge runs still reach Windows stack overflow after the pool recycle fix."
+      ]
+    },
+    {
       "id": "dav2_vits140_segmented_stack_wide4_bridge_canary_2026_06_30",
       "status": "accepted_canary",
       "head": "49f93e81e81",
@@ -2278,8 +2353,8 @@
         "graph_smoke_pre_dispatch_candidate_records": 3,
         "graph_smoke_pre_dispatch_proof_complete_records": 3,
         "graph_smoke_submit_epoch_optimization_plan_records": 3,
-        "repeat20_or_repeat30_exit_code": -1073741571,
-        "repeat20_or_repeat30_failure_class": "pre_existing_windows_stack_overflow"
+        "repeat20_or_repeat30_failure_reclassified": "independent_stream_sync_context_pool_lifetime_issue",
+        "repeat30_followup_after_pool_recycle": "passed"
       },
       "timing_ms": {
         "device_resident_repeat10_mean": 57.64968,
@@ -2293,12 +2368,13 @@
         "agent_space/dav2_vits140_dependency_rows_gated_graph_smoke_graph.json",
         "agent_space/dav2_vits140_submit_stage_timeline_summary.log",
         "agent_space/dav2_vits140_submit_stage_gated_timeline_summary.log",
-        "agent_space/dav2_vits140_head_control_repeat20.trace"
+        "agent_space/dav2_vits140_head_control_repeat20.trace",
+        "agent_space/dav2_vits140_after_stream_pool_flush_repeat30.json"
       ],
-      "decision": "Keep stack descriptor dependency rows off the default timing path and emit them only for graph/diagnostic-row or selected barrier-canary runs. This fixes a measured control-plane diagnostic overhead without weakening contract or graph observability. Do not promote the 57 ms short-run result as a stable repeat-30 baseline until the independent repeated-forward stack-overflow failure is fixed.",
+      "decision": "Keep stack descriptor dependency rows off the default timing path and emit them only for graph/diagnostic-row or selected barrier-canary runs. This fixes a measured control-plane diagnostic overhead without weakening contract or graph observability. Do not promote the 57 ms short-run result as a stable repeat-30 baseline; the former repeat-30 failure is now cataloged as a separate stream-sync context-pool lifetime fix with its own evidence row.",
       "revisit_conditions": [
         "If graph or barrier-canary runs stop emitting pre-dispatch proof or submit-epoch rows.",
-        "After repeat-20/30 `vits_140` wide4 no longer exits with Windows stack overflow.",
+        "If repeat-30 stability regresses again after the stream-sync context-pool recycle fix.",
         "If a future optimized always-on proof representation can keep the same graph rows without measurable timing overhead."
       ]
     },

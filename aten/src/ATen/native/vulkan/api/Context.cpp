@@ -2988,7 +2988,14 @@ void Context::synchronize_stream(const c10::Stream& stream) {
   dump_gpu_profile_log("synchronize_stream");
   if (synchronized_current_stream) {
     std::unique_lock<std::mutex> cleanup_lock(dispatch_lock());
+    command_pool_.flush();
+    descriptor_pool_.flush();
     flush_persistent_external_recording_pools_if_idle();
+    if (cmd_) {
+      cmd_.invalidate();
+    }
+    submit_count_ = 0u;
+    command_buffer_recording_id_ = 0u;
   }
 }
 

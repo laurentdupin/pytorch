@@ -3118,6 +3118,14 @@ bool stack_descriptor_dependency_diagnostics_requested() {
              stack_region_barrier_only_canary_target());
 }
 
+bool stack_dispatch_dependency_recording_requested() {
+  return stack_descriptor_dependency_diagnostics_requested() ||
+      stack_region_submit_elision_canary_target_selected(
+             stack_region_submit_elision_canary_target()) ||
+      stack_region_single_recording_canary_target_selected(
+             stack_region_single_recording_canary_target());
+}
+
 bool stack_region_dependency_graph_summary_only() {
   const char* env = std::getenv("PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE");
   if (env == nullptr || *env == '\0') {
@@ -32546,6 +32554,12 @@ bool vision_stack_capture_dependency_between_blocks(
 }
 
 void begin_stack_dispatch_dependency_recording_scope() {
+  if (!stack_dispatch_dependency_recording_requested()) {
+    g_stack_dispatch_dependency_scope_id = 0u;
+    g_stack_dispatch_dependency_position = 0u;
+    g_stack_descriptor_dependency_diagnostics_active = false;
+    return;
+  }
   g_stack_dispatch_dependency_scope_id =
       g_next_stack_dispatch_dependency_scope_id.fetch_add(
           1u, std::memory_order_relaxed);

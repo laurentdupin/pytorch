@@ -1,8 +1,8 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-01 after DAv2 multi-GPU conv workgroup evidence,
-vitl native private-baton deep-split bridge work, segment-completion
-retire-handoff evidence, and stack descriptor dependency diagnostic gating.
+Last refreshed: 2026-07-02 after DAv2 stream-sync context command/descriptor
+pool recycle evidence, stack descriptor dependency diagnostic gating, and
+multi-GPU conv workgroup evidence.
 
 ## Repo State Summary
 
@@ -128,26 +128,28 @@ gating, an RX 9070 `vits_140` wide4 warmup-3/repeat-10 run measured about
 bridge sanity max_abs `1.1846423149108887e-06`, zero timed CPU fallback, sync
 readback, and buffer copies. A separate graph smoke still materialized the
 pre-dispatch proof and submit-epoch rows when `PYTORCH_VULKAN_STACK_DEP_GRAPH`
-was set. This is not yet a stable repeat-30 baseline: repeat-20/30 still hits
-the pre-existing Windows stack-overflow failure around the thirteenth repeated
-forward, so the next stability target remains heap-owned/flat repeated-forward
-stack work rather than another descriptor diagnostic path.
+was set. The earlier repeat-20/30 Windows stack-overflow failure around the
+thirteenth repeated forward is now cataloged as an independent stream-sync
+pool-lifetime issue rather than a descriptor-diagnostic gating issue.
 
 The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the best
-measured safe lane. The repeat-run stack overflow was traced to the normal
-stack-planned decoder bridge allocating descriptors from the shared context
-descriptor pool while frequency submits were suppressed. Stack-planned recording
-now uses a per-stack descriptor-pool lease and retires that lease on the
-stack-exit submission timeline, matching the external-recording pool-lease
-ownership model without resetting in-flight descriptor sets. A cleaned
-30-repeat validation now completes with about 102.7 ms mean / 104.2 ms median /
-113.2 ms p95 device-resident forward, with zero timed CPU fallback and sync
-readback. Earlier short-run timing remains lower and noisy, so this evidence is
-primarily a stability fix rather than a performance claim. A `vitl_140`
-one-repeat sanity and warmup-1/repeat-3 smoke also complete instead of hitting
-Windows stack overflow `-1073741571`. A phase-isolated GPU timestamp profile
-still shows about 43-47 ms of kernel work per forward. The largest GPU row is
-still the FP32 `fc2` linear family
+measured safe lane. The repeated fixed-feature decoder/bridge stack overflow
+was traced to normal context command/descriptor pool lifetime at the public
+stream-sync boundary: `synchronize_stream()` waited the current stream and
+polled retires, but did not recycle the normal context command and descriptor
+pools. Repeated device-resident DPT decoder forwards over stable Vulkan
+features could therefore grow descriptor-set pressure until the default
+1024-set descriptor pool was exhausted around the fourteenth repeat, while
+fresh-input runs survived because upload-side fence waits incidentally flushed
+the pools. Current-stream synchronization now flushes the normal command and
+descriptor pools after a successful current-stream wait, matching the existing
+`synchronize_device()` / fence-wait cleanup semantics without broad recovery
+flushes. A focused synthetic fixed-feature DPTHead loop now completes 32
+repeats, and the original `vits_140` warmup-0/repeat-30 device-resident
+benchmark completes with about 62.3 ms mean / 60.9 ms median / 72.1 ms p95,
+with zero timed CPU fallback and sync readback. A phase-isolated GPU timestamp
+profile still shows about 43-47 ms of kernel work per forward. The largest GPU
+row is still the FP32 `fc2` linear family
 (`mm_buffer_float_bias`, about 13.9 ms/forward), followed by decoder/other
 convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm. Sub-50 work
 therefore needs control-plane reduction and a parity-proven FP32 linear plan;
