@@ -275,6 +275,28 @@ class TestVulkanGovernance(TestCase):
             )
             self.assertIn(f"TILE_SIZE = {tile}", shader)
 
+    def test_vulkan_retired_env_toggles_absent_from_runtime_code(self):
+        retired_env_toggles = {
+            "PYTORCH_VULKAN_LINEAR_TILED_CANARY",
+        }
+        scan_roots = [
+            os.path.join(REPO_ROOT, "aten", "src", "ATen", "native", "vulkan"),
+            os.path.join(REPO_ROOT, "scripts", "benchmarks"),
+        ]
+        offenders = []
+        for root in scan_roots:
+            for dirpath, _, filenames in os.walk(root):
+                for filename in filenames:
+                    if not filename.endswith((".cpp", ".h", ".py")):
+                        continue
+                    path = os.path.join(dirpath, filename)
+                    with open(path, encoding="utf-8") as handle:
+                        text = handle.read()
+                    for env_name in retired_env_toggles:
+                        if env_name in text:
+                            offenders.append(os.path.relpath(path, REPO_ROOT))
+        self.assertEqual([], offenders)
+
     def test_vulkan_stack_output_bridge_sanity_runs_reference_first(self):
         benchmark = self._depth_anything_benchmark_module()
         call_order = []
@@ -36980,131 +37002,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertNotIn("op=aten::linear.buffer_float_tiled_bias", log_text)
             self.assertIn("tiled=0", log_text)
-        finally:
-            if os.path.exists(log_path):
-                os.remove(log_path)
-
-    def test_vision_fc2_exact_tiled_linear_canary(self):
-        log_name = "vision_fc2_exact_tiled_linear_canary_op_hit_test.log"
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_path = os.path.join(repo_root, log_name)
-        if os.path.exists(log_path):
-            os.remove(log_path)
-
-        try:
-            script = """
-                import torch
-                import torch.nn.functional as F
-
-                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
-
-                torch.manual_seed(0)
-                x_cpu = torch.randn(151, 1536, dtype=torch.float32) * 0.02
-                w_cpu = torch.randn(384, 1536, dtype=torch.float32) * 0.02
-                b_cpu = torch.randn(384, dtype=torch.float32) * 0.02
-
-                expected = F.linear(x_cpu, w_cpu, b_cpu)
-                previous = torch.ops.vulkan_prepack.swap_runtime_label(
-                    "depth.dino.backbone.block"
-                )
-                try:
-                    context = torch.ops.vulkan_prepack.create_linear_context_labeled(
-                        w_cpu.to("vulkan"),
-                        b_cpu.to("vulkan"),
-                        "depth.dino.backbone.block.fc2",
-                    )
-                    actual = torch.ops.vulkan_prepack.run_linear_context(
-                        x_cpu.to("vulkan"),
-                        context,
-                    ).cpu()
-                finally:
-                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
-
-                torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
-                print(float(actual.sum()))
-            """
-
-            self._run_repo_python_subprocess(
-                script,
-                extra_env={
-                    "PYTORCH_VULKAN_OP_HIT_LOG": log_name,
-                    "PYTORCH_VULKAN_LINEAR_TILED_CANARY":
-                        "vision_fc2_exact_151x1536x384",
-                },
-                timeout=180,
-                error_prefix="Vision fc2 tiled linear canary subprocess failed.",
-            )
-
-            self.assertTrue(os.path.exists(log_path))
-            with open(log_path, "r", encoding="utf-8") as log_file:
-                log_text = log_file.read()
-
-            self.assertIn("op=aten::linear.buffer_float_tiled_bias", log_text)
-            self.assertIn("tiled=1", log_text)
-            self.assertNotIn("op=aten::linear.buffer_float_tiled_bias_gelu", log_text)
-        finally:
-            if os.path.exists(log_path):
-                os.remove(log_path)
-
-    def test_vision_fc2_exact_tiled_vec2_linear_canary(self):
-        log_name = "vision_fc2_exact_tiled_vec2_linear_canary_op_hit_test.log"
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_path = os.path.join(repo_root, log_name)
-        if os.path.exists(log_path):
-            os.remove(log_path)
-
-        try:
-            script = """
-                import torch
-                import torch.nn.functional as F
-
-                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
-
-                torch.manual_seed(0)
-                x_cpu = torch.randn(151, 1536, dtype=torch.float32) * 0.02
-                w_cpu = torch.randn(384, 1536, dtype=torch.float32) * 0.02
-                b_cpu = torch.randn(384, dtype=torch.float32) * 0.02
-
-                expected = F.linear(x_cpu, w_cpu, b_cpu)
-                previous = torch.ops.vulkan_prepack.swap_runtime_label(
-                    "depth.dino.backbone.block"
-                )
-                try:
-                    context = torch.ops.vulkan_prepack.create_linear_context_labeled(
-                        w_cpu.to("vulkan"),
-                        b_cpu.to("vulkan"),
-                        "depth.dino.backbone.block.fc2",
-                    )
-                    actual = torch.ops.vulkan_prepack.run_linear_context(
-                        x_cpu.to("vulkan"),
-                        context,
-                    ).cpu()
-                finally:
-                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
-
-                torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
-                print(float(actual.sum()))
-            """
-
-            self._run_repo_python_subprocess(
-                script,
-                extra_env={
-                    "PYTORCH_VULKAN_OP_HIT_LOG": log_name,
-                    "PYTORCH_VULKAN_LINEAR_TILED_CANARY":
-                        "vision_fc2_exact_151x1536x384_vec2",
-                },
-                timeout=180,
-                error_prefix="Vision fc2 tiled vec2 linear canary subprocess failed.",
-            )
-
-            self.assertTrue(os.path.exists(log_path))
-            with open(log_path, "r", encoding="utf-8") as log_file:
-                log_text = log_file.read()
-
-            self.assertIn("op=aten::linear.buffer_float_tiled_bias_vec2", log_text)
-            self.assertIn("tiled=1", log_text)
-            self.assertIn("vec2=1", log_text)
-            self.assertNotIn("op=aten::linear.buffer_float_tiled_bias_gelu", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)

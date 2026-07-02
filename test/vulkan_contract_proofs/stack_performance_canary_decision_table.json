@@ -242,7 +242,7 @@
         "FP32 linear plan",
         "exact fc2 candidate"
       ],
-      "canary_or_path": "PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384",
+      "canary_or_path": "retired PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
       "latest_observation": "Existing checked-in evidence records the exact fc2 tiled canary as correctness-clean but slower than the retained-pool wide4 baseline. The post-guard GPU timestamp pass still shows fc2 | mm_buffer_float_bias as the largest stack row at about 15.2 ms/forward, but this is evidence for a new FP32 linear candidate, not promotion of the old tiled kernel.",
       "decision": "Do not promote the current tiled fc2 kernel.",

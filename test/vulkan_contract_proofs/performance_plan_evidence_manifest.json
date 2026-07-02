@@ -2297,7 +2297,7 @@
         "max_abs": 1.6391277313232422e-06,
         "mean_abs": 7.301201776499511e-08,
         "tests": [
-          "TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_linear_canary",
+          "retired TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_linear_canary",
           "Depth Anything V2 vits_140 bridge sanity embedded in benchmark run"
         ]
       },
@@ -2724,7 +2724,6 @@
         "tests": [
           "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_contract",
           "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_adjacent_negatives",
-          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_canary",
           "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy without PYTORCH_VULKAN_LINEAR_TILED_CANARY"
         ],
         "focused_test_tolerance": {

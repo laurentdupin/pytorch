@@ -324,8 +324,10 @@ exact `[151,1536] x [384,1536] + [384]` FC2 row selects
 `aten::linear.buffer_float_tiled_bias_vec2` without
 `PYTORCH_VULKAN_LINEAR_TILED_CANARY`, matches CPU within `atol=1e-3, rtol=1e-3`,
 and keeps adjacent non-FC2, `M=150/152`, `N=385`, and no-bias rows on the old
-route. The legacy env canary remains for compatibility, but default promotion
-is limited to the exact `VisionFc2ExactTiledVec2LinearPlanContract` row.
+route. The legacy `PYTORCH_VULKAN_LINEAR_TILED_CANARY` runtime gate is retired;
+default promotion is limited to the exact
+`VisionFc2ExactTiledVec2LinearPlanContract` row, and future rows should migrate
+through linear plan contracts instead of restoring the env canary.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control

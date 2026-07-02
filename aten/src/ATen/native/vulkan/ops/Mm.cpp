@@ -468,25 +468,6 @@ const char* linear_role_from_label(
   return label.empty() || label == "unlabeled" ? "unknown" : "other";
 }
 
-bool linear_tiled_canary_vision_fc2_enabled() {
-  const char* const env = std::getenv("PYTORCH_VULKAN_LINEAR_TILED_CANARY");
-  if (env == nullptr || env[0] == '\0') {
-    return false;
-  }
-  const std::string_view value(env);
-  return value == "vision_fc2_exact_151x1536x384" ||
-      value == "vision_fc2_exact_151x1536x384_vec2";
-}
-
-bool linear_tiled_canary_vision_fc2_vec2_enabled() {
-  const char* const env = std::getenv("PYTORCH_VULKAN_LINEAR_TILED_CANARY");
-  if (env == nullptr || env[0] == '\0') {
-    return false;
-  }
-  const std::string_view value(env);
-  return value == "vision_fc2_exact_151x1536x384_vec2";
-}
-
 VulkanLinearPlanContractMatch match_vision_exact_tiled_linear_plan(
     const utils::VulkanRuntimePolicy& runtime_policy,
     const char* role,
@@ -1420,12 +1401,7 @@ bool should_use_tiled_buffer_linear_kernel(
           bias_defined,
           post_op);
 
-  const bool exact_vision_fc2_canary =
-      linear_tiled_canary_vision_fc2_enabled() &&
-      input_arg_2d.scalar_type() == kFloat && bias_defined &&
-      post_op == LinearPostOp::None && input_height == 151 &&
-      input_width == 1536 && output_width == 384;
-  if (exact_vision_tiled_contract.matched || exact_vision_fc2_canary) {
+  if (exact_vision_tiled_contract.matched) {
     return true;
   }
 
@@ -1553,15 +1529,10 @@ Tensor run_float_buffer_linear(
           post_op);
   const bool use_vec2_tiled_kernel =
       use_specialized_tiled_kernel &&
-       output_sizes[Layout::Parameter::width] >= 384 &&
-       input_arg_2d.size(Layout::Parameter::width) % 16 == 0 &&
-       (input_arg_2d.size(Layout::Parameter::height) >= 512 ||
-       exact_vision_tiled_contract.prefer_vec2_tiled ||
-       (linear_tiled_canary_vision_fc2_vec2_enabled() &&
-        input_arg_2d.size(Layout::Parameter::height) == 151 &&
-        input_arg_2d.size(Layout::Parameter::width) == 1536 &&
-        output_sizes[Layout::Parameter::width] == 384 &&
-        post_op == LinearPostOp::None && packed_state.bias_defined));
+      output_sizes[Layout::Parameter::width] >= 384 &&
+      input_arg_2d.size(Layout::Parameter::width) % 16 == 0 &&
+      (input_arg_2d.size(Layout::Parameter::height) >= 512 ||
+       exact_vision_tiled_contract.prefer_vec2_tiled);
 
   api::UniformParamsBuffer params(context, block);
   api::PipelineBarrier pipeline_barrier{};
