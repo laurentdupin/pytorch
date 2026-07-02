@@ -307,6 +307,16 @@ The initial catalog records the current `vits_140` performance lane:
   recording/binding work, making descriptor/recording reuse the next measured
   control-plane bottleneck. This does not change model execution,
   synchronization, copy, fallback, or route selection;
+- descriptor-update allocation flattening: accepted default infrastructure fix.
+  `DescriptorSet` reserves its per-set binding list to the shader layout size,
+  and `get_bind_handle()` uses an inline-capacity descriptor-write list for the
+  common update case instead of allocating a fresh heap vector per dispatch.
+  A focused RX 9070 `vits_140` wide4 repeat-30 run measured about 64.2 ms mean /
+  64.1 ms median / 65.7 ms p95 device-resident forward versus the prior
+  65.9 ms / 66.1 ms / 67.1 ms retire-deferral baseline, with bridge sanity
+  max_abs `1.1846423149108887e-06`, zero timed sync readback, and unchanged
+  submit/retire/stack-planned counters. This is generic descriptor-path cleanup,
+  not a DAv2 route, shader, submit, copy, fallback, or readback change;
 - stack-region external recording pool lease:
   `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is an
   opt-in ownership experiment for stack-owned external recording. A focused

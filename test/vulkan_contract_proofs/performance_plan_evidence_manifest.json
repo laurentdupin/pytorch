@@ -14,6 +14,62 @@
   ],
   "entries": [
     {
+      "id": "vulkan_descriptor_update_allocation_flattening_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_pending_2026_07_02",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused evidence. Behavior is generic Vulkan descriptor-update allocation cleanup in DescriptorSet, not a model route or shader predicate.",
+      "contract_or_topology_scope": [
+        "generic Vulkan descriptor update path",
+        "stack-owned external recording control plane",
+        "descriptor/binding recording overhead"
+      ],
+      "candidate": "Reserve DescriptorSet bindings to the shader layout size and use an inline-capacity VkWriteDescriptorSet list for descriptor updates.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.1846423149108887e-06,
+        "mean_abs": 6.115393347272402e-08,
+        "tests": [
+          "Depth Anything V2 vits_140 bridge sanity, warmup=3, repeats=30, device-resident forward"
+        ]
+      },
+      "counters": {
+        "sync_readback": 0,
+        "timed_stack_planned_submit_count": 120,
+        "timed_pre_stack_flush_submit_count": 30,
+        "timed_explicit_synchronize_submit_count": 30,
+        "timed_retire_queue_drain_submit_count": 0,
+        "deferred_retire_resource_count": 1800,
+        "deferred_retire_bytes": 42690240,
+        "stack_recording_scope_submit_count": 30,
+        "stack_recorded_compute_job_count": 1620,
+        "stack_recorded_descriptor_count": 13470
+      },
+      "timing_ms": {
+        "baseline_after_retire_defer_device_resident_mean": 65.88,
+        "baseline_after_retire_defer_device_resident_median": 66.123,
+        "baseline_after_retire_defer_device_resident_p95": 67.084,
+        "descriptor_flattening_device_resident_mean": 64.198,
+        "descriptor_flattening_device_resident_median": 64.108,
+        "descriptor_flattening_device_resident_p95": 65.667,
+        "repeat_count": 30
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_default_retire_defer_repeat30.json",
+        "agent_space/dav2_vits140_descriptor_reserve_smallvector16_repeat30.json"
+      ],
+      "decision": "Keep as generic descriptor-path control-plane cleanup. It reduces per-dispatch host allocation pressure while preserving route selection, shader selection, submit topology, fallback/readback behavior, and stack-planned counters.",
+      "revisit_conditions": [
+        "If another adapter/model shows descriptor-write inline capacity is too large for hot-path stack usage.",
+        "If future descriptor binding-table reuse makes DescriptorSet per-dispatch update allocation irrelevant.",
+        "If validation shows a descriptor layout with unusually high binding count regresses host memory behavior."
+      ]
+    },
+    {
       "id": "stack_region_retire_drain_defer_default_2026_07_02",
       "status": "accepted_default_fix",
       "head": "local_pending_2026_07_02",

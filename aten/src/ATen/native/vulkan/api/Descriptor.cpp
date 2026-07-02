@@ -1,6 +1,8 @@
 #include <ATen/native/vulkan/api/Descriptor.h>
 #include <ATen/native/vulkan/api/Utils.h>
 
+#include <c10/util/SmallVector.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -31,7 +33,9 @@ DescriptorSet::DescriptorSet(
     : device_(device),
       handle_(handle),
       shader_layout_signature_(std::move(shader_layout_signature)),
-      bindings_{} {}
+      bindings_{} {
+  bindings_.reserve(shader_layout_signature_.size());
+}
 
 DescriptorSet::DescriptorSet(DescriptorSet&& other) noexcept
     : device_(other.device_),
@@ -103,7 +107,7 @@ DescriptorSet& DescriptorSet::bind(
 }
 
 VkDescriptorSet DescriptorSet::get_bind_handle() const {
-  std::vector<VkWriteDescriptorSet> write_descriptor_sets;
+  c10::SmallVector<VkWriteDescriptorSet, 16> write_descriptor_sets;
 
   for (const ResourceBinding& binding : bindings_) {
     VkWriteDescriptorSet write{

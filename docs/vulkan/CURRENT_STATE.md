@@ -102,6 +102,18 @@ request across the top stack kernels, so the next sub-50 control-plane target is
 descriptor/recording reuse or replay-readiness proof rather than another
 retire-drain cleanup.
 
+Descriptor-update allocation overhead is now reduced on the generic Vulkan
+descriptor path. `DescriptorSet` reserves its binding vector to the shader
+layout size, and `get_bind_handle()` uses an inline-capacity write list for the
+common descriptor-update case instead of allocating a fresh heap vector per
+dispatch. This changes no route, contract admission, shader, submit, copy,
+fallback, or readback behavior. A focused RX 9070 `vits_140` wide4 repeat-30
+run measured about 64.2 ms mean / 64.1 ms median / 65.7 ms p95
+device-resident forward, versus the preceding 65.9 ms / 66.1 ms / 67.1 ms
+retire-deferral baseline, with bridge sanity max_abs
+`1.1846423149108887e-06`, zero timed sync readback, and the same submit,
+retire, and stack-planned counters.
+
 The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the best
 measured safe lane. The repeat-run stack overflow was traced to the normal
 stack-planned decoder bridge allocating descriptors from the shared context

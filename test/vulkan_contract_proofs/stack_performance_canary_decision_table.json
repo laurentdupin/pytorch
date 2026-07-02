@@ -44,6 +44,21 @@
       "reusable_backend_policy": true
     },
     {
+      "id": "vulkan_descriptor_update_allocation_flattening",
+      "status": "accepted_default_fix",
+      "scope": [
+        "generic Vulkan descriptor update path",
+        "stack-owned external recording control plane",
+        "descriptor/binding recording overhead"
+      ],
+      "canary_or_path": "default DescriptorSet binding reserve plus inline-capacity descriptor-write list",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "A repeat-30 wide4 bridge run improved from the prior 65.9 ms mean / 66.1 ms median / 67.1 ms p95 retire-deferral baseline to about 64.2 ms mean / 64.1 ms median / 65.7 ms p95, while preserving bridge sanity, zero timed sync readback, and identical submit/retire/stack-planned counters.",
+      "decision": "Keep as a generic descriptor-path host-allocation cleanup. This is not a model route, shader, submit, fallback, or readback change.",
+      "next_proof": "Move from per-dispatch descriptor updates toward a real stack descriptor/binding table only after descriptor slot identity and replay-readiness are proven.",
+      "reusable_backend_policy": true
+    },
+    {
       "id": "stack_planned_retire_cleanup_batching",
       "status": "accepted_default_fix",
       "scope": [
