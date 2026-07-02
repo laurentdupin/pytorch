@@ -890,9 +890,12 @@ disabled. Partial, superset, mixed, or missing stack-exit sources continue to
 fail closed; the current selected synthetic boundary reports a partial
 stack-exit source and therefore remains blocked by
 `pending_retire_transfer_source_incomplete`.
-`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` separately enables the
-already-classified QKV stack-temp retire-batch candidate class. With QKV
-batching plus stack-exit source binding, the current selected synthetic
+The retired `PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` spelling used to
+enable the already-classified QKV stack-temp retire-batch candidate class.
+Use `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
+`PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff`
+instead. With QKV batching plus stack-exit source binding, the current selected
+synthetic
 boundary covers the graph-pending bytes at stack exit, but still has partial
 raw resource-count coverage because metadata/uniform bookkeeping entries are
 not stack-internal retire-batch targets. The transfer-plan row now exposes
@@ -907,7 +910,7 @@ proven without relying on bookkeeping-excluded count/byte coverage.
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
 contract-facing `StackScopeRetireHandoffContract.v0` spelling. It includes the
-legacy QKV stack-temp retire-batch candidate class, the newer stack-scoped
+QKV stack-temp retire-batch candidate class, the newer stack-scoped
 LayerNorm statistic-buffer proof class, and proven same-block stack activation
 rows for `stack_norm1_output`, `stack_proj_output`,
 `stack_residual1_output`, `stack_norm2_output`, and `stack_fc2_output`. Those
@@ -919,7 +922,7 @@ an expected same-block consumer phase matching the local stack contract
 respectively). `stack_residual2_output`, requested/final outputs, raw
 stack-internal cleanup, metadata/uniform rows, and unscoped LayerNorm
 buffer-width cleanup remain excluded. The legacy
-`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=qkv` spelling remains QKV-only;
+`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=qkv` spelling is retired;
 LayerNorm statistic buffers require the stack-scope contract spelling. The
 contract preserves the existing behavior limits: no pending-retire handoff
 movement, no deferred submit, no submit elision, no shader change, and no
@@ -1529,17 +1532,15 @@ performed at cleanup-retire emission itself. A valid row with
 to the existing retire queue under the stack-exit submission. It does not
 transfer pending retires, remove phase-boundary submits, defer submits, or prove
 that larger external-recording segments are repeat-stable.
+The retired
 `PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF=external_recording_cleanup`
-enables the opt-in `StackRegionSegmentCompletionRetireHandoffContract.v0`
-canary. Under that flag, exact external-recording cleanup pending-retire
-entries can move into the stack-region pending-retire handoff batch and retire
-on the existing stack-exit submission timeline. The canary remains fail-closed
-on missing segment metadata or timeline ownership, keeps submit elision and
-deferred submit disabled, and preserves the default path when the flag is not
-set. The first `vits_140` probe preserved correctness but did not reduce the
-measured stack-owner retire-drain submit count and was slower than the wide4
-baseline, so this is cataloged as rejected performance evidence rather than a
-promotion path.
+canary allowed exact external-recording cleanup pending-retire entries to move
+into the stack-region pending-retire handoff batch and retire on the existing
+stack-exit submission timeline. The first `vits_140` probe preserved
+correctness but did not reduce the measured stack-owner retire-drain submit
+count and was slower than the wide4 baseline, so the runtime transfer env is
+retired. External-recording cleanup rows remain metadata-only unless a future
+region-owner contract introduces a new handoff policy with fresh evidence.
 
 `StackBoundaryValuePreservationContract.v0` is the decisive behavior gate for
 any future phase-submit elision. It is documented in

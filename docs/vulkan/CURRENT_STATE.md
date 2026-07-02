@@ -384,7 +384,9 @@ stack-exit handoff batch under
 same 15 stack-owner retire-drain submits and regressed to about 75.3 ms mean
 device-resident forward. Do not repeat stack-exit pending-retire handoff as a
 standalone latency path unless a later submit-plan change makes the transfer
-reduce actual queue submits. The next ownership task is segment-local
+reduce actual queue submits. The runtime env gate for the segment-completion
+handoff is retired; the cleanup rows remain metadata-only. The next ownership
+task is segment-local
 completion ownership or a bridge-scoped private capture release owner, not
 another stack-exit handoff.
 A focused bridge-release probe at the post-decoder-consumer boundary was also
@@ -1339,12 +1341,10 @@ submits and does not move resources. On the current selected synthetic
 `residual2@0 -> norm1@1` boundary, that mode reports only a partial
 stack-exit source, so the owner still fail-closes on
 `pending_retire_transfer_source_incomplete`.
-`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` expands the existing
-stack-internal batch predicate to the separately proven QKV stack-temp class.
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
-contract-facing `StackScopeRetireHandoffContract.v0` spelling for that same
-proven class. It also admits proven stack-scope activation rows for
+contract-facing `StackScopeRetireHandoffContract.v0` spelling for the proven
+QKV stack-temp class. It also admits proven stack-scope activation rows for
 `stack_norm1_output`, `stack_proj_output`, `stack_residual1_output`,
 `stack_norm2_output`, and `stack_fc2_output` when their TensorAllocation
 provenance is a direct Vulkan buffer with positive shape, has
@@ -2009,9 +2009,9 @@ resources. Under `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF`, only those
 exact TensorAllocation rows can join the stack-internal retire batch after the
 same formal internal/non-escaping/final-consumer proof used by the existing
 stack-scope retire handoff. The legacy
-`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=qkv` spelling remains QKV-only
-and does not enable LayerNorm stat batching. Unscoped LayerNorm buffer-width
-cleanup remains
+`PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES` spelling is retired; use the
+contract-facing stack-scope handoff spelling for any future retire-batch proof.
+Unscoped LayerNorm buffer-width cleanup remains
 split out of the generic
 `stack_internal_temp_raw_generation_range_missing_last_consumer` diagnostic
 bucket as `layernorm_buffer_width_unscoped_cleanup` when the allocation label is

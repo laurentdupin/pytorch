@@ -2744,7 +2744,9 @@ void record_stack_region_external_recording_cleanup_retire(
       << (retire_action && retire_action[0] != '\0' ? retire_action
                                                      : "unknown")
       << " segment_completion_retire_handoff_contract="
-      << "StackRegionSegmentCompletionRetireHandoffContract.v0"
+      << (transfer_behavior_enabled
+              ? "StackRegionSegmentCompletionRetireHandoffContract.v0"
+              : "retired_metadata_only")
       << " behavior_neutral=" << (transfer_behavior_enabled ? 0 : 1)
       << " default_behavior_unchanged=" << (transfer_behavior_enabled ? 0 : 1)
       << " metadata_only=" << (transfer_behavior_enabled ? 0 : 1)
@@ -29773,25 +29775,6 @@ void note_vulkan_retire_drain(
   }
 }
 
-bool stack_region_batch_qkv_retires_enabled() {
-  const char* env =
-      std::getenv("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES");
-  if (env != nullptr && *env != '\0') {
-    const std::string value(env);
-    if (value == "1" || value == "qkv") {
-      return true;
-    }
-  }
-  const char* contract_env =
-      std::getenv("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF");
-  if (contract_env == nullptr || *contract_env == '\0') {
-    return false;
-  }
-  const std::string contract_value(contract_env);
-  return contract_value == "1" ||
-      contract_value == "stack_scope_retire_handoff";
-}
-
 bool stack_scope_retire_handoff_enabled() {
   const char* contract_env =
       std::getenv("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF");
@@ -29811,7 +29794,7 @@ bool is_safe_stack_temp_retire_batch_candidate(
     return true;
   }
   return (
-      stack_region_batch_qkv_retires_enabled() &&
+      stack_scope_retire_handoff_enabled() &&
       is_qkv_stack_temp_retire_batch_candidate(provenance)) ||
       (stack_scope_retire_handoff_enabled() &&
        (is_layernorm_stat_stack_temp_retire_batch_candidate(provenance) ||
@@ -29910,7 +29893,7 @@ void note_stack_internal_temp_retire_batch_decision(
 
   const char* reason = stack_temp_retire_batch_reject_reason(provenance);
   const bool qkv_candidate =
-      stack_region_batch_qkv_retires_enabled() &&
+      stack_scope_retire_handoff_enabled() &&
       is_qkv_stack_temp_retire_batch_candidate(provenance);
   const bool scope_handoff_candidate =
       stack_scope_retire_handoff_enabled() &&

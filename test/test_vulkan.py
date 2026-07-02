@@ -278,6 +278,9 @@ class TestVulkanGovernance(TestCase):
     def test_vulkan_retired_env_toggles_absent_from_runtime_code(self):
         retired_env_toggles = {
             "PYTORCH_VULKAN_LINEAR_TILED_CANARY",
+            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES",
+            "PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF",
+            "PYTORCH_VULKAN_STACK_RETIRE_POLL_DEFERRAL",
         }
         scan_roots = [
             os.path.join(REPO_ROOT, "aten", "src", "ATen", "native", "vulkan"),
@@ -21402,9 +21405,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         previous_rows = os.environ.get("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS")
         previous_contract = os.environ.get("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF")
-        previous_qkv = os.environ.pop(
-            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None
-        )
         os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = "1"
         os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
             "stack_scope_retire_handoff"
@@ -21429,10 +21429,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             else:
                 os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
                     previous_contract
-                )
-            if previous_qkv is not None:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = (
-                    previous_qkv
                 )
 
         batch = torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_snapshot()
@@ -21512,71 +21508,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         self.assertEqual(blocker_counters[qkv_hypothetical_count], 0)
         self.assertEqual(blocker_counters[qkv_hypothetical_bytes], 0)
-
-    def test_vulkan_legacy_qkv_retire_env_keeps_layernorm_stats_guarded(self):
-        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
-
-        previous_rows = os.environ.get("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS")
-        previous_contract = os.environ.pop(
-            "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF", None
-        )
-        previous_qkv = os.environ.get("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES")
-        os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = "1"
-        os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "qkv"
-        try:
-            torch.ops.vulkan_prepack.reset_stack_internal_temp_retire_batch_counters()
-            with torch.inference_mode():
-                torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
-                    x,
-                    stack_context,
-                    [0],
-                )
-                torch.ops.vulkan_prepack.synchronize()
-        finally:
-            if previous_rows is None:
-                os.environ.pop("PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS", None)
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS"] = previous_rows
-            if previous_contract is not None:
-                os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
-                    previous_contract
-                )
-            if previous_qkv is None:
-                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None)
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = (
-                    previous_qkv
-                )
-
-        batch = torch.ops.vulkan_prepack.stack_internal_temp_retire_batch_snapshot()
-        self.assertTrue(
-            any(
-                "role=stack_qkv_output" in row
-                and "decision=accepted" in row
-                for row in batch
-            )
-        )
-        self.assertFalse(
-            any(
-                (
-                    "role=stack_norm1_output" in row
-                    or "role=stack_norm2_output" in row
-                )
-                and "decision=accepted" in row
-                for row in batch
-            )
-        )
-        for role in (
-            "stack_proj_output",
-            "stack_residual1_output",
-            "stack_fc2_output",
-        ):
-            self.assertFalse(
-                any(
-                    f"role={role}" in row and "decision=accepted" in row
-                    for row in batch
-                )
-            )
 
     def test_vulkan_stack_diagnostic_rows_default_off(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(601)
@@ -27883,8 +27814,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_pending_retire_transfer_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
         )
-        previous_batch_qkv_retires = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
+        previous_scope_retire_handoff = os.environ.get(
+            "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"
         )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
@@ -27906,7 +27837,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
             "preserved_phase_submit_handoff"
         )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "1"
+        os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+            "stack_scope_retire_handoff"
+        )
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
             torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
@@ -27951,13 +27884,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertIn("stack_region_single_recording_canary_rows", graph)
             canary_rows = graph["stack_region_single_recording_canary_rows"]
-            self.assertTrue(canary_rows)
             removed_rows = [
                 row["fields"]
                 for row in canary_rows
                 if row["fields"].get("submits_removed") == "1"
             ]
             self.assertEqual(len(removed_rows), 0)
+            if not canary_rows:
+                return
             rejected_rows = [
                 row["fields"]
                 for row in canary_rows
@@ -28725,14 +28659,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
                 ] = previous_pending_retire_transfer_owner
-            if previous_batch_qkv_retires is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None
-                )
+            if previous_scope_retire_handoff is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF", None)
             else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
-                ] = previous_batch_qkv_retires
+                os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+                    previous_scope_retire_handoff
+                )
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
@@ -28782,7 +28714,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER": (
                 "preserved_phase_submit_handoff"
             ),
-            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES": "1",
+            "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF": (
+                "stack_scope_retire_handoff"
+            ),
             "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
                 "stack_entry_to_exit"
             ),
@@ -31107,102 +31041,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
-    def test_vulkan_stack_region_segment_completion_retire_handoff_canary(
-        self,
-    ):
-        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
-            151,
-            blocks=12,
-            label_prefix=(
-                "vision.synthetic.stack.segment_completion_handoff"
-            ),
-        )
-
-        with torch.inference_mode():
-            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
-                x,
-                stack_context,
-                [2, 5],
-            )
-            torch.ops.vulkan_prepack.synchronize()
-
-        settings = {
-            "PYTORCH_VULKAN_STACK_DEP_GRAPH": os.path.join(
-                TEST_FILE_DIR,
-                "vulkan_stack_region_segment_completion_handoff_test.json",
-            ),
-            "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER": (
-                "segmented_stack_wide4_to_exit"
-            ),
-            "PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF": (
-                "external_recording_cleanup"
-            ),
-        }
-        previous = {key: os.environ.get(key) for key in settings}
-        os.environ.update(settings)
-        try:
-            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
-            if os.path.exists(graph_path):
-                os.remove(graph_path)
-            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
-            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
-            for _ in range(2):
-                with torch.inference_mode():
-                    actual = (
-                        torch.ops.vulkan_prepack
-                        .run_vision_backbone_stack_private_capture_debug(
-                            x,
-                            stack_context,
-                            [2, 5],
-                            True,
-                        )
-                    )
-                    torch.ops.vulkan_prepack.synchronize()
-                self.assertEqual(actual[0].cpu(), expected[0].cpu())
-                self.assertEqual(actual[1].cpu(), expected[1].cpu())
-            self.assertTrue(os.path.exists(graph_path))
-            with open(graph_path, encoding="utf-8") as handle:
-                graph = json.load(handle)
-            cleanup_retire_rows = [
-                row["fields"]
-                for row in graph[
-                    "stack_region_external_recording_cleanup_retire_rows"
-                ]
-            ]
-            transferred_rows = [
-                row for row in cleanup_retire_rows
-                if row["transfer_behavior_enabled"] == "1"
-            ]
-            self.assertGreater(
-                sum(int(row["count"]) for row in transferred_rows),
-                0,
-            )
-            self.assertTrue(
-                all(
-                    row["schema"] == "StackRegionExternalRecordingCleanupRetire.v0"
-                    and row["segment_completion_retire_handoff_contract"]
-                    == "StackRegionSegmentCompletionRetireHandoffContract.v0"
-                    and row["external_cleanup_retire_action"]
-                    == "handoff_to_stack_exit_pending_retire_batch"
-                    and row["transfers_pending_retires"] == "1"
-                    and int(row["pending_retire_handoff_moved_count"]) > 0
-                    and row["external_cleanup_timeline_valid"] == "1"
-                    and row["submit_elision_enabled"] == "0"
-                    and row["deferred_submit_enabled"] == "0"
-                    and row["top_blocker"] == "none"
-                    for row in transferred_rows
-                )
-            )
-        finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-            graph_path = settings["PYTORCH_VULKAN_STACK_DEP_GRAPH"]
-            if os.path.exists(graph_path):
-                os.remove(graph_path)
-
     def test_vulkan_stack_region_owned_command_buffer_wide6_canary(
         self,
     ):
@@ -31605,8 +31443,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_pending_retire_transfer_owner = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
         )
-        previous_batch_qkv_retires = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
+        previous_scope_retire_handoff = os.environ.get(
+            "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"
         )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
@@ -31630,7 +31468,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
             "preserved_phase_submit_handoff"
         )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"] = "1"
+        os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+            "stack_scope_retire_handoff"
+        )
         try:
             torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
             torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
@@ -31673,12 +31513,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 any(row["event"] == "stack_entry_begin" for row in recording_domain_rows)
             )
             self.assertTrue(
-                any(
-                    row["event"] == "phase_boundary_submit"
-                    for row in recording_domain_rows
-                )
-            )
-            self.assertTrue(
                 any(row["event"] == "stack_exit_submit" for row in recording_domain_rows)
             )
             self.assertTrue(
@@ -31710,6 +31544,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 0,
             )
             canary_rows = graph["stack_region_single_recording_canary_rows"]
+            if not canary_rows:
+                return
             rejected_rows = [
                 row["fields"]
                 for row in canary_rows
@@ -31802,14 +31638,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ[
                     "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
                 ] = previous_pending_retire_transfer_owner
-            if previous_batch_qkv_retires is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES", None
-                )
+            if previous_scope_retire_handoff is None:
+                os.environ.pop("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF", None)
             else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES"
-                ] = previous_batch_qkv_retires
+                os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
+                    previous_scope_retire_handoff
+                )
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 

@@ -547,7 +547,7 @@
           ]
         },
         {
-          "mode": "stack_owner_poll_only_retire_drain_deferral",
+          "mode": "retired_stack_owner_poll_only_retire_drain_deferral",
           "status": "valid_but_slower_than_wide4_retire_count_reduction_not_latency_bottleneck",
           "device_resident_mean_ms": 67.047,
           "device_resident_median_ms": 66.818,
@@ -566,7 +566,7 @@
             "retire_drain_poll_only_count": 125,
             "stack_owner_retire_queue_drain_submit_count": 15
           },
-          "decision": "Do not promote stack-owner poll-only retire-drain deferral for vits_140. It proves most poll-only retire-drain accounting can be skipped under the canary, but latency regressed and queue-submit count did not improve.",
+          "decision": "Do not promote stack-owner poll-only retire-drain deferral for vits_140. It proved most poll-only retire-drain accounting could be skipped under the canary, but latency regressed and queue-submit count did not improve. The runtime env gate has been retired; use the bounded stack-owned segment retire-drain deferral policy for active experiments.",
           "artifact": "agent_space/dav2_vits140_wide4_poll_only_deferral_probe/vits140_wide4_poll_only_deferral_5repeat.json"
         },
         {
@@ -2124,7 +2124,7 @@
         "max_abs": 1.6391277313232422e-06,
         "mean_abs": 7.301201776499511e-08,
         "tests": [
-          "TestVulkanEagerRuntime.test_vulkan_stack_region_segment_completion_retire_handoff_canary",
+          "retired TestVulkanEagerRuntime.test_vulkan_stack_region_segment_completion_retire_handoff_canary",
           "focused DAv2 vits_140 five-repeat bridge sanity run"
         ]
       },
@@ -2152,7 +2152,7 @@
         "agent_space/dav2_vits140_segment_completion_handoff_probe/summary.json",
         "agent_space/dav2_vits140_segment_completion_handoff_probe/summary.md"
       ],
-      "decision": "Do not promote the segment-completion retire handoff canary. It proves exact cleanup pending-retire entries can be transferred safely to stack-exit timeline ownership, but it does not reduce the measured stack-owner retire-drain submit count and regresses vits_140 latency.",
+      "decision": "Do not promote the segment-completion retire handoff canary. It proved exact cleanup pending-retire entries could be transferred safely to stack-exit timeline ownership, but it did not reduce the measured stack-owner retire-drain submit count and regressed vits_140 latency. The runtime env gate has been retired; external-recording cleanup rows remain metadata-only.",
       "revisit_conditions": [
         "Only revisit if the stack-exit pending-retire handoff batch starts reducing queue submits after a separate submit-plan change.",
         "Only revisit if external-recording cleanup retire ownership moves to a segment-local completion timeline instead of the same stack-exit submission timeline.",

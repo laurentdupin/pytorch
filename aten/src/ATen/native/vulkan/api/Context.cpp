@@ -169,25 +169,6 @@ bool stack_region_pending_retire_transfer_owner_preserved_phase_handoff_enabled(
   return std::string(env) == "preserved_phase_submit_handoff";
 }
 
-bool stack_region_segment_completion_retire_handoff_enabled() {
-  const char* env =
-      std::getenv("PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF");
-  if (env == nullptr || *env == '\0') {
-    return false;
-  }
-  const std::string value(env);
-  return value == "1" || value == "external_recording_cleanup";
-}
-
-bool stack_owner_poll_only_retire_drain_defer_enabled() {
-  const char* env =
-      std::getenv("PYTORCH_VULKAN_STACK_RETIRE_POLL_DEFERRAL");
-  if (env == nullptr || *env == '\0') {
-    return false;
-  }
-  return std::string(env) == "stack_owner_poll_only";
-}
-
 bool stack_owned_segment_retire_drain_defer_enabled() {
   const char* env =
       std::getenv("PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER");
@@ -3554,11 +3535,7 @@ void Context::retire_external_recording_cleanup_resources(
   }
   const bool timeline_valid =
       submission.timeline != VK_NULL_HANDLE && submission.timeline_value != 0u;
-  const bool transfer_enabled =
-      stack_region_segment_completion_retire_handoff_enabled() &&
-      timeline_valid && segment_metadata_observed &&
-      stack_region_owned_command_buffer_active_.load(
-          std::memory_order_acquire);
+  const bool transfer_enabled = false;
   if (resource_count > 0u) {
     note_stack_region_external_recording_cleanup_retire(
         stack_region_single_recording_owner_id_.load(std::memory_order_acquire),
@@ -3600,25 +3577,6 @@ void Context::retire_external_recording_cleanup_resources(
     images.clear();
     return;
   }
-  if (transfer_enabled) {
-    {
-      std::lock_guard<std::mutex> handoff_lock(
-          stack_region_pending_retire_handoff_batch_mutex_);
-      for (PendingRetireBuffer& pending : buffers) {
-        stack_region_pending_retire_handoff_buffers_.push_back(
-            std::move(pending));
-      }
-      for (PendingRetireImage& pending : images) {
-        stack_region_pending_retire_handoff_images_.push_back(
-            std::move(pending));
-      }
-    }
-    stack_region_pending_retire_transfer_owner_state_.store(
-        4u, std::memory_order_release);
-    buffers.clear();
-    images.clear();
-    return;
-  }
   auto retired_buffers =
       std::make_shared<std::vector<PendingRetireBuffer>>(std::move(buffers));
   auto retired_images =
@@ -3652,24 +3610,9 @@ void Context::submit_pending_work_and_poll_retire(
   const uint64_t pending_bytes = pending_retire_bytes();
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
   const VulkanSubmitPhase phase = current_submit_phase();
-  constexpr uint64_t kStackOwnerPollOnlyDeferralBudgetBytes =
-      128u * 1024u * 1024u;
   constexpr uint64_t kStackOwnedRegionRetireDrainDeferResourceCountLimit = 64u;
   constexpr uint64_t kStackOwnedRegionRetireDrainDeferBytesLimit =
       8u * 1024u * 1024u;
-  if (
-      stack_owner_poll_only_retire_drain_defer_enabled() &&
-      phase == VulkanSubmitPhase::StackOwner &&
-      pending_bytes <= kStackOwnerPollOnlyDeferralBudgetBytes) {
-    bool has_pending_command_work = false;
-    {
-      std::unique_lock<std::mutex> context_lock(dispatch_lock());
-      has_pending_command_work = has_pending_work_for_current_stream();
-    }
-    if (!has_pending_command_work) {
-      return;
-    }
-  }
   if (
       stack_owned_segment_retire_drain_defer_enabled() &&
       phase == VulkanSubmitPhase::StackOwner &&

@@ -163,10 +163,12 @@ The initial catalog records the current `vits_140` performance lane:
   sanity and zero fallback/readback/copy counters, but still reported 15
   stack-owner retire-drain submits and regressed to about 75.3 ms mean. Do not
   repeat stack-exit handoff as a latency path unless a later submit-plan change
-  makes the moved entries reduce actual queue submits. The next ownership task
-  needs either segment-local completion ownership or a distinct bridge-scoped
-  handoff batch with release and restore ownership before moving entries, not
-  reuse of the same stack-exit batch as a standalone optimization;
+  makes the moved entries reduce actual queue submits. The runtime env gate for
+  this rejected canary is retired; external-recording cleanup rows remain
+  metadata-only. The next ownership task needs either segment-local completion
+  ownership or a distinct bridge-scoped handoff batch with release and restore
+  ownership before moving entries, not reuse of the same stack-exit batch as a
+  standalone optimization;
 - stack-owned segment retire-drain deferral:
   the previous opt-in
   `PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=stack_planned_region_exit`
