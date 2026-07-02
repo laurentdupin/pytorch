@@ -452,8 +452,10 @@ The initial catalog records the current `vits_140` performance lane:
   order as the previous inline code. Snapshot rows record `stage=prepared` and
   `stage=drained_inline` with `submit_topology_preserved=1`,
   `phase_boundary_submits_preserved=1`, `submit_elision_enabled=0`, and
-  `deferred_submit_enabled=0`. Focused graph tests assert both rows are visible;
-  a short RX 9070 `vits_140` wide4 smoke after the scaffold measured about
+  `deferred_submit_enabled=0`. `StackRegionDependencyGraph.v0` exposes those
+  rows in `stack_region_control_plane_work_batch_rows` for both full and
+  summary-only graph dumps. Focused graph tests assert both rows are visible; a
+  short RX 9070 `vits_140` wide4 smoke after the scaffold measured about
   56.9 ms mean / 56.9 ms median / 57.2 ms p95, with bridge sanity
   `max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
   This is a stack-overflow flatness scaffold only: cleanup is not deferred,

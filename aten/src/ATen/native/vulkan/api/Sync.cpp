@@ -24236,6 +24236,7 @@ void split_stack_graph_rows(
     std::vector<std::string>& frequency_submit_plan_rows,
     std::vector<std::string>& external_recording_cleanup_logical_boundary_rows,
     std::vector<std::string>& external_recording_cleanup_retire_rows,
+    std::vector<std::string>& control_plane_work_batch_rows,
     std::vector<std::string>& segment_plan_rows,
     std::vector<std::string>& raw_resource_producer_rows) {
   for (const auto& row : rows) {
@@ -24258,6 +24259,12 @@ void split_stack_graph_rows(
         row.find("stack_region_external_recording_cleanup_retire=1") !=
         std::string::npos) {
       external_recording_cleanup_retire_rows.emplace_back(row);
+      continue;
+    }
+    if (
+        row.find("stack_region_control_plane_work_batch=1") !=
+        std::string::npos) {
+      control_plane_work_batch_rows.emplace_back(row);
       continue;
     }
     if (row.find("stack_region_segment_plan=1") != std::string::npos) {
@@ -24382,6 +24389,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> frequency_submit_plan_rows;
   std::vector<std::string> external_recording_cleanup_logical_boundary_rows;
   std::vector<std::string> external_recording_cleanup_retire_rows;
+  std::vector<std::string> control_plane_work_batch_rows;
   std::vector<std::string> segment_plan_rows;
   std::vector<std::string> raw_resource_producer_rows;
   split_stack_graph_rows(
@@ -24404,6 +24412,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       frequency_submit_plan_rows,
       external_recording_cleanup_logical_boundary_rows,
       external_recording_cleanup_retire_rows,
+      control_plane_work_batch_rows,
       segment_plan_rows,
       raw_resource_producer_rows);
 
@@ -24654,6 +24663,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_control_plane_work_batch_rows",
+      control_plane_work_batch_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "stack_region_segment_plan_rows",
       segment_plan_rows.size(),
       summary_first);
@@ -24803,6 +24817,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         first);
     append_graph_array(
         out,
+        "stack_region_control_plane_work_batch_rows",
+        control_plane_work_batch_rows,
+        "stack_region_control_plane_work_batch",
+        first);
+    append_graph_array(
+        out,
         "stack_region_segment_plan_rows",
         segment_plan_rows,
         "stack_region_segment_plan",
@@ -24945,6 +24965,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "stack_region_external_recording_cleanup_retire_rows",
       external_recording_cleanup_retire_rows,
       "stack_region_external_recording_cleanup_retire",
+      first);
+  append_graph_array(
+      out,
+      "stack_region_control_plane_work_batch_rows",
+      control_plane_work_batch_rows,
+      "stack_region_control_plane_work_batch",
       first);
   append_graph_array(
       out,

@@ -2620,6 +2620,7 @@
         "deferred_submit_enabled": false,
         "cpu_fallback": 0,
         "sync_readback": 0,
+        "graph_json_control_plane_work_batch_rows_visible": true,
         "control_plane_work_batch_prepared_rows_visible": true,
         "control_plane_work_batch_drained_inline_rows_visible": true,
         "stack_exit_cleanup_drained_immediately": true

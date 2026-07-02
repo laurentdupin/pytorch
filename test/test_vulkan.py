@@ -21600,6 +21600,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "stack_owner_frequency_submit_plan_rows",
                 graph["summary"],
             )
+            self.assertIn(
+                "stack_region_control_plane_work_batch_rows",
+                graph["summary"],
+            )
+            self.assertGreater(
+                graph["summary"]["stack_region_control_plane_work_batch_rows"],
+                0,
+            )
             self.assertGreaterEqual(graph["summary"]["dependency_edge_rows"], 0)
             self.assertIn("dispatch_nodes", graph)
             self.assertIn("pre_dispatch_insertion_point_nodes", graph)
@@ -22008,6 +22016,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn(
                 "complete_boundary_dependency_set",
                 graph["unproven_or_missing_metadata_fields"],
+            )
+            self.assertIn("stack_region_control_plane_work_batch_rows", graph)
+            graph_batch_rows = [
+                row.get("fields", {})
+                for row in graph["stack_region_control_plane_work_batch_rows"]
+            ]
+            self.assertTrue(
+                any(row.get("stage") == "prepared" for row in graph_batch_rows)
+            )
+            self.assertTrue(
+                any(
+                    row.get("stage") == "drained_inline"
+                    for row in graph_batch_rows
+                )
+            )
+            self.assertTrue(
+                all(
+                    row.get("submit_elision_enabled") == "0"
+                    for row in graph_batch_rows
+                )
+            )
+            self.assertTrue(
+                all(
+                    row.get("submit_topology_preserved") == "1"
+                    for row in graph_batch_rows
+                )
             )
             dependency_rows = (
                 torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot()
@@ -31116,6 +31150,36 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertNotIn("resource_nodes", graph)
             self.assertNotIn("live_vulkan_buffer_binding_nodes", graph)
             self.assertIn("summary_only_omitted_arrays", graph)
+            self.assertIn(
+                "stack_region_control_plane_work_batch_rows",
+                graph["summary"],
+            )
+            self.assertGreater(
+                graph["summary"]["stack_region_control_plane_work_batch_rows"],
+                0,
+            )
+            control_plane_work_batch_rows = [
+                row["fields"]
+                for row in graph["stack_region_control_plane_work_batch_rows"]
+            ]
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionControlPlaneWorkBatch.v0"
+                    and row["stage"] == "prepared"
+                    and row["submit_topology_preserved"] == "1"
+                    and row["submit_elision_enabled"] == "0"
+                    for row in control_plane_work_batch_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row["schema"] == "StackRegionControlPlaneWorkBatch.v0"
+                    and row["stage"] == "drained_inline"
+                    and row["submit_topology_preserved"] == "1"
+                    and row["submit_elision_enabled"] == "0"
+                    for row in control_plane_work_batch_rows
+                )
+            )
 
             segment_plan_rows = [
                 row["fields"] for row in graph["stack_region_segment_plan_rows"]

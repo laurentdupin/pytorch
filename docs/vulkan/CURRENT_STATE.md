@@ -188,8 +188,11 @@ and drained immediately. The batch emits prepared and `drained_inline` rows with
 `submit_topology_preserved=1`, `phase_boundary_submits_preserved=1`,
 `submit_elision_enabled=0`, and `deferred_submit_enabled=0`. This is the first
 flattening scaffold for the remaining deep/compiled-session stack-overflow
-class; it does not defer cleanup, remove submits, change command-buffer
-topology, or claim a timing win.
+class. The rows are now also exposed through
+`stack_region_control_plane_work_batch_rows` in `StackRegionDependencyGraph.v0`
+full and summary-only dumps, so graph artifacts can report the exit batch
+without consulting the raw dry-run snapshot. This does not defer cleanup, remove
+submits, change command-buffer topology, or claim a timing win.
 
 A post-guard RX 9070 `vits_140` GPU timestamp pass with
 `segmented_stack_wide4_to_exit` showed about 44.2 ms of timestamped GPU work per
