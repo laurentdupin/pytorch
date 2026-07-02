@@ -2183,6 +2183,26 @@ Tensor prepare_float_bias_buffer_for_conv2d(
       prepared_bias, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
 }
 
+bool is_gtx_class_runtime_device() {
+  const char* const device_name =
+      api::context()->adapter_ptr()->physical_device().properties.deviceName;
+  return device_name != nullptr && std::strstr(device_name, "GTX") != nullptr;
+}
+
+PackedWeightResidencyClass float_buffer_conv2d_weight_residency_class(
+    const size_t resident_nbytes,
+    const std::vector<int64_t>& logical_weight_sizes) {
+  if (is_gtx_class_runtime_device() && resident_nbytes > 64u * 1024u) {
+    utils::log_vulkan_op_hit(
+        std::string(
+            "aten::convolution.packed_weight_cache_transient.gtx bytes=") +
+        std::to_string(resident_nbytes) + " weight=" +
+        conv2d::format_conv_sizes(logical_weight_sizes));
+    return PackedWeightResidencyClass::Transient;
+  }
+  return PackedWeightResidencyClass::PersistentInference;
+}
+
 PackedWeightHandle make_float_buffer_conv2d_handle(
     const Tensor& weight,
     const std::optional<Tensor>& bias,
@@ -2199,13 +2219,16 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
 
   const size_t resident_nbytes =
       convert(buffer_weight).gpu_nbytes() + convert(buffer_bias).gpu_nbytes();
+  const PackedWeightResidencyClass residency_class =
+      float_buffer_conv2d_weight_residency_class(
+          resident_nbytes, logical_weight_sizes);
   return PackedWeightHandle(
       std::move(buffer_weight),
       std::move(buffer_bias),
       logical_weight_sizes,
       packed_weight_kind,
       bias && bias->defined(),
-      PackedWeightResidencyClass::PersistentInference,
+      residency_class,
       false,
       api::ExecutionLayout::BUFFER_DIRECT,
       resident_nbytes);
@@ -2214,18 +2237,6 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
 bool should_cache_float_buffer_conv2d_handle(
     const PackedWeightHandle& handle,
     const PackedWeightKind packed_weight_kind) {
-  const char* const device_name =
-      api::context()->adapter_ptr()->physical_device().properties.deviceName;
-  if (
-      device_name != nullptr && std::strstr(device_name, "GTX") != nullptr &&
-      handle.resident_nbytes() > 64u * 1024u) {
-    utils::log_vulkan_op_hit(
-        std::string(
-            "aten::convolution.packed_weight_cache_skip.gtx bytes=") +
-        std::to_string(handle.resident_nbytes()) + " weight=" +
-        conv2d::format_conv_sizes(handle.logical_weight_sizes()));
-    return false;
-  }
   // Large eager 3x3 diffusion/decoder weights are often touched once per frame.
   // Keeping all of them in the persistent packed-weight cache creates live
   // memory pressure without producing hits; let normal Vulkan deferred cleanup
@@ -2233,6 +2244,8 @@ bool should_cache_float_buffer_conv2d_handle(
   constexpr size_t kLargeSlidingWindowConvCacheLimitBytes =
       size_t{2} * 1024u * 1024u;
   if (
+      handle.residency_class() ==
+          PackedWeightResidencyClass::PersistentInference &&
       packed_weight_kind == PackedWeightKind::Conv2dSlidingWindow &&
       handle.resident_nbytes() > kLargeSlidingWindowConvCacheLimitBytes) {
     utils::log_vulkan_op_hit(
@@ -2242,12 +2255,6 @@ bool should_cache_float_buffer_conv2d_handle(
     return false;
   }
   return true;
-}
-
-bool is_gtx_class_runtime_device() {
-  const char* const device_name =
-      api::context()->adapter_ptr()->physical_device().properties.deviceName;
-  return device_name != nullptr && std::strstr(device_name, "GTX") != nullptr;
 }
 
 void maybe_sync_after_gtx_large_buffer_conv(

@@ -1,8 +1,8 @@
 # Vulkan Current State
 
 Last refreshed: 2026-07-02 after HY-MT KV-cache append broadening,
-device-policy linear packed-weight transient residency, and PaddleOCR/HY-MT
-cross-adapter diagnostics.
+device-policy packed-weight transient residency, and PaddleOCR OCR projection
+cross-adapter fixes.
 
 ## Repo State Summary
 
@@ -38,9 +38,17 @@ HY-MT GTX 1080 also switches linear residency to transient and removes the
 from a tensor-CPU-readback/lm-head-adjacent path. HY-MT RX 9070 keeps persistent
 linear residency on a one-token smoke (`live_persistent_bytes` about 7.16GB),
 while longer HY-MT generation currently exits with the existing Windows stack
-overflow `-1073741571` before result JSON. PaddleOCR remains OK on RX 9070 and
-RX 6700 XT with the known single CPU fallback; GTX 1080 still fails at
-`conv_prepack_upload`.
+overflow `-1073741571` before result JSON. PaddleOCR now completes one-repeat
+smokes on RX 9070, GTX 1080, and RX 6700 XT. The GTX path uses transient
+float-buffer conv packed-weight residency for large packed weights instead of
+skipping the cache and repeatedly uploading through the previous
+`conv_prepack_upload` device-lost path. The OCR projection contract also admits
+the observed dynamic crop/recognition batch rows under an OCR-only batch policy
+so the formerly failing `[6,512,3,80] -> 512` and `[3,512,6,80] -> 192` 1x1
+projection rows stay on Vulkan. Current smoke timings remain single-repeat
+diagnostics: RX 9070 about 1.23s, RX 6700 XT about 1.15s, and GTX 1080 about
+2.58s end-to-end with the known PaddleOCR postprocess fallback/readback costs
+still present.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket
@@ -2162,7 +2170,7 @@ These files are diagnostic inputs. Production code must not depend on
 
 - `SmallSpatialPointwiseConvContract`: finite projection rows, now split into
   a family-specific source. The `SparseProjectionRows` slice has a JSON
-  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 56
+  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 57
   current projection rows plus a generated factorized depth-vision projection
   group for the cross-adapter proven 144-shape set. That group is the product
   of 18 approved `(input_c, output_c)` channel pairs and eight approved
@@ -2174,10 +2182,13 @@ These files are diagnostic inputs. Production code must not depend on
   shader-family decisions, family op-hit labels, and match-result assembly
   remain handwritten. Naive min/max H/W bounds, independent H/W cross-products,
   and the 648/1296 channel/spatial cross-products remain explicitly forbidden.
-  The newest OCR sparse row is `ocr_projection_512_3x80_512`, admitted after
-  PaddleOCR hit `KnownBadLargePointwiseConv` at `[1,512,3,80] -> 512` on the
-  existing OCR projection route. It is an exact OCR row, not a broader spatial
-  envelope expansion.
+  OCR projection rows now have an OCR-only dynamic crop batch policy
+  (`N=1..8`) while depth-vision and diffusion projection rows remain batch-1.
+  The newest OCR sparse row is `ocr_projection_512_6x80_192`, admitted after
+  PaddleOCR hit `KnownBadLargePointwiseConv` at `[3,512,6,80] -> 192`; the
+  existing `ocr_projection_512_3x80_512` row also has a checked-in batch-6
+  positive case. These are exact OCR rows plus a bounded OCR batch policy, not
+  a broader spatial/channel envelope expansion.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
   has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in

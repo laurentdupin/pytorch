@@ -3774,7 +3774,6 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
         ("dtype", "float32"),
         ("input_rank", 4),
         ("weight_rank", 4),
-        ("batch", 1),
         ("groups", 1),
         ("kernel_h", 1),
         ("kernel_w", 1),
@@ -3786,8 +3785,27 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
         ("dilation_w", 1),
     ):
         _require_equal(bounds[key], expected, f"{context} {key}")
+    _require_equal(
+        bounds["batch"],
+        {"min": 1, "max": 8, "default": 1, "ocr_projection_max": 8},
+        f"{context} batch",
+    )
     for key in ("requires_vulkan", "requires_buffer_storage", "requires_buffer_compute"):
         _require_equal(bounds[key], True, f"{context} {key}")
+
+    _require_equal(
+        envelope["family_batch_policy"],
+        {
+            "DepthVisionProjection": {"values": [1]},
+            "OCRProjection": {
+                "min": 1,
+                "max": 8,
+                "evidence_id": "paddleocr_dynamic_crop_classifier_batch6",
+            },
+            "DiffusionProjection": {"values": [1]},
+        },
+        f"{context} family_batch_policy",
+    )
 
     rowset = _small_spatial_pointwise_conv_rowset(envelope, context)
     factorized_groups = _small_spatial_pointwise_conv_factorized_groups(
@@ -3795,8 +3813,8 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
         context,
     )
     rows = rowset["rows"]
-    if len(rows) != 56:
-        raise AssertionError(f"{context} expected 56 sparse rows")
+    if len(rows) != 57:
+        raise AssertionError(f"{context} expected 57 sparse rows")
     family_counts = {}
     row_keys = set()
     tuple_ids = set()
@@ -3825,13 +3843,13 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
         family_counts,
         {
             "DepthVisionProjection": 26,
-            "OCRProjection": 14,
+            "OCRProjection": 15,
             "DiffusionProjection": 16,
         },
         f"{context} family counts",
     )
-    _require_equal(len(tuple_ids), 56, f"{context} tuple ids")
-    _require_equal(len(lookup_keys), 56, f"{context} lookup keys")
+    _require_equal(len(tuple_ids), 57, f"{context} tuple ids")
+    _require_equal(len(lookup_keys), 57, f"{context} lookup keys")
 
     factorized_keys = _small_spatial_pointwise_conv_factorized_keys(
         factorized_groups,

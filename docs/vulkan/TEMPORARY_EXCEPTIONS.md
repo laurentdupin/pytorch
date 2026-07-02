@@ -410,7 +410,7 @@ condition and migration target.
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
   sparse-rowset helper output in
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
-  helper owns the 56 correlated projection rows, per-row metadata,
+  helper owns the 57 correlated projection rows, per-row metadata,
   input/weight channel equality, and exact `(input_c, input_h, input_w,
   output_c)` lookup. It also owns the cross-adapter proven 144-shape
   factorized depth-vision projection group: 18 approved channel pairs crossed
@@ -418,10 +418,14 @@ condition and migration target.
   shapes and 60 proven extrapolations. The sixteen newly admitted mid-resolution
   depth-vision rows are exact sparse rows only; their `(30,45)` and `(40,62)`
   spatial pairs are not part of the factorized group. The PaddleOCR
-  `ocr_projection_512_3x80_512` row is also an exact OCR sparse row admitted to
-  unblock the existing OCR projection route; it does not widen the OCR spatial
-  envelope. Naive min/max envelopes, independent H/W cross-products, and wider
-  channel/spatial cross-products remain rejected by `KnownBadLargePointwiseConv`.
+  `ocr_projection_512_3x80_512` and `ocr_projection_512_6x80_192` rows are
+  exact OCR sparse rows admitted to unblock existing OCR projection routes.
+  OCR projection rows additionally allow a bounded dynamic crop batch
+  `N=1..8`, with checked-in positive coverage for the observed batch-6 and
+  batch-3 rows; depth-vision and diffusion projection rows remain batch-1.
+  This does not widen the OCR spatial/channel envelope. Naive min/max
+  envelopes, independent H/W cross-products, and wider channel/spatial
+  cross-products remain rejected by `KnownBadLargePointwiseConv`.
   Route-policy hard-fail rescue, shader-family decisions, family op-hit labels,
   and match-result assembly remain handwritten.
 - Expiry: broader pointwise conv parity plus adjacent negative coverage are

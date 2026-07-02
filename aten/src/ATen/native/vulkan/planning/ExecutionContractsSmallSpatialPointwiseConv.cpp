@@ -85,7 +85,7 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
   if (
       dtype != kFloat || input_sizes.size() != 4 || weight_sizes.size() != 4 ||
       stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
-      groups != 1 || input_sizes[0] != 1 ||
+      groups != 1 || input_sizes[0] < 1 || input_sizes[0] > 8 ||
       !generated::small_spatial_pointwise_conv_sparse_projection_rows_input_weight_channels_equal(
           input_sizes[1], weight_sizes[1]) ||
       weight_sizes[2] != 1 || weight_sizes[3] != 1 || stride[0] != 1 ||
@@ -94,7 +94,8 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
     return result;
   }
 
-  if (generated::small_spatial_pointwise_conv_depth_vision_factorized_projection_matches(
+  if (input_sizes[0] == 1 &&
+      generated::small_spatial_pointwise_conv_depth_vision_factorized_projection_matches(
           input_sizes[1], input_sizes[2], input_sizes[3], weight_sizes[0])) {
     result.matched = true;
     const char* const family_name =
@@ -113,8 +114,15 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
       generated::small_spatial_pointwise_conv_projection_rows_find(
           input_sizes[1], input_sizes[2], input_sizes[3], weight_sizes[0]);
   if (row != nullptr) {
+    const SmallSpatialPointwiseConvFamily family =
+        small_spatial_pointwise_conv_family_from_name(row->family);
+    if (
+        input_sizes[0] != 1 &&
+        family != SmallSpatialPointwiseConvFamily::OCRProjection) {
+      return result;
+    }
     result.matched = true;
-    result.family = small_spatial_pointwise_conv_family_from_name(row->family);
+    result.family = family;
     result.tuple_id = row->tuple_id;
     result.metadata = &row->metadata;
     return result;

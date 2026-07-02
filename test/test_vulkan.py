@@ -1285,7 +1285,7 @@ class TestVulkanGovernance(TestCase):
             "validated 24 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=169", result.stdout)
+        self.assertIn("generated_cases=171", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:13",
             result.stdout,
@@ -1541,7 +1541,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("legal_assignments=48", result.stdout)
         self.assertIn("adjacent_negative_axes=149", result.stdout)
         self.assertIn("runtime_legal_cases=366", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=169", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=171", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=13",
@@ -5249,7 +5249,6 @@ class TestVulkanGovernance(TestCase):
             ("dtype", "float32"),
             ("input_rank", 4),
             ("weight_rank", 4),
-            ("batch", 1),
             ("groups", 1),
             ("kernel_h", 1),
             ("kernel_w", 1),
@@ -5261,6 +5260,10 @@ class TestVulkanGovernance(TestCase):
             ("dilation_w", 1),
         ):
             self.assertEqual(bounds[key], expected)
+        self.assertEqual(
+            bounds["batch"],
+            {"min": 1, "max": 8, "default": 1, "ocr_projection_max": 8},
+        )
         self.assertTrue(bounds["requires_vulkan"])
         self.assertTrue(bounds["requires_buffer_storage"])
         self.assertTrue(bounds["requires_buffer_compute"])
@@ -5278,7 +5281,19 @@ class TestVulkanGovernance(TestCase):
             ["input_c", "input_h", "input_w", "output_c"],
         )
         self.assertEqual(rowset["label_field"], "tuple_id")
-        self.assertEqual(len(rowset["rows"]), 56)
+        self.assertEqual(len(rowset["rows"]), 57)
+        self.assertEqual(
+            spec["shape_envelope"]["family_batch_policy"],
+            {
+                "DepthVisionProjection": {"values": [1]},
+                "OCRProjection": {
+                    "min": 1,
+                    "max": 8,
+                    "evidence_id": "paddleocr_dynamic_crop_classifier_batch6",
+                },
+                "DiffusionProjection": {"values": [1]},
+            },
+        )
 
         family_counts = {}
         lookup_keys = set()
@@ -5298,12 +5313,12 @@ class TestVulkanGovernance(TestCase):
             family_counts,
             {
                 "DepthVisionProjection": 26,
-                "OCRProjection": 14,
+                "OCRProjection": 15,
                 "DiffusionProjection": 16,
             },
         )
-        self.assertEqual(len(lookup_keys), 56)
-        self.assertEqual(len(tuple_ids), 56)
+        self.assertEqual(len(lookup_keys), 57)
+        self.assertEqual(len(tuple_ids), 57)
         self.assertNotIn((512, 7, 7, 2048), lookup_keys)
 
         factorized_groups = spec["shape_envelope"]["factorized_groups"]
@@ -16017,6 +16032,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ((1, 384, 20, 29), 192),
                 ((1, 1024, 50, 74), 256),
                 ((1, 1024, 60, 93), 1024),
+                ((2, 384, 30, 45), 192),
+                ((9, 512, 3, 80), 512),
                 ((1, 384, 31, 45), 192),
                 ((1, 384, 39, 62), 192),
                 ((1, 384, 40, 63), 192),
@@ -16056,6 +16073,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         cases = (
             ((1, 384, 7, 7), 384, False),
             ((1, 512, 3, 80), 512, False),
+            ((6, 512, 3, 80), 512, False),
+            ((3, 512, 6, 80), 192, False),
             ((1, 512, 7, 7), 512, False),
             ((1, 512, 14, 14), 192, False),
             ((1, 512, 14, 14), 1024, False),
@@ -16122,7 +16141,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     with open(log_path, "r", encoding="utf-8") as log_file:
                         op_hits = log_file.read()
                     self.assertIn(contract_hit, op_hits)
-                    self.assertIn(as_linear_hit, op_hits)
+                    if shape[0] == 1:
+                        self.assertIn(as_linear_hit, op_hits)
+                    else:
+                        self.assertIn("selected=generic", op_hits)
+                        self.assertIn("selected_plan=FloatBufferPointwise1x1", op_hits)
         finally:
             if previous_op_hit_log is None:
                 os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)

@@ -31,9 +31,8 @@
           {
             "symbol": "N",
             "field": "batch",
-            "values": [
-              1
-            ]
+            "min": 1,
+            "max": 8
           },
           {
             "symbol": "CI",
@@ -148,7 +147,12 @@
       "dtype": "float32",
       "input_rank": 4,
       "weight_rank": 4,
-      "batch": 1,
+      "batch": {
+        "min": 1,
+        "max": 8,
+        "default": 1,
+        "ocr_projection_max": 8
+      },
       "groups": 1,
       "kernel_h": 1,
       "kernel_w": 1,
@@ -195,6 +199,23 @@
       "readback": "not_expected_for_matches",
       "copy": "native_buffer_kernel"
     },
+    "family_batch_policy": {
+      "DepthVisionProjection": {
+        "values": [
+          1
+        ]
+      },
+      "OCRProjection": {
+        "min": 1,
+        "max": 8,
+        "evidence_id": "paddleocr_dynamic_crop_classifier_batch6"
+      },
+      "DiffusionProjection": {
+        "values": [
+          1
+        ]
+      }
+    },
     "positive_cases": {
       "source": "top_level_positive_cases",
       "expected_native_route": true
@@ -203,6 +224,14 @@
       {
         "violates": "projection_rows.forbidden_cross_product",
         "adjacent": "forbidden_cross_product"
+      },
+      {
+        "violates": "family_batch_policy.non_ocr_batch",
+        "adjacent": "wrong_value"
+      },
+      {
+        "violates": "family_batch_policy.ocr_projection_batch_max",
+        "adjacent": "above_max"
       },
       {
         "violates": "projection_rows.input_h",
@@ -676,6 +705,14 @@
           {
             "family": "OCRProjection",
             "input_c": 512,
+            "input_h": 6,
+            "input_w": 80,
+            "output_c": 192,
+            "tuple_id": "ocr_projection_512_6x80_192"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
             "input_h": 7,
             "input_w": 7,
             "output_c": 512,
@@ -940,7 +977,12 @@
     "dtype": "float32",
     "input_rank": 4,
     "weight_rank": 4,
-    "batch": 1,
+    "batch": {
+      "min": 1,
+      "max": 8,
+      "default": 1,
+      "ocr_projection_max": 8
+    },
     "groups": 1,
     "kernel_h": 1,
     "kernel_w": 1,
@@ -1850,6 +1892,70 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "OCRProjection",
       "expected_contract_tuple_id": "ocr_projection_512_3x80_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_3x80_512_batch6",
+      "input_shape": [
+        6,
+        512,
+        3,
+        80
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_3x80_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_6x80_192_batch3",
+      "input_shape": [
+        3,
+        512,
+        6,
+        80
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_6x80_192",
       "expected_cpu_fallback": false
     },
     {
@@ -2810,6 +2916,70 @@
       "groups": 1,
       "dtype": "float32",
       "violates": "projection_rows.forbidden_cross_product",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "name": "depth_projection_batch2_rejected",
+      "input_shape": [
+        2,
+        384,
+        30,
+        45
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "family_batch_policy.non_ocr_batch",
+      "expected_native_route": false,
+      "expected_cpu_fallback": false,
+      "expected_error_regex": "KnownBadLargePointwiseConv"
+    },
+    {
+      "name": "ocr_projection_batch9_rejected",
+      "input_shape": [
+        9,
+        512,
+        3,
+        80
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "violates": "family_batch_policy.ocr_projection_batch_max",
       "expected_native_route": false,
       "expected_cpu_fallback": false,
       "expected_error_regex": "KnownBadLargePointwiseConv"

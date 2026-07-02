@@ -79,10 +79,17 @@ condition that justifies revisiting it.
   but still fails later in a tensor-readback/lm-head-adjacent submit path.
   RX 9070 keeps persistent residency as intended; one-token smoke is OK, while
   longer HY-MT generation currently hits the existing Windows stack overflow.
-- PaddleOCR cross-adapter status after the same build: RX 9070 and RX 6700 XT
-  remain OK with the known single CPU fallback. GTX 1080 still fails at
-  `conv_prepack_upload`, so the HY-MT linear residency fix must not be treated
-  as a PaddleOCR compatibility fix.
+- PaddleOCR cross-adapter status after the follow-up conv/OCR fixes: RX 9070,
+  GTX 1080, and RX 6700 XT all complete one-repeat smokes. GTX 1080 uses
+  transient float-buffer conv packed-weight residency for large packed weights,
+  which avoids the previous `conv_prepack_upload` device-lost path. PaddleOCR
+  also needed the existing `SmallSpatialPointwiseConvContract` OCR family to
+  cover bounded dynamic crop batches and the exact OCR recognizer row
+  `ocr_projection_512_6x80_192`. Focused artifacts are under
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/paddleocr_*_after_ocr_row/`.
+  Single-repeat timings were about 1.23s on RX 9070, 1.15s on RX 6700 XT, and
+  2.58s on GTX 1080, with the known PaddleOCR CPU fallback/readback costs still
+  present.
 
 ## Update Rules
 
