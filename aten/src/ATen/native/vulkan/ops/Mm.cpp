@@ -2,6 +2,7 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
@@ -552,6 +553,74 @@ Tensor cpu_transposed_weight_for_packing(
   return weight.cpu().t().contiguous();
 }
 
+bool can_make_vulkan_linear_weight_transpose_view(
+    const Tensor& weight,
+    c10::DimVector& output_sizes,
+    c10::DimVector& output_logical_strides,
+    c10::DimVector& output_physical_strides) {
+  if (!weight.is_vulkan() || weight.dim() != 2) {
+    return false;
+  }
+  const vTensor& v_weight = convert(weight);
+  if (
+      v_weight.storage_type() != api::StorageType::BUFFER ||
+      !v_weight.has_direct_buffer_layout() ||
+      !utils::supports_buffer_metadata_view_fast_path(v_weight)) {
+    return false;
+  }
+
+  output_sizes.assign(v_weight.sizes().begin(), v_weight.sizes().end());
+  output_logical_strides = logical_strides(v_weight);
+  output_physical_strides.assign(
+      v_weight.gpu_strides().begin(), v_weight.gpu_strides().end());
+  std::swap(output_sizes[0], output_sizes[1]);
+  std::swap(output_logical_strides[0], output_logical_strides[1]);
+  std::swap(output_physical_strides[0], output_physical_strides[1]);
+
+  return utils::can_make_buffer_metadata_view(
+      v_weight,
+      output_sizes,
+      output_logical_strides,
+      output_physical_strides,
+      v_weight.storage_offset());
+}
+
+Tensor vulkan_linear_weight_transpose_view_for_packing(
+    const Tensor& weight,
+    const c10::DimVector& output_sizes,
+    const c10::DimVector& output_logical_strides,
+    const c10::DimVector& output_physical_strides) {
+  const vTensor& v_weight = convert(weight);
+  utils::log_vulkan_op_hit("aten::linear.weight_transpose_metadata_view");
+  return make_buffer_metadata_view_checked(
+      weight,
+      output_sizes,
+      output_logical_strides,
+      output_physical_strides,
+      v_weight.storage_offset(),
+      "aten::linear.weight_transpose_metadata_view");
+}
+
+Tensor transposed_linear_weight_for_packing(
+    const Tensor& weight,
+    const char* cpu_reason) {
+  c10::DimVector output_sizes;
+  c10::DimVector output_logical_strides;
+  c10::DimVector output_physical_strides;
+  if (can_make_vulkan_linear_weight_transpose_view(
+          weight,
+          output_sizes,
+          output_logical_strides,
+          output_physical_strides)) {
+    return vulkan_linear_weight_transpose_view_for_packing(
+        weight,
+        output_sizes,
+        output_logical_strides,
+        output_physical_strides);
+  }
+  return cpu_transposed_weight_for_packing(weight, cpu_reason);
+}
+
 Tensor upload_linear_tensor_to_buffer(
     const Tensor& tensor,
     const api::GPUMemoryLayout memory_layout) {
@@ -615,7 +684,7 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
     const std::optional<Tensor>& bias) {
   if (utils::has_inference_tensor(weight, bias)) {
     const Tensor prepared_weight = (weight.is_vulkan() && weight.dim() == 2)
-        ? cpu_transposed_weight_for_packing(
+        ? transposed_linear_weight_for_packing(
               weight, "inference_tensor_weight_cpu_transpose")
         : weight.t();
     return c10::make_intrusive<LinearPackedContext>(
@@ -630,7 +699,7 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
   const Tensor prepared_weight =
       (c10::InferenceMode::is_enabled() && weight.is_vulkan() &&
        weight.dim() == 2)
-      ? cpu_transposed_weight_for_packing(
+      ? transposed_linear_weight_for_packing(
             weight, "inference_mode_weight_cpu_transpose")
       : weight.t();
   return c10::make_intrusive<LinearPackedContext>(
@@ -4301,7 +4370,7 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
   const Tensor prepared_weight =
       (c10::InferenceMode::is_enabled() && weight.is_vulkan() &&
        weight.dim() == 2)
-      ? cpu_transposed_weight_for_packing(
+      ? transposed_linear_weight_for_packing(
             weight, "labeled_weight_cpu_transpose")
       : weight.t();
   const auto context = c10::make_intrusive<LinearPackedContext>(

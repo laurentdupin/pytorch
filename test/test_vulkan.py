@@ -8662,6 +8662,39 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_raw_buffer_transfer_retire_skips_descriptor_pool_flush(self):
+        log_name = "vulkan_raw_buffer_transfer_retire_sync_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(0)
+                x = torch.randn(16, 16, dtype=torch.float32)
+                y = x.to("vulkan").cpu()
+                torch.testing.assert_close(y, x)
+                print("ok")
+            """
+            _, result = self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_SYNC_LOG": log_name},
+                timeout=120,
+                error_prefix="Vulkan raw buffer transfer sync subprocess failed.",
+            )
+            self.assertIn("ok", result.stdout)
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, encoding="utf-8") as log_file:
+                log_text = log_file.read()
+            self.assertIn("retire_after_fence_wait:", log_text)
+            self.assertIn("flush_command_pool=1", log_text)
+            self.assertIn("flush_descriptor_pool=0", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_transition_log_does_not_attach_direct_safe_attention_probability_clone(self):
         log_name = "vulkan_attention_probability_transition_contract_test.jsonl"
         log_path = os.path.join(REPO_ROOT, log_name)
@@ -17403,6 +17436,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 actual_gelu,
                 atol=3e-4,
                 rtol=3e-3)
+
+    def test_linear_vulkan_weight_transpose_view_avoids_sync_readback(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(1, 5, 8)
+        weight_cpu = torch.randn(12, 8)
+        bias_cpu = torch.randn(12)
+
+        x_vulkan = x_cpu.to("vulkan")
+        weight_vulkan = weight_cpu.to("vulkan")
+        bias_vulkan = bias_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.linear(x_vulkan, weight_vulkan, bias_vulkan)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+            self._assert_outputs_close(
+                F.linear(x_cpu, weight_cpu, bias_cpu),
+                actual.cpu(),
+                atol=1e-4,
+                rtol=1e-4)
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            linear_context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                weight_vulkan,
+                bias_vulkan,
+                "test_linear_weight_transpose_view")
+            actual_prepack = torch.ops.vulkan_prepack.run_linear_context(
+                x_vulkan,
+                linear_context)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+            self._assert_outputs_close(
+                F.linear(x_cpu, weight_cpu, bias_cpu),
+                actual_prepack.cpu(),
+                atol=1e-4,
+                rtol=1e-4)
 
     def test_layer_norm_then_linear_in_inference_mode(self):
         torch.manual_seed(0)

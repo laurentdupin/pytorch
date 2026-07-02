@@ -1,8 +1,8 @@
 # Vulkan Current State
 
 Last refreshed: 2026-07-02 after HY-MT KV-cache append broadening,
-device-policy packed-weight transient residency, and PaddleOCR OCR projection
-cross-adapter fixes.
+device-policy packed-weight transient residency, PaddleOCR OCR projection
+cross-adapter fixes, and PaddleOCR/HY-MT transfer cleanup.
 
 ## Repo State Summary
 
@@ -49,6 +49,24 @@ projection rows stay on Vulkan. Current smoke timings remain single-repeat
 diagnostics: RX 9070 about 1.23s, RX 6700 XT about 1.15s, and GTX 1080 about
 2.58s end-to-end with the known PaddleOCR postprocess fallback/readback costs
 still present.
+
+Two generic PaddleOCR/HY-MT cleanup fixes are now in place. First, legal 2D
+Vulkan buffer linear weights can use a metadata-only transposed view for
+linear context packing, so inference/labeled linear prepack no longer has to
+read the weight back to CPU just to form `weight.t().contiguous()` when the
+existing buffer-view guards pass. Unsupported storage/layout cases still fall
+back to the old CPU transpose path and remain visible through the same fallback
+reason labels. Second, raw buffer host upload/readback fence waits now flush the
+normal command pool but skip the descriptor-pool flush because those transfer
+paths do not allocate descriptor sets. Shader-packed/image transfer paths keep
+the old descriptor-pool flush behavior. A focused PaddleOCR RX 9070 diagnostic
+on the current screenshot input improved from about 4.78s to about 4.30s with
+the same CPU fallback, sync readback, submit, and retire counters; the sync log
+showed 1957 raw-transfer fence waits with `flush_descriptor_pool=0` and 6
+descriptor/shader paths that still flushed descriptors. HY-MT one-token RX 9070
+linear diagnostics removed the Vulkan-weight CPU transpose fallbacks, but the
+remaining runtime is still dominated by token/control scalar fallbacks and the
+longer RX 9070 HY-MT row remains blocked by the existing Windows stack overflow.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket

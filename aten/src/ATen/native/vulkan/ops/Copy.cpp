@@ -1064,9 +1064,11 @@ void log_cpu_timeline_copy_event(
   api::append_cpu_timeline_log_line(stream.str());
 }
 
-void retire_command_resources_after_fence_wait(api::Context* const context) {
+void retire_command_resources_after_fence_wait(
+    api::Context* const context,
+    const bool flush_descriptor_pool = true) {
   utils::log_vulkan_op_hit("aten::copy_.retire_after_fence_begin");
-  context->retire_after_fence_wait();
+  context->retire_after_fence_wait(flush_descriptor_pool);
   utils::log_vulkan_op_hit("aten::copy_.retire_after_fence_end");
 }
 
@@ -1083,8 +1085,10 @@ void release_retired_objects_after_context_unlock(api::Context* const context) {
   }
 }
 
-void retire_after_fence_wait_and_release(api::Context* const context) {
-  retire_command_resources_after_fence_wait(context);
+void retire_after_fence_wait_and_release(
+    api::Context* const context,
+    const bool flush_descriptor_pool = true) {
+  retire_command_resources_after_fence_wait(context, flush_descriptor_pool);
   release_retired_objects_after_context_unlock(context);
 }
 
@@ -1999,7 +2003,8 @@ void pack_cpu_to_vulkan(
               false);
         }
         log_copy_sync_event("preserve_vulkan_buffer_view", dst, false);
-        retire_after_fence_wait_and_release(context);
+        retire_after_fence_wait_and_release(
+            context, /*flush_descriptor_pool=*/false);
       }
       context->fences().return_fence(fence);
     }
@@ -2068,7 +2073,8 @@ void pack_cpu_to_vulkan(
             "pack_cpu_to_vulkan_buffer",
             dst,
             dst.has_direct_buffer_layout());
-        retire_after_fence_wait_and_release(context);
+        retire_after_fence_wait_and_release(
+            context, /*flush_descriptor_pool=*/false);
       }
       context->fences().return_fence(fence);
     }
@@ -2153,7 +2159,8 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
               "pack_vulkan_to_cpu_buffer",
               src,
               src.has_direct_buffer_layout());
-          retire_command_resources_after_fence_wait(context);
+          retire_command_resources_after_fence_wait(
+              context, /*flush_descriptor_pool=*/shader_packed_buffer);
         }
         context_lock.unlock();
         if (submitted_to_gpu) {

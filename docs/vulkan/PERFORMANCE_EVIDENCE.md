@@ -79,6 +79,18 @@ condition that justifies revisiting it.
   but still fails later in a tensor-readback/lm-head-adjacent submit path.
   RX 9070 keeps persistent residency as intended; one-token smoke is OK, while
   longer HY-MT generation currently hits the existing Windows stack overflow.
+- HY-MT linear context packing now has a generic metadata-view cleanup for
+  legal 2D Vulkan buffer weights. When the existing buffer metadata-view guards
+  pass, inference/labeled linear prepack uses a Vulkan-resident transposed view
+  instead of reading the weight back to CPU to build
+  `weight.t().contiguous()`. Unsupported storage/layout cases remain on the old
+  CPU transpose path with the same fallback labels. A focused RX 9070 one-token
+  smoke under
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/hymt_rx9070_1tok_after_linear_view/`
+  removed the Vulkan-weight CPU transpose fallbacks and reduced fallback
+  materialization/readback transition counts slightly, but the row is still
+  dominated by token/control scalar fallbacks and the longer RX 9070 HY-MT row
+  remains blocked by the existing Windows stack overflow.
 - PaddleOCR cross-adapter status after the follow-up conv/OCR fixes: RX 9070,
   GTX 1080, and RX 6700 XT all complete one-repeat smokes. GTX 1080 uses
   transient float-buffer conv packed-weight residency for large packed weights,
@@ -90,6 +102,17 @@ condition that justifies revisiting it.
   Single-repeat timings were about 1.23s on RX 9070, 1.15s on RX 6700 XT, and
   2.58s on GTX 1080, with the known PaddleOCR CPU fallback/readback costs still
   present.
+- PaddleOCR raw buffer transfer cleanup: raw buffer upload/readback fence waits
+  now skip descriptor-pool flushing while still flushing the command pool and
+  preserving all readback, submit, fallback, and retire accounting. Shader
+  packed/image transfer paths keep descriptor-pool flushing. On the current
+  RX 9070 screenshot diagnostic, the focused artifact under
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/paddleocr_rx9070_after_copy_retire_cleanup/`
+  improved one-repeat time from about 4.78s to about 4.30s with the same CPU
+  fallback, sync readback, submit, and retire counters. The sync log recorded
+  1957 raw-transfer waits with `flush_descriptor_pool=0` and 6
+  descriptor/shader paths that still flushed descriptors. This is accepted as a
+  generic transfer-control cleanup, not a PaddleOCR-specific route.
 
 ## Update Rules
 

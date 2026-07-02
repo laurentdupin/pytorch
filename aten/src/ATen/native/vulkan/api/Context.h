@@ -765,7 +765,7 @@ class TORCH_API Context final {
       std::vector<VulkanImage>& images);
 
   void flush();
-  void retire_after_fence_wait();
+  void retire_after_fence_wait(bool flush_descriptor_pool = true);
   void flush_after_fence_wait();
 };
 

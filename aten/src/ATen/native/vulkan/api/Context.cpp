@@ -5958,11 +5958,10 @@ void Context::flush() {
   dump_cpu_timeline_summary_log();
 }
 
-void Context::retire_after_fence_wait() {
+void Context::retire_after_fence_wait(const bool flush_descriptor_pool) {
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
-  const bool flush_pools = true;
 
   if (sync_logging_enabled()) {
     std::ostringstream stream;
@@ -5970,12 +5969,13 @@ void Context::retire_after_fence_wait() {
            << format_sync_bytes(pending_retire_bytes())
            << " submit_count=" << submit_count_
            << " caller=" << current_allocation_label()
-           << " flush_pools=" << (flush_pools ? "1" : "0");
+           << " flush_command_pool=1"
+           << " flush_descriptor_pool=" << (flush_descriptor_pool ? "1" : "0");
     append_sync_log_line(stream.str());
   }
 
-  if (flush_pools) {
-    command_pool_.flush();
+  command_pool_.flush();
+  if (flush_descriptor_pool) {
     descriptor_pool_.flush();
     flush_persistent_external_recording_pools_if_idle();
   }
@@ -5991,7 +5991,8 @@ void Context::retire_after_fence_wait() {
     std::ostringstream stream;
     stream << "event=retire_after_fence_wait duration_us="
            << (cpu_timeline_now_us() - cpu_start_us)
-           << " flush_pools=" << (flush_pools ? 1 : 0);
+           << " flush_command_pool=1"
+           << " flush_descriptor_pool=" << (flush_descriptor_pool ? 1 : 0);
     append_cpu_timeline_log_line(stream.str());
   }
 }

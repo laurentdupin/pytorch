@@ -15,6 +15,79 @@
   ],
   "entries": [
     {
+      "id": "paddle_hymt_transfer_linear_cleanup_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_pending_2026_07_02",
+      "model_provenance": {
+        "models": [
+          "PaddleOCR",
+          "HY-MT"
+        ],
+        "inputs": [
+          "PaddleOCR screenshot 1920x1080",
+          "HY-MT one-token decode smoke"
+        ]
+      },
+      "device_notes": "RX 9070 focused evidence. Behavior is generic Vulkan transfer-control and linear-packing cleanup, not a PaddleOCR/HY-MT production route.",
+      "contract_or_topology_scope": [
+        "Vulkan raw buffer host transfer fence cleanup",
+        "Vulkan linear buffer metadata-view packing",
+        "TransitionContract host transfer and fallback attribution"
+      ],
+      "candidate": "Skip descriptor-pool flushes for raw buffer transfer fence waits while preserving command-pool cleanup, and use metadata-only Vulkan buffer transpose views for legal 2D linear weight packing.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_raw_buffer_transfer_retire_skips_descriptor_pool_flush",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_linear_vulkan_weight_transpose_view_avoids_sync_readback",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_linear_module_with_vulkan_weights",
+          "PaddleOCR RX 9070 one-repeat screenshot smoke",
+          "HY-MT RX 9070 one-token decode smoke"
+        ]
+      },
+      "counters": {
+        "paddleocr_cpu_fallback_before": 1,
+        "paddleocr_cpu_fallback_after": 1,
+        "paddleocr_sync_readback_before": 1,
+        "paddleocr_sync_readback_after": 1,
+        "paddleocr_submit_total_before": 3958,
+        "paddleocr_submit_total_after": 3958,
+        "paddleocr_retire_call_count_before": 1965,
+        "paddleocr_retire_call_count_after": 1965,
+        "paddleocr_raw_transfer_flush_descriptor_pool_false": 1957,
+        "paddleocr_descriptor_or_shader_flush_descriptor_pool_true": 6,
+        "hymt_cpu_fallback_before": 36,
+        "hymt_cpu_fallback_after": 33,
+        "hymt_sync_readback_before": 8,
+        "hymt_sync_readback_after": 8,
+        "hymt_linear_weight_cpu_transpose_fallback_after": 0,
+        "hymt_fallback_materialization_before": 44,
+        "hymt_fallback_materialization_after": 41,
+        "hymt_unexpected_intermediate_readback_before": 59,
+        "hymt_unexpected_intermediate_readback_after": 55
+      },
+      "timing_ms": {
+        "paddleocr_rx9070_before": 4775.944,
+        "paddleocr_rx9070_after": 4304.238,
+        "hymt_rx9070_one_token_before": 9788.838,
+        "hymt_rx9070_one_token_after_linear_view": 6547.517,
+        "repeat_count": 1
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_current/paddleocr_rx9070.json",
+        "agent_space/paddle_hymt_perf_goal_c5dee8d/paddleocr_rx9070_after_copy_retire_cleanup/paddleocr_rx9070.json",
+        "agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_current/hymt_rx9070_1tok.json",
+        "agent_space/paddle_hymt_perf_goal_c5dee8d/hymt_rx9070_1tok_after_linear_view/hymt_rx9070_1tok.json"
+      ],
+      "decision": "Keep as generic cleanup. It removes avoidable descriptor-pool flush work from raw buffer transfers and avoids CPU weight readback for legal Vulkan-resident linear packing while preserving route selection, shape admission, copy/readback accounting, and fallback visibility.",
+      "revisit_conditions": [
+        "If validation shows a raw buffer transfer path allocates descriptor sets before its fence wait.",
+        "If a non-direct-buffer or non-contiguous Vulkan linear weight incorrectly reaches the metadata-view packing path.",
+        "If multi-GPU PaddleOCR/HY-MT evidence shows descriptor-pool flush skipping changes correctness or resource lifetime.",
+        "If HY-MT token/control scalar fallback removal changes the one-token timing enough that this focused evidence should be superseded."
+      ]
+    },
+    {
       "id": "vulkan_descriptor_update_allocation_flattening_2026_07_02",
       "status": "accepted_default_fix",
       "head": "local_pending_2026_07_02",
