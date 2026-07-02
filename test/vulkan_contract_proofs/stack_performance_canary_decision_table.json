@@ -44,6 +44,20 @@
       "reusable_backend_policy": true
     },
     {
+      "id": "stack_planned_retire_cleanup_batching",
+      "status": "accepted_default_fix",
+      "scope": [
+        "StackPlannedRecordingSubmit cleanup ownership",
+        "RetireQueue callback flattening"
+      ],
+      "canary_or_path": "default stack-planned pending-retire cleanup batching",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "A repeat-30 bridge run stayed correctness-clean with zero timed CPU fallback/readback/copy. sync_counters now exposes retired_resource_count=15415 and retire_cleanup_callback_count=4668, proving cleanup callbacks are flatter than per-resource retirement while submit topology remains unchanged.",
+      "decision": "Keep as a generic cleanup-control-plane fix. It is not a submit-reduction or shader-speed claim.",
+      "next_proof": "Use the callback/resource split to decide whether the next cleanup work should be a typed region/session cleanup executor or whether remaining latency is dominated by submits and kernel plans.",
+      "reusable_backend_policy": true
+    },
+    {
       "id": "vulkan_vision_recovery_flush_guard",
       "status": "accepted_default_fix",
       "scope": [

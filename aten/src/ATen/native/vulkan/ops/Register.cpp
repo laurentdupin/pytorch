@@ -404,6 +404,8 @@ std::vector<int64_t> sync_counters_runtime() {
           counters.compute_dispatch_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.submit_compute_job_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.retire_cleanup_callback_count.load(
+          std::memory_order_relaxed)),
   };
 }
 

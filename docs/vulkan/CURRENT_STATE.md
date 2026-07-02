@@ -112,6 +112,20 @@ convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm. Sub-50 work
 therefore needs control-plane reduction and a parity-proven FP32 linear plan;
 the current tiled fc2 canary is not promoted.
 
+Stack-planned submit cleanup now batches pending-retire buffers and images into
+one timeline-gated `RetiredResource` callback per stack-planned submission while
+preserving the existing per-resource `note_vulkan_retired_resource` accounting.
+`sync_counters()` appends `retire_cleanup_callback_count` so host cleanup
+flattening is visible separately from retired resource count. A focused
+warmup-3/repeat-30 RX 9070 `vits_140` bridge run measured about 66.6 ms mean /
+66.3 ms median / 68.7 ms p95 device-resident forward, stayed
+correctness-clean (`max_abs=1.1846423149108887e-06`) with zero timed CPU
+fallback, sync readback, or buffer copies, and reported
+`retired_resource_count=15415` versus `retire_cleanup_callback_count=4668`.
+This is a generic cleanup-control-plane fix, not a submit-reduction claim: the
+timed forward still reports four stack-planned submits, three retire-drain
+submits, one pre-stack flush, and one explicit synchronize per request.
+
 `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is now an
 opt-in stack-owned external recording pool-lease experiment. It is not enabled
 by default because focused `vits_140` evidence showed it was slower than the

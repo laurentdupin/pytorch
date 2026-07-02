@@ -52,6 +52,8 @@ void RetireQueue::poll(VkDevice device) {
   }
   for (auto& cleanup : ready) {
     cleanup();
+    vulkan_sync_counters().retire_cleanup_callback_count.fetch_add(
+        1u, std::memory_order_relaxed);
     vulkan_sync_counters().retired_resource_count.fetch_add(
         1u, std::memory_order_relaxed);
   }
@@ -86,6 +88,8 @@ void RetireQueue::drain(VkDevice device) {
           device, &wait_info, std::numeric_limits<uint64_t>::max()));
     }
     item.cleanup();
+    vulkan_sync_counters().retire_cleanup_callback_count.fetch_add(
+        1u, std::memory_order_relaxed);
     vulkan_sync_counters().retired_resource_count.fetch_add(
         1u, std::memory_order_relaxed);
   }

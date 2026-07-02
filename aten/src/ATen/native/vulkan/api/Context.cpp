@@ -3202,6 +3202,10 @@ void Context::retire_deferred_cleanup(
       origin == VulkanSubmitOrigin::StackPlannedRecordingSubmit
       ? VulkanRetireCallSite::StackPlannedRecordingEnd
       : retire_call_site_for_current_phase();
+  const bool stack_planned_submit =
+      origin == VulkanSubmitOrigin::StackPlannedRecordingSubmit;
+  std::vector<PendingRetireBuffer> stack_planned_retired_buffers;
+  std::vector<PendingRetireImage> stack_planned_retired_images;
   {
     std::lock_guard<std::mutex> bufferlist_lock(
         pending_retire_buffers_mutex_);
@@ -3217,15 +3221,20 @@ void Context::retire_deferred_cleanup(
           /*blocking_wait=*/false,
           /*poll_only=*/false,
           pending.stack_provenance);
-      retire_queue_.retire(RetiredResource{
-          submission.stream_id,
-          submission.timeline,
-          submission.timeline_value,
-          [buffer = std::make_shared<VulkanBuffer>(
-               std::move(pending.buffer))]() mutable {
-            buffer.reset();
-          },
-      });
+      if (!stack_planned_submit) {
+        retire_queue_.retire(RetiredResource{
+            submission.stream_id,
+            submission.timeline,
+            submission.timeline_value,
+            [buffer = std::make_shared<VulkanBuffer>(
+                 std::move(pending.buffer))]() mutable {
+              buffer.reset();
+            },
+        });
+      }
+    }
+    if (stack_planned_submit) {
+      stack_planned_retired_buffers = std::move(pending_retire_buffers_);
     }
     pending_retire_buffers_.clear();
   }
@@ -3243,17 +3252,48 @@ void Context::retire_deferred_cleanup(
           /*blocking_wait=*/false,
           /*poll_only=*/false,
           pending.stack_provenance);
-      retire_queue_.retire(RetiredResource{
-          submission.stream_id,
-          submission.timeline,
-          submission.timeline_value,
-          [image = std::make_shared<VulkanImage>(
-               std::move(pending.image))]() mutable {
-            image.reset();
-          },
-      });
+      if (!stack_planned_submit) {
+        retire_queue_.retire(RetiredResource{
+            submission.stream_id,
+            submission.timeline,
+            submission.timeline_value,
+            [image = std::make_shared<VulkanImage>(
+                 std::move(pending.image))]() mutable {
+              image.reset();
+            },
+        });
+      }
+    }
+    if (stack_planned_submit) {
+      stack_planned_retired_images = std::move(pending_retire_images_);
     }
     pending_retire_images_.clear();
+  }
+  if (stack_planned_submit &&
+      (!stack_planned_retired_buffers.empty() ||
+       !stack_planned_retired_images.empty())) {
+    auto retired_buffers =
+        std::make_shared<std::vector<PendingRetireBuffer>>(
+            std::move(stack_planned_retired_buffers));
+    auto retired_images = std::make_shared<std::vector<PendingRetireImage>>(
+        std::move(stack_planned_retired_images));
+    const uint64_t batch_resource_count =
+        static_cast<uint64_t>(retired_buffers->size() + retired_images->size());
+    retire_queue_.retire(RetiredResource{
+        submission.stream_id,
+        submission.timeline,
+        submission.timeline_value,
+        [retired_buffers = std::move(retired_buffers),
+         retired_images = std::move(retired_images),
+         batch_resource_count]() mutable {
+          retired_buffers->clear();
+          retired_images->clear();
+          if (batch_resource_count > 1u) {
+            vulkan_sync_counters().retired_resource_count.fetch_add(
+                batch_resource_count - 1u, std::memory_order_relaxed);
+          }
+        },
+    });
   }
   pending_retire_bytes_.store(0u, std::memory_order_relaxed);
 }

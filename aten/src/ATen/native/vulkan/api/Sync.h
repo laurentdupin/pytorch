@@ -98,6 +98,7 @@ class TORCH_API VulkanVisionStackCaptureScope final {
 struct VulkanSyncCounters final {
   std::atomic<uint64_t> compute_dispatch_count{0u};
   std::atomic<uint64_t> submit_compute_job_count{0u};
+  std::atomic<uint64_t> retire_cleanup_callback_count{0u};
   std::atomic<uint64_t> stream_submit_count{0u};
   std::atomic<uint64_t> event_record_count{0u};
   std::atomic<uint64_t> event_block_count{0u};

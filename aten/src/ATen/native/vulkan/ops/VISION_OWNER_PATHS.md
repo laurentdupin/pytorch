@@ -267,8 +267,9 @@ backbone pass while all 12 block contexts are visible together at the backend
 boundary.
 
 `sync_counters()` keeps its existing fields and appends diagnostic
-`compute_dispatch_count` and `submit_compute_job_count` at the end. These
-counters are diagnostic-only and do not affect route selection.
+`compute_dispatch_count`, `submit_compute_job_count`, and
+`retire_cleanup_callback_count` at the end. These counters are diagnostic-only
+and do not affect route selection.
 
 ## Stack Lifetime And Dispatch Diagnostics
 
