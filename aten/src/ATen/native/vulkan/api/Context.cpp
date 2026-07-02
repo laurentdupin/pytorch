@@ -1420,6 +1420,7 @@ class StackRegionControlPlaneDepthScope final {
       const VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown,
       const VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown)
       : context_(context), depth_(depth), active_(true) {
+    begin_stack_region_graph_dump_control_plane_scope(scope);
     if (depth_ != 0u) {
       log_reentry(scope, depth_ + 1u, origin, callsite);
     }
@@ -1435,6 +1436,7 @@ class StackRegionControlPlaneDepthScope final {
     if (active_) {
       TORCH_INTERNAL_ASSERT(depth_ > 0u);
       --depth_;
+      end_stack_region_graph_dump_control_plane_scope();
     }
   }
 

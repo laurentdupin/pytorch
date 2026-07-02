@@ -23,9 +23,9 @@
       ],
       "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
-      "latest_observation": "After stack-planned descriptor-pool leasing, the repeat-30 retained-pool wide4 bridge run completed with zero timed CPU fallback and sync readback. It measured about 102.7 ms mean / 104.2 ms median / 113.2 ms p95 in the cleaned validation run.",
-      "decision": "Keep as the current stable safe lane, but do not treat it as the sub-50 performance solution.",
-      "next_proof": "Use structural counters and GPU timestamp attribution to choose the next control-plane or FP32 linear plan optimization.",
+      "latest_observation": "After descriptor-diagnostic gating, cleanup callback batching, and graph-dump reentry deferral, a focused RX 9070 vits_140 wide4 smoke measured about 55.0 ms mean / 55.0 ms median / 55.6 ms p95 device-resident forward, with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0. A post-guard timestamp pass showed about 44.2 ms of GPU work per forward, so the lane is close to sub-50 but still needs residual control-plane reduction or a new FP32 linear plan.",
+      "decision": "Keep as the current stable safe lane; it is not yet the sub-50 solution.",
+      "next_proof": "Use FC2/linear timestamp attribution and remaining control-plane counters to choose the next optimization; do not re-run rejected tiled FC2 or broad retire-deferral canaries.",
       "reusable_backend_policy": true
     },
     {
@@ -70,6 +70,21 @@
       "latest_observation": "A repeat-30 bridge run stayed correctness-clean with zero timed CPU fallback/readback/copy. sync_counters now exposes retired_resource_count=15415 and retire_cleanup_callback_count=4668, proving cleanup callbacks are flatter than per-resource retirement while submit topology remains unchanged.",
       "decision": "Keep as a generic cleanup-control-plane fix. It is not a submit-reduction or shader-speed claim.",
       "next_proof": "Use the callback/resource split to decide whether the next cleanup work should be a typed region/session cleanup executor or whether remaining latency is dominated by submits and kernel plans.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "stack_region_graph_dump_reentry_deferral",
+      "status": "accepted_default_fix",
+      "scope": [
+        "StackRegionDependencyGraph",
+        "control-plane flatness",
+        "diagnostic graph dumping"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_STACK_DEP_GRAPH opportunistic dumps under submit/retire cleanup control-plane scopes",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070 plus focused graph-dump tests",
+      "latest_observation": "Graph dump requests inside central submit, pending-retire drain, retire-cleanup, or external-recording cleanup scopes now record StackRegionGraphDumpSkip.v0 rows instead of serializing the full graph from a nested control-plane point. Focused graph-dump tests passed, and a vits_140 wide4 smoke stayed correctness-clean at about 55.0 ms mean with CPU fallback 0 and sync readback 0.",
+      "decision": "Keep as a behavior-neutral diagnostic flatness guard. It is not a submit, retire, shader, copy, readback, fallback, or route change.",
+      "next_proof": "If compiled-session or deep-segment runs still overflow, use skip rows and control-plane depth rows to identify the remaining recursive host path before adding another canary.",
       "reusable_backend_policy": true
     },
     {
@@ -211,7 +226,7 @@
       ],
       "canary_or_path": "PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
-      "latest_observation": "Existing checked-in evidence records the exact fc2 tiled canary as correctness-clean but slower than the retained-pool wide4 baseline. The current local run did not provide promotable tiled-plan evidence.",
+      "latest_observation": "Existing checked-in evidence records the exact fc2 tiled canary as correctness-clean but slower than the retained-pool wide4 baseline. The post-guard GPU timestamp pass still shows fc2 | mm_buffer_float_bias as the largest stack row at about 15.2 ms/forward, but this is evidence for a new FP32 linear candidate, not promotion of the old tiled kernel.",
       "decision": "Do not promote the current tiled fc2 kernel.",
       "next_proof": "Use the GPU timestamp finding that fc2 is hot to design a new parity-proven FP32 linear plan candidate.",
       "reusable_backend_policy": true

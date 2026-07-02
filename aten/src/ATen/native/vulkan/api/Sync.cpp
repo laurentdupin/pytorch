@@ -42,6 +42,10 @@ thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
 thread_local bool g_stack_descriptor_dependency_diagnostics_active = false;
 thread_local uint64_t g_stack_command_buffer_recording_id = 0u;
 thread_local uint64_t g_stack_submit_epoch_before = 0u;
+thread_local uint32_t g_stack_region_graph_dump_control_plane_depth = 0u;
+thread_local const char* g_stack_region_graph_dump_control_plane_scope =
+    nullptr;
+thread_local bool g_stack_region_dependency_graph_dump_active = false;
 std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
 
 void maybe_write_stack_region_dependency_graph_dump();
@@ -3280,6 +3284,35 @@ const char* stack_region_single_recording_close_submit_owner_blocker(
 std::mutex& stack_region_dependency_graph_dump_mutex() {
   static std::mutex mutex;
   return mutex;
+}
+
+struct StackRegionGraphDumpSkipValue final {
+  uint64_t count = 0u;
+};
+
+std::map<std::string, StackRegionGraphDumpSkipValue>&
+stack_region_graph_dump_skip_rows() {
+  static std::map<std::string, StackRegionGraphDumpSkipValue> rows;
+  return rows;
+}
+
+void note_stack_region_graph_dump_skipped(
+    const char* const reason,
+    const char* const active_scope,
+    const uint32_t active_depth) {
+  std::ostringstream key;
+  key << "stack_region_graph_dump_skip=1"
+      << " schema=StackRegionGraphDumpSkip.v0"
+      << " status=stack_region_graph_dump_skipped_reentrant_submit_or_cleanup"
+      << " reason=" << (reason ? reason : "unknown")
+      << " active_control_plane_scope="
+      << (active_scope ? active_scope : "unknown")
+      << " active_control_plane_depth=" << active_depth
+      << " behavior_neutral=1"
+      << " submit_elision_enabled=0"
+      << " deferred_submit_enabled=0";
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_region_graph_dump_skip_rows()[key.str()].count += 1u;
 }
 
 std::string json_escape(const std::string& value) {
@@ -24314,6 +24347,8 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       private_bridge_capture_handoff_snapshot();
   const std::vector<std::string> bridge_private_capture_release_owner_rows =
       bridge_private_capture_release_owner_snapshot();
+  const std::vector<std::string> graph_dump_skip_rows =
+      stack_region_graph_dump_skip_snapshot();
   const std::vector<std::string> lifetime_rows =
       stack_subresource_lifetime_dry_run_snapshot();
   const std::vector<std::string> region_rows =
@@ -24554,6 +24589,11 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
+      "stack_region_graph_dump_skip_rows",
+      graph_dump_skip_rows.size(),
+      summary_first);
+  append_json_u64(
+      out,
       "stack_region_boundary_submit_plan_rows",
       boundary_submit_plan_rows.size(),
       summary_first);
@@ -24781,6 +24821,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         bridge_private_capture_release_owner_rows,
         "bridge_private_capture_release_owner",
         first);
+    append_graph_array(
+        out,
+        "stack_region_graph_dump_skip_rows",
+        graph_dump_skip_rows,
+        "stack_region_graph_dump_skip",
+        first);
     append_json_string_array(
         out,
         "unproven_or_missing_metadata_fields",
@@ -24926,6 +24972,12 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       bridge_private_capture_release_owner_rows,
       "bridge_private_capture_release_owner",
       first);
+  append_graph_array(
+      out,
+      "stack_region_graph_dump_skip_rows",
+      graph_dump_skip_rows,
+      "stack_region_graph_dump_skip",
+      first);
   append_capture_output_boundary_contract_json(
       out,
       capture_edges,
@@ -24997,7 +25049,30 @@ void maybe_write_stack_region_dependency_graph_dump() {
   if (path == nullptr) {
     return;
   }
+  if (g_stack_region_graph_dump_control_plane_depth != 0u) {
+    note_stack_region_graph_dump_skipped(
+        "stack_region_graph_dump_skipped_reentrant_submit_or_cleanup",
+        g_stack_region_graph_dump_control_plane_scope,
+        g_stack_region_graph_dump_control_plane_depth);
+    return;
+  }
+  if (g_stack_region_dependency_graph_dump_active) {
+    note_stack_region_graph_dump_skipped(
+        "stack_region_graph_dump_skipped_recursive_serialization",
+        "write_stack_region_dependency_graph_json",
+        1u);
+    return;
+  }
   std::lock_guard<std::mutex> lock(stack_region_dependency_graph_dump_mutex());
+  struct GraphDumpActiveScope final {
+    explicit GraphDumpActiveScope(bool& active) : active_(active) {
+      active_ = true;
+    }
+    ~GraphDumpActiveScope() {
+      active_ = false;
+    }
+    bool& active_;
+  } active_scope(g_stack_region_dependency_graph_dump_active);
   std::ofstream out(path, std::ios::out | std::ios::trunc);
   if (!out) {
     return;
@@ -25006,6 +25081,24 @@ void maybe_write_stack_region_dependency_graph_dump() {
 }
 
 } // namespace
+
+void begin_stack_region_graph_dump_control_plane_scope(
+    const char* const scope) {
+  if (g_stack_region_graph_dump_control_plane_depth == 0u) {
+    g_stack_region_graph_dump_control_plane_scope = scope ? scope : "unknown";
+  }
+  ++g_stack_region_graph_dump_control_plane_depth;
+}
+
+void end_stack_region_graph_dump_control_plane_scope() {
+  if (g_stack_region_graph_dump_control_plane_depth == 0u) {
+    return;
+  }
+  --g_stack_region_graph_dump_control_plane_depth;
+  if (g_stack_region_graph_dump_control_plane_depth == 0u) {
+    g_stack_region_graph_dump_control_plane_scope = "none";
+  }
+}
 
 bool stack_descriptor_dependency_diagnostics_enabled() {
   return g_stack_descriptor_dependency_diagnostics_active;
@@ -33518,6 +33611,18 @@ std::vector<std::string> bridge_private_capture_release_owner_snapshot() {
   std::vector<std::string> rows;
   rows.reserve(bridge_private_capture_release_owners().size());
   for (const auto& item : bridge_private_capture_release_owners()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
+  return rows;
+}
+
+std::vector<std::string> stack_region_graph_dump_skip_snapshot() {
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  std::vector<std::string> rows;
+  rows.reserve(stack_region_graph_dump_skip_rows().size());
+  for (const auto& item : stack_region_graph_dump_skip_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());

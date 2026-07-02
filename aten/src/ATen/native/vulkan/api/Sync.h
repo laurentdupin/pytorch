@@ -2586,6 +2586,9 @@ TORCH_API bool vision_stack_capture_dependency_reaches_block(
 
 TORCH_API void begin_stack_dispatch_dependency_recording_scope();
 TORCH_API void end_stack_dispatch_dependency_recording_scope();
+TORCH_API void begin_stack_region_graph_dump_control_plane_scope(
+    const char* scope);
+TORCH_API void end_stack_region_graph_dump_control_plane_scope();
 TORCH_API bool stack_descriptor_dependency_diagnostics_enabled();
 TORCH_API bool stack_planned_region_context_active();
 TORCH_API VulkanStackPlannedRegionContext current_stack_planned_region_context();
@@ -2676,6 +2679,7 @@ stack_output_device_consumer_registration_snapshot();
 TORCH_API std::vector<std::string> private_bridge_capture_handoff_snapshot();
 TORCH_API std::vector<std::string>
 bridge_private_capture_release_owner_snapshot();
+TORCH_API std::vector<std::string> stack_region_graph_dump_skip_snapshot();
 TORCH_API std::vector<std::string>
 stack_dispatch_dependency_dry_run_snapshot();
 TORCH_API void reset_stack_dispatch_aggregate();

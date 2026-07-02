@@ -422,6 +422,28 @@ The initial catalog records the current `vits_140` performance lane:
   also avoided process stack overflow and passed sanity at
   `max_abs=8.787959814071655e-06`, but remained slower at about 101.3 ms mean,
   so it remains diagnostic evidence rather than a promoted performance path;
+- graph-dump reentry deferral: accepted diagnostic flatness guard. Requested
+  `PYTORCH_VULKAN_STACK_DEP_GRAPH` dumps now skip opportunistic full graph
+  serialization while central submit, pending-retire drain, retire-cleanup, or
+  external-recording cleanup control-plane scopes are active. The skipped write
+  is visible as `StackRegionGraphDumpSkip.v0` with
+  `stack_region_graph_dump_skipped_reentrant_submit_or_cleanup`, and recursive
+  graph serialization is counted separately. Focused graph-dump tests still
+  pass, and a bounded RX 9070 `vits_140` wide4 smoke after the guard measured
+  about 55.0 ms mean / 55.0 ms median / 55.6 ms p95 with bridge sanity
+  `max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
+  This is not a route, submit, retire, shader, copy, readback, or fallback
+  change;
+- post-guard RX 9070 `vits_140` timestamp attribution:
+  `agent_space/dav2_vits140_post_guard_gpu_timestamp_summary.md` records about
+  44.2 ms of timestamped GPU work per forward under deliberately intrusive
+  timestamp logging. The instrumented wall time is not a baseline, but the
+  kernel split is useful: `fc2 | mm_buffer_float_bias` is about 15.2 ms/forward,
+  total `mm_buffer_float_bias` is about 19.6 ms/forward, decoder/other convs
+  are about 8.9 ms/forward, and qkv/proj/fc1/attention/LayerNorm make up most
+  of the rest. The existing exact tiled FC2 canary remains rejected as slower,
+  so the next GPU-side plan must be a new parity-proven FP32 linear candidate
+  rather than promotion of the old tiled route;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

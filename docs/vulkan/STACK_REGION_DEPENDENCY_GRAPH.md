@@ -25,6 +25,17 @@ that by emitting `stack_region_recording_depth_guard` and
 and by failing closed on nested inference replay callbacks with
 `reject_nested_replay_callback`.
 
+Graph dumping follows the same flatness rule. If
+`PYTORCH_VULKAN_STACK_DEP_GRAPH` is requested while central submit,
+pending-retire drain, retire-cleanup, or external-recording cleanup is already
+active, the backend records a `StackRegionGraphDumpSkip.v0` row with
+`stack_region_graph_dump_skipped_reentrant_submit_or_cleanup` instead of
+serializing the full graph from that nested control-plane point. The normal
+dependency-scope-end dump still serializes outside those scopes. This keeps the
+diagnostic path from becoming a recursive execution path and does not change
+submits, retires, contracts, shader selection, copies, readbacks, or fallback
+policy.
+
 ## Why Retire-Time Proof Was Insufficient
 
 Prior DAv2 `vits_140` experiments showed that lifetime and retire provenance
@@ -1305,6 +1316,13 @@ cleanup-boundary, cleanup-retire, canary, and consumer-registration checks.
 They omit the full dispatch/resource/live-binding arrays and derived full-graph
 proof sections. This is only a graph-output mode; it does not change
 recording, submit, cleanup, retire, segment selection, or canary admission.
+`StackRegionGraphDumpSkip.v0` rows under
+`stack_region_graph_dump_skip_rows` record when a requested graph dump is
+skipped because submit, retire, or external-recording cleanup control-plane
+code is active, or because graph serialization is already in progress. The
+skip row is diagnostic-only and fail-closed: normal execution continues, the
+dump for that call is skipped, and submits, retire ownership, cleanup, and
+shape contracts are unchanged.
 Setting `PYTORCH_VULKAN_STACK_DEP_GRAPH` also enables detailed stack diagnostic
 rows for retire blockers, region-lifetime submit attribution, and subresource
 lifetime dry-runs. Runs that need those rows without writing a graph can set

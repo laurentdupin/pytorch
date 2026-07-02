@@ -2531,6 +2531,59 @@
         "After the canary writes a result JSON with bridge sanity, CPU fallback, sync readback, and copy counters clean.",
         "After StackProgramOwnedTempSlotIdentity.v0 is joined to exact live descriptor/update rows or an equivalent replay-owned temp allocator proof exists."
       ]
+    },
+    {
+      "id": "stack_region_graph_dump_reentry_deferral_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_graph_dump_reentry_deferral",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused graph-dump tests and short vits_140 bridge smoke. The code change is generic stack-region diagnostic flatness protection and is not a device, model, shape, route, shader, submit, retire, copy, fallback, or readback predicate.",
+      "contract_or_topology_scope": [
+        "StackRegionDependencyGraph.v0",
+        "StackRegionGraphDumpSkip.v0",
+        "stack-region control-plane flatness",
+        "submit/retire cleanup diagnostic deferral"
+      ],
+      "candidate": "Defer opportunistic full StackRegionDependencyGraph serialization while central submit, pending-retire drain, retire-cleanup, or external-recording cleanup control-plane scopes are active. Record StackRegionGraphDumpSkip.v0 rows instead, and keep the normal dependency-scope-end graph dump outside those scopes.",
+      "correctness": {
+        "status": "passed_focused_tests_and_smoke",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vulkan_stack_region_dependency_graph_dump TestVulkanEagerRuntime.test_vulkan_stack_capture_bridge_registration_in_graph_dump",
+          "DAv2 vits_140 wide4 bridge smoke warmup=1 repeats=3 skip_output_copy"
+        ],
+        "bridge_sanity_max_abs": 1.1846423149108887e-06,
+        "bridge_sanity_mean_abs": 6.115393347272402e-08
+      },
+      "counters": {
+        "execution_behavior_changed": false,
+        "submit_elision_enabled": false,
+        "deferred_submit_enabled": false,
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "graph_dump_skip_rows_visible": true
+      },
+      "timing": {
+        "device_resident_mean_ms": 55.0337,
+        "device_resident_median_ms": 55.0372,
+        "device_resident_p95_ms": 55.551,
+        "repeat_count": 3,
+        "artifact": "agent_space/dav2_vits140_graph_dump_guard_smoke.json",
+        "note": "Short smoke only; not a stable repeat-30 baseline."
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_graph_dump_guard_smoke.json",
+        "agent_space/dav2_vits140_post_guard_gpu_timestamp_summary.md",
+        "agent_space/dav2_vits140_post_guard_gpu_timestamp_summary.json"
+      ],
+      "decision": "Keep as behavior-neutral diagnostic flatness protection. Do not treat it as a direct latency optimization or a route-selection mechanism.",
+      "revisit_conditions": [
+        "If graph dump skip rows appear in successful non-diagnostic timing runs without PYTORCH_VULKAN_STACK_DEP_GRAPH requested.",
+        "If compiled-session or deep-segment stack overflow persists, join skip rows with control-plane depth rows to find the remaining recursive host path."
+      ]
     }
   ]
 }

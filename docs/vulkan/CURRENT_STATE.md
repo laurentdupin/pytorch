@@ -1,8 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after DAv2 stream-sync context command/descriptor
-pool recycle evidence, stack descriptor dependency diagnostic gating, and
-multi-GPU conv workgroup evidence.
+Last refreshed: 2026-07-02 after DAv2 graph-dump reentry deferral,
+post-guard GPU timestamp attribution, and vits_140 wide4 bridge smoke evidence.
 
 ## Repo State Summary
 
@@ -166,6 +165,30 @@ nested callbacks with a `reject_nested_replay_callback` reason. Normal
 `vits_140` wide4 bridge smoke stays quiet, so these guards are diagnostic
 contracts for future compiled/segmented work rather than a route change or a
 performance claim.
+
+`StackRegionDependencyGraph` dumping is now guarded by the same flatness model.
+When `PYTORCH_VULKAN_STACK_DEP_GRAPH` is requested, opportunistic graph writes
+inside central submit, pending-retire drain, retire-cleanup, or
+external-recording cleanup scopes do not recursively serialize the full graph.
+Instead they record `StackRegionGraphDumpSkip.v0` rows with
+`stack_region_graph_dump_skipped_reentrant_submit_or_cleanup`; the normal graph
+dump at stack dependency-scope end still serializes outside those control-plane
+scopes. Recursive graph serialization itself is also counted and skipped. This
+is behavior-neutral diagnostic protection only: it changes no route, contract,
+submit, retire, copy, readback, or shader behavior.
+
+A post-guard RX 9070 `vits_140` GPU timestamp pass with
+`segmented_stack_wide4_to_exit` showed about 44.2 ms of timestamped GPU work per
+forward while the timestamp-instrumented wall time was inflated to about
+115.7 ms mean. The top GPU row remains `fc2 | mm_buffer_float_bias` at about
+15.2 ms/forward, followed by decoder/other convs, `fc1_gelu`, qkv/proj
+linears, attention BMM, and LayerNorm. A separate non-timestamped three-repeat
+wide4 smoke after the graph-dump guard measured about 55.0 ms mean /
+55.0 ms median / 55.6 ms p95 device-resident forward, with bridge sanity
+`max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
+The remaining sub-50 work is therefore split between residual host/control-plane
+overhead and a new parity-proven FP32 linear/FC2 plan; the rejected tiled FC2
+canary remains non-promoted evidence.
 
 Stack-planned submit cleanup now batches pending-retire buffers and images into
 one timeline-gated `RetiredResource` callback per stack-planned submission while
