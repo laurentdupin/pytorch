@@ -338,10 +338,12 @@ The initial catalog records the current `vits_140` performance lane:
   experiment on RX 9070 `vits_140` reduced timed `retire_queue_drain` submits
   from 15/forward to 4/forward, but regressed device-resident latency to about
   82.3 ms mean / 79.5 ms median / 95.5 ms p95 over 10 repeats and grew pending
-  retire pressure to about 4.35 GB observed over the measurement. Keep the
-  existing narrow default deferral budget; the next cleanup path needs
-  segment-local completion ownership or cleanup batching that actually reduces
-  stack-close work, not broader old-path submit suppression;
+  retire pressure to about 4.35 GB observed over the measurement. Retesting
+  after normal-submit cleanup callback batching still regressed to about
+  83.6 ms mean / 87.2 ms median / 95.5 ms p95, so the issue is not just callback
+  count. Keep the existing narrow default deferral budget; the next cleanup path
+  needs segment-local completion ownership that avoids growing stack-close work,
+  not broader old-path submit suppression;
 - stack-region external recording pool lease:
   `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is an
   opt-in ownership experiment for stack-owned external recording. A focused

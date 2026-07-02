@@ -162,23 +162,30 @@
         "canary_retire_queue_drain_submits_per_forward": 4.0,
         "baseline_pending_retire_bytes_observed": 519550432,
         "canary_pending_retire_bytes_observed": 4352426208,
-        "canary_retire_cleanup_callbacks_per_forward": 460.1
+        "canary_retire_cleanup_callbacks_per_forward": 460.1,
+        "post_cleanup_batch_retire_queue_drain_submits_per_forward": 4.0,
+        "post_cleanup_batch_pending_retire_bytes_observed": 4352426208,
+        "post_cleanup_batch_retire_cleanup_callbacks_per_forward": 72.1
       },
       "timing_ms": {
         "baseline_repeat10_mean": 65.189,
         "canary_repeat10_mean": 82.303,
         "canary_repeat10_median": 79.471,
         "canary_repeat10_p95": 95.455,
+        "post_cleanup_batch_canary_repeat10_mean": 83.644,
+        "post_cleanup_batch_canary_repeat10_median": 87.185,
+        "post_cleanup_batch_canary_repeat10_p95": 95.503,
         "repeat_count": 10
       },
       "artifacts": [
         "agent_space/dav2_vits140_wide_retire_defer_repeat10.json",
-        "agent_space/dav2_vits140_wide_retire_defer_repeat10_v2.json"
+        "agent_space/dav2_vits140_wide_retire_defer_repeat10_v2.json",
+        "agent_space/dav2_vits140_cleanup_batch_wide_retire_defer_repeat10.json"
       ],
-      "decision": "Reject broad old-path pending-retire deferral as a latency path. It removes retire-drain queue submits but shifts cost to larger pending-retire and stack-close cleanup pressure, regressing wall time. Keep the existing narrow default budget.",
+      "decision": "Reject broad old-path pending-retire deferral as a latency path. It removes retire-drain queue submits but shifts cost to larger pending-retire and stack-close cleanup pressure, regressing wall time. A post-cleanup-batching retest still regressed, so the issue is not callback count alone. Keep the existing narrow default budget.",
       "revisit_conditions": [
         "If segment-local completion ownership can retire the same resources without growing stack-close pending work.",
-        "If cleanup batching reduces callback pressure independently of submit suppression.",
+        "If a future region-owned cleanup path proves the same resources can be handed off without increasing pending bytes or stack-close work.",
         "If a future correctness run without skip-output-copy shows the same policy is both faster and parity-clean."
       ]
     },
