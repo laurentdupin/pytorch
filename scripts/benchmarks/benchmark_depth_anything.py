@@ -2660,6 +2660,11 @@ def run() -> None:
         help="Optional explicit DirectML adapter index override.",
     )
     parser.add_argument(
+        "--vulkan-device-index",
+        type=int,
+        help="Optional explicit Vulkan adapter index override.",
+    )
+    parser.add_argument(
         "--cuda-device-index",
         type=int,
         help="Optional explicit CUDA device index override.",
@@ -2782,6 +2787,7 @@ def run() -> None:
     device, device_kind, device_info = resolve_runtime_device(
         torch,
         args.device,
+        vulkan_device_index=args.vulkan_device_index,
         directml_device_index=args.directml_device_index,
         cuda_device_index=args.cuda_device_index,
     )

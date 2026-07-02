@@ -118,6 +118,7 @@ def resolve_default_vulkan_device_info() -> dict[str, Any]:
 def resolve_runtime_device(
     torch_module: Any,
     requested: str,
+    vulkan_device_index: int | None = None,
     directml_device_index: int | None = None,
     cuda_device_index: int | None = None,
 ) -> tuple[Any, str, dict[str, Any]]:
@@ -185,6 +186,21 @@ def resolve_runtime_device(
         )
 
     if requested == "vulkan":
+        selected_index = vulkan_device_index
+        if selected_index is None:
+            configured_index = os.environ.get("PYTORCHVULKAN_VULKAN_DEVICE_INDEX")
+            if configured_index:
+                selected_index = int(configured_index)
+        if selected_index is None:
+            selected_index = int(torch_module.vulkan.current_device())
+        device_count = int(torch_module.vulkan.device_count())
+        if selected_index < 0 or selected_index >= device_count:
+            raise ValueError(
+                f"Vulkan device index {selected_index} is out of range for "
+                f"{device_count} adapter(s)."
+            )
+        torch_module.vulkan.set_device(selected_index)
+        device_name = torch_module.vulkan.get_device_name(selected_index)
         return (
             requested,
             requested,
@@ -201,7 +217,10 @@ def resolve_runtime_device(
                 ),
                 "directml_available": False,
                 "directml_device_count": 0,
-                **resolve_default_vulkan_device_info(),
+                "vulkan_device_count": device_count,
+                "vulkan_device_index": selected_index,
+                "vulkan_device_name": device_name,
+                "vulkan_info_source": None,
             },
         )
 

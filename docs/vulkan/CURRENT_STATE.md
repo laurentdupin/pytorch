@@ -81,6 +81,10 @@ readback, and fallback counters. Depth Anything V2 benchmark runs can set
 the timestamp log, and run only the selected measurement phase. Timestamp rows
 record dispatch-time `recent_op`, `submit_phase`, `stack_phase`, and
 `stack_block` fields, including stack-owned external recording dispatches.
+The same benchmark now accepts `--vulkan-device-index` and records the selected
+Vulkan adapter through `torch.vulkan`, so RX 9070, GTX 1080, and RX 6700 XT
+guardrails can be run without wrapper scripts or implicit default-device
+assumptions.
 The attribution script groups GPU time by kernel class, runtime label, submit
 phase, stack phase, and recent op, while joining the same benchmark phase's
 CPU fallback, sync readback, buffer-copy, submit-origin, and retire-drain
