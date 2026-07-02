@@ -183,6 +183,59 @@
       ]
     },
     {
+      "id": "vulkan_normal_submit_retire_cleanup_batch_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_pending_2026_07_02",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused evidence. Behavior is generic RetireQueue cleanup batching for ordinary Vulkan submits, not a model route, shader predicate, shape admission, or submit-elision policy.",
+      "contract_or_topology_scope": [
+        "RetireQueue callback flattening",
+        "normal Vulkan submit cleanup ownership",
+        "device-resident repeated-forward control plane"
+      ],
+      "candidate": "Batch ordinary-submit pending-retire buffers and images into one timeline-gated RetiredResource callback per submit while preserving per-resource retire accounting and submission timeline ownership.",
+      "correctness": {
+        "status": "performance_valid_readback_sanity_no_reference_max_abs",
+        "tests": [
+          "Depth Anything V2 vits_140 device-resident benchmark, warmup=0, repeats=30, skip-output-copy",
+          "Depth Anything V2 vits_140 no-skip-output sanity, warmup=0, repeats=3"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_bytes": 16,
+        "submit_origin_counters_unchanged": true,
+        "retire_drain_counters_unchanged": true,
+        "baseline_retire_cleanup_callback_count": 38745,
+        "cleanup_batch_retire_cleanup_callback_count": 2491,
+        "baseline_retire_queue_drain_submits": 450,
+        "cleanup_batch_retire_queue_drain_submits": 450
+      },
+      "timing_ms": {
+        "baseline_after_stream_pool_recycle_mean": 62.314,
+        "cleanup_batch_device_resident_mean": 58.388,
+        "cleanup_batch_device_resident_median": 57.633,
+        "cleanup_batch_device_resident_p95": 61.383,
+        "repeat_count": 30
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_after_stream_pool_flush_repeat30.json",
+        "agent_space/dav2_vits140_normal_cleanup_batch_repeat30.json",
+        "agent_space/dav2_vits140_normal_cleanup_batch_readback_sanity.json"
+      ],
+      "decision": "Promote ordinary-submit cleanup callback batching as a default control-plane fix. It keeps submit topology and resource timeline ownership unchanged while reducing RetireQueue callback pressure and improving vits_140 device-resident timing.",
+      "revisit_conditions": [
+        "If another model or adapter shows batched cleanup callbacks retain too much memory until timeline completion.",
+        "If a future RetireQueue implementation changes callback accounting semantics.",
+        "If a no-bridge correctness harness starts emitting reference max_abs and finds output mismatch."
+      ]
+    },
+    {
       "id": "dav2_vits140_stack_planned_retire_cleanup_batch_2026_07_02",
       "status": "accepted_default_fix",
       "head": "local_pending_2026_07_02",

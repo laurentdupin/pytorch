@@ -169,6 +169,19 @@ This is a generic cleanup-control-plane fix, not a submit-reduction claim: the
 timed forward still reports four stack-planned submits, three retire-drain
 submits, one pre-stack flush, and one explicit synchronize per request.
 
+Normal submit cleanup now uses the same timeline-gated callback batching model
+as stack-planned submit cleanup. `retire_deferred_cleanup()` still records
+per-resource retire accounting and keeps the same submit/timeline ownership, but
+ordinary submits now move their pending buffers/images into one callback instead
+of one `RetiredResource` callback per resource. A focused warmup-0/repeat-30 RX
+9070 `vits_140` device-resident run measured about 58.4 ms mean / 57.6 ms
+median / 61.4 ms p95, with timed CPU fallback zero, sync readback zero, and the
+same submit-origin and retire-drain counts as the pre-batch run. The cleanup
+callback counter dropped from 38,745 to 2,491 over the 30-repeat measurement.
+A separate no-skip-output three-repeat sanity completed with `performance_valid`
+true and zero timed CPU fallback/sync readback, but the no-bridge benchmark path
+does not emit a model-vs-reference `max_abs` field.
+
 `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is now an
 opt-in stack-owned external recording pool-lease experiment. It is not enabled
 by default because focused `vits_140` evidence showed it was slower than the

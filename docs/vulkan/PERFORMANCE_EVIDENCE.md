@@ -398,6 +398,17 @@ The initial catalog records the current `vits_140` performance lane:
   `proj_linear`, attention BMM, and LayerNorm. Sub-50 work therefore needs
   further control-plane reduction and a parity-proven FP32 linear plan; the
   existing tiled fc2 canary remains non-promoted evidence;
+- normal-submit cleanup callback batching: accepted default infrastructure fix.
+  `retire_deferred_cleanup()` now batches ordinary-submit pending buffers and
+  images into one timeline-gated `RetiredResource` callback, while preserving
+  per-resource retire accounting and the same submit/timeline ownership. A
+  focused warmup-0/repeat-30 RX 9070 `vits_140` device-resident run measured
+  about 58.4 ms mean / 57.6 ms median / 61.4 ms p95, with timed CPU fallback
+  zero, sync readback zero, and the same submit-origin and retire-drain counts
+  as the pre-batch run. Cleanup callbacks dropped from 38,745 to 2,491 over 30
+  repeats. A no-skip-output three-repeat sanity completed with
+  `performance_valid=true`, but the no-bridge path does not emit a
+  model-vs-reference `max_abs` field;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;
