@@ -328,12 +328,15 @@ def torch_device_for_backend(
             },
         )
     if backend == "vulkan":
-        info = {"type": "vulkan", "index": 0 if device_index is None else device_index}
+        index = 0 if device_index is None else int(device_index)
+        info = {"type": "vulkan", "index": index}
         vulkan = getattr(torch_module, "vulkan", None)
         if vulkan is not None:
             try:
+                vulkan.set_device(index)
                 info["count"] = int(vulkan.device_count())
-                info["name"] = vulkan.get_device_name(int(info["index"]))
+                info["name"] = vulkan.get_device_name(index)
+                info["current_index"] = int(vulkan.current_device())
             except Exception as exc:
                 info["probe_error"] = repr(exc)
         return "vulkan", info

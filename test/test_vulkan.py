@@ -5278,7 +5278,7 @@ class TestVulkanGovernance(TestCase):
             ["input_c", "input_h", "input_w", "output_c"],
         )
         self.assertEqual(rowset["label_field"], "tuple_id")
-        self.assertEqual(len(rowset["rows"]), 55)
+        self.assertEqual(len(rowset["rows"]), 56)
 
         family_counts = {}
         lookup_keys = set()
@@ -5298,12 +5298,12 @@ class TestVulkanGovernance(TestCase):
             family_counts,
             {
                 "DepthVisionProjection": 26,
-                "OCRProjection": 13,
+                "OCRProjection": 14,
                 "DiffusionProjection": 16,
             },
         )
-        self.assertEqual(len(lookup_keys), 55)
-        self.assertEqual(len(tuple_ids), 55)
+        self.assertEqual(len(lookup_keys), 56)
+        self.assertEqual(len(tuple_ids), 56)
         self.assertNotIn((512, 7, 7, 2048), lookup_keys)
 
         factorized_groups = spec["shape_envelope"]["factorized_groups"]
@@ -16054,6 +16054,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         torch.manual_seed(0)
         cases = (
             ((1, 384, 7, 7), 384, False),
+            ((1, 512, 3, 80), 512, False),
             ((1, 512, 7, 7), 512, False),
             ((1, 512, 14, 14), 192, False),
             ((1, 512, 14, 14), 1024, False),

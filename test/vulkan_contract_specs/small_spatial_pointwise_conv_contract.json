@@ -668,6 +668,14 @@
           {
             "family": "OCRProjection",
             "input_c": 512,
+            "input_h": 3,
+            "input_w": 80,
+            "output_c": 512,
+            "tuple_id": "ocr_projection_512_3x80_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
             "input_h": 7,
             "input_w": 7,
             "output_c": 512,
@@ -1810,6 +1818,38 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "OCRProjection",
       "expected_contract_tuple_id": "ocr_projection_384_7x7_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_3x80_512",
+      "input_shape": [
+        1,
+        512,
+        3,
+        80
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_3x80_512",
       "expected_cpu_fallback": false
     },
     {

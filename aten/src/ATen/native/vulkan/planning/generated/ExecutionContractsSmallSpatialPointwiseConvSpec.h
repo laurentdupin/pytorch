@@ -24,7 +24,7 @@ constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId =
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsGuardId = "small_spatial_pointwise_conv_adjacent_guards";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy = "native_buffer_kernel";
-constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 55;
+constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 56;
 
 struct SmallSpatialPointwiseConvProjectionRowsRow final {
   const char* family;
@@ -305,6 +305,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
         384,
         "ocr_projection_384_7x7_384",
         ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_384_7x7_384", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        512,
+        3,
+        80,
+        512,
+        "ocr_projection_512_3x80_512",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_512_3x80_512", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
     },
     {
         "OCRProjection",

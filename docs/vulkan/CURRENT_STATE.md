@@ -1,13 +1,21 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after DAv2 exact QKV tiled linear promotion and
-benchmark auto-selection of native deep split for deep stack-output bridge rows.
+Last refreshed: 2026-07-02 after DAv2 exact QKV tiled linear promotion,
+benchmark auto-selection of native deep split for deep stack-output bridge rows,
+and the PaddleOCR 3x80 OCR pointwise projection admission.
 
 ## Repo State Summary
 
 The Vulkan backend planning direction is now repo-local in `docs/vulkan`.
 Ignored `agent_space` artifacts remain evidence inputs, not production
 dependencies.
+
+`scripts/benchmarks/benchmark_model_suite.py` now honors Vulkan
+`--device-index` through `torch.vulkan.set_device(index)` in the shared
+benchmark device resolver. Cross-adapter PaddleOCR/HY-MT measurements before
+this fix recorded requested device metadata but could still run on the current
+default Vulkan device; new benchmark records include `current_index` so device
+selection mismatches are visible.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket
@@ -2129,7 +2137,7 @@ These files are diagnostic inputs. Production code must not depend on
 
 - `SmallSpatialPointwiseConvContract`: finite projection rows, now split into
   a family-specific source. The `SparseProjectionRows` slice has a JSON
-  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 55
+  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 56
   current projection rows plus a generated factorized depth-vision projection
   group for the cross-adapter proven 144-shape set. That group is the product
   of 18 approved `(input_c, output_c)` channel pairs and eight approved
@@ -2141,6 +2149,10 @@ These files are diagnostic inputs. Production code must not depend on
   shader-family decisions, family op-hit labels, and match-result assembly
   remain handwritten. Naive min/max H/W bounds, independent H/W cross-products,
   and the 648/1296 channel/spatial cross-products remain explicitly forbidden.
+  The newest OCR sparse row is `ocr_projection_512_3x80_512`, admitted after
+  PaddleOCR hit `KnownBadLargePointwiseConv` at `[1,512,3,80] -> 512` on the
+  existing OCR projection route. It is an exact OCR row, not a broader spatial
+  envelope expansion.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
   has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in
@@ -2536,12 +2548,13 @@ These files are diagnostic inputs. Production code must not depend on
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h` from
   `small_spatial_pointwise_conv_contract.json` for contract identity,
-  per-row metadata, input/weight channel equality, the 55 correlated
+  per-row metadata, input/weight channel equality, the 56 correlated
   projection rows, exact lookup by input/output channel and spatial shape, and
   the generated 144-shape factorized depth-vision projection helper. The sparse
   rows now include sixteen exact mid-resolution depth-vision projection rows for
   spatial pairs `(30,45)` and `(40,62)` with only the proven channel/output
-  pairs. Those spatial pairs were not added to the 144-shape factorized helper.
+  pairs, plus the exact PaddleOCR OCR row `(512,3,80,512)`. Those spatial
+  pairs were not added to the 144-shape factorized helper.
   That helper remains constrained to its approved channel-pair and spatial-pair
   correlation groups; broader min/max and independent cross-products remain
   guarded.
