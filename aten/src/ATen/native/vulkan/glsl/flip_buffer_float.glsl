@@ -1,0 +1,107 @@
+#version 450 core
+#define PRECISION ${PRECISION}
+
+#include "indexing.h"
+
+layout(std430) buffer;
+
+layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
+  float data[];
+}
+uOutput;
+
+layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+}
+uOutMeta;
+
+layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
+  float data[];
+}
+uInput;
+
+layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+}
+uInMeta;
+
+layout(set = 0, binding = 4) uniform PRECISION restrict Block {
+  uvec4 dims;
+}
+uBlock;
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+void zero_width_pack_padding(
+    const uvec4 write_coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (write_coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = write_coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = 0.0;
+    }
+  }
+}
+
+void main() {
+  const uint write_idx = uint(gl_GlobalInvocationID.x);
+  const uint out_numel = uOutMeta.info.y;
+  const uint out_buf_length = uOutMeta.info.z;
+  const uint out_storage_offset = uOutMeta.info.w;
+  const uint in_buf_length = uInMeta.info.z;
+  const uint in_storage_offset = uInMeta.info.w;
+
+  if (write_idx >= out_numel) {
+    return;
+  }
+
+  const uvec4 write_coord =
+      idx_to_coord(
+          write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
+  uvec4 read_coord = write_coord;
+  if (uBlock.dims.x != 0u) {
+    read_coord.x = uInMeta.logical_sizes.x - 1u - write_coord.x;
+  }
+  if (uBlock.dims.y != 0u) {
+    read_coord.y = uInMeta.logical_sizes.y - 1u - write_coord.y;
+  }
+  if (uBlock.dims.z != 0u) {
+    read_coord.z = uInMeta.logical_sizes.z - 1u - write_coord.z;
+  }
+  if (uBlock.dims.w != 0u) {
+    read_coord.w = uInMeta.logical_sizes.w - 1u - write_coord.w;
+  }
+
+  float outval = 0.0;
+  if (all(lessThan(read_coord, uInMeta.logical_sizes))) {
+    const uint read_idx =
+        coord_to_idx(read_coord, uInMeta.physical_strides) + in_storage_offset;
+    if (read_idx < in_buf_length) {
+      outval = uInput.data[read_idx];
+    }
+  }
+
+  const uint actual_write_idx =
+      coord_to_idx(write_coord, uOutMeta.physical_strides) + out_storage_offset;
+  if (actual_write_idx < out_buf_length) {
+    uOutput.data[actual_write_idx] = outval;
+  }
+
+  zero_width_pack_padding(write_coord, out_buf_length, out_storage_offset);
+}

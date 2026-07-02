@@ -689,6 +689,14 @@
           {
             "family": "OCRProjection",
             "input_c": 384,
+            "input_h": 3,
+            "input_w": 80,
+            "output_c": 384,
+            "tuple_id": "ocr_projection_384_3x80_384"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 384,
             "input_h": 7,
             "input_w": 7,
             "output_c": 384,
@@ -709,6 +717,14 @@
             "input_w": 80,
             "output_c": 192,
             "tuple_id": "ocr_projection_512_6x80_192"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 512,
+            "input_h": 6,
+            "input_w": 80,
+            "output_c": 1024,
+            "tuple_id": "ocr_projection_512_6x80_1024"
           },
           {
             "family": "OCRProjection",
@@ -745,6 +761,22 @@
           {
             "family": "OCRProjection",
             "input_c": 1024,
+            "input_h": 3,
+            "input_w": 80,
+            "output_c": 384,
+            "tuple_id": "ocr_projection_1024_3x80_384"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
+            "input_h": 3,
+            "input_w": 80,
+            "output_c": 2048,
+            "tuple_id": "ocr_projection_1024_3x80_2048"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
             "input_h": 7,
             "input_w": 7,
             "output_c": 384,
@@ -757,6 +789,14 @@
             "input_w": 7,
             "output_c": 2048,
             "tuple_id": "ocr_projection_1024_7x7_2048"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1024,
+            "input_h": 6,
+            "input_w": 80,
+            "output_c": 192,
+            "tuple_id": "ocr_projection_1024_6x80_192"
           },
           {
             "family": "OCRProjection",
@@ -777,6 +817,14 @@
           {
             "family": "OCRProjection",
             "input_c": 1664,
+            "input_h": 6,
+            "input_w": 80,
+            "output_c": 512,
+            "tuple_id": "ocr_projection_1664_6x80_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 1664,
             "input_h": 14,
             "input_w": 14,
             "output_c": 512,
@@ -793,10 +841,26 @@
           {
             "family": "OCRProjection",
             "input_c": 2176,
+            "input_h": 6,
+            "input_w": 80,
+            "output_c": 512,
+            "tuple_id": "ocr_projection_2176_6x80_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 2176,
             "input_h": 14,
             "input_w": 14,
             "output_c": 512,
             "tuple_id": "ocr_projection_2176_14x14_512"
+          },
+          {
+            "family": "OCRProjection",
+            "input_c": 3328,
+            "input_h": 3,
+            "input_w": 80,
+            "output_c": 1024,
+            "tuple_id": "ocr_projection_3328_3x80_1024"
           },
           {
             "family": "OCRProjection",
@@ -1863,6 +1927,38 @@
       "expected_cpu_fallback": false
     },
     {
+      "name": "ocr_projection_384_3x80_384_batch6",
+      "input_shape": [
+        6,
+        384,
+        3,
+        80
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_384_3x80_384",
+      "expected_cpu_fallback": false
+    },
+    {
       "name": "ocr_projection_512_3x80_512",
       "input_shape": [
         1,
@@ -1956,6 +2052,38 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "OCRProjection",
       "expected_contract_tuple_id": "ocr_projection_512_6x80_192",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_512_6x80_1024_batch2",
+      "input_shape": [
+        2,
+        512,
+        6,
+        80
+      ],
+      "out_channels": 1024,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_512_6x80_1024",
       "expected_cpu_fallback": false
     },
     {
@@ -2151,6 +2279,102 @@
       "expected_cpu_fallback": false
     },
     {
+      "name": "ocr_projection_1024_3x80_384_batch6",
+      "input_shape": [
+        6,
+        1024,
+        3,
+        80
+      ],
+      "out_channels": 384,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_3x80_384",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1024_3x80_2048_batch6",
+      "input_shape": [
+        6,
+        1024,
+        3,
+        80
+      ],
+      "out_channels": 2048,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_3x80_2048",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1024_6x80_192",
+      "input_shape": [
+        1,
+        1024,
+        6,
+        80
+      ],
+      "out_channels": 192,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1024_6x80_192",
+      "expected_cpu_fallback": false
+    },
+    {
       "name": "ocr_projection_1024_14x14_192",
       "input_shape": [
         1,
@@ -2212,6 +2436,38 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "OCRProjection",
       "expected_contract_tuple_id": "ocr_projection_1024_14x14_256",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_1664_6x80_512_batch3",
+      "input_shape": [
+        3,
+        1664,
+        6,
+        80
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_1664_6x80_512",
       "expected_cpu_fallback": false
     },
     {
@@ -2279,6 +2535,38 @@
       "expected_cpu_fallback": false
     },
     {
+      "name": "ocr_projection_2176_6x80_512",
+      "input_shape": [
+        1,
+        2176,
+        6,
+        80
+      ],
+      "out_channels": 512,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_2176_6x80_512",
+      "expected_cpu_fallback": false
+    },
+    {
       "name": "ocr_projection_2176_14x14_512",
       "input_shape": [
         1,
@@ -2308,6 +2596,38 @@
       "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
       "expected_contract_family": "OCRProjection",
       "expected_contract_tuple_id": "ocr_projection_2176_14x14_512",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "ocr_projection_3328_3x80_1024_batch6",
+      "input_shape": [
+        6,
+        3328,
+        3,
+        80
+      ],
+      "out_channels": 1024,
+      "kernel_size": [
+        1,
+        1
+      ],
+      "stride": [
+        1,
+        1
+      ],
+      "padding": [
+        0,
+        0
+      ],
+      "dilation": [
+        1,
+        1
+      ],
+      "groups": 1,
+      "dtype": "float32",
+      "expected_route_label": "aten::convolution.buffer_float_1x1_skip.small_spatial_pointwise",
+      "expected_contract_family": "OCRProjection",
+      "expected_contract_tuple_id": "ocr_projection_3328_3x80_1024",
       "expected_cpu_fallback": false
     },
     {

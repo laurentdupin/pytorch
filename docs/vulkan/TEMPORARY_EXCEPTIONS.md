@@ -410,7 +410,7 @@ condition and migration target.
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
   sparse-rowset helper output in
   `generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`. The generated
-  helper owns the 57 correlated projection rows, per-row metadata,
+  helper owns the 65 correlated projection rows, per-row metadata,
   input/weight channel equality, and exact `(input_c, input_h, input_w,
   output_c)` lookup. It also owns the cross-adapter proven 144-shape
   factorized depth-vision projection group: 18 approved channel pairs crossed
@@ -418,8 +418,13 @@ condition and migration target.
   shapes and 60 proven extrapolations. The sixteen newly admitted mid-resolution
   depth-vision rows are exact sparse rows only; their `(30,45)` and `(40,62)`
   spatial pairs are not part of the factorized group. The PaddleOCR
-  `ocr_projection_512_3x80_512` and `ocr_projection_512_6x80_192` rows are
-  exact OCR sparse rows admitted to unblock existing OCR projection routes.
+  `3x80` and `6x80` OCR recognizer rows are exact OCR sparse rows admitted to
+  unblock existing OCR projection routes:
+  `ocr_projection_384_3x80_384`, `ocr_projection_512_3x80_512`,
+  `ocr_projection_512_6x80_192`, `ocr_projection_512_6x80_1024`,
+  `ocr_projection_1024_3x80_384`, `ocr_projection_1024_3x80_2048`,
+  `ocr_projection_1024_6x80_192`, `ocr_projection_1664_6x80_512`,
+  `ocr_projection_2176_6x80_512`, and `ocr_projection_3328_3x80_1024`.
   OCR projection rows additionally allow a bounded dynamic crop batch
   `N=1..8`, with checked-in positive coverage for the observed batch-6 and
   batch-3 rows; depth-vision and diffusion projection rows remain batch-1.
@@ -433,6 +438,9 @@ condition and migration target.
   output-channel families.
 - Migration target: generated `SmallSpatialPointwiseConvContract` or broader
   pointwise `KernelFamilyContract` tables with positive and negative tests.
+  For OCR, the next promotion should be an OCR recognizer finite-rowset or
+  bounded correlation-group proof, not independent channel/spatial
+  cross-products.
 
 ### Patch Embed Float-Buffer Conv Route
 

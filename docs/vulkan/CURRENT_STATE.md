@@ -1,8 +1,10 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after HY-MT KV-cache append broadening,
-device-policy packed-weight transient residency, PaddleOCR OCR projection
-cross-adapter fixes, and PaddleOCR/HY-MT transfer cleanup.
+Last refreshed: 2026-07-02 at `485796529f8` plus local PaddleOCR/HY-MT
+cleanup work: HY-MT KV-cache append broadening, device-policy packed-weight
+transient residency, PaddleOCR OCR projection cross-adapter fixes, generic
+transfer cleanup, buffer Float->Byte cast, buffer float flip, and OCR
+recognizer pointwise sparse-row coverage.
 
 ## Repo State Summary
 
@@ -67,6 +69,19 @@ descriptor/shader paths that still flushed descriptors. HY-MT one-token RX 9070
 linear diagnostics removed the Vulkan-weight CPU transpose fallbacks, but the
 remaining runtime is still dominated by token/control scalar fallbacks and the
 longer RX 9070 HY-MT row remains blocked by the existing Windows stack overflow.
+
+The local PaddleOCR follow-up adds two more reusable frontend cleanup paths:
+Float buffer-to-Byte buffer dtype casts and buffer-backed float `flip` now stay
+on Vulkan when the existing buffer/storage guards pass. It also adds the
+remaining observed OCR recognizer `3x80` pointwise projection rows as finite
+`OCRProjection` sparse rows. A focused RX 9070 normal, non-probe PaddleOCR run
+under
+`agent_space/paddle_hymt_perf_goal_c5dee8d/paddleocr_rx9070_after_ocr3x80_rows/`
+completed with `cpu_fallback_count=0`; the remaining explicit
+`sync_readback_count=1` is the known setup-time conv-weight materialization
+transition, and transition logs are dominated by required host uploads and
+layout repacks rather than route hard-fails. This is not a new timing baseline
+because the run was logging-heavy.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket

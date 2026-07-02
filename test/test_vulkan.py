@@ -5281,7 +5281,7 @@ class TestVulkanGovernance(TestCase):
             ["input_c", "input_h", "input_w", "output_c"],
         )
         self.assertEqual(rowset["label_field"], "tuple_id")
-        self.assertEqual(len(rowset["rows"]), 57)
+        self.assertEqual(len(rowset["rows"]), 65)
         self.assertEqual(
             spec["shape_envelope"]["family_batch_policy"],
             {
@@ -5313,12 +5313,12 @@ class TestVulkanGovernance(TestCase):
             family_counts,
             {
                 "DepthVisionProjection": 26,
-                "OCRProjection": 15,
+                "OCRProjection": 23,
                 "DiffusionProjection": 16,
             },
         )
-        self.assertEqual(len(lookup_keys), 57)
-        self.assertEqual(len(tuple_ids), 57)
+        self.assertEqual(len(lookup_keys), 65)
+        self.assertEqual(len(tuple_ids), 65)
         self.assertNotIn((512, 7, 7, 2048), lookup_keys)
 
         factorized_groups = spec["shape_envelope"]["factorized_groups"]
@@ -10083,6 +10083,33 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         )
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
         self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        float_image = torch.tensor(
+            [
+                [[-2.9, -1.0, -0.9], [0.0, 1.25, 2.75]],
+                [[127.9, 128.1, 254.75], [255.0, 256.9, 257.0]],
+            ],
+            dtype=torch.float32,
+        )
+        float_image_vulkan = float_image.to("vulkan")
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        byte_image_vulkan = float_image_vulkan.to(torch.uint8)
+        self.assertTrue(byte_image_vulkan.is_vulkan)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        self.assertEqual(byte_image_vulkan.cpu(), float_image.to(torch.uint8))
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        flipped_byte_image_vulkan = float_image_vulkan.flip(dims=[-1]).to(
+            torch.uint8
+        )
+        self.assertTrue(flipped_byte_image_vulkan.is_vulkan)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        self.assertEqual(
+            flipped_byte_image_vulkan.cpu(), float_image.flip(dims=[-1]).to(torch.uint8)
+        )
         torch.ops.vulkan_prepack.reset_fallback_counters()
 
         unsupported_6d_view = torch.empty_strided(

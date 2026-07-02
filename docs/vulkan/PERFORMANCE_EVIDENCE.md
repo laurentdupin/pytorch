@@ -113,6 +113,22 @@ condition that justifies revisiting it.
   1957 raw-transfer waits with `flush_descriptor_pool=0` and 6
   descriptor/shader paths that still flushed descriptors. This is accepted as a
   generic transfer-control cleanup, not a PaddleOCR-specific route.
+- PaddleOCR buffer cast/flip and OCR recognizer rows: the local follow-up keeps
+  Float-to-Byte buffer casts and buffer-backed float `flip` on Vulkan under the
+  existing storage/layout/capability guards, and completes the observed OCR
+  recognizer pointwise sparse-row cluster without broadening it into a min/max
+  envelope. The focused RX 9070 artifact under
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/paddleocr_rx9070_after_ocr3x80_rows/`
+  is a logging-heavy structural run, not a timing baseline: it completes the
+  normal PaddleOCR pipeline with `cpu_fallback_count=0`, keeps the single known
+  setup-time conv-weight materialization sync visible, and shows remaining
+  movement dominated by host uploads/layout repacks rather than a route
+  hard-fail.
+- HY-MT control-tensor blocker: after the same cleanup, RX 9070 HY-MT still
+  surfaces Long/Bool control-tensor fallbacks in generation (`isin`, `any/all`,
+  Long comparison, Long binary op, `masked_fill`, dtype cast, and scalar
+  extraction). The next reusable improvement should be a control-tensor
+  residency/comparison contract, not another linear-weight or pointwise row.
 
 ## Update Rules
 

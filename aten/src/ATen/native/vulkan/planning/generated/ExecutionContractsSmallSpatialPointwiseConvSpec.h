@@ -24,7 +24,7 @@ constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId =
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsGuardId = "small_spatial_pointwise_conv_adjacent_guards";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy = "native_buffer_kernel";
-constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 57;
+constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 65;
 
 struct SmallSpatialPointwiseConvProjectionRowsRow final {
   const char* family;
@@ -300,6 +300,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
     {
         "OCRProjection",
         384,
+        3,
+        80,
+        384,
+        "ocr_projection_384_3x80_384",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_384_3x80_384", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        384,
         7,
         7,
         384,
@@ -323,6 +332,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
         192,
         "ocr_projection_512_6x80_192",
         ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_512_6x80_192", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        512,
+        6,
+        80,
+        1024,
+        "ocr_projection_512_6x80_1024",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_512_6x80_1024", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
     },
     {
         "OCRProjection",
@@ -363,6 +381,24 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
     {
         "OCRProjection",
         1024,
+        3,
+        80,
+        384,
+        "ocr_projection_1024_3x80_384",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_1024_3x80_384", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        1024,
+        3,
+        80,
+        2048,
+        "ocr_projection_1024_3x80_2048",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_1024_3x80_2048", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        1024,
         7,
         7,
         384,
@@ -377,6 +413,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
         2048,
         "ocr_projection_1024_7x7_2048",
         ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_1024_7x7_2048", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        1024,
+        6,
+        80,
+        192,
+        "ocr_projection_1024_6x80_192",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_1024_6x80_192", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
     },
     {
         "OCRProjection",
@@ -399,6 +444,15 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
     {
         "OCRProjection",
         1664,
+        6,
+        80,
+        512,
+        "ocr_projection_1664_6x80_512",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_1664_6x80_512", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        1664,
         14,
         14,
         512,
@@ -417,11 +471,29 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
     {
         "OCRProjection",
         2176,
+        6,
+        80,
+        512,
+        "ocr_projection_2176_6x80_512",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_2176_6x80_512", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        2176,
         14,
         14,
         512,
         "ocr_projection_2176_14x14_512",
         ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_2176_14x14_512", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "OCRProjection",
+        3328,
+        3,
+        80,
+        1024,
+        "ocr_projection_3328_3x80_1024",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "OCRProjection", "ocr_projection_3328_3x80_1024", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
     },
     {
         "OCRProjection",

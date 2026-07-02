@@ -36,7 +36,9 @@ namespace utils {
 using namespace api::utils;
 namespace {
 
-bool can_native_buffer_cast_input(const vTensor& v_input) {
+bool can_native_buffer_cast_input(
+    const vTensor& v_input,
+    const bool require_direct_buffer_layout = true) {
   const bool supports_dtype =
       v_input.dtype() == api::kFloat || v_input.dtype() == api::kInt ||
       v_input.dtype() == api::kBFloat16 ||
@@ -45,7 +47,7 @@ bool can_native_buffer_cast_input(const vTensor& v_input) {
   return supports_dtype &&
       v_input.storage_type() == api::StorageType::BUFFER &&
       v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
-      v_input.has_direct_buffer_layout() &&
+      (!require_direct_buffer_layout || supports_buffer_metadata_view_fast_path(v_input)) &&
       !v_input.is_quantized();
 }
 
@@ -161,7 +163,8 @@ bool can_make_typed_buffer_metadata_view_impl(
 Tensor cast_vulkan_tensor_dtype_buffer_native(
     const Tensor& input_arg,
     const ScalarType dtype,
-    const api::ShaderInfo& shader_descriptor) {
+    const api::ShaderInfo& shader_descriptor,
+    const bool require_direct_input = true) {
   api::AllocationScope allocation_scope("cast.buffer");
   api::Context* const context = api::context();
 
@@ -169,7 +172,7 @@ Tensor cast_vulkan_tensor_dtype_buffer_native(
   vTensor& v_input = convert(input);
 
   TORCH_CHECK(
-      can_native_buffer_cast_input(v_input),
+      can_native_buffer_cast_input(v_input, require_direct_input),
       "Native Vulkan buffer cast requires a supported buffer tensor");
 
   vTensor v_out{
@@ -1104,6 +1107,18 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
       }
       return cast_vulkan_tensor_dtype_buffer_native(
           input, dtype, VK_KERNEL(buffer_cast_uint8_to_float));
+    case VulkanCastMethod::NativeBufferFloatToByte:
+      if (
+          !can_native_buffer_cast_input(
+              v_input, /*require_direct_buffer_layout=*/false) ||
+          !api::context()->adapter_ptr()->supports_int8_buffer_arithmetic()) {
+        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      }
+      return cast_vulkan_tensor_dtype_buffer_native(
+          input,
+          dtype,
+          VK_KERNEL(buffer_cast_float_to_uint8),
+          /*require_direct_input=*/false);
     case VulkanCastMethod::NativeBufferFloatToBFloat16:
       if (!can_native_buffer_cast_input(v_input)) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
