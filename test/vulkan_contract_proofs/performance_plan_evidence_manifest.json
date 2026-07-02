@@ -1221,7 +1221,11 @@
         "deep_split_plan_chunk_count": 2,
         "python_boundary_before_decoder": false,
         "host_readback_before_decoder": false,
-        "process_stack_overflow_observed": false
+        "process_stack_overflow_observed": false,
+        "post_deferred_publication_recheck_head": "a3433b74fbd5",
+        "post_deferred_publication_repeat_count": 2,
+        "post_deferred_publication_diagnostic_payload_publish_mode": "deferred_after_context_unlock",
+        "post_deferred_publication_retained_state_live_log_reread_count": 0
       },
       "timing_ms": {
         "device_resident_mean": 237.456,
@@ -1233,7 +1237,9 @@
       "artifacts": [
         "agent_space/dav2_vitl140_deep_split_native_private_baton_check.json",
         "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat3.json",
-        "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat10.json"
+        "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat10.json",
+        "agent_space/deep_split_native_vitl_post_a343/summary.json",
+        "agent_space/deep_split_native_vitl_post_a343/summary.md"
       ],
       "decision": "Accept as an opt-in deep-stack bridge canary that fixes the vitl_140 stack-output bridge coverage blocker without using the unsafe Python-mediated baton. Do not promote as default and do not treat this as StackRegionSegmentPlan.v0 rowset evidence.",
       "revisit_conditions": [

@@ -492,6 +492,14 @@ correctness/counter state, measuring about 237.5 ms mean / 221.2 ms median /
 `run_vision_backbone_stack_private_capture_debug`. Do not infer broad `vitl`
 support from `vits` or `vitb`, and do not retry the Python-mediated baton path
 as the next runtime proof.
+A post-`a3433b74fbd5` recheck with
+`PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton`,
+`segmented_stack_wide4_to_exit`, and `compiled_session_bridge` passed
+`vitl_140` repeats 1 and 2 with no Windows stack overflow, `cpu_fallback=0`,
+`sync_readback=0`, and the deferred stack-exit diagnostic publication row
+(`diagnostic_payload_publish_mode=deferred_after_context_unlock`,
+`retained_state_live_log_reread_count=0`). This confirms the control-plane
+publication flattening did not regress the accepted native deep-split canary.
 
 ## DAv2 Stack Region Policy Lock
 

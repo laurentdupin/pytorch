@@ -172,7 +172,7 @@
       ],
       "canary_or_path": "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton",
       "model_evidence": "Depth Anything V2 deeper bridge variants",
-      "latest_observation": "Native private-baton deep split is the allowed migration target for stacks deeper than the max-12-block proven rowset.",
+      "latest_observation": "Native private-baton deep split is the allowed migration target for stacks deeper than the max-12-block proven rowset. A post-a343 vitl_140 recheck with segmented_stack_wide4_to_exit and compiled_session_bridge passed repeats 1 and 2 with chunk_count=2, finite bridge sanity, CPU fallback 0, sync readback 0, diagnostic_payload_publish_mode=deferred_after_context_unlock, retained_state_live_log_reread_count=0, and no Windows stack overflow.",
       "decision": "Keep as bounded canary path, not a model-name route.",
       "next_proof": "Generalize by segment policy and verify on the five-model coverage corpus before default promotion.",
       "reusable_backend_policy": true

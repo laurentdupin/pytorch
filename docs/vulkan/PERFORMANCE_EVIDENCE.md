@@ -235,7 +235,11 @@ The initial catalog records the current `vits_140` performance lane:
   as two 12-block native chunks with a device-private baton. The focused smoke
   and 10-repeat runs passed bridge sanity, kept `cpu_fallback=0` and
   `sync_readback=0`, and wrote valid artifacts. This is not a default and not
-  evidence to widen the `vits` or `vitb` segment-plan rowsets;
+  evidence to widen the `vits` or `vitb` segment-plan rowsets. A post-`a343`
+  recheck with deferred stack-exit diagnostic publication passed `vitl_140`
+  repeats 1 and 2 under `native_private_baton` with no Windows stack overflow,
+  `cpu_fallback=0`, `sync_readback=0`, and
+  `diagnostic_payload_publish_mode=deferred_after_context_unlock`;
 - a benchmark-local `python_private_baton` proof canary for that deep split
   topology is also unsafe blocked. The attempted run still hit native Windows
   stack overflow inside `run_vision_backbone_stack_private_capture_debug`
