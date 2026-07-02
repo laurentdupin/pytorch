@@ -238,9 +238,11 @@ The initial catalog records the current `vits_140` performance lane:
   stack-capture bridge mode is used, and a bounded segmented stack-owned mode
   is active. No-env RX 9070 `vitl_140` and `vitl_182` smokes passed bridge
   sanity, kept `cpu_fallback=0` and `sync_readback=0`, and wrote valid
-  artifacts. This is benchmark control-plane default policy, not direct native
-  op default admission and not evidence to widen the `vits` or `vitb`
-  segment-plan rowsets. A post-`a343` recheck with deferred stack-exit
+  artifacts. A post-commit `vitl_140` guardrail also passed on RX 9070,
+  GTX 1080, and RX 6700 XT with `runtime_auto_selected=true` and zero timed
+  fallback/readback/copies. This is benchmark control-plane default policy,
+  not direct native op default admission and not evidence to widen the `vits`
+  or `vitb` segment-plan rowsets. A post-`a343` recheck with deferred stack-exit
   diagnostic publication passed `vitl_140` repeats 1 and 2 under
   `native_private_baton` with no Windows stack overflow, `cpu_fallback=0`,
   `sync_readback=0`, and

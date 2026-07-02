@@ -173,7 +173,7 @@
       ],
       "canary_or_path": "Benchmark auto-selects native_private_baton for deep stack-output bridge rows when no explicit deep-split env is set",
       "model_evidence": "Depth Anything V2 deeper bridge variants",
-      "latest_observation": "Native private-baton deep split is the accepted benchmark safe-path policy for stacks deeper than the max-12-block proven rowset. Current no-env RX 9070 evidence passes vitl_140 repeat-3 at about 171.4 ms mean with max_abs=0.00013685226440429688 and vitl_182 repeat-2 at about 199.9 ms mean with max_abs=0.0001678466796875; both auto-select auto_native_private_baton_for_deep_stack, keep CPU fallback 0, and keep sync readback 0.",
+      "latest_observation": "Native private-baton deep split is the accepted benchmark safe-path policy for stacks deeper than the max-12-block proven rowset. Current no-env RX 9070 evidence passes vitl_140 repeat-3 at about 171.4 ms mean with max_abs=0.00013685226440429688 and vitl_182 repeat-2 at about 199.9 ms mean with max_abs=0.0001678466796875; both auto-select auto_native_private_baton_for_deep_stack, keep CPU fallback 0, and keep sync readback 0. A post-commit vitl_140 guardrail passed on RX 9070, GTX 1080, and RX 6700 XT with timed fallback/readback/copies at zero.",
       "decision": "Keep as benchmark default deep-stack policy when no explicit deep-split env is set. Direct native calls still require the native_private_baton env and unproven Python-mediated baton remains blocked.",
       "next_proof": "Run the DAv2 multigpu matrix again with the auto policy, excluding vitl_700 unless VRAM evidence changes. Do not broaden beyond the max-12-block chunk rule without separate evidence.",
       "reusable_backend_policy": true

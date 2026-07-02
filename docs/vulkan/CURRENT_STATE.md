@@ -511,7 +511,12 @@ deeper than the max-12-block proven single-chunk rowset. A no-env RX 9070
 no-env `vitl_182` warmup-1/repeat-2 smoke measured about 199.9 ms mean with
 max_abs `0.0001678466796875`; both runs selected
 `auto_native_private_baton_for_deep_stack`, kept `cpu_fallback=0`, and kept
-`sync_readback=0`. Direct native callers still fail closed unless they request
+`sync_readback=0`. A post-commit `vitl_140` guardrail on all three local
+Vulkan adapters also passed with the auto policy: RX 9070 measured about
+174.7 ms mean / 180.1 ms p95, GTX 1080 measured about 670.4 ms mean /
+674.5 ms p95, and RX 6700 XT measured about 225.2 ms mean / 226.2 ms p95;
+all three kept timed fallback/readback/copies at zero and reported
+`runtime_auto_selected=true`. Direct native callers still fail closed unless they request
 `PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton`, and an
 explicit benchmark env setting such as `none` is preserved rather than
 overridden. The benchmark-local

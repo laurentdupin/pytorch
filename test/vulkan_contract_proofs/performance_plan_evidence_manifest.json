@@ -1234,7 +1234,13 @@
         "auto_deep_split_policy_reason": "auto_native_private_baton_for_deep_stack",
         "direct_native_env_guard_preserved": true,
         "explicit_env_override_preserved": true,
-        "vitl182_no_env_max_abs": 0.0001678466796875
+        "vitl182_no_env_max_abs": 0.0001678466796875,
+        "post_commit_multigpu_vitl140_guardrail_passed": true,
+        "post_commit_multigpu_vitl140_devices": [
+          "AMD Radeon RX 9070",
+          "NVIDIA GeForce GTX 1080",
+          "AMD Radeon RX 6700 XT"
+        ]
       },
       "timing_ms": {
         "device_resident_mean": 237.456,
@@ -1247,6 +1253,9 @@
         "no_env_auto_vitl182_repeat2_mean": 199.947,
         "no_env_auto_vitl182_repeat2_median": 199.947,
         "no_env_auto_vitl182_repeat2_p95": 201.783,
+        "post_commit_vitl140_rx9070_repeat2_mean": 174.663,
+        "post_commit_vitl140_gtx1080_repeat2_mean": 670.425,
+        "post_commit_vitl140_rx6700xt_repeat2_mean": 225.244,
         "timing_claim": "coverage_and_process_stability_only"
       },
       "artifacts": [
@@ -1256,7 +1265,9 @@
         "agent_space/deep_split_native_vitl_post_a343/summary.json",
         "agent_space/deep_split_native_vitl_post_a343/summary.md",
         "agent_space/dav2_vitl_auto_deep_split_scoped/vitl_140_repeat3.json",
-        "agent_space/dav2_vitl_auto_deep_split_scoped/vitl_182_repeat2.json"
+        "agent_space/dav2_vitl_auto_deep_split_scoped/vitl_182_repeat2.json",
+        "agent_space/dav2_vitl140_auto_deep_split_multigpu_7db540e/summary.json",
+        "agent_space/dav2_vitl140_auto_deep_split_multigpu_7db540e/summary.md"
       ],
       "decision": "Accept as the DAv2 benchmark default deep-stack bridge policy when no explicit deep-split env is set. This fixes the vitl default benchmark coverage blocker without using the unsafe Python-mediated baton. Do not treat this as StackRegionSegmentPlan.v0 rowset evidence or broad direct-native admission.",
       "revisit_conditions": [
