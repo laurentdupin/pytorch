@@ -22071,8 +22071,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("executor_fail_closed_reason") == "none"
                     and row.get("executor_depth_guard") == "raii"
                     and row.get("diagnostic_payload_publish_mode")
-                    == "captured_payload_inline"
+                    == "deferred_after_context_unlock"
                     and row.get("retained_state_live_log_reread_count") == "0"
+                    and "retained_state_deferred_payload_count" in row
                     for row in graph_batch_rows
                 )
             )
@@ -22090,6 +22091,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == "1"
                     and row.get("after_finalize_retained_state_payload_captured")
                     == "0"
+                    and row.get("retained_state_deferred_payload_count") == "0"
                     for row in graph_batch_rows
                 )
             )
@@ -22108,6 +22110,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     == "1"
                     and row.get("after_finalize_retained_state_payload_captured")
                     == "1"
+                    and row.get("retained_state_deferred_payload_count") == "2"
                     for row in graph_batch_rows
                 )
             )
@@ -22168,9 +22171,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "executor_reentry_status=not_reentrant" in row
                     and "executor_fail_closed_reason=none" in row
                     and "executor_depth_guard=raii" in row
-                    and "diagnostic_payload_publish_mode=captured_payload_inline"
+                    and "diagnostic_payload_publish_mode=deferred_after_context_unlock"
                     in row
                     and "retained_state_live_log_reread_count=0" in row
+                    and "retained_state_deferred_payload_count=2" in row
                     and "before_handoff_retained_state_payload_captured=1"
                     in row
                     and "after_finalize_retained_state_payload_captured=1"
@@ -31333,8 +31337,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("executor_fail_closed_reason") == "none"
                     and row.get("executor_depth_guard") == "raii"
                     and row.get("diagnostic_payload_publish_mode")
-                    == "captured_payload_inline"
+                    == "deferred_after_context_unlock"
                     and row.get("retained_state_live_log_reread_count") == "0"
+                    and "retained_state_deferred_payload_count" in row
                     and "before_handoff_retained_state_payload_captured" in row
                     and "after_finalize_retained_state_payload_captured" in row
                     for row in control_plane_work_batch_rows

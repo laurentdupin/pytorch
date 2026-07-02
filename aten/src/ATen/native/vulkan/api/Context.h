@@ -319,6 +319,8 @@ class TORCH_API Context final {
     uint64_t retained_state_live_log_reread_count = 0u;
     StackRegionRetainedStatePayload before_handoff_retained_state_payload;
     StackRegionRetainedStatePayload after_finalize_retained_state_payload;
+    std::vector<StackRegionRetainedStatePayload>
+        retained_state_payloads_to_publish;
   };
 
   void clear_pending_retire_resources_locked();
@@ -363,7 +365,8 @@ class TORCH_API Context final {
       const VulkanSubmission& submission);
   void drain_stack_region_exit_work_batch_locked(
       StackRegionExitWorkBatch& batch);
-  void execute_stack_region_exit_work_batch_locked(
+  std::vector<StackRegionRetainedStatePayload>
+  execute_stack_region_exit_work_batch_locked(
       std::unique_ptr<StackRegionExitWorkBatch> batch);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;

@@ -459,10 +459,11 @@ The initial catalog records the current `vits_140` performance lane:
   `executor_depth_before=0`, `executor_depth=1`, `executor_depth_after=0`,
   `executor_reentry_status=not_reentrant`, `executor_reentry_rejected=0`,
   `executor_depth_guard=raii`,
-  `diagnostic_payload_publish_mode=captured_payload_inline`,
+  `diagnostic_payload_publish_mode=deferred_after_context_unlock`,
   `before_handoff_retained_state_payload_captured`, and
   `after_finalize_retained_state_payload_captured`,
   `retained_state_live_log_reread_count=0`,
+  `retained_state_deferred_payload_count`,
   `submit_topology_preserved=1`,
   `phase_boundary_submits_preserved=1`, `submit_elision_enabled=0`, and
   `deferred_submit_enabled=0`. `StackRegionDependencyGraph.v0` exposes those

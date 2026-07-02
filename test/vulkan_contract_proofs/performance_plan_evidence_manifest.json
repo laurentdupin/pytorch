@@ -2640,10 +2640,11 @@
         "control_plane_work_batch_executor_reentry_status": "not_reentrant",
         "control_plane_work_batch_executor_reentry_rejected": false,
         "control_plane_work_batch_executor_depth_guard": "raii",
-        "control_plane_work_batch_diagnostic_payload_publish_mode": "captured_payload_inline",
+        "control_plane_work_batch_diagnostic_payload_publish_mode": "deferred_after_context_unlock",
         "control_plane_work_batch_before_handoff_payload_capture": "retained_state_log_gated",
         "control_plane_work_batch_after_finalize_payload_capture": "retained_state_log_gated",
         "control_plane_work_batch_retained_state_live_log_reread_count": 0,
+        "control_plane_work_batch_retained_state_deferred_payload_count_visible": true,
         "stack_exit_cleanup_drained_immediately": true
       },
       "timing_ms": {

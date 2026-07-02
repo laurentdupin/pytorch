@@ -25163,6 +25163,7 @@ void note_stack_region_control_plane_work_batch(
     const char* const executor_reentry_status,
     const char* const executor_fail_closed_reason,
     const uint64_t retained_state_live_log_reread_count,
+    const uint64_t retained_state_deferred_payload_count,
     const bool before_handoff_retained_state_payload_captured,
     const bool after_finalize_retained_state_payload_captured) {
   std::ostringstream key;
@@ -25205,7 +25206,9 @@ void note_stack_region_control_plane_work_batch(
       << (after_finalize_retained_state_payload_captured ? "1" : "0")
       << " retained_state_live_log_reread_count="
       << retained_state_live_log_reread_count
-      << " diagnostic_payload_publish_mode=captured_payload_inline"
+      << " retained_state_deferred_payload_count="
+      << retained_state_deferred_payload_count
+      << " diagnostic_payload_publish_mode=deferred_after_context_unlock"
       << " behavior_neutral=1"
       << " submit_topology_preserved=1"
       << " phase_boundary_submits_preserved=1"

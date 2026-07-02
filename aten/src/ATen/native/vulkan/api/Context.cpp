@@ -4935,6 +4935,7 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->executor_reentry_status,
       batch->executor_fail_closed_reason,
       batch->retained_state_live_log_reread_count,
+      batch->retained_state_payloads_to_publish.size(),
       batch->before_handoff_retained_state_payload.captured,
       batch->after_finalize_retained_state_payload.captured);
   return batch;
@@ -4946,13 +4947,14 @@ void Context::drain_stack_region_exit_work_batch_locked(
     switch (action) {
       case StackRegionExitWorkAction::LogBeforeHandoffBatches:
         if (batch.before_handoff_retained_state_payload.captured) {
-          publish_stack_region_retained_state_payload(
+          batch.retained_state_payloads_to_publish.emplace_back(
               batch.before_handoff_retained_state_payload);
-        } else {
+        } else if (stack_retained_state_logging_enabled()) {
           ++batch.retained_state_live_log_reread_count;
-          log_stack_region_retained_state_locked(
-              "stack_exit_before_handoff_batches",
-              &batch.submission);
+          batch.retained_state_payloads_to_publish.emplace_back(
+              capture_stack_region_retained_state_payload_locked(
+                  "stack_exit_before_handoff_batches",
+                  &batch.submission));
         }
         break;
       case StackRegionExitWorkAction::SnapshotPendingRetireTransferSource:
@@ -5013,11 +5015,13 @@ void Context::drain_stack_region_exit_work_batch_locked(
       }
       case StackRegionExitWorkAction::LogAfterFinalize:
         if (batch.after_finalize_retained_state_payload.captured) {
-          publish_stack_region_retained_state_payload(
+          batch.retained_state_payloads_to_publish.emplace_back(
               batch.after_finalize_retained_state_payload);
-        } else {
+        } else if (stack_retained_state_logging_enabled()) {
           ++batch.retained_state_live_log_reread_count;
-          log_stack_region_retained_state_locked("stack_exit_after_finalize");
+          batch.retained_state_payloads_to_publish.emplace_back(
+              capture_stack_region_retained_state_payload_locked(
+                  "stack_exit_after_finalize"));
         }
         break;
     }
@@ -5048,11 +5052,13 @@ void Context::drain_stack_region_exit_work_batch_locked(
       batch.executor_reentry_status,
       batch.executor_fail_closed_reason,
       batch.retained_state_live_log_reread_count,
+      batch.retained_state_payloads_to_publish.size(),
       batch.before_handoff_retained_state_payload.captured,
       batch.after_finalize_retained_state_payload.captured);
 }
 
-void Context::execute_stack_region_exit_work_batch_locked(
+std::vector<Context::StackRegionRetainedStatePayload>
+Context::execute_stack_region_exit_work_batch_locked(
     std::unique_ptr<StackRegionExitWorkBatch> batch) {
   VK_CHECK_COND(
       batch != nullptr,
@@ -5088,6 +5094,7 @@ void Context::execute_stack_region_exit_work_batch_locked(
   };
   ExecutorDepthGuard guard(stack_region_exit_work_batch_executor_depth_);
   drain_stack_region_exit_work_batch_locked(*batch);
+  return std::move(batch->retained_state_payloads_to_publish);
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
@@ -5127,7 +5134,13 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
   std::unique_ptr<StackRegionExitWorkBatch> exit_work_batch =
       prepare_stack_region_exit_work_batch_locked(submission);
-  execute_stack_region_exit_work_batch_locked(std::move(exit_work_batch));
+  std::vector<StackRegionRetainedStatePayload> retained_state_payloads =
+      execute_stack_region_exit_work_batch_locked(std::move(exit_work_batch));
+  context_lock.unlock();
+  for (const StackRegionRetainedStatePayload& payload :
+       retained_state_payloads) {
+    publish_stack_region_retained_state_payload(payload);
+  }
   return stats;
 }
 
