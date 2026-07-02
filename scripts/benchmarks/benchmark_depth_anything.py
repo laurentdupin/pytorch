@@ -27,10 +27,7 @@ from depth_anything_common import (
     resolve_depth_anything_repo,
     resolve_runtime_device,
 )
-from benchmark_suite_common import (
-    VulkanCounterPhaseTracker,
-    diff_vulkan_debug_counters,
-)
+from benchmark_suite_common import diff_vulkan_debug_counters
 from vulkan_model_probe import create_vulkan_model_probe
 
 
@@ -470,6 +467,20 @@ def dump_vulkan_cpu_timeline_summary_phase(
         with open(summary_log, "a", encoding="utf-8") as out:
             out.write(f"benchmark_cpu_timeline_summary_phase phase={phase}\n")
     dump()
+
+
+def append_benchmark_trace(event: str, **fields: Any) -> None:
+    trace_path = os.environ.get("PYTORCH_DAV2_BENCH_TRACE")
+    if not trace_path:
+        return
+    field_text = " ".join(
+        f"{key}={str(value).replace(' ', '_')}" for key, value in sorted(fields.items())
+    )
+    with open(trace_path, "a", encoding="utf-8") as out:
+        out.write(f"event={event}")
+        if field_text:
+            out.write(f" {field_text}")
+        out.write("\n")
 
 
 @contextlib.contextmanager
@@ -1320,7 +1331,45 @@ def prewarm_vulkan_dav2_patch_and_positional_setup(
             )
 
 
-def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[str, Any]:
+COMPACT_VULKAN_ROW_SNAPSHOT_NAMES = {
+    "retired_resource_aggregate_snapshot",
+    "stack_temp_lifetime_safety_snapshot",
+    "stack_internal_temp_retire_batch_snapshot",
+    "stack_retire_drain_blocker_snapshot",
+    "region_lifetime_submit_attribution_snapshot",
+    "stack_subresource_lifetime_dry_run_snapshot",
+    "stack_scratch_arena_lifetime_snapshot",
+    "stack_allocation_aggregate_snapshot",
+    "stack_dispatch_aggregate_snapshot",
+    "stack_dispatch_dependency_dry_run_snapshot",
+    "stack_execution_manifest",
+    "stack_shape_plan_keys",
+    "stack_shape_plan_readiness",
+    "stack_resource_binding_manifest",
+    "stack_descriptor_binding_table",
+    "stack_descriptor_binding_validation",
+    "stack_program_owned_temp_stability",
+    "stack_program_owned_temp_live_identity",
+    "stack_program_owned_temp_slot_identity",
+    "stack_replay_binding_mode",
+    "linear_aggregate_snapshot",
+    "linear_plan_key_snapshot",
+    "linear_pack_residency_snapshot",
+    "vulkan_memory_residency_snapshot",
+    "last_allocation_failure_snapshot",
+    "packed_weight_residency_snapshot",
+    "conv_aggregate_snapshot",
+    "conv_plan_key_snapshot",
+    "buffer_copy_aggregate_snapshot",
+    "clone_requirement_snapshot",
+}
+
+
+def snapshot_vulkan_debug_counters(
+    torch_module: Any,
+    device_kind: str,
+    snapshot_mode: str = "full",
+) -> dict[str, Any]:
     if device_kind != "vulkan" or not hasattr(torch_module.ops, "vulkan_prepack"):
         return {}
 
@@ -1387,6 +1436,12 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         "vision_stack_owner_counters",
         "zero_counters",
     ):
+        if snapshot_mode == "compact" and name in COMPACT_VULKAN_ROW_SNAPSHOT_NAMES:
+            counters[name] = {
+                "skipped": True,
+                "reason": "compact_mode_row_snapshot_not_materialized",
+            }
+            continue
         fn = getattr(ops, name, None)
         if fn is None:
             continue
@@ -1395,6 +1450,60 @@ def snapshot_vulkan_debug_counters(torch_module: Any, device_kind: str) -> dict[
         except RuntimeError as exc:
             counters[name] = f"unavailable: {exc}"
     return counters
+
+
+class VulkanCounterPhaseTracker:
+    def __init__(
+        self,
+        torch_module: Any,
+        backend: str,
+        snapshot_mode: str = "full",
+    ) -> None:
+        self.torch_module = torch_module
+        self.backend = backend
+        self.snapshot_mode = snapshot_mode
+        self._initial = snapshot_vulkan_debug_counters(
+            torch_module,
+            backend,
+            snapshot_mode,
+        )
+        self._previous = self._initial
+        self._phases: list[dict[str, Any]] = []
+
+    def mark(self, name: str) -> dict[str, Any]:
+        current = snapshot_vulkan_debug_counters(
+            self.torch_module,
+            self.backend,
+            self.snapshot_mode,
+        )
+        phase = {
+            "name": name,
+            "start": self._previous,
+            "end": current,
+            "delta": diff_vulkan_debug_counters(self._previous, current),
+        }
+        self._phases.append(phase)
+        self._previous = current
+        return phase
+
+    def summary(self) -> dict[str, Any]:
+        current = snapshot_vulkan_debug_counters(
+            self.torch_module,
+            self.backend,
+            self.snapshot_mode,
+        )
+        return {
+            "schema_version": 1,
+            "backend": self.backend,
+            "snapshot_mode": self.snapshot_mode,
+            "phases": self._phases,
+            "total": {
+                "name": "total_since_tracker_start",
+                "start": self._initial,
+                "end": current,
+                "delta": diff_vulkan_debug_counters(self._initial, current),
+            },
+        }
 
 
 def _compact_vulkan_snapshot_value(value: Any) -> Any:
@@ -1528,7 +1637,11 @@ def _append_measurement_phase_delta(
     device_kind: str,
     snapshot_mode: str,
 ) -> dict[str, Any]:
-    end = snapshot_vulkan_debug_counters(torch_module, device_kind)
+    end = snapshot_vulkan_debug_counters(
+        torch_module,
+        device_kind,
+        snapshot_mode,
+    )
     delta = diff_vulkan_debug_counters(start, end)
     phases.append(
         {
@@ -2316,7 +2429,11 @@ def install_failure_artifact_hook(
             torch_module = context.get("torch")
             device_kind = str(context.get("device_kind", ""))
             debug_counters = (
-                snapshot_vulkan_debug_counters(torch_module, device_kind)
+                snapshot_vulkan_debug_counters(
+                    torch_module,
+                    device_kind,
+                    args.vulkan_debug_snapshot_mode,
+                )
                 if torch_module is not None
                 else {}
             )
@@ -2704,7 +2821,11 @@ def run() -> None:
         if reset_fallback is not None:
             reset_fallback()
     vulkan_phase_tracker = (
-        VulkanCounterPhaseTracker(torch, device_kind)
+        VulkanCounterPhaseTracker(
+            torch,
+            device_kind,
+            args.vulkan_debug_snapshot_mode,
+        )
         if device_kind == "vulkan"
         else None
     )
@@ -2943,10 +3064,13 @@ def run() -> None:
         measurement_phase_counters: list[dict[str, Any]] = []
 
         with inference_context(torch, device_kind):
+            append_benchmark_trace("measurement_snapshot_start_begin")
             measurement_phase_start = snapshot_vulkan_debug_counters(
                 torch,
                 device_kind,
+                args.vulkan_debug_snapshot_mode,
             )
+            append_benchmark_trace("measurement_snapshot_start_end")
             if _measurement_phase_enabled(
                 args, "single_image_end_to_end_with_readback"
             ):
@@ -3029,7 +3153,15 @@ def run() -> None:
                     device_kind,
                     "single_image_forward_device_resident.begin",
                 )
-                for _ in range(args.repeats):
+                append_benchmark_trace(
+                    "single_image_forward_device_resident_loop_begin",
+                    repeats=args.repeats,
+                )
+                for repeat_index in range(args.repeats):
+                    append_benchmark_trace(
+                        "single_image_forward_device_resident_repeat_begin",
+                        repeat=repeat_index,
+                    )
                     start = time.perf_counter()
                     with vulkan_timed_region(torch):
                         depth = compute_depth_on_device(
@@ -3049,10 +3181,21 @@ def run() -> None:
                     forward_device_resident_durations.append(
                         time.perf_counter() - start
                     )
+                    append_benchmark_trace(
+                        "single_image_forward_device_resident_repeat_end",
+                        repeat=repeat_index,
+                    )
+                append_benchmark_trace(
+                    "single_image_forward_device_resident_loop_end",
+                    repeats=args.repeats,
+                )
                 dump_vulkan_cpu_timeline_summary_phase(
                     torch,
                     device_kind,
                     "single_image_forward_device_resident.end",
+                )
+                append_benchmark_trace(
+                    "single_image_forward_device_resident_delta_begin"
                 )
                 measurement_phase_start = _append_measurement_phase_delta(
                     measurement_phase_counters,
@@ -3061,6 +3204,9 @@ def run() -> None:
                     torch_module=torch,
                     device_kind=device_kind,
                     snapshot_mode=args.vulkan_debug_snapshot_mode,
+                )
+                append_benchmark_trace(
+                    "single_image_forward_device_resident_delta_end"
                 )
 
             if _measurement_phase_enabled(args, "single_image_forward_with_readback"):
@@ -3101,7 +3247,9 @@ def run() -> None:
                     snapshot_mode=args.vulkan_debug_snapshot_mode,
                 )
         if vulkan_phase_tracker is not None:
+            append_benchmark_trace("phase_tracker_timed_forward_mark_begin")
             vulkan_phase_tracker.mark("timed_forward")
+            append_benchmark_trace("phase_tracker_timed_forward_mark_end")
 
         corpus_with_readback_durations: list[float] = []
         legacy_corpus_durations: list[float] = []
@@ -3168,10 +3316,13 @@ def run() -> None:
         else forward_with_readback_durations
     )
 
+    append_benchmark_trace("final_debug_snapshot_begin")
     debug_counters = snapshot_vulkan_debug_counters(
         torch,
         device_kind,
+        args.vulkan_debug_snapshot_mode,
     )
+    append_benchmark_trace("final_debug_snapshot_end")
     phase_counters = (
         vulkan_phase_tracker.summary()
         if vulkan_phase_tracker is not None

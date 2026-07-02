@@ -6,6 +6,7 @@
 
 #include <c10/macros/Export.h>
 
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <vector>
@@ -28,6 +29,7 @@ class TORCH_API RetireQueue final {
   void poll(VkDevice device);
   void drain(VkDevice device);
   bool empty() const;
+  size_t size() const;
 
  private:
   mutable std::mutex mutex_;

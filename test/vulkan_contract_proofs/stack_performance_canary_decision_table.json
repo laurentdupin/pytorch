@@ -1,0 +1,219 @@
+{
+  "schema": "StackPerformanceCanaryDecisionTable.v0",
+  "last_updated": "2026-07-02",
+  "purpose": "Compact review memory for DAv2-driven Vulkan performance canaries. This is not a production route table.",
+  "status_values": [
+    "viable_safe_lane",
+    "accepted_default_fix",
+    "stability_blocked",
+    "candidate_needs_policy",
+    "evidence_only",
+    "rejected_slower",
+    "correctness_blocked",
+    "unsafe_blocked"
+  ],
+  "entries": [
+    {
+      "id": "dav2_vits140_retained_pool_wide4_bridge",
+      "status": "viable_safe_lane",
+      "scope": [
+        "StackRegionSegmentPlan.v0",
+        "segmented stack-owned external recording",
+        "private decoder bridge planned recording"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "After stack-planned descriptor-pool leasing, the repeat-30 retained-pool wide4 bridge run completed with zero timed CPU fallback and sync readback. It measured about 102.7 ms mean / 104.2 ms median / 113.2 ms p95 in the cleaned validation run.",
+      "decision": "Keep as the current stable safe lane, but do not treat it as the sub-50 performance solution.",
+      "next_proof": "Use structural counters and GPU timestamp attribution to choose the next control-plane or FP32 linear plan optimization.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "stack_planned_descriptor_pool_lease",
+      "status": "accepted_default_fix",
+      "scope": [
+        "stack-planned recording",
+        "descriptor pool lifetime",
+        "region-owned resource scope"
+      ],
+      "canary_or_path": "default stack-planned descriptor-pool lease retired on stack-exit submission timeline",
+      "model_evidence": "Depth Anything V2 vits_140 repeat-30 and vitl_140 repeat-3 on RX 9070",
+      "latest_observation": "The repeated-request Windows stack overflow was traced to normal stack-planned recording allocating descriptors from the shared context descriptor pool while frequency submits were suppressed. Per-stack descriptor-pool leasing fixes the repeat-30 vits_140 failure and lets vitl_140 smoke runs complete.",
+      "decision": "Keep as default descriptor lifetime ownership for stack-planned recording. Do not replace it with eager descriptor_pool_.flush() at stack boundaries.",
+      "next_proof": "Add a focused regression test or budget gate when stack-planned descriptor counters are exposed directly.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "vulkan_vision_recovery_flush_guard",
+      "status": "accepted_default_fix",
+      "scope": [
+        "post-failure recovery",
+        "vision stack recovery synchronizes"
+      ],
+      "canary_or_path": "recover_after_vulkan_failure_if_needed gated by vulkan_post_failure_recovery_required",
+      "model_evidence": "Depth Anything V2 vits_140",
+      "latest_observation": "Successful vision execution no longer pays recovery flushes unless a Vulkan API failure marked recovery required.",
+      "decision": "Keep as default recovery semantics.",
+      "next_proof": "Regression gate should keep successful timed forwards free of recovery-path synchronizes.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "stack_region_external_recording_pool_lease",
+      "status": "evidence_only",
+      "scope": [
+        "stack-owned external recording",
+        "command pool lifetime",
+        "descriptor pool lifetime"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "Opt-in per-stack lease remained correctness-clean but was slower than the retained persistent-pool default and did not fix compiled_session_bridge exit -1073741571.",
+      "decision": "Keep opt-in for ownership experiments; do not enable on the hot path.",
+      "next_proof": "Only revisit if a concrete command/descriptor lifetime bug requires per-stack pool ownership.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "dav2_compiled_session_bridge",
+      "status": "unsafe_blocked",
+      "scope": [
+        "compiled session bridge",
+        "replay/program identity",
+        "decoder bridge"
+      ],
+      "canary_or_path": "--vulkan-stack-output-device-bridge-mode compiled_session_bridge",
+      "model_evidence": "Depth Anything V2 vits_140",
+      "latest_observation": "Repeated smoke tests still exit with Windows stack overflow -1073741571 before writing a result artifact.",
+      "decision": "Do not use for performance baselines or route promotion.",
+      "next_proof": "Isolate whether the overflow is C++ recursion, Python wrapper recursion, replay metadata growth, decoder compiled-session scope, or retained state across forwards.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "dav2_context_owned_repeated_bridge",
+      "status": "unsafe_blocked",
+      "scope": [
+        "context-owned stack-output bridge",
+        "repeated bridge execution"
+      ],
+      "canary_or_path": "repeated context-owned stack_capture_decoder_preprocess without segmented stack-owned recording",
+      "model_evidence": "Depth Anything V2 vits/vitl bridge rows",
+      "latest_observation": "Repeated context-owned bridge execution can hit Windows stack overflow after one-repeat sanity passes.",
+      "decision": "Keep repeated benchmark runs fail-closed; use bounded segmented stack-owned modes.",
+      "next_proof": "Only revisit through a bounded region/segment plan with explicit output handoff and lifetime ownership.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "dav2_deep_split_native_private_baton",
+      "status": "candidate_needs_policy",
+      "scope": [
+        "StackOutputBridgeDeepSplitPlanRuntime.v0",
+        "native private baton",
+        "deep stack bridge"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton",
+      "model_evidence": "Depth Anything V2 deeper bridge variants",
+      "latest_observation": "Native private-baton deep split is the allowed migration target for stacks deeper than the max-12-block proven rowset.",
+      "decision": "Keep as bounded canary path, not a model-name route.",
+      "next_proof": "Generalize by segment policy and verify on the five-model coverage corpus before default promotion.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "dav2_deep_split_python_private_baton",
+      "status": "unsafe_blocked",
+      "scope": [
+        "benchmark-mediated deep split",
+        "Python private baton"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=python_private_baton",
+      "model_evidence": "Depth Anything V2 deep bridge probes",
+      "latest_observation": "Benchmark-mediated Python private baton can stack overflow before result artifacts.",
+      "decision": "Keep blocked.",
+      "next_proof": "Do not revisit unless the bridge is converted into a native region-owned transfer with explicit lifetime proof.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "dav2_segmented_stack_wide6",
+      "status": "rejected_slower",
+      "scope": [
+        "StackRegionSegmentPlan.v0",
+        "segmented stack-owned external recording"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide6_to_exit",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "Correctness-clean and uses fewer stack-planned submits than wide4, but remained slower and kept the same retire-drain pressure.",
+      "decision": "Do not promote. Wider segments alone are not the current answer.",
+      "next_proof": "Only revisit after retire-drain ownership changes or command recording overhead is isolated.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "conv_3x3_s1p1_workgroup_candidates",
+      "status": "candidate_needs_policy",
+      "scope": [
+        "VulkanConvPlanKey.v0",
+        "Kernel3x3Stride1Pad1",
+        "workgroup candidate plans"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY=3x3_s1p1_16x4 or 3x3_s1p1_16x8",
+      "model_evidence": "Depth Anything V2 vits_140/vitb_140 on RX 9070, GTX 1080, and RX 6700 XT",
+      "latest_observation": "Both candidates were correctness-clean but mixed wins and regressions across model/device rows.",
+      "decision": "Do not promote as static defaults. Use as inputs to device/driver/plan-key tuning.",
+      "next_proof": "Build runtime tuning cache consumption or a full-row validated exact-plan policy keyed by VulkanConvPlanKey and capability profile.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "linear_broad_tiled_float_buffer",
+      "status": "correctness_blocked",
+      "scope": [
+        "FP32 linear plan",
+        "vision backbone linears"
+      ],
+      "canary_or_path": "broad label-inferred tiled float-buffer linear gate",
+      "model_evidence": "Depth Anything V2 vits_140",
+      "latest_observation": "Corrected activation hit tiled kernels but failed bridge sanity with max_abs around 0.215.",
+      "decision": "Do not reintroduce broad tiled linear routing.",
+      "next_proof": "Develop a parity-proven FP32 linear kernel or narrower contract-backed candidate.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "linear_exact_fc2_tiled",
+      "status": "rejected_slower",
+      "scope": [
+        "FP32 linear plan",
+        "exact fc2 candidate"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "Existing checked-in evidence records the exact fc2 tiled canary as correctness-clean but slower than the retained-pool wide4 baseline. The current local run did not provide promotable tiled-plan evidence.",
+      "decision": "Do not promote the current tiled fc2 kernel.",
+      "next_proof": "Use the GPU timestamp finding that fc2 is hot to design a new parity-proven FP32 linear plan candidate.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "private_bridge_capture_handoff",
+      "status": "rejected_slower",
+      "scope": [
+        "private bridge capture release",
+        "pending retire handoff"
+      ],
+      "canary_or_path": "private_bridge_capture_handoff",
+      "model_evidence": "Depth Anything V2 vits_140",
+      "latest_observation": "Correctness-clean and preserves zero fallback/readback/copy, but uses the wrong release boundary for private bridge captures and does not remove retire drains.",
+      "decision": "Do not promote stack-exit private bridge capture handoff.",
+      "next_proof": "Move release ownership to post-decoder-consumer completion before any transfer canary.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "stack_retire_drain_defer",
+      "status": "candidate_needs_policy",
+      "scope": [
+        "retire drain deferral",
+        "stack-owned segment cleanup"
+      ],
+      "canary_or_path": "stack-owner retire drain deferral canaries",
+      "model_evidence": "Depth Anything V2 vits_140",
+      "latest_observation": "Retire drains remain a structural bottleneck in the safe wide4 lane, but previous broad deferral paths require exact identity, release-owner, and completion proof.",
+      "decision": "Keep as the next control-plane optimization class, not a broad heuristic.",
+      "next_proof": "Implement a completion-owner handoff for exact-identity entries at the correct release boundary and require no double-retire, early destroy, or leak.",
+      "reusable_backend_policy": true
+    }
+  ]
+}

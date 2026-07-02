@@ -92,15 +92,25 @@ and end when `PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG` is set. The begin dump
 clears setup/warmup attribution and the end dump captures the timed phase; this
 is reporting-only and does not affect execution.
 
-The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the safe
-performance baseline: a focused 12-repeat run measured about 76.1 ms mean /
-74.2 ms median device-resident forward with zero timed CPU fallback, sync
-readback, and buffer copies. A phase-isolated GPU timestamp profile showed
-about 43-47 ms of kernel work per forward. The largest GPU row is still the FP32
-`fc2` linear family (`mm_buffer_float_bias`, about 13.9 ms/forward), followed by
-decoder/other convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm.
-Sub-50 work therefore needs both control-plane reduction and a parity-proven
-FP32 linear plan; the current tiled fc2 canary is not promoted.
+The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the best
+measured safe lane. The repeat-run stack overflow was traced to the normal
+stack-planned decoder bridge allocating descriptors from the shared context
+descriptor pool while frequency submits were suppressed. Stack-planned recording
+now uses a per-stack descriptor-pool lease and retires that lease on the
+stack-exit submission timeline, matching the external-recording pool-lease
+ownership model without resetting in-flight descriptor sets. A cleaned
+30-repeat validation now completes with about 102.7 ms mean / 104.2 ms median /
+113.2 ms p95 device-resident forward, with zero timed CPU fallback and sync
+readback. Earlier short-run timing remains lower and noisy, so this evidence is
+primarily a stability fix rather than a performance claim. A `vitl_140`
+one-repeat sanity and warmup-1/repeat-3 smoke also complete instead of hitting
+Windows stack overflow `-1073741571`. A phase-isolated GPU timestamp profile
+still shows about 43-47 ms of kernel work per forward. The largest GPU row is
+still the FP32 `fc2` linear family
+(`mm_buffer_float_bias`, about 13.9 ms/forward), followed by decoder/other
+convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm. Sub-50 work
+therefore needs control-plane reduction and a parity-proven FP32 linear plan;
+the current tiled fc2 canary is not promoted.
 
 `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is now an
 opt-in stack-owned external recording pool-lease experiment. It is not enabled
@@ -165,6 +175,10 @@ the checked-in performance-plan evidence ledger. This is separate from accepted
 shape rows: it records accepted fixes, opt-in canaries, slower-but-correct
 plan candidates, correctness-blocked paths, and unsafe topologies so later
 agents do not repeat the same diagnostics as if they were new work.
+`test/vulkan_contract_proofs/stack_performance_canary_decision_table.json`
+summarizes the active DAv2-driven performance canary decisions in a compact
+table; consult it before adding another segmented-recording, compiled-session,
+retire-handoff, conv-plan, or linear-plan canary.
 The latest segment-mode evidence keeps `segmented_stack_wide4_to_exit` as the
 best current `vits_140` bridge canary. The wide3 and prefix-tail modes are
 valid in the recorded three-repeat sweep but slower than wide4. The later

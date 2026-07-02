@@ -96,6 +96,11 @@ bool RetireQueue::empty() const {
   return retired_.empty();
 }
 
+size_t RetireQueue::size() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return retired_.size();
+}
+
 } // namespace api
 } // namespace vulkan
 } // namespace native

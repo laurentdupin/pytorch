@@ -25218,12 +25218,7 @@ void note_stack_region_segment_plan(
 }
 
 bool stack_region_recording_domain_observation_enabled() {
-  const char* const owned_command_buffer_mode =
-      std::getenv("PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER");
-  return stack_region_dependency_graph_path() != nullptr ||
-      (owned_command_buffer_mode != nullptr &&
-       owned_command_buffer_mode[0] != '\0' &&
-       std::string(owned_command_buffer_mode) != "none") ||
+  return stack_diagnostic_rows_enabled() ||
       stack_region_single_recording_canary_target_selected(
              stack_region_single_recording_canary_target());
 }

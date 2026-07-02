@@ -20,6 +20,10 @@ Bounded segmented stack-region rowsets are additionally summarized in
 manifest records which finite model/input rowsets have proven a
 `StackRegionSegmentPlan.v0` canary and links back to the per-row evidence
 entries. It is review memory only, not a production route table.
+The compact current decision table is
+`test/vulkan_contract_proofs/stack_performance_canary_decision_table.json`;
+check it before adding another DAv2-driven canary so already viable, slower,
+unsafe, evidence-only, and blocked paths are not rediscovered.
 
 Depth Anything V2 benchmark artifacts also include
 `vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
@@ -328,15 +332,23 @@ The initial catalog records the current `vits_140` performance lane:
   to about 93.5 ms mean versus the 64.3 ms wide4 baseline. Keep the tile
   metadata/correctness guard as canary evidence; do not promote this tiled fc2
   route without a faster kernel or tuning policy;
-- latest `vits_140` RX 9070 attribution after recovery-flush gating and
-  retained-pool wide4 recording: the safe bridge remains valid with zero timed
-  CPU fallback, sync readback, and buffer copies. A 12-repeat run measured about
-  76.1 ms mean / 74.2 ms median device-resident forward, while the phase GPU
-  timestamp profile showed about 43-47 ms of kernel work per forward. The top
-  GPU rows were `fc2` (`mm_buffer_float_bias`, about 13.9 ms/forward),
-  decoder/other convs, `fc1_gelu`, `qkv_linear`, `proj_linear`, attention BMM,
-  and LayerNorm. Sub-50 work therefore needs both control-plane reduction
-  (submit/retire/sync variance) and a parity-proven FP32 linear plan; the
+- latest `vits_140` RX 9070 attribution after recovery-flush gating,
+  retained-pool wide4 recording, and stack-planned descriptor-pool leasing:
+  the repeated-request stack overflow was traced to the normal stack-planned
+  decoder bridge using the shared context descriptor pool while frequency
+  submits were suppressed. A per-stack descriptor-pool lease now scopes those
+  descriptors to the region and retires the lease on the stack-exit submission
+  timeline. A cleaned 30-repeat validation measured about 102.7 ms mean /
+  104.2 ms median / 113.2 ms p95 device-resident forward with zero timed CPU
+  fallback and sync readback. Earlier short-run timings remain lower and noisy,
+  so this evidence is a stability fix rather than a speed claim. `vitl_140`
+  one-repeat and warmup-1/repeat-3 smoke runs also complete instead of exiting
+  with Windows stack overflow `-1073741571`. The phase GPU timestamp profile
+  still shows about 43-47 ms of kernel work per forward. The top GPU rows were
+  `fc2` (`mm_buffer_float_bias`, about
+  13.9 ms/forward), decoder/other convs, `fc1_gelu`, `qkv_linear`,
+  `proj_linear`, attention BMM, and LayerNorm. Sub-50 work therefore needs
+  further control-plane reduction and a parity-proven FP32 linear plan; the
   existing tiled fc2 canary remains non-promoted evidence;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;

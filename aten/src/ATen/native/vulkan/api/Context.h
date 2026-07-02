@@ -144,6 +144,16 @@ class TORCH_API Context final {
   };
   std::shared_ptr<StackRegionExternalRecordingPoolLease>
       stack_region_external_recording_pool_lease_;
+  struct StackPlannedRecordingDescriptorPoolLease final {
+    DescriptorPool descriptor_pool;
+
+    StackPlannedRecordingDescriptorPoolLease(
+        VkDevice device,
+        const ContextConfig& config)
+        : descriptor_pool(device, config.descriptorPoolConfig) {}
+  };
+  std::shared_ptr<StackPlannedRecordingDescriptorPoolLease>
+      stack_planned_recording_descriptor_pool_lease_;
   FencePool fences_;
   // Diagnostics
   bool enable_op_profiling_{false};
@@ -246,6 +256,12 @@ class TORCH_API Context final {
   void retire_stack_region_external_recording_pool_lease(
       const VulkanSubmission& submission);
   void release_stack_region_external_recording_pool_lease_now();
+  void retire_stack_planned_recording_descriptor_pool_lease(
+      const VulkanSubmission& submission);
+  void release_stack_planned_recording_descriptor_pool_lease_now();
+  void log_stack_region_retained_state_locked(
+      const char* event,
+      const VulkanSubmission* submission = nullptr);
   bool transfer_pending_retires_to_stack_region_handoff_locked(
       VulkanRetireCallSite callsite,
       const std::string& target_allocation_signature);
