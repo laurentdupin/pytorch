@@ -133,6 +133,56 @@
       ]
     },
     {
+      "id": "dav2_vits140_stack_owner_wide_retire_defer_rejected_2026_07_02",
+      "status": "rejected_slower",
+      "head": "local_rejected_before_commit_2026_07_02",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused canary. The canary was backed out before commit; no runtime route or env value is retained.",
+      "contract_or_topology_scope": [
+        "stack planned-recording retire-drain policy",
+        "old-path pending retire deferral",
+        "device-resident repeated-forward stability"
+      ],
+      "candidate": "Raise the stack-owner old-path pending-retire deferral budget under PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=stack_owner_wide_budget to defer larger metadata/uniform/other pending-resource groups.",
+      "correctness": {
+        "status": "timing_only_no_output_readback",
+        "tests": [
+          "Depth Anything V2 vits_140 device-resident benchmark, warmup=0, repeats=10, skip-output-copy"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_bytes": 16,
+        "baseline_retire_queue_drain_submits_per_forward": 15.0,
+        "canary_retire_queue_drain_submits_per_forward": 4.0,
+        "baseline_pending_retire_bytes_observed": 519550432,
+        "canary_pending_retire_bytes_observed": 4352426208,
+        "canary_retire_cleanup_callbacks_per_forward": 460.1
+      },
+      "timing_ms": {
+        "baseline_repeat10_mean": 65.189,
+        "canary_repeat10_mean": 82.303,
+        "canary_repeat10_median": 79.471,
+        "canary_repeat10_p95": 95.455,
+        "repeat_count": 10
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_wide_retire_defer_repeat10.json",
+        "agent_space/dav2_vits140_wide_retire_defer_repeat10_v2.json"
+      ],
+      "decision": "Reject broad old-path pending-retire deferral as a latency path. It removes retire-drain queue submits but shifts cost to larger pending-retire and stack-close cleanup pressure, regressing wall time. Keep the existing narrow default budget.",
+      "revisit_conditions": [
+        "If segment-local completion ownership can retire the same resources without growing stack-close pending work.",
+        "If cleanup batching reduces callback pressure independently of submit suppression.",
+        "If a future correctness run without skip-output-copy shows the same policy is both faster and parity-clean."
+      ]
+    },
+    {
       "id": "dav2_vits140_stack_planned_retire_cleanup_batch_2026_07_02",
       "status": "accepted_default_fix",
       "head": "local_pending_2026_07_02",
