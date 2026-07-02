@@ -401,11 +401,6 @@ std::deque<RetiredPackedWeightMetadata>& leaked_retired_packed_weight_metadata()
   return *metadata;
 }
 
-std::deque<PackedWeightHandle>& quarantined_retired_packed_weight_handles() {
-  static auto* handles = new std::deque<PackedWeightHandle>();
-  return *handles;
-}
-
 void defer_retired_packed_weight_entries(
     std::deque<PackedWeightResidencyEntry>& retired_entries) {
   if (retired_entries.empty()) {
@@ -427,27 +422,27 @@ void defer_retired_packed_weight_entries(
 
 bool release_retired_packed_weight_entries_impl() {
   std::deque<PackedWeightHandle> retired_handles;
+  std::deque<RetiredPackedWeightMetadata> retired_metadata;
   {
     std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
     retired_handles.swap(retired_packed_weight_handles());
+    retired_metadata.swap(leaked_retired_packed_weight_metadata());
   }
   if (retired_handles.empty()) {
     return false;
   }
   const size_t retired_count = retired_handles.size();
-  {
-    std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
-    auto& quarantined_handles = quarantined_retired_packed_weight_handles();
-    while (!retired_handles.empty()) {
-      quarantined_handles.emplace_back(std::move(retired_handles.front()));
-      retired_handles.pop_front();
-    }
+  if (c10::InferenceMode::is_enabled()) {
+    c10::InferenceMode inference_mode_guard(false);
+    retired_handles.clear();
+  } else {
+    retired_handles.clear();
   }
+  retired_metadata.clear();
   log_vulkan_op_hit(
-      std::string(
-          "vulkan_packed_weight_release.disabled_quarantined count=") +
+      std::string("vulkan_packed_weight_release.released count=") +
       std::to_string(retired_count));
-  return false;
+  return true;
 }
 
 class PackedWeightResidencyManager final {
@@ -2259,6 +2254,15 @@ void store_linear_context(
   if (!weight.is_vulkan() || weight.dim() != 2) {
     return;
   }
+  if (
+      context && context->packed_weight().defined() &&
+      context->packed_weight().residency_class() ==
+          PackedWeightResidencyClass::Transient) {
+    if (linear_cache_logging_enabled()) {
+      log_linear_cache_event("linear", "skip_transient");
+    }
+    return;
+  }
 
   const auto normalized_bias = normalized_optional_tensor(bias);
   if (linear_cache_logging_enabled()) {
@@ -2358,6 +2362,16 @@ void store_labeled_linear_context(
     const std::string& allocation_label,
     const c10::intrusive_ptr<LinearPackedContext>& context) {
   if (!weight.is_vulkan() || weight.dim() != 2 || allocation_label.empty()) {
+    return;
+  }
+  if (
+      context && context->packed_weight().defined() &&
+      context->packed_weight().residency_class() ==
+          PackedWeightResidencyClass::Transient) {
+    if (linear_cache_logging_enabled()) {
+      log_linear_cache_event(
+          "labeled_linear", "skip_transient", allocation_label);
+    }
     return;
   }
 

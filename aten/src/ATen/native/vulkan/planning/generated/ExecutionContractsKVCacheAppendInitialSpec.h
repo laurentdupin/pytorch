@@ -16,7 +16,7 @@ namespace generated {
 
 constexpr const char* kKVCacheAppendInitialCacheContractName = "KVCacheAppendContract";
 constexpr const char* kKVCacheAppendInitialCacheFamilyName = "InitialCache";
-constexpr const char* kKVCacheAppendInitialCacheTupleId = "initial_empty_s99_to_s116_heads4_dim128";
+constexpr const char* kKVCacheAppendInitialCacheTupleId = "initial_empty_s14_to_s116_heads4_dim128";
 constexpr const char* kKVCacheAppendInitialCacheWriterOp = "aten::cat";
 constexpr const char* kKVCacheAppendInitialCacheRouteLabel = "aten::cat.kv_cache_initial_dim2_buffer";
 
@@ -28,7 +28,7 @@ constexpr std::int64_t kKVCacheAppendInitialCacheDim = 2;
 constexpr std::int64_t kKVCacheAppendInitialCacheBatch = 1;
 constexpr std::int64_t kKVCacheAppendInitialCacheHeads = 4;
 constexpr std::int64_t kKVCacheAppendInitialCacheHeadDim = 128;
-constexpr std::int64_t kKVCacheAppendInitialCacheMinSequence = 99;
+constexpr std::int64_t kKVCacheAppendInitialCacheMinSequence = 14;
 constexpr std::int64_t kKVCacheAppendInitialCacheMaxSequence = 116;
 constexpr bool kKVCacheAppendInitialCacheEmptyRequiresVulkan = true;
 constexpr bool kKVCacheAppendInitialCacheValueRequiresVulkan = true;

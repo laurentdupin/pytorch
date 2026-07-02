@@ -45,11 +45,11 @@ condition and migration target.
 - Reason: finite Transformer KV-cache append rows are proven by existing cat
   tests, but broader sequence/head/layout behavior is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/kv_cache_append_contract.json`
-  covers the `SequenceAppend` slice and
+  covers the `SequenceAppend` slice for source sequence `S=1..115`, and
   `test/vulkan_contract_specs/kv_cache_append_initial_contract.json` covers the
-  `InitialCache` slice with ShapeEnvelope-backed checked-in positive and
-  adjacent negative runtime cases plus generic ShapeEnvelope C++
-  metadata/simple-bound helper output in
+  `InitialCache` slice for initial prompt sequence `S=14..116`, with
+  ShapeEnvelope-backed checked-in positive and adjacent negative runtime cases
+  plus generic ShapeEnvelope C++ metadata/simple-bound helper output in
   `generated/ExecutionContractsKVCacheAppendSpec.h` and
   `generated/ExecutionContractsKVCacheAppendInitialSpec.h`. SequenceAppend
   batch/heads/head-dim equality is generated while initial-empty handling,

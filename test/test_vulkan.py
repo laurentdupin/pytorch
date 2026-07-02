@@ -5358,7 +5358,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(spec["family"], "SequenceAppend")
         self.assertEqual(
             spec["tuple_id"],
-            "sequence_append_s99_to_s115_token1_heads4_dim128",
+            "sequence_append_s1_to_s115_token1_heads4_dim128",
         )
         self.assertEqual(spec["writer_op"], "aten::cat")
         self.assertEqual(spec["route_label"], "aten::cat.kv_cache_append_dim2_buffer")
@@ -5389,7 +5389,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(bounds["dim"], 2)
         self.assertEqual(bounds["batch"], 1)
         self.assertEqual(bounds["heads"], 4)
-        self.assertEqual(bounds["source_sequence"], {"min": 99, "max": 115})
+        self.assertEqual(bounds["source_sequence"], {"min": 1, "max": 115})
         self.assertEqual(bounds["token_sequence"], 1)
         self.assertEqual(bounds["head_dim"], 128)
         self.assertTrue(bounds["cache_requires_vulkan"])
@@ -5438,7 +5438,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(spec["family"], "InitialCache")
         self.assertEqual(
             spec["tuple_id"],
-            "initial_empty_s99_to_s116_heads4_dim128",
+            "initial_empty_s14_to_s116_heads4_dim128",
         )
         self.assertEqual(spec["writer_op"], "aten::cat")
         self.assertEqual(spec["route_label"], "aten::cat.kv_cache_initial_dim2_buffer")
@@ -5468,7 +5468,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(bounds["dim"], 2)
         self.assertEqual(bounds["batch"], 1)
         self.assertEqual(bounds["heads"], 4)
-        self.assertEqual(bounds["sequence"], {"min": 99, "max": 116})
+        self.assertEqual(bounds["sequence"], {"min": 14, "max": 116})
         self.assertEqual(bounds["head_dim"], 128)
         self.assertTrue(bounds["empty_requires_vulkan"])
         self.assertTrue(bounds["value_requires_vulkan"])
@@ -11961,26 +11961,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             return tensor.transpose(1, 2)
 
         with torch.inference_mode():
-            empty = torch.empty(0, dtype=torch.float32)
-            value_base = torch.randn(1, 99, 4, 128, dtype=torch.float32)
-            value = make_value_state_view(value_base)
-            torch.ops.vulkan_prepack.reset_fallback_counters()
+            for seq_len in (14, 99):
+                empty = torch.empty(0, dtype=torch.float32)
+                value_base = torch.randn(1, seq_len, 4, 128, dtype=torch.float32)
+                value = make_value_state_view(value_base)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
 
-            expected = torch.cat((empty, value), dim=-2)
-            actual = torch.cat(
-                (empty.to("vulkan"), value.to("vulkan")),
-                dim=-2,
-            ).cpu()
+                expected = torch.cat((empty, value), dim=-2)
+                actual = torch.cat(
+                    (empty.to("vulkan"), value.to("vulkan")),
+                    dim=-2,
+                ).cpu()
 
-            self.assertEqual(actual, expected)
-            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(actual, expected)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_float_kv_cache_cat_sequence_append_matches_cpu(self):
         def make_value_state_view(tensor):
             return tensor.transpose(1, 2)
 
         with torch.inference_mode():
-            for seq_len in (99, 100, 115):
+            for seq_len in (1, 14, 99, 100, 115):
                 cache = torch.randn(1, 4, seq_len, 128, dtype=torch.float32)
                 token_base = torch.randn(1, 1, 4, 128, dtype=torch.float32)
                 token = make_value_state_view(token_base)

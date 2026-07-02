@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_name": "KVCacheAppendContract",
   "family": "SequenceAppend",
-  "tuple_id": "sequence_append_s99_to_s115_token1_heads4_dim128",
+  "tuple_id": "sequence_append_s1_to_s115_token1_heads4_dim128",
   "writer_op": "aten::cat",
   "route_label": "aten::cat.kv_cache_append_dim2_buffer",
   "metadata": {
@@ -45,7 +45,7 @@
           {
             "symbol": "S",
             "field": "source_sequence",
-            "min": 99,
+            "min": 1,
             "max": 115
           },
           {
@@ -119,7 +119,7 @@
       "token_sequence": 1,
       "head_dim": 128,
       "source_sequence": {
-        "min": 99,
+        "min": 1,
         "max": 115
       },
       "cache_requires_vulkan": true,
@@ -177,7 +177,7 @@
       {
         "violates": "source_sequence.min",
         "adjacent": "below_min",
-        "value": 98
+        "value": 0
       },
       {
         "violates": "source_sequence.max",
@@ -218,7 +218,7 @@
     "token_sequence": 1,
     "head_dim": 128,
     "source_sequence": {
-      "min": 99,
+      "min": 1,
       "max": 115
     },
     "cache_requires_vulkan": true,
@@ -226,8 +226,8 @@
   },
   "positive_cases": [
     {
-      "name": "min_source_99",
-      "cache_shape": [1, 4, 99, 128],
+      "name": "min_source_1",
+      "cache_shape": [1, 4, 1, 128],
       "token_shape": [1, 4, 1, 128],
       "dim": 2,
       "dtype": "float32",
@@ -235,8 +235,8 @@
       "expected_cpu_fallback": false
     },
     {
-      "name": "interior_source_100",
-      "cache_shape": [1, 4, 100, 128],
+      "name": "short_source_14",
+      "cache_shape": [1, 4, 14, 128],
       "token_shape": [1, 4, 1, 128],
       "dim": 2,
       "dtype": "float32",
@@ -255,8 +255,8 @@
   ],
   "negative_cases": [
     {
-      "name": "source_sequence_98",
-      "cache_shape": [1, 4, 98, 128],
+      "name": "source_sequence_0",
+      "cache_shape": [1, 4, 0, 128],
       "token_shape": [1, 4, 1, 128],
       "dim": 2,
       "dtype": "float32",

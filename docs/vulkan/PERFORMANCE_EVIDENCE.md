@@ -61,6 +61,29 @@ future autotune candidate. It must not be promoted to the default plan unless a
 new entry records the changed device, driver, shader, topology, or benchmark
 condition that justifies revisiting it.
 
+## HY-MT And PaddleOCR Residency Checkpoint
+
+- `KVCacheAppendContract` evidence: the generic contract now covers the
+  short-sequence decode rows that Transformers emits for
+  rank-4 float32 `batch=1`, `heads=4`, `head_dim=128`, `dim=2` KV-cache
+  updates. This removes the former dominant `aten::cat` CPU fallback/readback
+  path for those legal rows without a model-name route. It remains a bounded
+  contract rowset, not a broad concat policy.
+- HY-MT linear packed-weight residency on constrained adapters: RX 6700 XT and
+  GTX 1080 use the adapter policy to mark linear buffer packed weights
+  transient and retired packed-weight handles are released after existing
+  synchronize/fence wait points. The current diagnostic artifact is
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_current/`. RX 6700 XT
+  16-token decode completes with `live_persistent_bytes=0` and transient
+  evictions recorded. GTX 1080 also removes persistent linear-cache pressure,
+  but still fails later in a tensor-readback/lm-head-adjacent submit path.
+  RX 9070 keeps persistent residency as intended; one-token smoke is OK, while
+  longer HY-MT generation currently hits the existing Windows stack overflow.
+- PaddleOCR cross-adapter status after the same build: RX 9070 and RX 6700 XT
+  remain OK with the known single CPU fallback. GTX 1080 still fails at
+  `conv_prepack_upload`, so the HY-MT linear residency fix must not be treated
+  as a PaddleOCR compatibility fix.
+
 ## Update Rules
 
 Before trying a Vulkan performance candidate, search the manifest by:

@@ -16,7 +16,7 @@ namespace generated {
 
 constexpr const char* kKVCacheAppendSequenceAppendContractName = "KVCacheAppendContract";
 constexpr const char* kKVCacheAppendSequenceAppendFamilyName = "SequenceAppend";
-constexpr const char* kKVCacheAppendSequenceAppendTupleId = "sequence_append_s99_to_s115_token1_heads4_dim128";
+constexpr const char* kKVCacheAppendSequenceAppendTupleId = "sequence_append_s1_to_s115_token1_heads4_dim128";
 constexpr const char* kKVCacheAppendSequenceAppendWriterOp = "aten::cat";
 constexpr const char* kKVCacheAppendSequenceAppendRouteLabel = "aten::cat.kv_cache_append_dim2_buffer";
 
@@ -29,7 +29,7 @@ constexpr std::int64_t kKVCacheAppendSequenceAppendBatch = 1;
 constexpr std::int64_t kKVCacheAppendSequenceAppendHeads = 4;
 constexpr std::int64_t kKVCacheAppendSequenceAppendTokenSequence = 1;
 constexpr std::int64_t kKVCacheAppendSequenceAppendHeadDim = 128;
-constexpr std::int64_t kKVCacheAppendSequenceAppendMinSourceSequence = 99;
+constexpr std::int64_t kKVCacheAppendSequenceAppendMinSourceSequence = 1;
 constexpr std::int64_t kKVCacheAppendSequenceAppendMaxSourceSequence = 115;
 constexpr bool kKVCacheAppendSequenceAppendCacheRequiresVulkan = true;
 constexpr bool kKVCacheAppendSequenceAppendTokenRequiresVulkan = true;

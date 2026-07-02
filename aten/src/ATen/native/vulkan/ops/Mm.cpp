@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
@@ -4104,6 +4105,28 @@ void reset_linear_pack_residency_snapshot() {
   linear_pack_residency_aggregate().clear();
 }
 
+PackedWeightResidencyClass linear_buffer_weight_residency_class(
+    const size_t resident_nbytes,
+    const std::vector<int64_t>& logical_weight_sizes) {
+  const auto policy = utils::current_vulkan_device_policy();
+  if (!policy.avoid_large_persistent_weight_cache) {
+    return PackedWeightResidencyClass::PersistentInference;
+  }
+
+  std::ostringstream stream;
+  stream << "aten::linear.packed_weight_cache_transient.device_policy bytes="
+         << resident_nbytes << " weight=[";
+  for (size_t idx = 0; idx < logical_weight_sizes.size(); ++idx) {
+    if (idx != 0u) {
+      stream << ",";
+    }
+    stream << logical_weight_sizes[idx];
+  }
+  stream << "]";
+  utils::log_vulkan_op_hit(stream.str());
+  return PackedWeightResidencyClass::Transient;
+}
+
 Tensor bmm_buffer_out_vulkan(
     const Tensor& mat1,
     const Tensor& mat2,
@@ -4184,13 +4207,16 @@ LinearPackedContext::LinearPackedContext(
           convert(buffer_weight).gpu_nbytes() +
           (buffer_bias_tensor.defined() ? convert(buffer_bias_tensor).gpu_nbytes()
                                         : 0u);
+      const PackedWeightResidencyClass residency_class =
+          linear_buffer_weight_residency_class(
+              resident_nbytes, logical_weight_sizes);
       packed_weight_ = PackedWeightHandle(
           std::move(buffer_weight),
           std::move(buffer_bias_tensor),
           logical_weight_sizes,
           PackedWeightKind::Linear,
           compute_bias && compute_bias->defined(),
-          PackedWeightResidencyClass::PersistentInference,
+          residency_class,
           false,
           api::ExecutionLayout::BUFFER_DIRECT,
           resident_nbytes);

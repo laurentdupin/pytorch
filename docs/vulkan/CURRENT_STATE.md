@@ -1,8 +1,8 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after DAv2 exact QKV tiled linear promotion,
-benchmark auto-selection of native deep split for deep stack-output bridge rows,
-and the PaddleOCR 3x80 OCR pointwise projection admission.
+Last refreshed: 2026-07-02 after HY-MT KV-cache append broadening,
+device-policy linear packed-weight transient residency, and PaddleOCR/HY-MT
+cross-adapter diagnostics.
 
 ## Repo State Summary
 
@@ -16,6 +16,31 @@ benchmark device resolver. Cross-adapter PaddleOCR/HY-MT measurements before
 this fix recorded requested device metadata but could still run on the current
 default Vulkan device; new benchmark records include `current_index` so device
 selection mismatches are visible.
+
+HY-MT now has two generic compatibility fixes for Vulkan decode. The existing
+`KVCacheAppendContract` admits the observed short sequence-append rows
+(`S=1..115`) and initial empty-cache rows (`S=14..116`) under the existing
+float32 rank-4 `batch=1`, `heads=4`, `head_dim=128`, `dim=2` guards, so
+Transformers KV-cache `aten::cat` updates avoid the old CPU fallback/readback
+path for those legal rows. Separately, linear buffer packed weights are marked
+transient when the active adapter policy requests avoiding large persistent
+weight caches, and retired packed-weight handles are released after the existing
+synchronize/fence wait points instead of being quarantined indefinitely. This
+is adapter-policy driven and not HY-MT-specific production routing.
+
+Fresh cross-adapter diagnostics under
+`agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_current/` show the current
+state. HY-MT RX 6700 XT 16-token decode now completes where the previous
+multi-GB persistent linear cache path could device-lost: `live_persistent_bytes`
+is zero, 43 transient entries remain live, and transient evictions are recorded.
+HY-MT GTX 1080 also switches linear residency to transient and removes the
+7GB-class persistent cache pressure, but still fails later with `DeviceLost`
+from a tensor-CPU-readback/lm-head-adjacent path. HY-MT RX 9070 keeps persistent
+linear residency on a one-token smoke (`live_persistent_bytes` about 7.16GB),
+while longer HY-MT generation currently exits with the existing Windows stack
+overflow `-1073741571` before result JSON. PaddleOCR remains OK on RX 9070 and
+RX 6700 XT with the known single CPU fallback; GTX 1080 still fails at
+`conv_prepack_upload`.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket
