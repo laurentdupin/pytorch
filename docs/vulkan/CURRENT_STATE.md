@@ -90,7 +90,17 @@ routes, shader selection, copies, readbacks, submits, or fallback policy.
 The benchmark can also dump CPU timeline summaries at measurement-phase begin
 and end when `PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG` is set. The begin dump
 clears setup/warmup attribution and the end dump captures the timed phase; this
-is reporting-only and does not affect execution.
+is reporting-only and does not affect execution. Stack-owned external recording
+dispatches are now included in that opt-in summary with
+`external_recording=1`; this closes the previous blind spot where the timed
+phase showed decoder/generic CPU submission work but hid the stack segment
+recording/binding cost. A focused RX 9070 `vits_140` wide4 run with this
+instrumentation measured about 68.4 ms mean / 68.1 ms median / 72.2 ms p95
+over five device-resident repeats, with zero timed CPU fallback, sync readback,
+or buffer copies. The external-recording rows account for roughly 20 ms per
+request across the top stack kernels, so the next sub-50 control-plane target is
+descriptor/recording reuse or replay-readiness proof rather than another
+retire-drain cleanup.
 
 The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the best
 measured safe lane. The repeat-run stack overflow was traced to the normal

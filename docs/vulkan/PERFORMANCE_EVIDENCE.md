@@ -297,8 +297,16 @@ The initial catalog records the current `vits_140` performance lane:
   When `PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG` is set, the Depth Anything V2
   benchmark emits a summary dump at the begin and end of each selected
   measurement phase. The begin dump clears setup/warmup rows; the end dump is
-  the useful timed-phase CPU submission/copy attribution. This does not change
-  model execution, synchronization, copy, fallback, or route selection;
+  the useful timed-phase CPU submission/copy attribution. Stack-owned external
+  recording rows are included with `external_recording=1`, so segmented
+  stack-recording CPU cost is no longer hidden from the summary. A focused RX
+  9070 `vits_140` wide4 five-repeat run with this instrumentation measured
+  about 68.4 ms mean / 68.1 ms median / 72.2 ms p95 device-resident forward,
+  with zero timed CPU fallback, sync readback, or buffer copies. The top
+  external-recording rows account for about 20 ms/request of CPU
+  recording/binding work, making descriptor/recording reuse the next measured
+  control-plane bottleneck. This does not change model execution,
+  synchronization, copy, fallback, or route selection;
 - stack-region external recording pool lease:
   `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is an
   opt-in ownership experiment for stack-owned external recording. A focused

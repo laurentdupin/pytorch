@@ -1039,8 +1039,7 @@ inline bool Context::submit_copy(
   VK_CHECK_COND(
       !stack_planned_recording || stack_planned_recording_owned_by_current_thread(),
       "Vulkan stack planned recording used from the wrong thread");
-  const bool cpu_timeline =
-      cpu_timeline_logging_enabled() && !external_recording;
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   const VulkanSubmitOrigin fenced_submit_origin =
@@ -1108,6 +1107,16 @@ inline bool Context::submit_copy(
             std::memory_order_acquire)) {
       stack_region_owned_recording_dispatch_count_++;
     }
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=submit_copy submitted=0 record_us="
+             << (cpu_timeline_now_us() - cpu_start_us)
+             << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+             << " external_recording=1"
+             << " copy_range=" << copy_range.data[0u] << "x"
+             << copy_range.data[1u] << "x" << copy_range.data[2u];
+      append_cpu_timeline_log_line(stream.str());
+    }
     return false;
   }
 
@@ -1162,8 +1171,7 @@ inline bool Context::submit_compute_job(
       !stack_planned_recording ||
           stack_planned_recording_owned_by_current_thread(),
       "Vulkan stack planned recording used from the wrong thread");
-  const bool cpu_timeline =
-      cpu_timeline_logging_enabled() && !external_recording;
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
 
@@ -1288,6 +1296,21 @@ inline bool Context::submit_compute_job(
   }
 
   if (external_recording) {
+    if (cpu_timeline) {
+      std::ostringstream stream;
+      stream << "event=submit_compute kernel=" << shader.kernel_name
+             << " submitted=0 record_us="
+             << (cpu_timeline_now_us() - cpu_start_us)
+             << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
+             << " external_recording=1"
+             << " global=" << global_work_group.data[0u] << "x"
+             << global_work_group.data[1u] << "x"
+             << global_work_group.data[2u]
+             << " local=" << local_work_group_size.data[0u] << "x"
+             << local_work_group_size.data[1u] << "x"
+             << local_work_group_size.data[2u];
+      append_cpu_timeline_log_line(stream.str());
+    }
     return false;
   }
 

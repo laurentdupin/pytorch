@@ -1228,6 +1228,12 @@ std::string cpu_timeline_summary_key(const std::string& line) {
     key << " final_use=" << final_use;
   }
 
+  const std::string external_recording =
+      extract_cpu_timeline_token(line, "external_recording");
+  if (!external_recording.empty()) {
+    key << " external_recording=" << external_recording;
+  }
+
   return key.str();
 }
 
