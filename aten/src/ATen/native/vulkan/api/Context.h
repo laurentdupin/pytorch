@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -238,8 +239,18 @@ class TORCH_API Context final {
       bridge_private_capture_pending_retire_handoff_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
+  enum class StackRegionExitWorkAction {
+    LogBeforeHandoffBatches,
+    SnapshotPendingRetireTransferSource,
+    RetireStackInternalTempBatch,
+    RetireStackRegionHandoffBatch,
+    FinalizeStackRecording,
+    LogAfterFinalize,
+  };
+
   struct StackRegionExitWorkBatch final {
     VulkanSubmission submission;
+    std::vector<StackRegionExitWorkAction> actions;
     bool prepared = false;
     bool drained_inline = false;
     bool pending_retire_handoff_at_stack_exit = false;
@@ -250,6 +261,7 @@ class TORCH_API Context final {
     uint64_t stack_internal_temp_batch_bytes = 0u;
     uint64_t stack_region_handoff_batch_count = 0u;
     uint64_t stack_region_handoff_batch_bytes = 0u;
+    uint64_t drained_action_count = 0u;
   };
 
   void clear_pending_retire_resources_locked();

@@ -25151,7 +25151,10 @@ void note_stack_region_control_plane_work_batch(
     const uint64_t stack_internal_temp_batch_count,
     const uint64_t stack_internal_temp_batch_bytes,
     const uint64_t stack_region_handoff_batch_count,
-    const uint64_t stack_region_handoff_batch_bytes) {
+    const uint64_t stack_region_handoff_batch_bytes,
+    const char* const drain_mode,
+    const uint64_t drain_action_count,
+    const uint64_t drained_action_count) {
   std::ostringstream key;
   key << "stack_region_control_plane_work_batch=1"
       << " schema=StackRegionControlPlaneWorkBatch.v0"
@@ -25172,6 +25175,9 @@ void note_stack_region_control_plane_work_batch(
       << stack_region_handoff_batch_count
       << " stack_region_handoff_batch_bytes="
       << stack_region_handoff_batch_bytes
+      << " drain_mode=" << (drain_mode ? drain_mode : "unknown")
+      << " drain_action_count=" << drain_action_count
+      << " drained_action_count=" << drained_action_count
       << " behavior_neutral=1"
       << " submit_topology_preserved=1"
       << " phase_boundary_submits_preserved=1"

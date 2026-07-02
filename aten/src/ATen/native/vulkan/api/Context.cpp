@@ -4836,6 +4836,14 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->stack_region_handoff_batch_bytes += pending.bytes;
     }
   }
+  batch->actions = {
+      StackRegionExitWorkAction::LogBeforeHandoffBatches,
+      StackRegionExitWorkAction::SnapshotPendingRetireTransferSource,
+      StackRegionExitWorkAction::RetireStackInternalTempBatch,
+      StackRegionExitWorkAction::RetireStackRegionHandoffBatch,
+      StackRegionExitWorkAction::FinalizeStackRecording,
+      StackRegionExitWorkAction::LogAfterFinalize,
+  };
   note_stack_region_control_plane_work_batch(
       "prepared",
       batch->prepared,
@@ -4848,55 +4856,79 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->stack_internal_temp_batch_count,
       batch->stack_internal_temp_batch_bytes,
       batch->stack_region_handoff_batch_count,
-      batch->stack_region_handoff_batch_bytes);
+      batch->stack_region_handoff_batch_bytes,
+      "prepared_not_drained",
+      batch->actions.size(),
+      batch->drained_action_count);
   return batch;
 }
 
 void Context::drain_stack_region_exit_work_batch_locked(
     StackRegionExitWorkBatch& batch) {
-  log_stack_region_retained_state_locked(
-      "stack_exit_before_handoff_batches",
-      &batch.submission);
-  snapshot_stack_region_pending_retire_transfer_source_locked(
-      batch.source_snapshot_state,
-      /*include_context_pending_retires=*/false,
-      batch.preserve_larger_source);
-  retire_stack_internal_temp_retire_batch_locked(batch.submission);
-  retire_stack_region_pending_retire_handoff_batch_locked(batch.submission);
-  stack_region_recording_domain_observation_active_.store(
-      false, std::memory_order_release);
-  stack_planned_recording_active_.store(false, std::memory_order_release);
-  stack_region_single_recording_plan_state_.store(
-      2u, std::memory_order_release);
-  stack_region_single_recording_owner_state_.store(
-      2u, std::memory_order_release);
-  stack_region_command_buffer_batch_lease_state_.store(
-      2u, std::memory_order_release);
-  const uint32_t close_submit_owner_state =
-      stack_region_close_submit_owner_state_.load(std::memory_order_acquire);
-  uint32_t finalized_close_submit_owner_state = 2u;
-  if (close_submit_owner_state == 4u) {
-    finalized_close_submit_owner_state = 5u;
-  } else if (close_submit_owner_state == 7u) {
-    finalized_close_submit_owner_state = 8u;
+  for (const StackRegionExitWorkAction action : batch.actions) {
+    switch (action) {
+      case StackRegionExitWorkAction::LogBeforeHandoffBatches:
+        log_stack_region_retained_state_locked(
+            "stack_exit_before_handoff_batches",
+            &batch.submission);
+        break;
+      case StackRegionExitWorkAction::SnapshotPendingRetireTransferSource:
+        snapshot_stack_region_pending_retire_transfer_source_locked(
+            batch.source_snapshot_state,
+            /*include_context_pending_retires=*/false,
+            batch.preserve_larger_source);
+        break;
+      case StackRegionExitWorkAction::RetireStackInternalTempBatch:
+        retire_stack_internal_temp_retire_batch_locked(batch.submission);
+        break;
+      case StackRegionExitWorkAction::RetireStackRegionHandoffBatch:
+        retire_stack_region_pending_retire_handoff_batch_locked(
+            batch.submission);
+        break;
+      case StackRegionExitWorkAction::FinalizeStackRecording: {
+        stack_region_recording_domain_observation_active_.store(
+            false, std::memory_order_release);
+        stack_planned_recording_active_.store(
+            false, std::memory_order_release);
+        stack_region_single_recording_plan_state_.store(
+            2u, std::memory_order_release);
+        stack_region_single_recording_owner_state_.store(
+            2u, std::memory_order_release);
+        stack_region_command_buffer_batch_lease_state_.store(
+            2u, std::memory_order_release);
+        const uint32_t close_submit_owner_state =
+            stack_region_close_submit_owner_state_.load(
+                std::memory_order_acquire);
+        uint32_t finalized_close_submit_owner_state = 2u;
+        if (close_submit_owner_state == 4u) {
+          finalized_close_submit_owner_state = 5u;
+        } else if (close_submit_owner_state == 7u) {
+          finalized_close_submit_owner_state = 8u;
+        }
+        stack_region_close_submit_owner_state_.store(
+            finalized_close_submit_owner_state, std::memory_order_release);
+        stack_region_command_ownership_state_.store(
+            2u, std::memory_order_release);
+        stack_region_command_pool_reset_deferral_owner_state_.store(
+            2u, std::memory_order_release);
+        stack_region_retire_timeline_owner_state_.store(
+            2u, std::memory_order_release);
+        const uint32_t pending_retire_transfer_owner_state =
+            stack_region_pending_retire_transfer_owner_state_.load(
+                std::memory_order_acquire);
+        stack_region_pending_retire_transfer_owner_state_.store(
+            pending_retire_transfer_owner_state == 4u ? 5u : 2u,
+            std::memory_order_release);
+        stack_planned_recording_owner_ = std::thread::id{};
+        stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+        break;
+      }
+      case StackRegionExitWorkAction::LogAfterFinalize:
+        log_stack_region_retained_state_locked("stack_exit_after_finalize");
+        break;
+    }
+    ++batch.drained_action_count;
   }
-  stack_region_close_submit_owner_state_.store(
-      finalized_close_submit_owner_state, std::memory_order_release);
-  stack_region_command_ownership_state_.store(
-      2u, std::memory_order_release);
-  stack_region_command_pool_reset_deferral_owner_state_.store(
-      2u, std::memory_order_release);
-  stack_region_retire_timeline_owner_state_.store(
-      2u, std::memory_order_release);
-  const uint32_t pending_retire_transfer_owner_state =
-      stack_region_pending_retire_transfer_owner_state_.load(
-          std::memory_order_acquire);
-  stack_region_pending_retire_transfer_owner_state_.store(
-      pending_retire_transfer_owner_state == 4u ? 5u : 2u,
-      std::memory_order_release);
-  stack_planned_recording_owner_ = std::thread::id{};
-  stack_planned_recording_stats_ = StackPlannedRecordingStats{};
-  log_stack_region_retained_state_locked("stack_exit_after_finalize");
   batch.drained_inline = true;
   note_stack_region_control_plane_work_batch(
       "drained_inline",
@@ -4910,7 +4942,10 @@ void Context::drain_stack_region_exit_work_batch_locked(
       batch.stack_internal_temp_batch_count,
       batch.stack_internal_temp_batch_bytes,
       batch.stack_region_handoff_batch_count,
-      batch.stack_region_handoff_batch_bytes);
+      batch.stack_region_handoff_batch_bytes,
+      "iterative_inline",
+      batch.actions.size(),
+      batch.drained_action_count);
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {

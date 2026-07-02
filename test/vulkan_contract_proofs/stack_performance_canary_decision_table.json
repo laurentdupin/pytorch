@@ -97,11 +97,11 @@
         "control-plane flatness",
         "StackRegionControlPlaneWorkBatch.v0"
       ],
-      "canary_or_path": "default behavior-neutral stack-region exit work-batch scaffold",
+      "canary_or_path": "default behavior-neutral stack-region exit work-batch iterative drain scaffold",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070 plus focused graph-dump tests",
-      "latest_observation": "end_stack_planned_recording_and_submit() still closes/submits the stack region and drains cleanup inline in the original order, but now prepares a heap-owned exit batch first. Focused graph testing observes stage=prepared and stage=drained_inline rows in StackRegionDependencyGraph.v0 stack_region_control_plane_work_batch_rows with submit_topology_preserved=1, submit_elision_enabled=0, source_snapshot_state, stack-internal-temp batch count/bytes, and stack-region handoff batch count/bytes. A short vits_140 wide4 smoke measured about 56.9 ms mean / 56.9 ms median / 57.2 ms p95 with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
+      "latest_observation": "end_stack_planned_recording_and_submit() still closes/submits the stack region and drains cleanup inline in the original order, but now prepares a heap-owned exit batch with a typed ordered action list. Focused graph testing observes stage=prepared and stage=drained_inline rows in StackRegionDependencyGraph.v0 stack_region_control_plane_work_batch_rows with drain_mode=prepared_not_drained before the drain, drain_mode=iterative_inline after the drain, drain_action_count=6, drained_action_count=6 only on the drained row, submit_topology_preserved=1, submit_elision_enabled=0, source_snapshot_state, stack-internal-temp batch count/bytes, and stack-region handoff batch count/bytes. A short vits_140 wide4 smoke measured about 56.9 ms mean / 56.9 ms median / 57.2 ms p95 with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
       "decision": "Keep as behavior-neutral reporting and flattening scaffold. It does not defer cleanup, remove submits, or authorize the compiled-session bridge.",
-      "next_proof": "Move one more stack-exit cleanup responsibility into the batch-owned iterative drain or add a cancel/restore ownership test before any submit or cleanup deferral.",
+      "next_proof": "Move the batch-owned iterative drain to a centralized context control-plane executor or add a cancel/restore ownership test before any submit or cleanup deferral.",
       "reusable_backend_policy": true
     },
     {

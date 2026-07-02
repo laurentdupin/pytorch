@@ -22050,6 +22050,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "stack_internal_temp_batch_bytes" in row
                     and "stack_region_handoff_batch_count" in row
                     and "stack_region_handoff_batch_bytes" in row
+                    and row.get("drain_mode")
+                    in ("prepared_not_drained", "iterative_inline")
+                    and int(row.get("drain_action_count", "0")) > 0
+                    and "drained_action_count" in row
+                    for row in graph_batch_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row.get("stage") == "prepared"
+                    and row.get("drain_mode") == "prepared_not_drained"
+                    and row.get("drained_action_count") == "0"
+                    for row in graph_batch_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row.get("stage") == "drained_inline"
+                    and row.get("drain_mode") == "iterative_inline"
+                    and row.get("drain_action_count")
+                    == row.get("drained_action_count")
                     for row in graph_batch_rows
                 )
             )
@@ -22078,6 +22099,25 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertTrue(
                 all("submit_topology_preserved=1" in row for row in batch_rows)
+            )
+            self.assertTrue(
+                any(
+                    "stage=prepared" in row
+                    and "drain_mode=prepared_not_drained" in row
+                    and "drained_action_count=0" in row
+                    for row in batch_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    "stage=drained_inline" in row
+                    and "drain_mode=iterative_inline" in row
+                    and "drained_action_count=6" in row
+                    for row in batch_rows
+                )
+            )
+            self.assertTrue(
+                all("drain_action_count=6" in row for row in batch_rows)
             )
         finally:
             if previous is None:
@@ -31203,6 +31243,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "stack_internal_temp_batch_bytes" in row
                     and "stack_region_handoff_batch_count" in row
                     and "stack_region_handoff_batch_bytes" in row
+                    and row.get("drain_mode")
+                    in ("prepared_not_drained", "iterative_inline")
+                    and int(row.get("drain_action_count", "0")) > 0
+                    and "drained_action_count" in row
+                    for row in control_plane_work_batch_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row.get("stage") == "prepared"
+                    and row.get("drain_mode") == "prepared_not_drained"
+                    and row.get("drained_action_count") == "0"
+                    for row in control_plane_work_batch_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    row.get("stage") == "drained_inline"
+                    and row.get("drain_mode") == "iterative_inline"
+                    and row.get("drain_action_count")
+                    == row.get("drained_action_count")
                     for row in control_plane_work_batch_rows
                 )
             )

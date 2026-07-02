@@ -1323,6 +1323,18 @@ code is active, or because graph serialization is already in progress. The
 skip row is diagnostic-only and fail-closed: normal execution continues, the
 dump for that call is skipped, and submits, retire ownership, cleanup, and
 shape contracts are unchanged.
+`StackRegionControlPlaneWorkBatch.v0` rows under
+`stack_region_control_plane_work_batch_rows` record the stack-exit cleanup
+batch prepared after the stack-region close/submit. The current implementation
+is still behavior-neutral: phase-boundary submits are preserved, submit elision
+is disabled, and cleanup drains immediately under the existing stack-exit lock.
+Rows distinguish the prepared state (`drain_mode=prepared_not_drained`,
+`drained_action_count=0`) from the drained state
+(`drain_mode=iterative_inline`, `drain_action_count=6`, and matching
+`drained_action_count=6`). These fields prove the post-submit cleanup is a
+flat ordered action list that can later move to a centralized control-plane
+drain without changing route, shader, copy, readback, fallback, or shape
+contracts.
 Setting `PYTORCH_VULKAN_STACK_DEP_GRAPH` also enables detailed stack diagnostic
 rows for retire blockers, region-lifetime submit attribution, and subresource
 lifetime dry-runs. Runs that need those rows without writing a graph can set

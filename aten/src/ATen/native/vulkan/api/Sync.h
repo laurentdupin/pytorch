@@ -2638,7 +2638,10 @@ TORCH_API void note_stack_region_control_plane_work_batch(
     uint64_t stack_internal_temp_batch_count,
     uint64_t stack_internal_temp_batch_bytes,
     uint64_t stack_region_handoff_batch_count,
-    uint64_t stack_region_handoff_batch_bytes);
+    uint64_t stack_region_handoff_batch_bytes,
+    const char* drain_mode,
+    uint64_t drain_action_count,
+    uint64_t drained_action_count);
 TORCH_API bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     uint32_t binding_idx,
     const char* shader_name,

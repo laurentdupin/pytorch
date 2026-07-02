@@ -448,9 +448,13 @@ The initial catalog records the current `vits_140` performance lane:
 - stack-region exit control-plane work batch: accepted reporting
   infrastructure. `end_stack_planned_recording_and_submit()` now prepares a
   heap-owned `StackRegionControlPlaneWorkBatch.v0` after closing/submitting the
-  stack region and drains it immediately under the same lock and in the same
-  order as the previous inline code. Snapshot rows record `stage=prepared` and
-  `stage=drained_inline` with `submit_topology_preserved=1`,
+  stack region and drains its typed ordered action list immediately under the
+  same lock and in the same order as the previous inline code. Snapshot rows
+  record `stage=prepared` and `stage=drained_inline` with
+  `drain_mode=prepared_not_drained` before the drain,
+  `drain_mode=iterative_inline` after the drain, `drain_action_count=6`,
+  matching `drained_action_count=6` only on the drained row,
+  `submit_topology_preserved=1`,
   `phase_boundary_submits_preserved=1`, `submit_elision_enabled=0`, and
   `deferred_submit_enabled=0`. `StackRegionDependencyGraph.v0` exposes those
   rows in `stack_region_control_plane_work_batch_rows` for both full and
