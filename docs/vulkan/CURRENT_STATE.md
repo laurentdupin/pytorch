@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after DAv2 graph-dump reentry deferral,
-post-guard GPU timestamp attribution, and vits_140 wide4 bridge smoke evidence.
+Last refreshed: 2026-07-02 after the DAv2 vits_140 exact FC2 vec2 tiled
+linear canary repeat-30 evidence.
 
 ## Repo State Summary
 
@@ -180,15 +180,18 @@ submit, retire, copy, readback, or shader behavior.
 A post-guard RX 9070 `vits_140` GPU timestamp pass with
 `segmented_stack_wide4_to_exit` showed about 44.2 ms of timestamped GPU work per
 forward while the timestamp-instrumented wall time was inflated to about
-115.7 ms mean. The top GPU row remains `fc2 | mm_buffer_float_bias` at about
+115.7 ms mean. The top GPU row remained `fc2 | mm_buffer_float_bias` at about
 15.2 ms/forward, followed by decoder/other convs, `fc1_gelu`, qkv/proj
-linears, attention BMM, and LayerNorm. A separate non-timestamped three-repeat
-wide4 smoke after the graph-dump guard measured about 55.0 ms mean /
-55.0 ms median / 55.6 ms p95 device-resident forward, with bridge sanity
-`max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
-The remaining sub-50 work is therefore split between residual host/control-plane
-overhead and a new parity-proven FP32 linear/FC2 plan; the rejected tiled FC2
-canary remains non-promoted evidence.
+linears, attention BMM, and LayerNorm. The original exact FC2 tiled canary
+remains rejected as slower, but a narrower vec2 FC2 canary is now accepted as
+opt-in evidence: with
+`PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2` and
+`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit`,
+a warmup-3/repeat-30 RX 9070 `vits_140` bridge run measured about 45.8 ms mean /
+45.3 ms median / 48.4 ms p95 device-resident forward. Bridge sanity passed at
+`max_abs=1.1846423149108887e-06`, CPU fallback remained zero, and sync readback
+remained zero. This is not a default route yet: it is an exact, env-gated
+performance canary for the `[151,1536] -> [151,384]` bias/no-post-op FC2 row.
 
 Stack-planned submit cleanup now batches pending-retire buffers and images into
 one timeline-gated `RetiredResource` callback per stack-planned submission while
@@ -261,6 +264,17 @@ However, the clean five-repeat RX 9070 run regressed to about 93.5 ms
 device-resident mean versus the 64.3 ms wide4 baseline. Keep this as rejected
 linear plan evidence; sub-50 work should not promote the current tiled fc2
 kernel.
+
+The follow-up exact FC2 vec2 tiled-linear canary is accepted as opt-in
+performance evidence, not default routing. With
+`PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2`, the
+focused route test hits `aten::linear.buffer_float_tiled_bias_vec2` for the
+exact `[151,1536] x [384,1536] + [384]` FC2 row and matches CPU within
+`atol=1e-3, rtol=1e-3`. A warmup-3/repeat-30 RX 9070 `vits_140` wide4 bridge
+run measured about 45.8 ms mean / 45.3 ms median / 48.4 ms p95 device-resident
+forward with bridge sanity `max_abs=1.1846423149108887e-06`, CPU fallback zero,
+and sync readback zero. Keep this behind the canary until broader linear-plan
+policy and adjacent-shape evidence exist.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control

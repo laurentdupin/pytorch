@@ -466,7 +466,17 @@ bool linear_tiled_canary_vision_fc2_enabled() {
     return false;
   }
   const std::string_view value(env);
-  return value == "vision_fc2_exact_151x1536x384";
+  return value == "vision_fc2_exact_151x1536x384" ||
+      value == "vision_fc2_exact_151x1536x384_vec2";
+}
+
+bool linear_tiled_canary_vision_fc2_vec2_enabled() {
+  const char* const env = std::getenv("PYTORCH_VULKAN_LINEAR_TILED_CANARY");
+  if (env == nullptr || env[0] == '\0') {
+    return false;
+  }
+  const std::string_view value(env);
+  return value == "vision_fc2_exact_151x1536x384_vec2";
 }
 
 const char* linear_kernel_kind_from_name(const char* kernel_name) {
@@ -1458,8 +1468,13 @@ Tensor run_float_buffer_linear(
   const bool use_vec2_tiled_kernel =
       use_specialized_tiled_kernel &&
       output_sizes[Layout::Parameter::width] >= 384 &&
-      input_arg_2d.size(Layout::Parameter::height) >= 512 &&
-      input_arg_2d.size(Layout::Parameter::width) % 16 == 0;
+      input_arg_2d.size(Layout::Parameter::width) % 16 == 0 &&
+      (input_arg_2d.size(Layout::Parameter::height) >= 512 ||
+       (linear_tiled_canary_vision_fc2_vec2_enabled() &&
+        input_arg_2d.size(Layout::Parameter::height) == 151 &&
+        input_arg_2d.size(Layout::Parameter::width) == 1536 &&
+        output_sizes[Layout::Parameter::width] == 384 &&
+        post_op == LinearPostOp::None && packed_state.bias_defined));
 
   api::UniformParamsBuffer params(context, block);
   api::PipelineBarrier pipeline_barrier{};

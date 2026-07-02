@@ -2584,6 +2584,68 @@
         "If graph dump skip rows appear in successful non-diagnostic timing runs without PYTORCH_VULKAN_STACK_DEP_GRAPH requested.",
         "If compiled-session or deep-segment stack overflow persists, join skip rows with control-plane depth rows to find the remaining recursive host path."
       ]
+    },
+    {
+      "id": "dav2_vits140_exact_fc2_tiled_vec2_canary_2026_07_02",
+      "status": "accepted_canary",
+      "head": "local_exact_fc2_tiled_vec2_canary",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused evidence. This is an env-gated exact FC2 linear plan canary, not a default route or a broad tiled-linear policy.",
+      "contract_or_topology_scope": [
+        "VulkanLinearPlanKey candidate",
+        "exact vision FC2 row",
+        "segmented_stack_wide4_to_exit bridge lane"
+      ],
+      "candidate": "Allow the vec2 tiled linear kernel for the exact DAv2 vits_140 FC2 row [151,1536] x [384,1536] + [384] under PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2.",
+      "correctness": {
+        "status": "passed_focused_test_and_bridge_sanity",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_canary",
+          "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy"
+        ],
+        "focused_test_tolerance": {
+          "atol": 0.001,
+          "rtol": 0.001
+        },
+        "bridge_sanity_max_abs": 1.1846423149108887e-06,
+        "bridge_sanity_mean_abs": 6.115393347272402e-08
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "route_hit": "aten::linear.buffer_float_tiled_bias_vec2",
+        "tiled": true,
+        "vec2": true,
+        "default_route_changed": false
+      },
+      "timing_ms": {
+        "device_resident_mean": 45.842,
+        "device_resident_median": 45.313,
+        "device_resident_p95": 48.401,
+        "device_resident_min": 44.641,
+        "device_resident_max": 50.218,
+        "end_to_end_mean": 65.417,
+        "end_to_end_median": 65.104,
+        "end_to_end_p95": 70.658,
+        "repeat_count": 30,
+        "baseline_graph_dump_guard_smoke_mean": 55.034
+      },
+      "artifacts": [
+        "agent_space/fc2_vec2_test.log",
+        "agent_space/dav2_vits140_fc2_vec2_canary_repeat30.json",
+        "agent_space/dav2_vits140_fc2_vec2_canary_repeat30.log",
+        "agent_space/dav2_vits140_fc2_vec2_canary_repeat5.json"
+      ],
+      "decision": "Keep as accepted opt-in canary evidence for the next linear plan policy. Do not promote as default until adjacent-shape negatives, multi-GPU timing, and a contract-backed plan key prove the selection is not overfit.",
+      "revisit_conditions": [
+        "If adjacent FC2 or non-FC2 linear rows route through the canary.",
+        "If RX 6700 XT or GTX 1080 timing regresses under the same exact canary.",
+        "If a future VulkanLinearPlanKey implementation can encode this as an exact plan candidate with capability/device policy."
+      ]
     }
   ]
 }

@@ -5,6 +5,7 @@
   "status_values": [
     "viable_safe_lane",
     "accepted_default_fix",
+    "accepted_canary",
     "stability_blocked",
     "candidate_needs_policy",
     "evidence_only",
@@ -229,6 +230,21 @@
       "latest_observation": "Existing checked-in evidence records the exact fc2 tiled canary as correctness-clean but slower than the retained-pool wide4 baseline. The post-guard GPU timestamp pass still shows fc2 | mm_buffer_float_bias as the largest stack row at about 15.2 ms/forward, but this is evidence for a new FP32 linear candidate, not promotion of the old tiled kernel.",
       "decision": "Do not promote the current tiled fc2 kernel.",
       "next_proof": "Use the GPU timestamp finding that fc2 is hot to design a new parity-proven FP32 linear plan candidate.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "linear_exact_fc2_tiled_vec2",
+      "status": "accepted_canary",
+      "scope": [
+        "FP32 linear plan",
+        "exact fc2 candidate",
+        "vec2 tiled kernel"
+      ],
+      "canary_or_path": "PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "Focused route testing hits aten::linear.buffer_float_tiled_bias_vec2 for the exact [151,1536] x [384,1536] + [384] FC2 row and matches CPU within atol=1e-3, rtol=1e-3. A warmup-3/repeat-30 RX 9070 vits_140 wide4 bridge run measured about 45.8 ms mean / 45.3 ms median / 48.4 ms p95 device-resident forward with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
+      "decision": "Keep as an opt-in accepted canary. Do not make it default until a linear plan policy, adjacent-shape proof, and broader device/model evidence exist.",
+      "next_proof": "Generalize into a contract-backed VulkanLinearPlanKey candidate or prove it remains exact-only; run adjacent negatives and multi-GPU focused timing before default promotion.",
       "reusable_backend_policy": true
     },
     {

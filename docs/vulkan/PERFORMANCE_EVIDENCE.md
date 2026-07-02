@@ -380,6 +380,17 @@ The initial catalog records the current `vits_140` performance lane:
   to about 93.5 ms mean versus the 64.3 ms wide4 baseline. Keep the tile
   metadata/correctness guard as canary evidence; do not promote this tiled fc2
   route without a faster kernel or tuning policy;
+- exact `vits_140` fc2 vec2 tiled linear canary:
+  `PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2`
+  routes only the exact `[151,1536] x [384,1536] + [384]` bias/no-post-op FC2
+  row to `aten::linear.buffer_float_tiled_bias_vec2`. The focused route test
+  matches CPU within `atol=1e-3, rtol=1e-3`, and a warmup-3/repeat-30 RX 9070
+  `vits_140` wide4 bridge run measured about 45.8 ms mean / 45.3 ms median /
+  48.4 ms p95 device-resident forward with bridge sanity
+  `max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
+  This is accepted opt-in canary evidence and is not default routing. Promotion
+  needs a proper linear plan policy, adjacent-shape proof, and broader device
+  evidence;
 - latest `vits_140` RX 9070 attribution after recovery-flush gating,
   retained-pool wide4 recording, and default descriptor-diagnostic gating:
   the repeated fixed-feature decoder/bridge stack overflow was traced to the
