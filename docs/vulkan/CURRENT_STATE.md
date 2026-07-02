@@ -2069,6 +2069,14 @@ model gate and they do not imply model-specific production routes.
   high in fallback/readback attribution. Task179 reported `cpu_fallback=423`,
   `sync_readback=83`, `tensor_cpu_readback=5827`, and model-core tensor-op
   fallback/readback `0/0`.
+- HY-MT small decode GQA now uses the direct GQA buffer SDPA plan for already
+  admitted `TransformerGQASDPAContract` `SmallNonCausalGQA` rows. A focused
+  RX 9070 16-token sanity run reduced device-resident generate from the earlier
+  52.6 s class to 29.7 s, `cpu_fallback` from 1927 to 967, and tensor CPU
+  readback submits from 8355 to 6435. KV-cache append small-sequence broadening
+  remains blocked: a scratch `S=1..115` sequence-append candidate reduced
+  readback pressure but changed generation-token behavior, so it was not
+  promoted.
 - PaddleOCR RX 9070 screenshot: stable in the Task179 single row. It reported
   `cpu_fallback=1`, `sync_readback=1`, `tensor_cpu_readback=1824`, and
   `conv_prepack_upload=140`; the earlier first-attempt DeviceLost did not
@@ -2161,7 +2169,10 @@ These files are diagnostic inputs. Production code must not depend on
   family plus causal/GQA flags, and row-match bounds/conditional equal-sequence
   checks while scale tolerance, route-policy hard-fail ordering, tensor
   extraction/early dtype-rank guards, SDPA execution, and match-result assembly
-  remain handwritten.
+  remain handwritten. The direct GQA buffer execution plan is now permitted for
+  matched causal prefill rows and matched `SmallNonCausalGQA` decode rows with
+  `query_len == 1` and `source_len <= 64`; broader non-causal/direct decode
+  behavior remains rejected.
 - `VisionSelfAttentionSDPAContract`: bounded rank-3 float vision
   self-attention SDPA legality for the six proven low-resolution rows
   `[BH,T,64]` where `BH in {6,12,16}`, `T in {151,261}`, q/k/v share shape,

@@ -18338,13 +18338,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     enable_gqa=True,
                 )
 
-    def test_scaled_dot_product_attention_hymt_direct_gqa_prefill_avoids_fallback(self):
+    def test_scaled_dot_product_attention_hymt_direct_gqa_avoids_fallback(self):
         torch.manual_seed(0)
         scale = 0.0883883
         cases = (
             (7, 7, True),
             (11, 11, True),
             (99, 99, True),
+            (1, 15, False),
+            (1, 26, False),
         )
         with torch.inference_mode():
             for target_len, source_len, is_causal in cases:

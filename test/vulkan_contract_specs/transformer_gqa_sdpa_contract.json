@@ -665,7 +665,7 @@
       "expected_route_label": "SelectedTransformerGQASDPASmallNonCausalGQA",
       "expected_contract_family": "SmallNonCausalGQA",
       "expected_contract_tuple_id": "small_non_causal_gqa_head128",
-      "expected_cpu_fallback": true
+      "expected_cpu_fallback": false
     }
   ],
   "negative_cases": [

@@ -195,7 +195,10 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: bounded Transformer causal/prefill and decode GQA SDPA rows are
   proven for the current envelope, but broader Transformer attention shapes,
-  masks, scale policy, and direct decode GQA behavior are not proven yet.
+  masks, scale policy, and broader direct decode GQA behavior are not proven
+  yet. Direct GQA buffer execution is currently proven only for matched causal
+  prefill rows and matched `SmallNonCausalGQA` decode rows with
+  `query_len == 1` and `source_len <= 64`.
 - Generated spec coverage: `test/vulkan_contract_specs/transformer_gqa_sdpa_contract.json`
   covers the `SparseAttentionRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope C++

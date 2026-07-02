@@ -2675,7 +2675,8 @@ bool can_use_direct_gqa_sdpa_buffer_path(
     const Tensor& key,
     const Tensor& value,
     const std::optional<Tensor>& attn_mask,
-    const bool is_causal) {
+    const bool is_causal,
+    const utils::TransformerGQASDPAMatch& transformer_gqa_match) {
   if (
       attn_mask.has_value() || query.dim() != 4 || key.dim() != 4 ||
       value.dim() != 4 || query.scalar_type() != kFloat ||
@@ -2686,10 +2687,23 @@ bool can_use_direct_gqa_sdpa_buffer_path(
       key.size(2) != value.size(2)) {
     return false;
   }
+  if (!transformer_gqa_match.matched) {
+    return false;
+  }
   if (is_causal && query.size(2) != key.size(2)) {
     return false;
   }
-  if (!is_causal) {
+  if (
+      !is_causal &&
+      (transformer_gqa_match.family !=
+           utils::TransformerGQASDPAFamily::SmallNonCausalGQA ||
+       query.size(2) != 1 || key.size(2) > 64)) {
+    return false;
+  }
+  if (
+      is_causal &&
+      transformer_gqa_match.family !=
+          utils::TransformerGQASDPAFamily::CausalPrefill) {
     return false;
   }
   if (
@@ -3729,6 +3743,19 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
           is_causal,
           scale,
           enable_gqa);
+  const utils::TransformerGQASDPAMatch transformer_gqa_match =
+      utils::match_transformer_gqa_sdpa_contract(
+          query.sizes(),
+          key.sizes(),
+          value.sizes(),
+          query.scalar_type(),
+          key.scalar_type(),
+          value.scalar_type(),
+          attn_mask && attn_mask->defined(),
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa);
   const bool materialized_diffusion_input =
       sdpa_execution_policy.requires_materialized_math_path;
 
@@ -3769,7 +3796,7 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
             query.size(1) % key.size(1) == 0,
         "Vulkan SDPA GQA expects query heads to be divisible by key/value heads");
     if (can_use_direct_gqa_sdpa_buffer_path(
-            query, key, value, attn_mask, is_causal)) {
+            query, key, value, attn_mask, is_causal, transformer_gqa_match)) {
       const int64_t head_dim = query.size(3);
       const double sdpa_scale =
           scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
