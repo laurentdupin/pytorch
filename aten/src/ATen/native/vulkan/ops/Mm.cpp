@@ -116,6 +116,14 @@ struct VulkanLinearPlanCounters final {
   std::atomic<uint64_t> fallback_float{0};
 };
 
+struct VulkanLinearPlanContractMatch final {
+  bool matched = false;
+  const char* contract_name = "none";
+  const char* contract_family = "none";
+  const char* contract_tuple_id = "none";
+  bool prefer_vec2_tiled = false;
+};
+
 struct VulkanLinearAggregateValue final {
   uint64_t count = 0u;
   uint64_t input_bytes = 0u;
@@ -479,6 +487,34 @@ bool linear_tiled_canary_vision_fc2_vec2_enabled() {
   return value == "vision_fc2_exact_151x1536x384_vec2";
 }
 
+VulkanLinearPlanContractMatch match_vision_fc2_exact_tiled_vec2_linear_plan(
+    const utils::VulkanRuntimePolicy& runtime_policy,
+    const char* role,
+    const ScalarType input_dtype,
+    const int64_t m,
+    const int64_t k,
+    const int64_t n,
+    const bool bias_defined,
+    const LinearPostOp post_op) {
+  const bool exact_vision_fc2 =
+      runtime_policy.request.model_domain == utils::VulkanModelDomain::Vision &&
+      runtime_policy.request.execution_phase ==
+          utils::VulkanExecutionPhase::Backbone &&
+      std::string_view(role ? role : "unknown") == "fc2" &&
+      input_dtype == kFloat && bias_defined && post_op == LinearPostOp::None &&
+      m == 151 && k == 1536 && n == 384;
+  if (!exact_vision_fc2) {
+    return {};
+  }
+  return {
+      true,
+      "VisionFc2ExactTiledVec2LinearPlanContract",
+      "Fp32BiasNoPostOpM151K1536N384",
+      "vision_fc2_m151_k1536_n384_vec2",
+      true,
+  };
+}
+
 const char* linear_kernel_kind_from_name(const char* kernel_name) {
   if (kernel_name == nullptr) {
     return "unknown";
@@ -622,6 +658,7 @@ struct LinearPackedRunState final {
 void note_linear_aggregate(
     const char* kernel_name,
     const Tensor& input_arg_2d,
+    const utils::VulkanRuntimePolicy& runtime_policy,
     const Tensor& packed_weight_tensor,
     const std::optional<Tensor>& packed_bias_tensor,
     const Tensor& output_tensor,
@@ -640,6 +677,16 @@ void note_linear_aggregate(
   const int64_t m = input_arg_2d.size(Layout::Parameter::height);
   const int64_t k = input_arg_2d.size(Layout::Parameter::width);
   const int64_t n = output_sizes[Layout::Parameter::width];
+  const VulkanLinearPlanContractMatch contract =
+      match_vision_fc2_exact_tiled_vec2_linear_plan(
+          runtime_policy,
+          role,
+          input_arg_2d.scalar_type(),
+          m,
+          k,
+          n,
+          bias,
+          post_op);
 
   std::ostringstream key;
   key << "linear_aggregate"
@@ -650,9 +697,9 @@ void note_linear_aggregate(
       << " kernel=" << kernel
       << " submit_kernel=" << (kernel_name ? kernel_name : "unknown")
       << " label=" << (label.empty() ? "unlabeled" : label)
-      << " contract=none"
-      << " contract_family=none"
-      << " contract_tuple=none"
+      << " contract=" << contract.contract_name
+      << " contract_family=" << contract.contract_family
+      << " contract_tuple=" << contract.contract_tuple_id
       << " m=" << m
       << " k=" << k
       << " n=" << n
@@ -1343,13 +1390,25 @@ bool should_use_tiled_buffer_linear_kernel(
   const int64_t input_height = input_arg_2d.size(Layout::Parameter::height);
   const int64_t input_width = input_arg_2d.size(Layout::Parameter::width);
   const int64_t output_width = output_sizes[Layout::Parameter::width];
+  const char* role =
+      linear_role_from_label(api::current_allocation_label(), post_op);
+  const VulkanLinearPlanContractMatch exact_vision_fc2_vec2_contract =
+      match_vision_fc2_exact_tiled_vec2_linear_plan(
+          runtime_policy,
+          role,
+          input_arg_2d.scalar_type(),
+          input_height,
+          input_width,
+          output_width,
+          bias_defined,
+          post_op);
 
   const bool exact_vision_fc2_canary =
       linear_tiled_canary_vision_fc2_enabled() &&
       input_arg_2d.scalar_type() == kFloat && bias_defined &&
       post_op == LinearPostOp::None && input_height == 151 &&
       input_width == 1536 && output_width == 384;
-  if (exact_vision_fc2_canary) {
+  if (exact_vision_fc2_vec2_contract.matched || exact_vision_fc2_canary) {
     return true;
   }
 
@@ -1465,11 +1524,22 @@ Tensor run_float_buffer_linear(
   const bool use_specialized_tiled_kernel =
       should_use_tiled_kernel &&
       (!packed_state.bias_defined || fuse_buffer_bias || fuse_buffer_bias_gelu);
+  const VulkanLinearPlanContractMatch exact_vision_fc2_vec2_contract =
+      match_vision_fc2_exact_tiled_vec2_linear_plan(
+          runtime_policy,
+          linear_role_from_label(api::current_allocation_label(), post_op),
+          input_arg_2d.scalar_type(),
+          input_arg_2d.size(Layout::Parameter::height),
+          input_arg_2d.size(Layout::Parameter::width),
+          output_sizes[Layout::Parameter::width],
+          packed_state.bias_defined,
+          post_op);
   const bool use_vec2_tiled_kernel =
       use_specialized_tiled_kernel &&
       output_sizes[Layout::Parameter::width] >= 384 &&
       input_arg_2d.size(Layout::Parameter::width) % 16 == 0 &&
       (input_arg_2d.size(Layout::Parameter::height) >= 512 ||
+       exact_vision_fc2_vec2_contract.prefer_vec2_tiled ||
        (linear_tiled_canary_vision_fc2_vec2_enabled() &&
         input_arg_2d.size(Layout::Parameter::height) == 151 &&
         input_arg_2d.size(Layout::Parameter::width) == 1536 &&
@@ -1519,6 +1589,7 @@ Tensor run_float_buffer_linear(
     note_linear_aggregate(
         kernel_hit_name,
         input_arg_2d,
+        runtime_policy,
         packed_weight_tensor,
         packed_bias_tensor,
         output_tensor,
@@ -1580,6 +1651,7 @@ Tensor run_float_buffer_linear(
     note_linear_aggregate(
         kernel_hit_name,
         input_arg_2d,
+        runtime_policy,
         packed_weight_tensor,
         packed_bias_tensor,
         output_tensor,

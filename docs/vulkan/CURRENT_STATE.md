@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after the stack-region exit control-plane work-batch
-scaffold and DAv2 vits_140 exact FC2 vec2 tiled linear canary evidence.
+Last refreshed: 2026-07-02 after the DAv2 vits_140 exact FC2 vec2 tiled
+linear plan contract promotion.
 
 ## Repo State Summary
 
@@ -148,11 +148,11 @@ repeats, and the original `vits_140` warmup-0/repeat-30 device-resident
 benchmark completes with about 62.3 ms mean / 60.9 ms median / 72.1 ms p95,
 with zero timed CPU fallback and sync readback. A phase-isolated GPU timestamp
 profile still shows about 43-47 ms of kernel work per forward. The largest GPU
-row is still the FP32 `fc2` linear family
-(`mm_buffer_float_bias`, about 13.9 ms/forward), followed by decoder/other
-convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm. Sub-50 work
-therefore needs control-plane reduction and a parity-proven FP32 linear plan;
-the current tiled fc2 canary is not promoted.
+row was the FP32 `fc2` linear family (`mm_buffer_float_bias`, about
+13.9 ms/forward), followed by decoder/other convs, `fc1_gelu`, qkv/proj
+linears, attention BMM, and LayerNorm. The broad tiled-linear canary remains
+rejected; the later exact vec2 FC2 row is now promoted only through a narrow
+linear plan contract.
 
 Stack-region flatness is now explicit at the runtime-control boundary. Stack
 planned recording and external recording begin/end paths emit
@@ -217,15 +217,16 @@ forward while the timestamp-instrumented wall time was inflated to about
 115.7 ms mean. The top GPU row remained `fc2 | mm_buffer_float_bias` at about
 15.2 ms/forward, followed by decoder/other convs, `fc1_gelu`, qkv/proj
 linears, attention BMM, and LayerNorm. The original exact FC2 tiled canary
-remains rejected as slower, but a narrower vec2 FC2 canary is now accepted as
-opt-in evidence: with
-`PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2` and
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit`,
-a warmup-3/repeat-30 RX 9070 `vits_140` bridge run measured about 45.8 ms mean /
-45.3 ms median / 48.4 ms p95 device-resident forward. Bridge sanity passed at
+remains rejected as slower. The narrower vec2 FC2 row is now promoted as the
+default `VisionFc2ExactTiledVec2LinearPlanContract` for the exact vision
+backbone FP32 bias/no-post-op row `[151,1536] x [384,1536] + [384]`. The
+contract still rejects adjacent rows such as non-FC2 labels, `M=150/152`,
+`N=385`, and no-bias exact dimensions.
+A warmup-3/repeat-30 RX 9070 `vits_140` wide4 bridge run without
+`PYTORCH_VULKAN_LINEAR_TILED_CANARY` measured about 42.6 ms mean / 42.0 ms
+median / 44.7 ms p95 device-resident forward. Bridge sanity passed at
 `max_abs=1.1846423149108887e-06`, CPU fallback remained zero, and sync readback
-remained zero. This is not a default route yet: it is an exact, env-gated
-performance canary for the `[151,1536] -> [151,384]` bias/no-post-op FC2 row.
+remained zero.
 
 Stack-planned submit cleanup now batches pending-retire buffers and images into
 one timeline-gated `RetiredResource` callback per stack-planned submission while
@@ -299,16 +300,14 @@ device-resident mean versus the 64.3 ms wide4 baseline. Keep this as rejected
 linear plan evidence; sub-50 work should not promote the current tiled fc2
 kernel.
 
-The follow-up exact FC2 vec2 tiled-linear canary is accepted as opt-in
-performance evidence, not default routing. With
-`PYTORCH_VULKAN_LINEAR_TILED_CANARY=vision_fc2_exact_151x1536x384_vec2`, the
-focused route test hits `aten::linear.buffer_float_tiled_bias_vec2` for the
-exact `[151,1536] x [384,1536] + [384]` FC2 row and matches CPU within
-`atol=1e-3, rtol=1e-3`. A warmup-3/repeat-30 RX 9070 `vits_140` wide4 bridge
-run measured about 45.8 ms mean / 45.3 ms median / 48.4 ms p95 device-resident
-forward with bridge sanity `max_abs=1.1846423149108887e-06`, CPU fallback zero,
-and sync readback zero. Keep this behind the canary until broader linear-plan
-policy and adjacent-shape evidence exist.
+The follow-up exact FC2 vec2 tiled-linear path is now an accepted default exact
+linear plan contract, not an env-gated canary. Focused tests prove that the
+exact `[151,1536] x [384,1536] + [384]` FC2 row selects
+`aten::linear.buffer_float_tiled_bias_vec2` without
+`PYTORCH_VULKAN_LINEAR_TILED_CANARY`, matches CPU within `atol=1e-3, rtol=1e-3`,
+and keeps adjacent non-FC2, `M=150/152`, `N=385`, and no-bias rows on the old
+route. The legacy env canary remains for compatibility, but default promotion
+is limited to the exact `VisionFc2ExactTiledVec2LinearPlanContract` row.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
