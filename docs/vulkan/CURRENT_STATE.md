@@ -155,6 +155,18 @@ convs, `fc1_gelu`, qkv/proj linears, attention BMM, and LayerNorm. Sub-50 work
 therefore needs control-plane reduction and a parity-proven FP32 linear plan;
 the current tiled fc2 canary is not promoted.
 
+Stack-region flatness is now explicit at the runtime-control boundary. Stack
+planned recording and external recording begin/end paths emit
+`stack_region_recording_depth_guard` rows under existing sync/CPU-timeline logs
+when a nested or underflowed recording scope is rejected. Central submit,
+pending-retire drain, retire-cleanup, and external-recording cleanup paths emit
+`stack_region_control_plane_depth_guard` rows only if they are reentered while
+already active. Inference replay record/warmup callbacks also fail closed on
+nested callbacks with a `reject_nested_replay_callback` reason. Normal
+`vits_140` wide4 bridge smoke stays quiet, so these guards are diagnostic
+contracts for future compiled/segmented work rather than a route change or a
+performance claim.
+
 Stack-planned submit cleanup now batches pending-retire buffers and images into
 one timeline-gated `RetiredResource` callback per stack-planned submission while
 preserving the existing per-resource `note_vulkan_retired_resource` accounting.

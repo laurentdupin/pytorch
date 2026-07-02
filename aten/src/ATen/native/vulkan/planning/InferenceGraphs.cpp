@@ -28,6 +28,47 @@ namespace utils {
 namespace {
 
 constexpr size_t kInferenceGraphCacheSize = 32u;
+thread_local size_t g_inference_replay_callback_depth = 0u;
+
+class InferenceReplayCallbackDepthScope final {
+ public:
+  InferenceReplayCallbackDepthScope(
+      const char* const phase,
+      const char* const allocation_label,
+      const void* const identity)
+      : active_(true) {
+    if (g_inference_replay_callback_depth != 0u) {
+      std::ostringstream detail;
+      detail << "action=reject_nested_replay_callback"
+             << " phase=" << (phase ? phase : "unknown")
+             << " allocation_label="
+             << (allocation_label ? allocation_label : "unknown")
+             << " identity=" << identity
+             << " depth=" << g_inference_replay_callback_depth;
+      TORCH_CHECK(
+          false,
+          "Nested Vulkan inference replay callbacks are unsupported; ",
+          "compiled regions must be flattened into first-class replay steps. ",
+          detail.str());
+    }
+    ++g_inference_replay_callback_depth;
+  }
+
+  InferenceReplayCallbackDepthScope(
+      const InferenceReplayCallbackDepthScope&) = delete;
+  InferenceReplayCallbackDepthScope& operator=(
+      const InferenceReplayCallbackDepthScope&) = delete;
+
+  ~InferenceReplayCallbackDepthScope() {
+    if (active_) {
+      TORCH_INTERNAL_ASSERT(g_inference_replay_callback_depth > 0u);
+      --g_inference_replay_callback_depth;
+    }
+  }
+
+ private:
+  bool active_;
+};
 
 template <typename T>
 void hash_combine(size_t& seed, const T& value) {
@@ -779,6 +820,8 @@ bool InferenceReplay::recorded() const {
 
 void InferenceReplay::record(const std::function<void()>& recorder) const {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined InferenceReplay");
+  InferenceReplayCallbackDepthScope depth_scope(
+      "record", state_->allocation_label_.c_str(), identity());
   std::lock_guard<std::mutex> lock(state_->mutex_);
   if (state_->command_buffer_.has_value()) {
     return;
@@ -1033,6 +1076,11 @@ void ExecutionGraphReplayBundle::warmup() const {
   TORCH_INTERNAL_ASSERT(
       !state_->steps_.empty(),
       "ExecutionGraphReplayBundle does not define warmup steps");
+  InferenceReplayCallbackDepthScope depth_scope(
+      "warmup",
+      state_->replay_.defined() ? state_->replay_.allocation_label().c_str()
+                                : "execution_graph_replay_bundle",
+      state_->replay_.defined() ? state_->replay_.identity() : identity());
   for (const auto& step : state_->steps_) {
     step.record_step();
   }

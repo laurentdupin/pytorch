@@ -14,6 +14,17 @@ readback, weaken public-output safety, or turn requested Python-visible
 captures into private tensors without an explicit same-region consumer
 contract.
 
+The graph/control-plane model is intentionally flat. Stack planned recording,
+external command recording, central submit/retire cleanup, and replay
+record/warmup callbacks are not allowed to become recursive host execution
+paths. CUDA and DirectML carry repeated execution in stream, graph, descriptor,
+command-list, and queue objects; Vulkan stack regions should do the same rather
+than nesting replay callbacks or recording scopes. Current diagnostics enforce
+that by emitting `stack_region_recording_depth_guard` and
+`stack_region_control_plane_depth_guard` rows only when reentry is observed,
+and by failing closed on nested inference replay callbacks with
+`reject_nested_replay_callback`.
+
 ## Why Retire-Time Proof Was Insufficient
 
 Prior DAv2 `vits_140` experiments showed that lifetime and retire provenance

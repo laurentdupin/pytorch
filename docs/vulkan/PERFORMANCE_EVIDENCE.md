@@ -411,6 +411,17 @@ The initial catalog records the current `vits_140` performance lane:
   repeats. A no-skip-output three-repeat sanity completed with
   `performance_valid=true`, but the no-bridge path does not emit a
   model-vs-reference `max_abs` field;
+- stack/control-plane flatness guard: accepted diagnostic contract. Stack and
+  external recording begin/end paths now log rejected nested/underflow scopes,
+  central submit/retire cleanup paths log only on reentry, and replay
+  record/warmup callbacks fail closed on nested callbacks. A bounded wide4
+  `vits_140` bridge smoke with sync logging emitted no depth-guard rows,
+  passed bridge sanity at `max_abs=1.1846423149108887e-06`, and measured about
+  57.1 ms mean / 57.7 ms median / 58.9 ms p95 over three device-resident
+  repeats. A bounded segmented `compiled_session_bridge` three-repeat probe
+  also avoided process stack overflow and passed sanity at
+  `max_abs=8.787959814071655e-06`, but remained slower at about 101.3 ms mean,
+  so it remains diagnostic evidence rather than a promoted performance path;
 - decoder-tail ReLU via conv clamp: correct but slower;
 - fused Depth Anything V2 head shader path: correctness blocked;
 - compiled-session bridge/replay shortcut: unsafe blocked;

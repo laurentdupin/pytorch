@@ -1354,6 +1354,122 @@ struct ExternalCommandRecordingState final {
 
 thread_local ExternalCommandRecordingState g_external_command_recording_state{};
 thread_local c10::DeviceIndex g_current_device_index = -1;
+thread_local uint32_t g_submit_cmd_to_gpu_depth = 0u;
+thread_local uint32_t g_submit_pending_work_and_poll_retire_depth = 0u;
+thread_local uint32_t g_retire_deferred_cleanup_depth = 0u;
+thread_local uint32_t g_external_recording_cleanup_depth = 0u;
+
+void append_stack_region_recording_depth_guard_log_line(
+    const std::string& line) {
+  if (sync_logging_enabled()) {
+    append_sync_log_line(line);
+  }
+  if (cpu_timeline_logging_enabled()) {
+    append_cpu_timeline_log_line(line);
+  }
+}
+
+uint32_t external_command_recording_depth() {
+  return g_external_command_recording_state.cmd != nullptr ? 1u : 0u;
+}
+
+void log_stack_region_recording_depth_guard(
+    const char* guard_event,
+    const char* status,
+    const bool stack_planned_recording_active,
+    const bool stack_planned_recording_owned_by_current_thread,
+    const bool external_recording_active,
+    const bool stack_region_owned_command_buffer_active,
+    const bool stack_planned_descriptor_pool_lease_active,
+    const uint32_t attempted_stack_recording_depth,
+    const uint32_t attempted_external_recording_depth) {
+  if (!sync_logging_enabled() && !cpu_timeline_logging_enabled()) {
+    return;
+  }
+
+  std::ostringstream stream;
+  stream << "event=stack_region_recording_depth_guard"
+         << " guard_event=" << guard_event
+         << " status=" << status
+         << " stack_planned_recording_active="
+         << (stack_planned_recording_active ? 1 : 0)
+         << " stack_planned_recording_owned_by_current_thread="
+         << (stack_planned_recording_owned_by_current_thread ? 1 : 0)
+         << " external_recording_active="
+         << (external_recording_active ? 1 : 0)
+         << " stack_region_owned_command_buffer_active="
+         << (stack_region_owned_command_buffer_active ? 1 : 0)
+         << " stack_planned_descriptor_pool_lease_active="
+         << (stack_planned_descriptor_pool_lease_active ? 1 : 0)
+         << " attempted_stack_recording_depth="
+         << attempted_stack_recording_depth
+         << " attempted_external_recording_depth="
+         << attempted_external_recording_depth
+         << " max_supported_recording_depth=1"
+         << " behavior_changed=0"
+         << " submit_elision_enabled=0";
+  append_stack_region_recording_depth_guard_log_line(stream.str());
+}
+
+class StackRegionControlPlaneDepthScope final {
+ public:
+  StackRegionControlPlaneDepthScope(
+      const char* const scope,
+      const Context* const context,
+      uint32_t& depth,
+      const VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown,
+      const VulkanRetireCallSite callsite = VulkanRetireCallSite::Unknown)
+      : context_(context), depth_(depth), active_(true) {
+    if (depth_ != 0u) {
+      log_reentry(scope, depth_ + 1u, origin, callsite);
+    }
+    ++depth_;
+  }
+
+  StackRegionControlPlaneDepthScope(
+      const StackRegionControlPlaneDepthScope&) = delete;
+  StackRegionControlPlaneDepthScope& operator=(
+      const StackRegionControlPlaneDepthScope&) = delete;
+
+  ~StackRegionControlPlaneDepthScope() {
+    if (active_) {
+      TORCH_INTERNAL_ASSERT(depth_ > 0u);
+      --depth_;
+    }
+  }
+
+ private:
+  void log_reentry(
+      const char* const scope,
+      const uint32_t attempted_depth,
+      const VulkanSubmitOrigin origin,
+      const VulkanRetireCallSite callsite) const {
+    if (!sync_logging_enabled() && !cpu_timeline_logging_enabled()) {
+      return;
+    }
+    std::ostringstream stream;
+    stream << "event=stack_region_control_plane_depth_guard"
+           << " scope=" << (scope ? scope : "unknown")
+           << " status=reentrant_control_plane_scope"
+           << " attempted_depth=" << attempted_depth
+           << " max_supported_depth=1"
+           << " submit_origin=" << submit_origin_name(origin)
+           << " submit_phase=" << submit_phase_name(current_submit_phase())
+           << " stack_phase="
+           << vision_stack_phase_name(current_vision_stack_phase())
+           << " stack_block=" << current_vision_stack_block_index()
+           << " retire_callsite=" << retire_call_site_name(callsite)
+           << " pending_retire_bytes="
+           << (context_ ? context_->pending_retire_bytes() : 0u)
+           << " behavior_changed=0"
+           << " submit_elision_enabled=0";
+    append_stack_region_recording_depth_guard_log_line(stream.str());
+  }
+
+  const Context* context_;
+  uint32_t& depth_;
+  bool active_;
+};
 
 ContextConfig default_context_config() {
   const uint32_t submit_frequency = 16u;
@@ -2450,9 +2566,28 @@ CommandBuffer& Context::active_cmd() {
 }
 
 void Context::begin_external_command_recording(CommandBuffer& cmd) {
+  const bool external_recording_active =
+      g_external_command_recording_state.cmd != nullptr;
+  if (external_recording_active) {
+    const bool stack_planned_recording_active =
+        is_stack_planned_recording_active();
+    log_stack_region_recording_depth_guard(
+        "begin_external_command_recording",
+        "rejected_external_recording_depth_exceeds_one",
+        stack_planned_recording_active,
+        stack_planned_recording_owner_ == std::this_thread::get_id(),
+        /*external_recording_active=*/true,
+        stack_region_owned_command_buffer_active_.load(
+            std::memory_order_acquire),
+        stack_planned_recording_descriptor_pool_lease_ != nullptr,
+        stack_planned_recording_active ? 1u : 0u,
+        2u);
+  }
   VK_CHECK_COND(
-      g_external_command_recording_state.cmd == nullptr,
-      "Vulkan external command recording is already active");
+      !external_recording_active,
+      "Vulkan external command recording is already active; "
+      "stack_region_recording_reentry_guard="
+      "external_recording_depth_exceeds_one max_supported_recording_depth=1");
   stack_region_external_command_buffer_acquire_at_begin_ =
       stack_region_external_command_buffer_acquire_count_;
   stack_region_external_descriptor_set_count_at_begin_ =
@@ -2470,9 +2605,26 @@ void Context::begin_external_command_recording(CommandBuffer& cmd) {
 }
 
 void Context::end_external_command_recording() {
+  if (g_external_command_recording_state.cmd == nullptr) {
+    const bool stack_planned_recording_active =
+        is_stack_planned_recording_active();
+    log_stack_region_recording_depth_guard(
+        "end_external_command_recording",
+        "rejected_external_recording_underflow",
+        stack_planned_recording_active,
+        stack_planned_recording_owner_ == std::this_thread::get_id(),
+        /*external_recording_active=*/false,
+        stack_region_owned_command_buffer_active_.load(
+            std::memory_order_acquire),
+        stack_planned_recording_descriptor_pool_lease_ != nullptr,
+        stack_planned_recording_active ? 1u : 0u,
+        0u);
+  }
   VK_CHECK_COND(
       g_external_command_recording_state.cmd != nullptr,
-      "Vulkan external command recording is not active");
+      "Vulkan external command recording is not active; "
+      "stack_region_recording_reentry_guard=external_recording_underflow "
+      "max_supported_recording_depth=1");
   g_external_command_recording_state.cmd = nullptr;
   g_external_command_recording_state.segment_metadata_observed = false;
 }
@@ -3193,6 +3345,14 @@ VulkanSubmission Context::submit_cmd_handle_to_gpu(
 void Context::retire_deferred_cleanup(
     VulkanSubmission submission,
     VulkanSubmitOrigin origin) {
+  StackRegionControlPlaneDepthScope depth_scope(
+      "retire_deferred_cleanup",
+      this,
+      g_retire_deferred_cleanup_depth,
+      origin,
+      origin == VulkanSubmitOrigin::StackPlannedRecordingSubmit
+          ? VulkanRetireCallSite::StackPlannedRecordingEnd
+          : retire_call_site_for_current_phase());
   if (submission.timeline == VK_NULL_HANDLE || submission.timeline_value == 0u) {
     clear_pending_retire_resources_locked();
     return;
@@ -3297,6 +3457,12 @@ void Context::retire_external_recording_cleanup_resources(
     const uint64_t segment_start_block,
     const uint64_t segment_end_block,
     const uint64_t segment_planned_dispatch_count) {
+  StackRegionControlPlaneDepthScope depth_scope(
+      "retire_external_recording_cleanup_resources",
+      this,
+      g_external_recording_cleanup_depth,
+      VulkanSubmitOrigin::StackPlannedRecordingSubmit,
+      VulkanRetireCallSite::StackPlannedRecordingEnd);
   const uint64_t buffer_count = buffers.size();
   const uint64_t image_count = images.size();
   const uint64_t resource_count = buffer_count + image_count;
@@ -3414,6 +3580,12 @@ void Context::poll_retire_queue() {
 
 void Context::submit_pending_work_and_poll_retire(
     const PendingWorkRetireDrainPolicy policy) {
+  StackRegionControlPlaneDepthScope depth_scope(
+      "submit_pending_work_and_poll_retire",
+      this,
+      g_submit_pending_work_and_poll_retire_depth,
+      VulkanSubmitOrigin::RetireQueueDrain,
+      retire_call_site_for_current_phase());
   const uint64_t pending_bytes = pending_retire_bytes();
   const VulkanRetireCallSite callsite = retire_call_site_for_current_phase();
   const VulkanSubmitPhase phase = current_submit_phase();
@@ -3854,6 +4026,12 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     VkFence fence_handle,
     const bool final_use,
     VulkanSubmitOrigin origin) {
+  StackRegionControlPlaneDepthScope depth_scope(
+      "submit_cmd_to_gpu",
+      this,
+      g_submit_cmd_to_gpu_depth,
+      origin,
+      retire_call_site_for_current_phase());
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -4456,15 +4634,47 @@ void Context::flush_pending_cmds(VkFence fence_handle) {
 void Context::begin_stack_planned_recording(
     const bool allow_stack_owned_command_buffer_canary) {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  const bool external_recording_active = is_inside_owned_program_recording();
+  const bool stack_planned_recording_active =
+      is_stack_planned_recording_active();
+  const bool descriptor_pool_lease_active =
+      stack_planned_recording_descriptor_pool_lease_ != nullptr;
+  if (
+      external_recording_active || stack_planned_recording_active ||
+      descriptor_pool_lease_active) {
+    const char* status = external_recording_active
+        ? "rejected_external_recording_active"
+        : stack_planned_recording_active
+        ? "rejected_stack_planned_recording_depth_exceeds_one"
+        : "rejected_stack_descriptor_pool_lease_active";
+    log_stack_region_recording_depth_guard(
+        "begin_stack_planned_recording",
+        status,
+        stack_planned_recording_active,
+        stack_planned_recording_owner_ == std::this_thread::get_id(),
+        external_recording_active,
+        stack_region_owned_command_buffer_active_.load(
+            std::memory_order_acquire),
+        descriptor_pool_lease_active,
+        stack_planned_recording_active ? 2u : 1u,
+        external_command_recording_depth());
+  }
   VK_CHECK_COND(
-      !is_inside_owned_program_recording(),
-      "Cannot begin stack planned recording inside external command recording");
+      !external_recording_active,
+      "Cannot begin stack planned recording inside external command recording; "
+      "stack_region_recording_reentry_guard=external_recording_active "
+      "max_supported_recording_depth=1");
   VK_CHECK_COND(
-      !is_stack_planned_recording_active(),
-      "Vulkan stack planned recording is already active");
+      !stack_planned_recording_active,
+      "Vulkan stack planned recording is already active; "
+      "stack_region_recording_reentry_guard="
+      "stack_planned_recording_depth_exceeds_one "
+      "max_supported_recording_depth=1");
   VK_CHECK_COND(
-      !stack_planned_recording_descriptor_pool_lease_,
-      "Stack-planned descriptor pool lease is already active");
+      !descriptor_pool_lease_active,
+      "Stack-planned descriptor pool lease is already active; "
+      "stack_region_recording_reentry_guard=descriptor_pool_lease_active "
+      "max_supported_recording_depth=1");
   submit_cmd_to_gpu(VK_NULL_HANDLE, false, VulkanSubmitOrigin::PreStackFlush);
   stack_planned_recording_owner_ = std::this_thread::get_id();
   stack_planned_recording_stats_ = StackPlannedRecordingStats{};
@@ -4580,12 +4790,37 @@ void Context::begin_stack_planned_recording(
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  const bool stack_planned_recording_active =
+      is_stack_planned_recording_active();
+  const bool stack_planned_recording_owned_by_current_thread =
+      stack_planned_recording_owner_ == std::this_thread::get_id();
+  if (
+      !stack_planned_recording_active ||
+      !stack_planned_recording_owned_by_current_thread) {
+    log_stack_region_recording_depth_guard(
+        "end_stack_planned_recording_and_submit",
+        !stack_planned_recording_active
+            ? "rejected_stack_planned_recording_underflow"
+            : "rejected_stack_planned_recording_wrong_thread",
+        stack_planned_recording_active,
+        stack_planned_recording_owned_by_current_thread,
+        is_inside_owned_program_recording(),
+        stack_region_owned_command_buffer_active_.load(
+            std::memory_order_acquire),
+        stack_planned_recording_descriptor_pool_lease_ != nullptr,
+        stack_planned_recording_active ? 1u : 0u,
+        external_command_recording_depth());
+  }
   VK_CHECK_COND(
-      is_stack_planned_recording_active(),
-      "Vulkan stack planned recording is not active");
+      stack_planned_recording_active,
+      "Vulkan stack planned recording is not active; "
+      "stack_region_recording_reentry_guard=stack_planned_recording_underflow "
+      "max_supported_recording_depth=1");
   VK_CHECK_COND(
-      stack_planned_recording_owner_ == std::this_thread::get_id(),
-      "Vulkan stack planned recording ended from the wrong thread");
+      stack_planned_recording_owned_by_current_thread,
+      "Vulkan stack planned recording ended from the wrong thread; "
+      "stack_region_recording_reentry_guard="
+      "stack_planned_recording_wrong_thread max_supported_recording_depth=1");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
   const bool bind_stack_internal_source_at_stack_exit =
@@ -4643,9 +4878,26 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
 
 StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  const bool stack_planned_recording_active =
+      is_stack_planned_recording_active();
+  if (!stack_planned_recording_active) {
+    log_stack_region_recording_depth_guard(
+        "cancel_stack_planned_recording",
+        "rejected_stack_planned_recording_underflow",
+        /*stack_planned_recording_active=*/false,
+        stack_planned_recording_owner_ == std::this_thread::get_id(),
+        is_inside_owned_program_recording(),
+        stack_region_owned_command_buffer_active_.load(
+            std::memory_order_acquire),
+        stack_planned_recording_descriptor_pool_lease_ != nullptr,
+        0u,
+        external_command_recording_depth());
+  }
   VK_CHECK_COND(
-      is_stack_planned_recording_active(),
-      "Vulkan stack planned recording is not active");
+      stack_planned_recording_active,
+      "Vulkan stack planned recording is not active; "
+      "stack_region_recording_reentry_guard=stack_planned_recording_underflow "
+      "max_supported_recording_depth=1");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   snapshot_stack_region_pending_retire_transfer_source_locked(
       3u);
