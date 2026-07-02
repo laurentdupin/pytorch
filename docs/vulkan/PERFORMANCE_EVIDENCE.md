@@ -445,6 +445,19 @@ The initial catalog records the current `vits_140` performance lane:
   `max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
   This is not a route, submit, retire, shader, copy, readback, or fallback
   change;
+- stack-region exit control-plane work batch: accepted reporting
+  infrastructure. `end_stack_planned_recording_and_submit()` now prepares a
+  heap-owned `StackRegionControlPlaneWorkBatch.v0` after closing/submitting the
+  stack region and drains it immediately under the same lock and in the same
+  order as the previous inline code. Snapshot rows record `stage=prepared` and
+  `stage=drained_inline` with `submit_topology_preserved=1`,
+  `phase_boundary_submits_preserved=1`, `submit_elision_enabled=0`, and
+  `deferred_submit_enabled=0`. Focused graph tests assert both rows are visible;
+  a short RX 9070 `vits_140` wide4 smoke after the scaffold measured about
+  56.9 ms mean / 56.9 ms median / 57.2 ms p95, with bridge sanity
+  `max_abs=1.1846423149108887e-06`, CPU fallback zero, and sync readback zero.
+  This is a stack-overflow flatness scaffold only: cleanup is not deferred,
+  submit topology is unchanged, and no performance claim is attached;
 - post-guard RX 9070 `vits_140` timestamp attribution:
   `agent_space/dav2_vits140_post_guard_gpu_timestamp_summary.md` records about
   44.2 ms of timestamped GPU work per forward under deliberately intrusive

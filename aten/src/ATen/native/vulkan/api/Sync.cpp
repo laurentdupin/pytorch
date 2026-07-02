@@ -3290,9 +3290,19 @@ struct StackRegionGraphDumpSkipValue final {
   uint64_t count = 0u;
 };
 
+struct StackRegionControlPlaneWorkBatchValue final {
+  uint64_t count = 0u;
+};
+
 std::map<std::string, StackRegionGraphDumpSkipValue>&
 stack_region_graph_dump_skip_rows() {
   static std::map<std::string, StackRegionGraphDumpSkipValue> rows;
+  return rows;
+}
+
+std::map<std::string, StackRegionControlPlaneWorkBatchValue>&
+stack_region_control_plane_work_batch_rows() {
+  static std::map<std::string, StackRegionControlPlaneWorkBatchValue> rows;
   return rows;
 }
 
@@ -25104,6 +25114,33 @@ bool stack_descriptor_dependency_diagnostics_enabled() {
   return g_stack_descriptor_dependency_diagnostics_active;
 }
 
+void note_stack_region_control_plane_work_batch(
+    const char* const stage,
+    const bool prepared,
+    const bool drained_inline,
+    const bool pending_retire_handoff_at_stack_exit,
+    const bool bind_stack_internal_source_at_stack_exit,
+    const bool timeline_valid) {
+  std::ostringstream key;
+  key << "stack_region_control_plane_work_batch=1"
+      << " schema=StackRegionControlPlaneWorkBatch.v0"
+      << " stage=" << (stage ? stage : "unknown")
+      << " prepared=" << (prepared ? "1" : "0")
+      << " drained_inline=" << (drained_inline ? "1" : "0")
+      << " pending_retire_handoff_at_stack_exit="
+      << (pending_retire_handoff_at_stack_exit ? "1" : "0")
+      << " bind_stack_internal_source_at_stack_exit="
+      << (bind_stack_internal_source_at_stack_exit ? "1" : "0")
+      << " timeline_valid=" << (timeline_valid ? "1" : "0")
+      << " behavior_neutral=1"
+      << " submit_topology_preserved=1"
+      << " phase_boundary_submits_preserved=1"
+      << " submit_elision_enabled=0"
+      << " deferred_submit_enabled=0";
+  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
+  stack_region_control_plane_work_batch_rows()[key.str()].count += 1u;
+}
+
 void note_stack_region_recording_domain(
     const char* const event,
     const uint64_t region_id,
@@ -33651,6 +33688,7 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_owner_frequency_submit_plan_rows().size() +
       stack_region_external_recording_cleanup_logical_boundary_rows().size() +
       stack_region_external_recording_cleanup_retire_rows().size() +
+      stack_region_control_plane_work_batch_rows().size() +
       stack_region_segment_plan_rows().size() +
       stack_raw_resource_producer_registration_rows().size());
   for (const auto& item : stack_dispatch_dependency_dispatch_rows()) {
@@ -33843,6 +33881,11 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
     row << item.first << " count=" << item.second.count;
     rows.push_back(row.str());
   }
+  for (const auto& item : stack_region_control_plane_work_batch_rows()) {
+    std::ostringstream row;
+    row << item.first << " count=" << item.second.count;
+    rows.push_back(row.str());
+  }
   for (const auto& item : stack_region_segment_plan_rows()) {
     std::ostringstream row;
     row << item.first << " count=" << item.second.count;
@@ -33887,6 +33930,7 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_owner_frequency_submit_plan_rows().clear();
   stack_region_external_recording_cleanup_logical_boundary_rows().clear();
   stack_region_external_recording_cleanup_retire_rows().clear();
+  stack_region_control_plane_work_batch_rows().clear();
   stack_region_segment_plan_rows().clear();
   stack_raw_resource_producer_registration_rows().clear();
   stack_output_device_consumer_registrations().clear();

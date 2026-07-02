@@ -238,6 +238,14 @@ class TORCH_API Context final {
       bridge_private_capture_pending_retire_handoff_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
+  struct StackRegionExitWorkBatch final {
+    VulkanSubmission submission;
+    bool prepared = false;
+    bool drained_inline = false;
+    bool pending_retire_handoff_at_stack_exit = false;
+    bool bind_stack_internal_source_at_stack_exit = false;
+    bool preserve_larger_source = false;
+  };
 
   void clear_pending_retire_resources_locked();
   void clear_stack_internal_temp_retire_batch_locked();
@@ -270,6 +278,11 @@ class TORCH_API Context final {
       uint32_t state,
       bool include_context_pending_retires = false,
       bool preserve_larger_source = false);
+  std::unique_ptr<StackRegionExitWorkBatch>
+  prepare_stack_region_exit_work_batch_locked(
+      const VulkanSubmission& submission);
+  void drain_stack_region_exit_work_batch_locked(
+      StackRegionExitWorkBatch& batch);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;

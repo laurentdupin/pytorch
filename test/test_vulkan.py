@@ -22009,6 +22009,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "complete_boundary_dependency_set",
                 graph["unproven_or_missing_metadata_fields"],
             )
+            dependency_rows = (
+                torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot()
+            )
+            batch_rows = [
+                row
+                for row in dependency_rows
+                if "StackRegionControlPlaneWorkBatch.v0" in row
+            ]
+            self.assertTrue(
+                any("stage=prepared" in row for row in batch_rows)
+            )
+            self.assertTrue(
+                any("stage=drained_inline" in row for row in batch_rows)
+            )
+            self.assertTrue(
+                all("submit_elision_enabled=0" in row for row in batch_rows)
+            )
+            self.assertTrue(
+                all("submit_topology_preserved=1" in row for row in batch_rows)
+            )
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)

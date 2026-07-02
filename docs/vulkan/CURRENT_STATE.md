@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after the DAv2 vits_140 exact FC2 vec2 tiled
-linear canary repeat-30 evidence.
+Last refreshed: 2026-07-02 after the stack-region exit control-plane work-batch
+scaffold and DAv2 vits_140 exact FC2 vec2 tiled linear canary evidence.
 
 ## Repo State Summary
 
@@ -176,6 +176,20 @@ dump at stack dependency-scope end still serializes outside those control-plane
 scopes. Recursive graph serialization itself is also counted and skipped. This
 is behavior-neutral diagnostic protection only: it changes no route, contract,
 submit, retire, copy, readback, or shader behavior.
+
+Stack-region exit cleanup now has an explicit behavior-neutral
+`StackRegionControlPlaneWorkBatch.v0` scaffold.
+`end_stack_planned_recording_and_submit()` still closes/submits the stack
+region, snapshots pending-retire transfer sources, retires stack-internal
+temporary batches, retires stack-region handoff batches, and finalizes owner
+state under the same lock and in the same order as before. The difference is
+that those post-submit actions are now prepared as a heap-owned exit work batch
+and drained immediately. The batch emits prepared and `drained_inline` rows with
+`submit_topology_preserved=1`, `phase_boundary_submits_preserved=1`,
+`submit_elision_enabled=0`, and `deferred_submit_enabled=0`. This is the first
+flattening scaffold for the remaining deep/compiled-session stack-overflow
+class; it does not defer cleanup, remove submits, change command-buffer
+topology, or claim a timing win.
 
 A post-guard RX 9070 `vits_140` GPU timestamp pass with
 `segmented_stack_wide4_to_exit` showed about 44.2 ms of timestamped GPU work per

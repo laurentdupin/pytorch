@@ -4790,6 +4790,87 @@ void Context::begin_stack_planned_recording(
           std::memory_order_acquire));
 }
 
+std::unique_ptr<Context::StackRegionExitWorkBatch>
+Context::prepare_stack_region_exit_work_batch_locked(
+    const VulkanSubmission& submission) {
+  auto batch = std::make_unique<StackRegionExitWorkBatch>();
+  batch->submission = submission;
+  batch->prepared = true;
+  batch->bind_stack_internal_source_at_stack_exit =
+      stack_region_pending_retire_transfer_owner_stack_internal_enabled() &&
+      stack_region_close_submit_owner_stack_exit_enabled();
+  batch->pending_retire_handoff_at_stack_exit =
+      has_stack_region_pending_retire_handoff_batch_locked();
+  batch->preserve_larger_source =
+      !batch->bind_stack_internal_source_at_stack_exit &&
+      !batch->pending_retire_handoff_at_stack_exit;
+  note_stack_region_control_plane_work_batch(
+      "prepared",
+      batch->prepared,
+      batch->drained_inline,
+      batch->pending_retire_handoff_at_stack_exit,
+      batch->bind_stack_internal_source_at_stack_exit,
+      batch->submission.timeline != VK_NULL_HANDLE &&
+          batch->submission.timeline_value != 0u);
+  return batch;
+}
+
+void Context::drain_stack_region_exit_work_batch_locked(
+    StackRegionExitWorkBatch& batch) {
+  log_stack_region_retained_state_locked(
+      "stack_exit_before_handoff_batches",
+      &batch.submission);
+  snapshot_stack_region_pending_retire_transfer_source_locked(
+      batch.pending_retire_handoff_at_stack_exit ? 6u : 2u,
+      /*include_context_pending_retires=*/false,
+      batch.preserve_larger_source);
+  retire_stack_internal_temp_retire_batch_locked(batch.submission);
+  retire_stack_region_pending_retire_handoff_batch_locked(batch.submission);
+  stack_region_recording_domain_observation_active_.store(
+      false, std::memory_order_release);
+  stack_planned_recording_active_.store(false, std::memory_order_release);
+  stack_region_single_recording_plan_state_.store(
+      2u, std::memory_order_release);
+  stack_region_single_recording_owner_state_.store(
+      2u, std::memory_order_release);
+  stack_region_command_buffer_batch_lease_state_.store(
+      2u, std::memory_order_release);
+  const uint32_t close_submit_owner_state =
+      stack_region_close_submit_owner_state_.load(std::memory_order_acquire);
+  uint32_t finalized_close_submit_owner_state = 2u;
+  if (close_submit_owner_state == 4u) {
+    finalized_close_submit_owner_state = 5u;
+  } else if (close_submit_owner_state == 7u) {
+    finalized_close_submit_owner_state = 8u;
+  }
+  stack_region_close_submit_owner_state_.store(
+      finalized_close_submit_owner_state, std::memory_order_release);
+  stack_region_command_ownership_state_.store(
+      2u, std::memory_order_release);
+  stack_region_command_pool_reset_deferral_owner_state_.store(
+      2u, std::memory_order_release);
+  stack_region_retire_timeline_owner_state_.store(
+      2u, std::memory_order_release);
+  const uint32_t pending_retire_transfer_owner_state =
+      stack_region_pending_retire_transfer_owner_state_.load(
+          std::memory_order_acquire);
+  stack_region_pending_retire_transfer_owner_state_.store(
+      pending_retire_transfer_owner_state == 4u ? 5u : 2u,
+      std::memory_order_release);
+  stack_planned_recording_owner_ = std::thread::id{};
+  stack_planned_recording_stats_ = StackPlannedRecordingStats{};
+  log_stack_region_retained_state_locked("stack_exit_after_finalize");
+  batch.drained_inline = true;
+  note_stack_region_control_plane_work_batch(
+      "drained_inline",
+      batch.prepared,
+      batch.drained_inline,
+      batch.pending_retire_handoff_at_stack_exit,
+      batch.bind_stack_internal_source_at_stack_exit,
+      batch.submission.timeline != VK_NULL_HANDLE &&
+          batch.submission.timeline_value != 0u);
+}
+
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   const bool stack_planned_recording_active =
@@ -4825,56 +4906,9 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
       "stack_planned_recording_wrong_thread max_supported_recording_depth=1");
   StackPlannedRecordingStats stats = stack_planned_recording_stats_;
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
-  const bool bind_stack_internal_source_at_stack_exit =
-      stack_region_pending_retire_transfer_owner_stack_internal_enabled() &&
-      stack_region_close_submit_owner_stack_exit_enabled();
-  const bool pending_retire_handoff_at_stack_exit =
-      has_stack_region_pending_retire_handoff_batch_locked();
-  log_stack_region_retained_state_locked(
-      "stack_exit_before_handoff_batches",
-      &submission);
-  snapshot_stack_region_pending_retire_transfer_source_locked(
-      pending_retire_handoff_at_stack_exit ? 6u : 2u,
-      /*include_context_pending_retires=*/false,
-      /*preserve_larger_source=*/
-      !bind_stack_internal_source_at_stack_exit &&
-          !pending_retire_handoff_at_stack_exit);
-  retire_stack_internal_temp_retire_batch_locked(submission);
-  retire_stack_region_pending_retire_handoff_batch_locked(submission);
-  stack_region_recording_domain_observation_active_.store(
-      false, std::memory_order_release);
-  stack_planned_recording_active_.store(false, std::memory_order_release);
-  stack_region_single_recording_plan_state_.store(
-      2u, std::memory_order_release);
-  stack_region_single_recording_owner_state_.store(
-      2u, std::memory_order_release);
-  stack_region_command_buffer_batch_lease_state_.store(
-      2u, std::memory_order_release);
-  const uint32_t close_submit_owner_state =
-      stack_region_close_submit_owner_state_.load(std::memory_order_acquire);
-  uint32_t finalized_close_submit_owner_state = 2u;
-  if (close_submit_owner_state == 4u) {
-    finalized_close_submit_owner_state = 5u;
-  } else if (close_submit_owner_state == 7u) {
-    finalized_close_submit_owner_state = 8u;
-  }
-  stack_region_close_submit_owner_state_.store(
-      finalized_close_submit_owner_state, std::memory_order_release);
-  stack_region_command_ownership_state_.store(
-      2u, std::memory_order_release);
-  stack_region_command_pool_reset_deferral_owner_state_.store(
-      2u, std::memory_order_release);
-  stack_region_retire_timeline_owner_state_.store(
-      2u, std::memory_order_release);
-  const uint32_t pending_retire_transfer_owner_state =
-      stack_region_pending_retire_transfer_owner_state_.load(
-          std::memory_order_acquire);
-  stack_region_pending_retire_transfer_owner_state_.store(
-      pending_retire_transfer_owner_state == 4u ? 5u : 2u,
-      std::memory_order_release);
-  stack_planned_recording_owner_ = std::thread::id{};
-  stack_planned_recording_stats_ = StackPlannedRecordingStats{};
-  log_stack_region_retained_state_locked("stack_exit_after_finalize");
+  std::unique_ptr<StackRegionExitWorkBatch> exit_work_batch =
+      prepare_stack_region_exit_work_batch_locked(submission);
+  drain_stack_region_exit_work_batch_locked(*exit_work_batch);
   return stats;
 }
 

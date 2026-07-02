@@ -2626,6 +2626,14 @@ TORCH_API void note_stack_region_exit_submit_runtime_point(
     bool region_exit_close_submit_owner_behavior_enabled,
     bool region_exit_close_submit_owner_authorizes_submit_elision,
     bool had_cmd);
+
+TORCH_API void note_stack_region_control_plane_work_batch(
+    const char* stage,
+    bool prepared,
+    bool drained_inline,
+    bool pending_retire_handoff_at_stack_exit,
+    bool bind_stack_internal_source_at_stack_exit,
+    bool timeline_valid);
 TORCH_API bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     uint32_t binding_idx,
     const char* shader_name,

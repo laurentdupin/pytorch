@@ -6,6 +6,7 @@
     "viable_safe_lane",
     "accepted_default_fix",
     "accepted_canary",
+    "accepted_reporting_infrastructure",
     "stability_blocked",
     "candidate_needs_policy",
     "evidence_only",
@@ -86,6 +87,21 @@
       "latest_observation": "Graph dump requests inside central submit, pending-retire drain, retire-cleanup, or external-recording cleanup scopes now record StackRegionGraphDumpSkip.v0 rows instead of serializing the full graph from a nested control-plane point. Focused graph-dump tests passed, and a vits_140 wide4 smoke stayed correctness-clean at about 55.0 ms mean with CPU fallback 0 and sync readback 0.",
       "decision": "Keep as a behavior-neutral diagnostic flatness guard. It is not a submit, retire, shader, copy, readback, fallback, or route change.",
       "next_proof": "If compiled-session or deep-segment runs still overflow, use skip rows and control-plane depth rows to identify the remaining recursive host path before adding another canary.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "stack_region_exit_control_plane_work_batch",
+      "status": "accepted_reporting_infrastructure",
+      "scope": [
+        "stack-region exit cleanup",
+        "control-plane flatness",
+        "StackRegionControlPlaneWorkBatch.v0"
+      ],
+      "canary_or_path": "default behavior-neutral stack-region exit work-batch scaffold",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070 plus focused graph-dump tests",
+      "latest_observation": "end_stack_planned_recording_and_submit() still closes/submits the stack region and drains cleanup inline in the original order, but now prepares a heap-owned exit batch first. Focused graph testing observes stage=prepared and stage=drained_inline rows with submit_topology_preserved=1 and submit_elision_enabled=0. A short vits_140 wide4 smoke measured about 56.9 ms mean / 56.9 ms median / 57.2 ms p95 with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
+      "decision": "Keep as behavior-neutral reporting and flattening scaffold. It does not defer cleanup, remove submits, or authorize the compiled-session bridge.",
+      "next_proof": "Move one more stack-exit cleanup responsibility into the batch-owned iterative drain or add a cancel/restore ownership test before any submit or cleanup deferral.",
       "reusable_backend_policy": true
     },
     {
