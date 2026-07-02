@@ -458,6 +458,126 @@ class TestVulkanGovernance(TestCase):
             "python_private_baton_canary_stack_overflow_at_private_capture_debug",
         )
 
+    def test_vulkan_stack_output_bridge_auto_deep_split_policy(self):
+        benchmark = self._depth_anything_benchmark_module()
+        env_key = benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV
+
+        def fake_model(block_count, capture_indices=(4, 11, 17, 23)):
+            return types.SimpleNamespace(
+                encoder="fake",
+                intermediate_layer_idx={"fake": list(capture_indices)},
+                pretrained=types.SimpleNamespace(
+                    blocks=[object() for _ in range(block_count)]
+                ),
+            )
+
+        previous = os.environ.get(env_key)
+        try:
+            os.environ.pop(env_key, None)
+            auto = benchmark.maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+                device_kind="vulkan",
+                bridge_requested=True,
+                bridge_mode=(
+                    benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE
+                ),
+                stack_owned_mode="segmented_stack_wide4_to_exit",
+                model=fake_model(24),
+            )
+            self.assertTrue(auto["enabled"])
+            self.assertEqual(
+                auto["reason"],
+                "auto_native_private_baton_for_deep_stack",
+            )
+            self.assertEqual(
+                auto["runtime_mode"],
+                benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,
+            )
+            self.assertNotIn(env_key, os.environ)
+            self.assertEqual(auto["deep_stack_bridge_split_plan"]["chunk_count"], 2)
+            status = benchmark.vulkan_stack_output_bridge_depth_status(
+                device_kind="vulkan",
+                bridge_requested=True,
+                model=fake_model(24),
+                deep_split_runtime_mode=auto["runtime_mode"],
+            )
+            self.assertTrue(status["allowed"])
+            self.assertEqual(
+                status["reason"],
+                "stack_output_bridge_deep_split_canary_requested",
+            )
+
+            os.environ[env_key] = "none"
+            explicit_none = (
+                benchmark.maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+                    device_kind="vulkan",
+                    bridge_requested=True,
+                    bridge_mode=(
+                        benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE
+                    ),
+                    stack_owned_mode="segmented_stack_wide4_to_exit",
+                    model=fake_model(24),
+                )
+            )
+            self.assertFalse(explicit_none["enabled"])
+            self.assertEqual(
+                explicit_none["reason"],
+                "explicit_deep_split_mode_preserved",
+            )
+            self.assertEqual(os.environ[env_key], "none")
+
+            os.environ.pop(env_key, None)
+            shallow = benchmark.maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+                device_kind="vulkan",
+                bridge_requested=True,
+                bridge_mode=(
+                    benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE
+                ),
+                stack_owned_mode="segmented_stack_wide4_to_exit",
+                model=fake_model(12),
+            )
+            self.assertFalse(shallow["enabled"])
+            self.assertEqual(shallow["reason"], "single_proven_stack_chunk")
+            self.assertNotIn(env_key, os.environ)
+
+            no_segment = (
+                benchmark.maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+                    device_kind="vulkan",
+                    bridge_requested=True,
+                    bridge_mode=(
+                        benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE
+                    ),
+                    stack_owned_mode=None,
+                    model=fake_model(24),
+                )
+            )
+            self.assertFalse(no_segment["enabled"])
+            self.assertEqual(
+                no_segment["reason"],
+                "segmented_stack_owned_recording_mode_required",
+            )
+
+            compiled = (
+                benchmark.maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+                    device_kind="vulkan",
+                    bridge_requested=True,
+                    bridge_mode=(
+                        benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
+                    ),
+                    stack_owned_mode="segmented_stack_wide4_to_exit",
+                    model=fake_model(24),
+                )
+            )
+            self.assertFalse(compiled["enabled"])
+            self.assertEqual(
+                compiled["reason"],
+                "bridge_mode_not_supported_for_auto_deep_split",
+            )
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
     def test_vulkan_conv_plan_tuning_result_schema(self):
         tuning = self._vulkan_conv_plan_tuning_module()
         plan_key_row = (

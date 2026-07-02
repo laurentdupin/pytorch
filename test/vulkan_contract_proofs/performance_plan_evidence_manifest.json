@@ -1186,14 +1186,14 @@
     },
     {
       "id": "dav2_vitl140_native_private_baton_deep_split_canary_2026_07_01",
-      "status": "accepted_canary",
-      "head": "local_native_private_baton_deep_split_runtime",
+      "status": "accepted_default_fix",
+      "head": "local_auto_native_private_baton_benchmark_policy",
       "model_provenance": {
         "model": "Depth Anything V2",
         "variant": "vitl",
         "input": "140x210"
       },
-      "device_notes": "RX 9070 evidence. The runtime is guarded by PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton or =1; it is not a production default.",
+      "device_notes": "RX 9070 evidence. Direct native callers are still guarded by PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton or =1, but the DAv2 benchmark safe path now auto-selects that native runtime for deeper-than-12-block stack-output bridge rows when no explicit deep-split env is set.",
       "contract_or_topology_scope": [
         "StackOutputBridgeDeepSplitPlan.v0",
         "StackOutputBridgeDeepSplitPlanRuntime.v0",
@@ -1207,11 +1207,14 @@
         "mean_abs": 1.4314996406028513e-05,
         "tests": [
           "TestVulkanGovernance.test_vulkan_stack_output_bridge_depth_gate_blocks_unproven_stack",
+          "TestVulkanGovernance.test_vulkan_stack_output_bridge_auto_deep_split_policy",
           "TestVulkanEagerRuntime.test_vulkan_stack_capture_decoder_bridge_rejects_unproven_depth_native",
           "TestVulkanEagerRuntime.test_vulkan_stack_capture_decoder_bridge_deep_split_native_canary",
           "TestVulkanEagerRuntime.test_vulkan_stack_capture_deep_split_bridge_graph_handoff_contract",
           "focused DAv2 vitl_140 native_private_baton bridge sanity run",
-          "focused DAv2 vitl_140 native_private_baton 10-repeat run"
+          "focused DAv2 vitl_140 native_private_baton 10-repeat run",
+          "focused DAv2 vitl_140 no-env auto deep-split repeat-3 run",
+          "focused DAv2 vitl_182 no-env auto deep-split repeat-2 run"
         ]
       },
       "counters": {
@@ -1226,13 +1229,24 @@
         "post_deferred_publication_recheck_head": "a3433b74fbd5",
         "post_deferred_publication_repeat_count": 2,
         "post_deferred_publication_diagnostic_payload_publish_mode": "deferred_after_context_unlock",
-        "post_deferred_publication_retained_state_live_log_reread_count": 0
+        "post_deferred_publication_retained_state_live_log_reread_count": 0,
+        "auto_deep_split_policy_enabled": true,
+        "auto_deep_split_policy_reason": "auto_native_private_baton_for_deep_stack",
+        "direct_native_env_guard_preserved": true,
+        "explicit_env_override_preserved": true,
+        "vitl182_no_env_max_abs": 0.0001678466796875
       },
       "timing_ms": {
         "device_resident_mean": 237.456,
         "device_resident_median": 221.223,
         "device_resident_p95": 305.763,
         "repeat_count": 10,
+        "no_env_auto_vitl140_repeat3_mean": 171.377,
+        "no_env_auto_vitl140_repeat3_median": 173.352,
+        "no_env_auto_vitl140_repeat3_p95": 176.114,
+        "no_env_auto_vitl182_repeat2_mean": 199.947,
+        "no_env_auto_vitl182_repeat2_median": 199.947,
+        "no_env_auto_vitl182_repeat2_p95": 201.783,
         "timing_claim": "coverage_and_process_stability_only"
       },
       "artifacts": [
@@ -1240,11 +1254,13 @@
         "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat3.json",
         "agent_space/dav2_vitl140_deep_split_native_private_baton_repeat10.json",
         "agent_space/deep_split_native_vitl_post_a343/summary.json",
-        "agent_space/deep_split_native_vitl_post_a343/summary.md"
+        "agent_space/deep_split_native_vitl_post_a343/summary.md",
+        "agent_space/dav2_vitl_auto_deep_split_scoped/vitl_140_repeat3.json",
+        "agent_space/dav2_vitl_auto_deep_split_scoped/vitl_182_repeat2.json"
       ],
-      "decision": "Accept as an opt-in deep-stack bridge canary that fixes the vitl_140 stack-output bridge coverage blocker without using the unsafe Python-mediated baton. Do not promote as default and do not treat this as StackRegionSegmentPlan.v0 rowset evidence.",
+      "decision": "Accept as the DAv2 benchmark default deep-stack bridge policy when no explicit deep-split env is set. This fixes the vitl default benchmark coverage blocker without using the unsafe Python-mediated baton. Do not treat this as StackRegionSegmentPlan.v0 rowset evidence or broad direct-native admission.",
       "revisit_conditions": [
-        "Run multi-resolution or multi-GPU timing before making any performance claim.",
+        "Run multi-resolution or multi-GPU timing before making a stable performance claim.",
         "Add graph/handoff assertions if this canary becomes a default candidate.",
         "Keep python_private_baton unsafe-blocked unless its native stack usage is fixed independently.",
         "Do not broaden beyond the max-12-block chunk rule without separate evidence."

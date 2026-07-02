@@ -230,15 +230,20 @@ The initial catalog records the current `vits_140` performance lane:
   the `vits` rowset;
 - DAv2 `vitl_140` through the same wide4 canary remains a separate evidence
   family: the older context-owned bridge and the Python-mediated deep split are
-  unsafe blocked by Windows stack overflow, but the opt-in native
-  `StackOutputBridgeDeepSplitPlanRuntime.v0` canary now runs the 24-block bridge
-  as two 12-block native chunks with a device-private baton. The focused smoke
-  and 10-repeat runs passed bridge sanity, kept `cpu_fallback=0` and
-  `sync_readback=0`, and wrote valid artifacts. This is not a default and not
-  evidence to widen the `vits` or `vitb` segment-plan rowsets. A post-`a343`
-  recheck with deferred stack-exit diagnostic publication passed `vitl_140`
-  repeats 1 and 2 under `native_private_baton` with no Windows stack overflow,
-  `cpu_fallback=0`, `sync_readback=0`, and
+  unsafe blocked by Windows stack overflow, but the native
+  `StackOutputBridgeDeepSplitPlanRuntime.v0` runtime runs the 24-block bridge
+  as two 12-block native chunks with a device-private baton. The DAv2 benchmark
+  safe path now auto-selects that runtime for deeper-than-12-block
+  stack-output bridge rows when no explicit deep-split env is set, the
+  stack-capture bridge mode is used, and a bounded segmented stack-owned mode
+  is active. No-env RX 9070 `vitl_140` and `vitl_182` smokes passed bridge
+  sanity, kept `cpu_fallback=0` and `sync_readback=0`, and wrote valid
+  artifacts. This is benchmark control-plane default policy, not direct native
+  op default admission and not evidence to widen the `vits` or `vitb`
+  segment-plan rowsets. A post-`a343` recheck with deferred stack-exit
+  diagnostic publication passed `vitl_140` repeats 1 and 2 under
+  `native_private_baton` with no Windows stack overflow, `cpu_fallback=0`,
+  `sync_readback=0`, and
   `diagnostic_payload_publish_mode=deferred_after_context_unlock`;
 - a benchmark-local `python_private_baton` proof canary for that deep split
   topology is also unsafe blocked. The attempted run still hit native Windows
@@ -248,9 +253,10 @@ The initial catalog records the current `vits_140` performance lane:
   unsafe-blocked metadata in the deep split plan and fails closed before
   native bridge execution;
 - stack-output bridge depth guard: accepted benchmark control-plane fix. It
-  keeps bridge requests with `block_count > 12` fail-closed unless the native
-  private-baton deep-split canary is explicitly requested, while preserving the
-  `vitb_140` positive row. The runtime contract is
+  keeps direct native bridge requests with `block_count > 12` fail-closed
+  unless the native private-baton deep-split runtime is explicitly requested,
+  while the DAv2 benchmark safe path can auto-select that runtime under the
+  segmented stack-owned bridge predicates described above. The runtime contract is
   `StackOutputBridgeDeepSplitPlanRuntime.v0`, not a larger hardcoded stack-depth
   limit;
 - `conv2d_buffer_float_3x3_s1p1` 16x8 workgroup: correct but slower;

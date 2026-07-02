@@ -139,6 +139,11 @@ def vulkan_stack_output_bridge_deep_split_mode() -> str:
     return mode
 
 
+def vulkan_stack_output_bridge_deep_split_mode_explicitly_set() -> bool:
+    mode = os.environ.get(VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV)
+    return mode is not None and bool(mode.strip())
+
+
 def vulkan_stack_output_bridge_deep_split_runtime_enabled() -> bool:
     return (
         vulkan_stack_output_bridge_deep_split_mode()
@@ -223,8 +228,13 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
     block_count: int | None,
     capture_indices: list[int] | None,
     max_proven_blocks: int,
+    runtime_mode: str | None = None,
 ) -> dict[str, Any]:
-    runtime_mode = vulkan_stack_output_bridge_deep_split_mode()
+    runtime_mode = (
+        vulkan_stack_output_bridge_deep_split_mode()
+        if runtime_mode is None
+        else runtime_mode
+    )
     runtime_enabled = runtime_mode in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES
     runtime_unsafe_blocked = (
         runtime_mode in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES
@@ -345,11 +355,98 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
     return result
 
 
+def maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+    *,
+    device_kind: str,
+    bridge_requested: bool,
+    bridge_mode: str,
+    stack_owned_mode: str | None,
+    model: Any,
+) -> dict[str, Any]:
+    current_mode = vulkan_stack_output_bridge_deep_split_mode()
+    if device_kind != "vulkan" or not bridge_requested:
+        return {
+            "enabled": False,
+            "reason": "bridge_not_requested_for_vulkan",
+            "runtime_mode": current_mode,
+        }
+    if bridge_mode != VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE:
+        return {
+            "enabled": False,
+            "reason": "bridge_mode_not_supported_for_auto_deep_split",
+            "runtime_mode": current_mode,
+            "bridge_mode": bridge_mode,
+        }
+    normalized_stack_owned_mode = stack_owned_mode or "none"
+    if normalized_stack_owned_mode not in VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES:
+        return {
+            "enabled": False,
+            "reason": "segmented_stack_owned_recording_mode_required",
+            "runtime_mode": current_mode,
+            "stack_region_owned_command_buffer_mode": normalized_stack_owned_mode,
+        }
+    if vulkan_stack_output_bridge_deep_split_mode_explicitly_set():
+        return {
+            "enabled": False,
+            "reason": "explicit_deep_split_mode_preserved",
+            "runtime_mode": current_mode,
+        }
+
+    pretrained = getattr(model, "pretrained", None)
+    blocks = getattr(pretrained, "blocks", None) if pretrained is not None else None
+    block_count = len(blocks) if blocks is not None else None
+    max_proven_blocks = VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS
+    if block_count is None or block_count <= max_proven_blocks:
+        return {
+            "enabled": False,
+            "reason": "single_proven_stack_chunk",
+            "runtime_mode": current_mode,
+            "block_count": block_count,
+            "max_proven_blocks": max_proven_blocks,
+        }
+
+    capture_indices = vulkan_stack_output_bridge_capture_indices(model)
+    split_plan = build_vulkan_stack_output_bridge_deep_split_plan(
+        block_count=block_count,
+        capture_indices=capture_indices,
+        max_proven_blocks=max_proven_blocks,
+    )
+    if not split_plan.get("available"):
+        return {
+            "enabled": False,
+            "reason": "deep_split_plan_unavailable",
+            "runtime_mode": current_mode,
+            "block_count": block_count,
+            "max_proven_blocks": max_proven_blocks,
+            "deep_stack_bridge_split_plan": split_plan,
+        }
+
+    enabled_plan = build_vulkan_stack_output_bridge_deep_split_plan(
+        block_count=block_count,
+        capture_indices=capture_indices,
+        max_proven_blocks=max_proven_blocks,
+        runtime_mode=VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,
+    )
+    return {
+        "enabled": True,
+        "reason": "auto_native_private_baton_for_deep_stack",
+        "runtime_mode": VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,
+        "runtime_auto_selected": True,
+        "runtime_selection_source": "benchmark_segmented_stack_output_bridge_safe_path",
+        "runtime_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
+        "stack_region_owned_command_buffer_mode": normalized_stack_owned_mode,
+        "block_count": block_count,
+        "max_proven_blocks": max_proven_blocks,
+        "deep_stack_bridge_split_plan": enabled_plan,
+    }
+
+
 def vulkan_stack_output_bridge_depth_status(
     *,
     device_kind: str,
     bridge_requested: bool,
     model: Any,
+    deep_split_runtime_mode: str | None = None,
 ) -> dict[str, Any]:
     pretrained = getattr(model, "pretrained", None)
     blocks = getattr(pretrained, "blocks", None) if pretrained is not None else None
@@ -360,6 +457,7 @@ def vulkan_stack_output_bridge_depth_status(
         block_count=block_count,
         capture_indices=capture_indices,
         max_proven_blocks=max_proven_blocks,
+        runtime_mode=deep_split_runtime_mode,
     )
     if device_kind != "vulkan" or not bridge_requested:
         return {
@@ -933,6 +1031,7 @@ class VulkanStackOutputDeviceBridge:
         bridge_contexts: dict[str, Any],
         label: str,
         bridge_mode: str,
+        deep_split_runtime_mode: str | None = None,
     ) -> None:
         self.torch = torch_module
         self.model = model
@@ -944,6 +1043,7 @@ class VulkanStackOutputDeviceBridge:
                 f"Unsupported Vulkan stack output bridge mode: {bridge_mode}"
             )
         self.bridge_mode = bridge_mode
+        self.deep_split_runtime_mode = deep_split_runtime_mode
         self.backend_op_name = (
             "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge"
             if bridge_mode == VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
@@ -968,6 +1068,7 @@ class VulkanStackOutputDeviceBridge:
             block_count=len(self.stack_owner.block_contexts),
             capture_indices=self.capture_indices,
             max_proven_blocks=VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS,
+            runtime_mode=self.deep_split_runtime_mode,
         )
 
     def registrations_for_input(self, x: Any) -> list[dict[str, Any]]:
@@ -1049,9 +1150,20 @@ class VulkanStackOutputDeviceBridge:
                     )
                 )
             else:
-                depth = (
-                    self.torch.ops.vulkan_prepack
-                    .run_vision_stack_captures_decoder_preprocess_bridge(
+                previous_deep_split = os.environ.get(
+                    VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV
+                )
+                if (
+                    self.deep_split_runtime_mode
+                    == VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
+                ):
+                    os.environ[VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV] = (
+                        VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
+                    )
+                try:
+                    depth = (
+                        self.torch.ops.vulkan_prepack
+                        .run_vision_stack_captures_decoder_preprocess_bridge(
                         tokens,
                         self.stack_owner.stack_context,
                         self.capture_indices,
@@ -1062,8 +1174,22 @@ class VulkanStackOutputDeviceBridge:
                         patch_w,
                         output_size,
                         self.decoder_context,
+                        )
                     )
-                )
+                finally:
+                    if (
+                        self.deep_split_runtime_mode
+                        == VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
+                    ):
+                        if previous_deep_split is None:
+                            os.environ.pop(
+                                VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV,
+                                None,
+                            )
+                        else:
+                            os.environ[VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV] = (
+                                previous_deep_split
+                            )
         return self.torch.relu(depth).squeeze(1)
 
 
@@ -1076,6 +1202,7 @@ def install_vulkan_stack_output_device_bridge(
     model: Any,
     bridge_contexts: dict[str, Any] | None,
     bridge_mode: str = VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,
+    deep_split_runtime_mode: str | None = None,
 ) -> dict[str, Any]:
     pretrained = getattr(model, "pretrained", None)
     stack_owner = (
@@ -1094,6 +1221,11 @@ def install_vulkan_stack_output_device_bridge(
             "already_installed": True,
             "mode": getattr(existing_bridge, "bridge_mode", bridge_mode),
             "backend_op": getattr(existing_bridge, "backend_op_name", None),
+            "deep_split_runtime_mode": getattr(
+                existing_bridge,
+                "deep_split_runtime_mode",
+                None,
+            ),
         }
 
     bridge = VulkanStackOutputDeviceBridge(
@@ -1103,6 +1235,7 @@ def install_vulkan_stack_output_device_bridge(
         bridge_contexts,
         "vision.stack_output_device_bridge",
         bridge_mode,
+        deep_split_runtime_mode,
     )
     model._vulkan_stack_output_device_bridge = bridge
     model._vulkan_original_forward_for_stack_output_device_bridge = model.forward
@@ -1113,6 +1246,7 @@ def install_vulkan_stack_output_device_bridge(
         "contract_name": STACK_OUTPUT_DEVICE_CONSUMER_BRIDGE_CONTRACT,
         "mode": bridge.bridge_mode,
         "backend_op": bridge.backend_op_name,
+        "deep_split_runtime_mode": bridge.deep_split_runtime_mode,
         "capture_indices": bridge.capture_indices,
         "consumer_id": bridge.bridge_consumer_id,
         "consumer_context": bridge.bridge_consumer_context,
@@ -2521,6 +2655,9 @@ def install_failure_artifact_hook(
                 "vulkan_stack_output_device_bridge_depth": context.get(
                     "vulkan_stack_output_device_bridge_depth"
                 ),
+                "vulkan_stack_output_bridge_deep_split_auto": context.get(
+                    "vulkan_stack_output_bridge_deep_split_auto"
+                ),
                 "vulkan_stack_output_device_bridge_sanity": context.get(
                     "vulkan_stack_output_device_bridge_sanity"
                 ),
@@ -2859,10 +2996,30 @@ def run() -> None:
         state_dict = torch.load(checkpoint, map_location="cpu")
         model.load_state_dict(state_dict)
         model = model.eval()
+        bridge_deep_split_auto = (
+            maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
+                device_kind=device_kind,
+                bridge_requested=bool(args.vulkan_stack_output_device_bridge),
+                bridge_mode=args.vulkan_stack_output_device_bridge_mode,
+                stack_owned_mode=os.environ.get(
+                    "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER"
+                ),
+                model=model,
+            )
+        )
+        failure_context["vulkan_stack_output_bridge_deep_split_auto"] = (
+            bridge_deep_split_auto
+        )
+        effective_deep_split_runtime_mode = (
+            bridge_deep_split_auto.get("runtime_mode")
+            if bridge_deep_split_auto.get("enabled")
+            else None
+        )
         bridge_depth_status = vulkan_stack_output_bridge_depth_status(
             device_kind=device_kind,
             bridge_requested=bool(args.vulkan_stack_output_device_bridge),
             model=model,
+            deep_split_runtime_mode=effective_deep_split_runtime_mode,
         )
         failure_context["vulkan_stack_output_device_bridge_depth"] = (
             bridge_depth_status
@@ -2924,6 +3081,7 @@ def run() -> None:
                 model,
                 vulkan_stack_output_device_bridge_contexts,
                 args.vulkan_stack_output_device_bridge_mode,
+                effective_deep_split_runtime_mode,
             )
     elif args.vulkan_stack_output_device_bridge and disable_owner_programs:
         vulkan_stack_output_device_bridge = {
@@ -3433,6 +3591,9 @@ def run() -> None:
         ),
         "vulkan_stack_output_device_bridge_depth": failure_context.get(
             "vulkan_stack_output_device_bridge_depth"
+        ),
+        "vulkan_stack_output_bridge_deep_split_auto": failure_context.get(
+            "vulkan_stack_output_bridge_deep_split_auto"
         ),
         "vulkan_stack_output_device_bridge_sanity": bridge_sanity,
         "stack_output_device_consumer_registrations": failure_context.get(

@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 after the DAv2 vits_140 exact FC2 vec2 tiled
-linear and QKV tiled linear plan contract promotions.
+Last refreshed: 2026-07-02 after DAv2 exact QKV tiled linear promotion and
+benchmark auto-selection of native deep split for deep stack-output bridge rows.
 
 ## Repo State Summary
 
@@ -502,9 +502,19 @@ runtime can run the 24-block stack as two 12-block native chunks. A focused
 `0.0001220703125`, `cpu_fallback=0`, and `sync_readback=0`; a separate
 10-repeat run also completed without Windows stack overflow and kept the same
 correctness/counter state, measuring about 237.5 ms mean / 221.2 ms median /
-305.8 ms p95 for device-resident forward. This is accepted canary evidence for
-`StackOutputBridgeDeepSplitPlanRuntime.v0`, not a default and not a
-`StackRegionSegmentPlan.v0` rowset expansion. The benchmark-local
+305.8 ms p95 for device-resident forward. The DAv2 benchmark safe path now
+auto-selects the native private-baton deep split when the Vulkan stack-output
+device bridge is requested, no explicit deep-split env is set, and the stack is
+deeper than the max-12-block proven single-chunk rowset. A no-env RX 9070
+`vitl_140` warmup-1/repeat-3 run measured about 171.4 ms mean / 173.4 ms median
+/ 176.1 ms p95 with bridge sanity max_abs `0.00013685226440429688`, and a
+no-env `vitl_182` warmup-1/repeat-2 smoke measured about 199.9 ms mean with
+max_abs `0.0001678466796875`; both runs selected
+`auto_native_private_baton_for_deep_stack`, kept `cpu_fallback=0`, and kept
+`sync_readback=0`. Direct native callers still fail closed unless they request
+`PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton`, and an
+explicit benchmark env setting such as `none` is preserved rather than
+overridden. The benchmark-local
 `python_private_baton` canary remains unsafe blocked because it overflows inside
 `run_vision_backbone_stack_private_capture_debug`. Do not infer broad `vitl`
 support from `vits` or `vitb`, and do not retry the Python-mediated baton path

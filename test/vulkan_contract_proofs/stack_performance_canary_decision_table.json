@@ -165,17 +165,17 @@
     },
     {
       "id": "dav2_deep_split_native_private_baton",
-      "status": "candidate_needs_policy",
+      "status": "accepted_default_fix",
       "scope": [
         "StackOutputBridgeDeepSplitPlanRuntime.v0",
         "native private baton",
         "deep stack bridge"
       ],
-      "canary_or_path": "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton",
+      "canary_or_path": "Benchmark auto-selects native_private_baton for deep stack-output bridge rows when no explicit deep-split env is set",
       "model_evidence": "Depth Anything V2 deeper bridge variants",
-      "latest_observation": "Native private-baton deep split is the allowed migration target for stacks deeper than the max-12-block proven rowset. A post-a343 vitl_140 recheck with segmented_stack_wide4_to_exit and compiled_session_bridge passed repeats 1 and 2 with chunk_count=2, finite bridge sanity, CPU fallback 0, sync readback 0, diagnostic_payload_publish_mode=deferred_after_context_unlock, retained_state_live_log_reread_count=0, and no Windows stack overflow.",
-      "decision": "Keep as bounded canary path, not a model-name route.",
-      "next_proof": "Generalize by segment policy and verify on the five-model coverage corpus before default promotion.",
+      "latest_observation": "Native private-baton deep split is the accepted benchmark safe-path policy for stacks deeper than the max-12-block proven rowset. Current no-env RX 9070 evidence passes vitl_140 repeat-3 at about 171.4 ms mean with max_abs=0.00013685226440429688 and vitl_182 repeat-2 at about 199.9 ms mean with max_abs=0.0001678466796875; both auto-select auto_native_private_baton_for_deep_stack, keep CPU fallback 0, and keep sync readback 0.",
+      "decision": "Keep as benchmark default deep-stack policy when no explicit deep-split env is set. Direct native calls still require the native_private_baton env and unproven Python-mediated baton remains blocked.",
+      "next_proof": "Run the DAv2 multigpu matrix again with the auto policy, excluding vitl_700 unless VRAM evidence changes. Do not broaden beyond the max-12-block chunk rule without separate evidence.",
       "reusable_backend_policy": true
     },
     {
