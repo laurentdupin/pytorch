@@ -2639,6 +2639,7 @@
         "control_plane_work_batch_executor_depth_after": 0,
         "control_plane_work_batch_executor_reentry_status": "not_reentrant",
         "control_plane_work_batch_executor_reentry_rejected": false,
+        "control_plane_work_batch_executor_depth_guard": "raii",
         "stack_exit_cleanup_drained_immediately": true
       },
       "timing_ms": {
@@ -2657,7 +2658,7 @@
       ],
       "decision": "Keep as behavior-neutral stack-exit flattening infrastructure. It prevents the stack-overflow/compiled-session investigation from rediscovering the need for a heap-owned control-plane batch, ordered iterative drain, and named executor boundary, but it does not yet defer cleanup, transfer ownership later, remove submits, or promote compiled-session execution.",
       "revisit_conditions": [
-        "If stage=prepared, stage=drained_inline, drain_mode=prepared_not_drained, drain_mode=iterative_inline, drain_action_count, drained_action_count, executor_mode, executor_depth, or executor_reentry_rejected rows disappear from graph-dump tests.",
+        "If stage=prepared, stage=drained_inline, drain_mode=prepared_not_drained, drain_mode=iterative_inline, drain_action_count, drained_action_count, executor_mode, executor_depth, executor_depth_guard, or executor_reentry_rejected rows disappear from graph-dump tests.",
         "If the batch starts moving cleanup work out of the immediate stack-exit drain, add cancel/restore and timeline ownership tests before any latency claim.",
         "If compiled-session or deep-segment stack overflow persists, use this executor as the next place to move one stack-exit cleanup action into a centralized context drain rather than adding nested callbacks."
       ]

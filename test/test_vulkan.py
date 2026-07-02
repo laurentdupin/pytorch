@@ -22060,6 +22060,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "executor_depth_after" in row
                     and row.get("executor_reentry_rejected") == "0"
                     and row.get("executor_fail_closed_reason") == "none"
+                    and row.get("executor_depth_guard") == "raii"
                     for row in graph_batch_rows
                 )
             )
@@ -22141,6 +22142,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "executor_reentry_rejected=0" in row
                     and "executor_reentry_status=not_reentrant" in row
                     and "executor_fail_closed_reason=none" in row
+                    and "executor_depth_guard=raii" in row
                     for row in batch_rows
                 )
             )
@@ -31281,6 +31283,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and "executor_depth_after" in row
                     and row.get("executor_reentry_rejected") == "0"
                     and row.get("executor_fail_closed_reason") == "none"
+                    and row.get("executor_depth_guard") == "raii"
                     for row in control_plane_work_batch_rows
                 )
             )

@@ -4987,9 +4987,17 @@ void Context::execute_stack_region_exit_work_batch_locked(
       "Vulkan stack region exit work batch executor reentered; "
       "stack_region_exit_work_batch_executor_reentry=1 "
       "submit_elision_enabled=0 deferred_submit_enabled=0");
-  ++stack_region_exit_work_batch_executor_depth_;
+  struct ExecutorDepthGuard final {
+    explicit ExecutorDepthGuard(uint64_t& depth_ref) : depth(depth_ref) {
+      ++depth;
+    }
+    ~ExecutorDepthGuard() {
+      --depth;
+    }
+    uint64_t& depth;
+  };
+  ExecutorDepthGuard guard(stack_region_exit_work_batch_executor_depth_);
   drain_stack_region_exit_work_batch_locked(*batch);
-  --stack_region_exit_work_batch_executor_depth_;
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {

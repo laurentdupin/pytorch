@@ -25195,6 +25195,7 @@ void note_stack_region_control_plane_work_batch(
       << (executor_reentry_status ? executor_reentry_status : "unknown")
       << " executor_fail_closed_reason="
       << (executor_fail_closed_reason ? executor_fail_closed_reason : "unknown")
+      << " executor_depth_guard=raii"
       << " behavior_neutral=1"
       << " submit_topology_preserved=1"
       << " phase_boundary_submits_preserved=1"
