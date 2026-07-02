@@ -25154,7 +25154,14 @@ void note_stack_region_control_plane_work_batch(
     const uint64_t stack_region_handoff_batch_bytes,
     const char* const drain_mode,
     const uint64_t drain_action_count,
-    const uint64_t drained_action_count) {
+    const uint64_t drained_action_count,
+    const char* const executor_mode,
+    const uint64_t executor_depth,
+    const uint64_t executor_depth_before,
+    const uint64_t executor_depth_after,
+    const bool executor_reentry_rejected,
+    const char* const executor_reentry_status,
+    const char* const executor_fail_closed_reason) {
   std::ostringstream key;
   key << "stack_region_control_plane_work_batch=1"
       << " schema=StackRegionControlPlaneWorkBatch.v0"
@@ -25178,6 +25185,16 @@ void note_stack_region_control_plane_work_batch(
       << " drain_mode=" << (drain_mode ? drain_mode : "unknown")
       << " drain_action_count=" << drain_action_count
       << " drained_action_count=" << drained_action_count
+      << " executor_mode=" << (executor_mode ? executor_mode : "unknown")
+      << " executor_depth=" << executor_depth
+      << " executor_depth_before=" << executor_depth_before
+      << " executor_depth_after=" << executor_depth_after
+      << " executor_reentry_rejected="
+      << (executor_reentry_rejected ? "1" : "0")
+      << " executor_reentry_status="
+      << (executor_reentry_status ? executor_reentry_status : "unknown")
+      << " executor_fail_closed_reason="
+      << (executor_fail_closed_reason ? executor_fail_closed_reason : "unknown")
       << " behavior_neutral=1"
       << " submit_topology_preserved=1"
       << " phase_boundary_submits_preserved=1"

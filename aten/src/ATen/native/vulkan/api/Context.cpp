@@ -4859,7 +4859,14 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->stack_region_handoff_batch_bytes,
       "prepared_not_drained",
       batch->actions.size(),
-      batch->drained_action_count);
+      batch->drained_action_count,
+      batch->executor_mode,
+      batch->executor_depth,
+      batch->executor_depth_before,
+      batch->executor_depth_after,
+      batch->executor_reentry_rejected,
+      batch->executor_reentry_status,
+      batch->executor_fail_closed_reason);
   return batch;
 }
 
@@ -4945,7 +4952,44 @@ void Context::drain_stack_region_exit_work_batch_locked(
       batch.stack_region_handoff_batch_bytes,
       "iterative_inline",
       batch.actions.size(),
-      batch.drained_action_count);
+      batch.drained_action_count,
+      batch.executor_mode,
+      batch.executor_depth,
+      batch.executor_depth_before,
+      batch.executor_depth_after,
+      batch.executor_reentry_rejected,
+      batch.executor_reentry_status,
+      batch.executor_fail_closed_reason);
+}
+
+void Context::execute_stack_region_exit_work_batch_locked(
+    std::unique_ptr<StackRegionExitWorkBatch> batch) {
+  VK_CHECK_COND(
+      batch != nullptr,
+      "Vulkan stack region exit work batch is missing");
+  const uint64_t previous_depth =
+      stack_region_exit_work_batch_executor_depth_;
+  batch->executor_depth_before = previous_depth;
+  batch->executor_depth_after = previous_depth;
+  batch->executor_reentry_rejected = previous_depth != 0u;
+  batch->executor_depth = previous_depth + 1u;
+  batch->executor_mode = "context_control_plane_inline";
+  batch->executor_reentry_status =
+      batch->executor_reentry_rejected
+      ? "rejected_reentrant_context_control_plane"
+      : "not_reentrant";
+  batch->executor_fail_closed_reason =
+      batch->executor_reentry_rejected
+      ? "stack_region_exit_work_batch_executor_reentry"
+      : "none";
+  VK_CHECK_COND(
+      !batch->executor_reentry_rejected,
+      "Vulkan stack region exit work batch executor reentered; "
+      "stack_region_exit_work_batch_executor_reentry=1 "
+      "submit_elision_enabled=0 deferred_submit_enabled=0");
+  ++stack_region_exit_work_batch_executor_depth_;
+  drain_stack_region_exit_work_batch_locked(*batch);
+  --stack_region_exit_work_batch_executor_depth_;
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
@@ -4985,7 +5029,7 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
   VulkanSubmission submission = close_submit_stack_planned_region_exit();
   std::unique_ptr<StackRegionExitWorkBatch> exit_work_batch =
       prepare_stack_region_exit_work_batch_locked(submission);
-  drain_stack_region_exit_work_batch_locked(*exit_work_batch);
+  execute_stack_region_exit_work_batch_locked(std::move(exit_work_batch));
   return stats;
 }
 

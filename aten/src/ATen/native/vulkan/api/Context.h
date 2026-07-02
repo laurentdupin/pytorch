@@ -239,6 +239,7 @@ class TORCH_API Context final {
       bridge_private_capture_pending_retire_handoff_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
+  uint64_t stack_region_exit_work_batch_executor_depth_ = 0u;
   enum class StackRegionExitWorkAction {
     LogBeforeHandoffBatches,
     SnapshotPendingRetireTransferSource,
@@ -262,6 +263,13 @@ class TORCH_API Context final {
     uint64_t stack_region_handoff_batch_count = 0u;
     uint64_t stack_region_handoff_batch_bytes = 0u;
     uint64_t drained_action_count = 0u;
+    const char* executor_mode = "not_started";
+    uint64_t executor_depth = 0u;
+    uint64_t executor_depth_before = 0u;
+    uint64_t executor_depth_after = 0u;
+    bool executor_reentry_rejected = false;
+    const char* executor_reentry_status = "not_entered";
+    const char* executor_fail_closed_reason = "none";
   };
 
   void clear_pending_retire_resources_locked();
@@ -300,6 +308,8 @@ class TORCH_API Context final {
       const VulkanSubmission& submission);
   void drain_stack_region_exit_work_batch_locked(
       StackRegionExitWorkBatch& batch);
+  void execute_stack_region_exit_work_batch_locked(
+      std::unique_ptr<StackRegionExitWorkBatch> batch);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;

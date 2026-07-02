@@ -1329,11 +1329,14 @@ batch prepared after the stack-region close/submit. The current implementation
 is still behavior-neutral: phase-boundary submits are preserved, submit elision
 is disabled, and cleanup drains immediately under the existing stack-exit lock.
 Rows distinguish the prepared state (`drain_mode=prepared_not_drained`,
-`drained_action_count=0`) from the drained state
+`drained_action_count=0`, `executor_mode=not_started`) from the drained state
 (`drain_mode=iterative_inline`, `drain_action_count=6`, and matching
-`drained_action_count=6`). These fields prove the post-submit cleanup is a
-flat ordered action list that can later move to a centralized control-plane
-drain without changing route, shader, copy, readback, fallback, or shape
+`drained_action_count=6`, `executor_mode=context_control_plane_inline`,
+`executor_depth_before=0`, `executor_depth=1`, `executor_depth_after=0`,
+`executor_reentry_status=not_reentrant`, `executor_reentry_rejected=0`). These
+fields prove the post-submit cleanup is a flat ordered action list owned by a
+named context control-plane executor that can later move out of the stack-exit
+call path without changing route, shader, copy, readback, fallback, or shape
 contracts.
 Setting `PYTORCH_VULKAN_STACK_DEP_GRAPH` also enables detailed stack diagnostic
 rows for retire blockers, region-lifetime submit attribution, and subresource

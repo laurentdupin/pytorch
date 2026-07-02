@@ -22054,6 +22054,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     in ("prepared_not_drained", "iterative_inline")
                     and int(row.get("drain_action_count", "0")) > 0
                     and "drained_action_count" in row
+                    and "executor_mode" in row
+                    and "executor_depth" in row
+                    and "executor_depth_before" in row
+                    and "executor_depth_after" in row
+                    and row.get("executor_reentry_rejected") == "0"
+                    and row.get("executor_fail_closed_reason") == "none"
                     for row in graph_batch_rows
                 )
             )
@@ -22062,6 +22068,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     row.get("stage") == "prepared"
                     and row.get("drain_mode") == "prepared_not_drained"
                     and row.get("drained_action_count") == "0"
+                    and row.get("executor_mode") == "not_started"
+                    and row.get("executor_depth") == "0"
+                    and row.get("executor_depth_before") == "0"
+                    and row.get("executor_depth_after") == "0"
+                    and row.get("executor_reentry_status") == "not_entered"
                     for row in graph_batch_rows
                 )
             )
@@ -22071,6 +22082,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("drain_mode") == "iterative_inline"
                     and row.get("drain_action_count")
                     == row.get("drained_action_count")
+                    and row.get("executor_mode") == "context_control_plane_inline"
+                    and row.get("executor_depth") == "1"
+                    and row.get("executor_depth_before") == "0"
+                    and row.get("executor_depth_after") == "0"
+                    and row.get("executor_reentry_status") == "not_reentrant"
                     for row in graph_batch_rows
                 )
             )
@@ -22105,6 +22121,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "stage=prepared" in row
                     and "drain_mode=prepared_not_drained" in row
                     and "drained_action_count=0" in row
+                    and "executor_mode=not_started" in row
+                    and "executor_depth=0" in row
+                    and "executor_depth_before=0" in row
+                    and "executor_depth_after=0" in row
+                    and "executor_reentry_status=not_entered" in row
                     for row in batch_rows
                 )
             )
@@ -22113,6 +22134,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "stage=drained_inline" in row
                     and "drain_mode=iterative_inline" in row
                     and "drained_action_count=6" in row
+                    and "executor_mode=context_control_plane_inline" in row
+                    and "executor_depth=1" in row
+                    and "executor_depth_before=0" in row
+                    and "executor_depth_after=0" in row
+                    and "executor_reentry_rejected=0" in row
+                    and "executor_reentry_status=not_reentrant" in row
+                    and "executor_fail_closed_reason=none" in row
                     for row in batch_rows
                 )
             )
@@ -31247,6 +31275,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     in ("prepared_not_drained", "iterative_inline")
                     and int(row.get("drain_action_count", "0")) > 0
                     and "drained_action_count" in row
+                    and "executor_mode" in row
+                    and "executor_depth" in row
+                    and "executor_depth_before" in row
+                    and "executor_depth_after" in row
+                    and row.get("executor_reentry_rejected") == "0"
+                    and row.get("executor_fail_closed_reason") == "none"
                     for row in control_plane_work_batch_rows
                 )
             )
@@ -31255,6 +31289,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     row.get("stage") == "prepared"
                     and row.get("drain_mode") == "prepared_not_drained"
                     and row.get("drained_action_count") == "0"
+                    and row.get("executor_mode") == "not_started"
+                    and row.get("executor_depth") == "0"
+                    and row.get("executor_depth_before") == "0"
+                    and row.get("executor_depth_after") == "0"
+                    and row.get("executor_reentry_status") == "not_entered"
                     for row in control_plane_work_batch_rows
                 )
             )
@@ -31264,6 +31303,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row.get("drain_mode") == "iterative_inline"
                     and row.get("drain_action_count")
                     == row.get("drained_action_count")
+                    and row.get("executor_mode") == "context_control_plane_inline"
+                    and row.get("executor_depth") == "1"
+                    and row.get("executor_depth_before") == "0"
+                    and row.get("executor_depth_after") == "0"
+                    and row.get("executor_reentry_status") == "not_reentrant"
                     for row in control_plane_work_batch_rows
                 )
             )

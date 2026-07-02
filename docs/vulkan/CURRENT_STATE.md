@@ -189,6 +189,11 @@ switch. The batch emits prepared and `drained_inline` rows with
 `drain_mode=prepared_not_drained` for the prepared row,
 `drain_mode=iterative_inline` for the drained row, `drain_action_count=6`,
 `drained_action_count=0` before the drain and `drained_action_count=6` after,
+`executor_mode=not_started` before executor entry,
+`executor_mode=context_control_plane_inline` after the executor drains the
+batch, `executor_depth_before=0`, `executor_depth=1`,
+`executor_depth_after=0`, `executor_reentry_status=not_reentrant`,
+`executor_reentry_rejected=0`,
 `submit_topology_preserved=1`, `phase_boundary_submits_preserved=1`,
 `submit_elision_enabled=0`, and `deferred_submit_enabled=0`. This is the first
 flattening scaffold for the remaining deep/compiled-session stack-overflow
