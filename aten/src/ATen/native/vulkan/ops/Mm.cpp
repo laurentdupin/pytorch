@@ -487,7 +487,7 @@ bool linear_tiled_canary_vision_fc2_vec2_enabled() {
   return value == "vision_fc2_exact_151x1536x384_vec2";
 }
 
-VulkanLinearPlanContractMatch match_vision_fc2_exact_tiled_vec2_linear_plan(
+VulkanLinearPlanContractMatch match_vision_exact_tiled_linear_plan(
     const utils::VulkanRuntimePolicy& runtime_policy,
     const char* role,
     const ScalarType input_dtype,
@@ -496,23 +496,40 @@ VulkanLinearPlanContractMatch match_vision_fc2_exact_tiled_vec2_linear_plan(
     const int64_t n,
     const bool bias_defined,
     const LinearPostOp post_op) {
-  const bool exact_vision_fc2 =
-      runtime_policy.request.model_domain == utils::VulkanModelDomain::Vision &&
-      runtime_policy.request.execution_phase ==
-          utils::VulkanExecutionPhase::Backbone &&
-      std::string_view(role ? role : "unknown") == "fc2" &&
-      input_dtype == kFloat && bias_defined && post_op == LinearPostOp::None &&
-      m == 151 && k == 1536 && n == 384;
-  if (!exact_vision_fc2) {
+  if (
+      runtime_policy.request.model_domain != utils::VulkanModelDomain::Vision ||
+      runtime_policy.request.execution_phase !=
+          utils::VulkanExecutionPhase::Backbone ||
+      input_dtype != kFloat) {
     return {};
   }
-  return {
-      true,
-      "VisionFc2ExactTiledVec2LinearPlanContract",
-      "Fp32BiasNoPostOpM151K1536N384",
-      "vision_fc2_m151_k1536_n384_vec2",
-      true,
-  };
+
+  const std::string_view role_value(role ? role : "unknown");
+  if (
+      role_value == "fc2" && bias_defined && post_op == LinearPostOp::None &&
+      m == 151 && k == 1536 && n == 384) {
+    return {
+        true,
+        "VisionFc2ExactTiledVec2LinearPlanContract",
+        "Fp32BiasNoPostOpM151K1536N384",
+        "vision_fc2_m151_k1536_n384_vec2",
+        true,
+    };
+  }
+
+  if (
+      role_value == "qkv" && !bias_defined && post_op == LinearPostOp::None &&
+      m == 151 && k == 384 && n == 1152) {
+    return {
+        true,
+        "VisionQkvExactTiledLinearPlanContract",
+        "Fp32NoBiasNoPostOpM151K384N1152",
+        "vision_qkv_m151_k384_n1152_tiled",
+        false,
+    };
+  }
+
+  return {};
 }
 
 const char* linear_kernel_kind_from_name(const char* kernel_name) {
@@ -678,7 +695,7 @@ void note_linear_aggregate(
   const int64_t k = input_arg_2d.size(Layout::Parameter::width);
   const int64_t n = output_sizes[Layout::Parameter::width];
   const VulkanLinearPlanContractMatch contract =
-      match_vision_fc2_exact_tiled_vec2_linear_plan(
+      match_vision_exact_tiled_linear_plan(
           runtime_policy,
           role,
           input_arg_2d.scalar_type(),
@@ -1392,8 +1409,8 @@ bool should_use_tiled_buffer_linear_kernel(
   const int64_t output_width = output_sizes[Layout::Parameter::width];
   const char* role =
       linear_role_from_label(api::current_allocation_label(), post_op);
-  const VulkanLinearPlanContractMatch exact_vision_fc2_vec2_contract =
-      match_vision_fc2_exact_tiled_vec2_linear_plan(
+  const VulkanLinearPlanContractMatch exact_vision_tiled_contract =
+      match_vision_exact_tiled_linear_plan(
           runtime_policy,
           role,
           input_arg_2d.scalar_type(),
@@ -1408,7 +1425,7 @@ bool should_use_tiled_buffer_linear_kernel(
       input_arg_2d.scalar_type() == kFloat && bias_defined &&
       post_op == LinearPostOp::None && input_height == 151 &&
       input_width == 1536 && output_width == 384;
-  if (exact_vision_fc2_vec2_contract.matched || exact_vision_fc2_canary) {
+  if (exact_vision_tiled_contract.matched || exact_vision_fc2_canary) {
     return true;
   }
 
@@ -1524,8 +1541,8 @@ Tensor run_float_buffer_linear(
   const bool use_specialized_tiled_kernel =
       should_use_tiled_kernel &&
       (!packed_state.bias_defined || fuse_buffer_bias || fuse_buffer_bias_gelu);
-  const VulkanLinearPlanContractMatch exact_vision_fc2_vec2_contract =
-      match_vision_fc2_exact_tiled_vec2_linear_plan(
+  const VulkanLinearPlanContractMatch exact_vision_tiled_contract =
+      match_vision_exact_tiled_linear_plan(
           runtime_policy,
           linear_role_from_label(api::current_allocation_label(), post_op),
           input_arg_2d.scalar_type(),
@@ -1536,10 +1553,10 @@ Tensor run_float_buffer_linear(
           post_op);
   const bool use_vec2_tiled_kernel =
       use_specialized_tiled_kernel &&
-      output_sizes[Layout::Parameter::width] >= 384 &&
-      input_arg_2d.size(Layout::Parameter::width) % 16 == 0 &&
-      (input_arg_2d.size(Layout::Parameter::height) >= 512 ||
-       exact_vision_fc2_vec2_contract.prefer_vec2_tiled ||
+       output_sizes[Layout::Parameter::width] >= 384 &&
+       input_arg_2d.size(Layout::Parameter::width) % 16 == 0 &&
+       (input_arg_2d.size(Layout::Parameter::height) >= 512 ||
+       exact_vision_tiled_contract.prefer_vec2_tiled ||
        (linear_tiled_canary_vision_fc2_vec2_enabled() &&
         input_arg_2d.size(Layout::Parameter::height) == 151 &&
         input_arg_2d.size(Layout::Parameter::width) == 1536 &&

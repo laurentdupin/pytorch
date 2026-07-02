@@ -4,6 +4,7 @@
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
+    "accepted_default_exact_plan",
     "accepted_canary",
     "accepted_reporting_infrastructure",
     "rejected_mixed",
@@ -2736,6 +2737,70 @@
       "decision": "Promote as a default exact linear plan contract. Do not broaden beyond the exact predicates without generated LinearPlanContract evidence and guardrail timing.",
       "revisit_conditions": [
         "If adjacent FC2, non-FC2, non-backbone, non-float, no-bias, N=385, or post-op linear rows route through the contract.",
+        "If RX 6700 XT or GTX 1080 timing regresses under the same exact default contract.",
+        "If more linear exact rows are added without migrating to a generated LinearPlanContract/spec."
+      ]
+    },
+    {
+      "id": "dav2_vits140_exact_qkv_tiled_default_contract_2026_07_02",
+      "status": "accepted_default_exact_plan",
+      "head": "local_exact_qkv_tiled_plan_contract",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused evidence. This is a default exact QKV linear plan contract, not a broad tiled-linear policy or DAv2-named production route.",
+      "contract_or_topology_scope": [
+        "VisionQkvExactTiledLinearPlanContract",
+        "VulkanLinearPlanKey candidate",
+        "exact vision QKV row",
+        "segmented_stack_wide4_to_exit bridge lane"
+      ],
+      "candidate": "Route the exact vision-backbone FP32 no-bias/no-post-op QKV row [151,384] x [1152,384] through aten::linear.buffer_float_tiled by default after VisionQkvExactTiledLinearPlanContract admission.",
+      "correctness": {
+        "status": "passed_focused_tests_and_bridge_sanity",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_contract",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_adjacent_negatives",
+          "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy without PYTORCH_VULKAN_LINEAR_TILED_CANARY"
+        ],
+        "focused_test_tolerance": {
+          "atol": 0.001,
+          "rtol": 0.001
+        },
+        "bridge_sanity_max_abs": 1.1846423149108887e-06,
+        "bridge_sanity_mean_abs": 6.115393347272402e-08
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "route_hit": "aten::linear.buffer_float_tiled",
+        "tiled": true,
+        "vec2": false,
+        "default_route_changed": true,
+        "adjacent_negatives_passed": true,
+        "selected_vulkan_device_index": 0,
+        "selected_vulkan_device_name": "AMD Radeon RX 9070"
+      },
+      "timing_ms": {
+        "device_resident_mean": 42.411,
+        "device_resident_median": 40.804,
+        "device_resident_p95": 53.711,
+        "device_resident_min": 38.905,
+        "device_resident_max": 58.433,
+        "repeat_count": 30,
+        "previous_qkv_env_canary_mean": 41.305,
+        "previous_fc2_default_mean": 42.619
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_qkv_default_contract_c5dc7f/result_30repeat.json",
+        "agent_space/dav2_vits140_qkv_canary_repeat30/result_30repeat.json",
+        "agent_space/linear_exact_candidate_probe_c5dc7f"
+      ],
+      "decision": "Promote as a default exact linear plan contract. Do not broaden beyond the exact predicates without generated LinearPlanContract evidence and guardrail timing.",
+      "revisit_conditions": [
+        "If adjacent QKV, non-QKV, non-backbone, non-float, bias-present, M=150/152, N=1153, or post-op linear rows route through the contract.",
         "If RX 6700 XT or GTX 1080 timing regresses under the same exact default contract.",
         "If more linear exact rows are added without migrating to a generated LinearPlanContract/spec."
       ]

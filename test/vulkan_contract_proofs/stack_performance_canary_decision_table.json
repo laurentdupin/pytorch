@@ -5,6 +5,7 @@
   "status_values": [
     "viable_safe_lane",
     "accepted_default_fix",
+    "accepted_default_exact_plan",
     "accepted_canary",
     "accepted_reporting_infrastructure",
     "stability_blocked",
@@ -261,6 +262,21 @@
       "latest_observation": "Focused route testing now hits aten::linear.buffer_float_tiled_bias_vec2 for the exact [151,1536] x [384,1536] + [384] FC2 row without PYTORCH_VULKAN_LINEAR_TILED_CANARY and matches CPU within atol=1e-3, rtol=1e-3. Adjacent negatives keep non-FC2, M=150/152, N=385, and no-bias rows on the old route. A warmup-3/repeat-30 RX 9070 vits_140 wide4 bridge run measured about 42.6 ms mean / 42.0 ms median / 44.7 ms p95 device-resident forward with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
       "decision": "Keep as a default exact linear plan contract. Do not broaden the tiled vec2 route beyond this row without generated LinearPlanContract evidence and focused guardrail timing.",
       "next_proof": "Run focused multi-GPU and adjacent-model guardrails. If more rows are added, migrate the exact row into a generated linear plan contract/spec instead of growing handwritten predicates.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "linear_exact_qkv_tiled",
+      "status": "accepted_default_exact_plan",
+      "scope": [
+        "FP32 linear plan",
+        "exact qkv candidate",
+        "tiled kernel"
+      ],
+      "canary_or_path": "VisionQkvExactTiledLinearPlanContract default exact row",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "Focused route testing now hits aten::linear.buffer_float_tiled for the exact [151,384] x [1152,384] no-bias QKV row without PYTORCH_VULKAN_LINEAR_TILED_CANARY and matches CPU within atol=1e-3, rtol=1e-3. Adjacent negatives keep non-QKV, M=150/152, N=1153, and bias-present rows on the old route. A warmup-3/repeat-30 RX 9070 vits_140 wide4 bridge run measured about 42.4 ms mean / 40.8 ms median / 53.7 ms p95 device-resident forward with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
+      "decision": "Keep as a default exact linear plan contract. Do not broaden the tiled QKV route beyond this row without generated LinearPlanContract evidence and focused guardrail timing.",
+      "next_proof": "Run focused multi-GPU and adjacent-model guardrails. If more rows are added, migrate the exact rows into a generated linear plan contract/spec instead of growing handwritten predicates.",
       "reusable_backend_policy": true
     },
     {

@@ -37135,6 +37135,150 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_vision_qkv_exact_tiled_linear_plan_contract(self):
+        log_name = "vision_qkv_exact_tiled_linear_plan_contract_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                torch.manual_seed(0)
+                x_cpu = torch.randn(151, 384, dtype=torch.float32) * 0.02
+                w_cpu = torch.randn(1152, 384, dtype=torch.float32) * 0.02
+
+                torch.ops.vulkan_prepack.reset_linear_aggregate()
+                expected = F.linear(x_cpu, w_cpu, None)
+                previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                    "depth.dino.backbone.block"
+                )
+                try:
+                    context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                        w_cpu.to("vulkan"),
+                        None,
+                        "depth.dino.backbone.block.qkv",
+                    )
+                    actual = torch.ops.vulkan_prepack.run_linear_context(
+                        x_cpu.to("vulkan"),
+                        context,
+                    ).cpu()
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous)
+
+                torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+                plan_keys = torch.ops.vulkan_prepack.linear_plan_key_snapshot()
+                assert any(
+                    "schema=VulkanLinearOrMatmulPlanKey.v0" in row
+                    and "selected=FloatBufferTiledLinear" in row
+                    and "contract=VisionQkvExactTiledLinearPlanContract" in row
+                    and "contract_tuple=vision_qkv_m151_k384_n1152_tiled" in row
+                    for row in plan_keys
+                ), "\\n".join(plan_keys)
+                print(float(actual.sum()))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_OP_HIT_LOG": log_name,
+                },
+                timeout=180,
+                error_prefix="Vision qkv tiled linear plan contract subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertIn("op=aten::linear.buffer_float_tiled", log_text)
+            self.assertIn("tiled=1", log_text)
+            self.assertIn("vec2=0", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_vision_qkv_exact_tiled_linear_plan_adjacent_negatives(self):
+        log_name = "vision_qkv_exact_tiled_linear_plan_negative_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                assert hasattr(torch.ops.vulkan_prepack, "swap_runtime_label")
+
+                def run_case(m, k, n, label, bias_defined=False):
+                    x_cpu = torch.randn(m, k, dtype=torch.float32) * 0.02
+                    w_cpu = torch.randn(n, k, dtype=torch.float32) * 0.02
+                    b_cpu = (
+                        torch.randn(n, dtype=torch.float32) * 0.02
+                        if bias_defined
+                        else None
+                    )
+                    expected = F.linear(x_cpu, w_cpu, b_cpu)
+                    b_arg = b_cpu.to("vulkan") if b_cpu is not None else None
+                    previous = torch.ops.vulkan_prepack.swap_runtime_label(
+                        "depth.dino.backbone.block"
+                    )
+                    try:
+                        context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                            w_cpu.to("vulkan"),
+                            b_arg,
+                            label,
+                        )
+                        actual = torch.ops.vulkan_prepack.run_linear_context(
+                            x_cpu.to("vulkan"),
+                            context,
+                        ).cpu()
+                    finally:
+                        torch.ops.vulkan_prepack.swap_runtime_label(previous)
+                    torch.testing.assert_close(
+                        actual, expected, atol=1e-3, rtol=1e-3)
+
+                torch.manual_seed(0)
+                torch.ops.vulkan_prepack.reset_linear_aggregate()
+                run_case(151, 384, 1152, "depth.dino.backbone.block.proj")
+                run_case(150, 384, 1152, "depth.dino.backbone.block.qkv")
+                run_case(152, 384, 1152, "depth.dino.backbone.block.qkv")
+                run_case(151, 384, 1153, "depth.dino.backbone.block.qkv")
+                run_case(
+                    151, 384, 1152, "depth.dino.backbone.block.qkv", True)
+                plan_keys = torch.ops.vulkan_prepack.linear_plan_key_snapshot()
+                assert not any(
+                    "contract=VisionQkvExactTiledLinearPlanContract" in row
+                    for row in plan_keys
+                ), "\\n".join(plan_keys)
+                print(len(plan_keys))
+            """
+
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_OP_HIT_LOG": log_name,
+                },
+                timeout=180,
+                error_prefix="Vision qkv tiled linear plan negatives subprocess failed.",
+            )
+
+            self.assertTrue(os.path.exists(log_path))
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_text = log_file.read()
+
+            self.assertNotIn("op=aten::linear.buffer_float_tiled", log_text)
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_dinov2_attention_linear_and_matmul_run_without_inference_mode(self):
         log_name = "dinov2_attention_linear_no_inference_mode_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

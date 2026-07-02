@@ -1,7 +1,7 @@
 # Vulkan Current State
 
 Last refreshed: 2026-07-02 after the DAv2 vits_140 exact FC2 vec2 tiled
-linear plan contract promotion.
+linear and QKV tiled linear plan contract promotions.
 
 ## Repo State Summary
 
@@ -231,6 +231,20 @@ A warmup-3/repeat-30 RX 9070 `vits_140` wide4 bridge run without
 median / 44.7 ms p95 device-resident forward. Bridge sanity passed at
 `max_abs=1.1846423149108887e-06`, CPU fallback remained zero, and sync readback
 remained zero.
+
+The next exact linear row is now promoted separately as
+`VisionQkvExactTiledLinearPlanContract` for the exact vision-backbone FP32
+no-bias/no-post-op QKV row `[151,384] x [1152,384]`. It routes to
+`aten::linear.buffer_float_tiled` without the legacy linear tiled canary, while
+FC2 remains on `aten::linear.buffer_float_tiled_bias_vec2`. Focused contract
+tests cover the QKV positive row and adjacent negatives for non-QKV labels,
+`M=150/152`, `N=1153`, and bias-present exact dimensions. A warmup-3/repeat-30
+RX 9070 `vits_140` wide4 bridge run without `PYTORCH_VULKAN_LINEAR_TILED_CANARY`
+measured about 42.4 ms mean / 40.8 ms median / 53.7 ms p95 device-resident
+forward. Bridge sanity again passed at `max_abs=1.1846423149108887e-06`,
+CPU fallback remained zero, sync readback remained zero, and the benchmark
+selected Vulkan adapter index 0 (`AMD Radeon RX 9070`). This is still an exact
+plan-contract row, not a broad tiled-linear policy.
 
 Stack-planned submit cleanup now batches pending-retire buffers and images into
 one timeline-gated `RetiredResource` callback per stack-planned submission while
