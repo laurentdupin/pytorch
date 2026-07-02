@@ -14,6 +14,69 @@
   ],
   "entries": [
     {
+      "id": "stack_region_retire_drain_defer_default_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_pending_2026_07_02",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused evidence. Behavior is generic stack-owned segment retire-drain policy gated by active stack-planned recording, current-thread ownership, resource count, and byte budget.",
+      "contract_or_topology_scope": [
+        "StackRegionSegmentPlan.v0 wide4 bridge evidence",
+        "stack planned-recording retire-drain policy",
+        "region-owned command/retire ownership"
+      ],
+      "candidate": "Enable bounded stack-owner pending-retire drain deferral by default after stack-planned cleanup callback batching made stack-close cleanup flatter and measurable.",
+      "correctness": {
+        "status": "passed",
+        "max_abs": 1.1846423149108887e-06,
+        "mean_abs": 6.115393347272402e-08,
+        "tests": [
+          "Depth Anything V2 vits_140 bridge sanity, warmup=3, repeats=30, device-resident forward",
+          "Depth Anything V2 vitl_140 bridge smoke, warmup=1, repeats=3, device-resident forward",
+          "Depth Anything V2 vits_140 disabled escape-hatch smoke, warmup=1, repeats=2",
+          "Depth Anything V2 vitb_140 bridge smoke, warmup=1, repeats=3, device-resident forward"
+        ]
+      },
+      "counters": {
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "timed_buffer_copy_count": 0,
+        "timed_stack_planned_submit_count": 120,
+        "timed_pre_stack_flush_submit_count": 30,
+        "timed_explicit_synchronize_submit_count": 30,
+        "timed_retire_queue_drain_submit_count": 0,
+        "deferred_retire_resource_count": 1800,
+        "deferred_retire_bytes": 42690240,
+        "retired_resource_count": 15415,
+        "retire_cleanup_callback_count": 3378,
+        "vitb140_smoke_timed_retire_queue_drain_submit_count": 0,
+        "vitl140_smoke_timed_retire_queue_drain_submit_count": 0
+      },
+      "timing_ms": {
+        "baseline_after_cleanup_batching_device_resident_mean": 66.594,
+        "default_defer_device_resident_mean": 65.88,
+        "default_defer_device_resident_median": 66.123,
+        "default_defer_device_resident_p95": 67.084,
+        "repeat_count": 30
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_stack_retire_batch_counter_repeat30.json",
+        "agent_space/dav2_vits140_default_retire_defer_repeat30.json",
+        "agent_space/dav2_vitl140_default_retire_defer_smoke.json",
+        "agent_space/dav2_vitb140_default_retire_defer_smoke.json",
+        "agent_space/dav2_vits140_retire_defer_disabled_smoke.json"
+      ],
+      "decision": "Promote the narrow stack-owned segment retire-drain deferral as default after cleanup batching. It removes timed retire-drain queue submits under the existing stack-owned recording/resource-budget predicates and records deferred pending resources instead of hiding them.",
+      "revisit_conditions": [
+        "If another model shows deferred pending resources exceed the count or byte budget and falls back to retire-drain submits.",
+        "If deferred-retire resource counts are no longer visible in retire-drain counters.",
+        "If future region/session cleanup ownership replaces this with a stronger segment-local completion owner."
+      ]
+    },
+    {
       "id": "dav2_vits140_stack_planned_retire_cleanup_batch_2026_07_02",
       "status": "accepted_default_fix",
       "head": "local_pending_2026_07_02",

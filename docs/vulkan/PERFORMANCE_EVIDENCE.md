@@ -167,17 +167,20 @@ The initial catalog records the current `vits_140` performance lane:
   needs either segment-local completion ownership or a distinct bridge-scoped
   handoff batch with release and restore ownership before moving entries, not
   reuse of the same stack-exit batch as a standalone optimization;
-- opt-in stack-region retire-drain deferral:
+- stack-owned segment retire-drain deferral:
+  the previous opt-in
   `PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=stack_planned_region_exit`
-  is correctness-clean but rejected as slower. On the `vits_140` wide4 bridge,
-  submit-only deferral removed the 15 timed `retire_queue_drain` queue submits
-  but regressed to about 77.4 ms mean device-resident forward. The fast-path
-  variant also skipped intermediate drain inspection and still regressed to
-  about 94.8 ms mean while preserving bridge sanity, CPU fallback `0`,
-  sync readback `0`, and buffer copies `0`. This proves retire-drain submit
-  removal alone is not sufficient; the next control-plane work should target
-  stable program-owned temporaries/command replay or another descriptor/recording
-  reuse contract, not broader retire deferral;
+  evidence remains rejected for the pre-cleanup-batching path, where removing
+  the timed `retire_queue_drain` submits moved cost to later lifetime work.
+  After stack-planned cleanup callback batching, the same narrow
+  active-stack-owned-recording/current-thread/resource-budget gate is default.
+  A warmup-3/repeat-30 RX 9070 `vits_140` bridge run stayed correctness-clean,
+  kept CPU fallback, sync readback, and timed buffer copies at zero, removed the
+  three timed retire-drain queue submits per request, and measured about
+  65.9 ms mean / 66.1 ms median / 67.1 ms p95 device-resident forward.
+  The fast path records the deferred pending resources through the existing
+  retire-drain counters; `disabled` restores the old submit behavior for
+  diagnostics;
 - `StackProgramOwnedTempStabilityContract.v0` is accepted as reporting
   infrastructure for that next control-plane task. It records program-owned
   internal-temp descriptor counts and distinguishes `stable_for_re_record=1`

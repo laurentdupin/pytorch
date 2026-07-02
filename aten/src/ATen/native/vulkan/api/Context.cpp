@@ -192,11 +192,15 @@ bool stack_owned_segment_retire_drain_defer_enabled() {
   const char* env =
       std::getenv("PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER");
   if (env == nullptr || *env == '\0') {
-    return false;
+    return true;
   }
   const std::string value(env);
+  if (value == "0" || value == "off" || value == "disabled") {
+    return false;
+  }
   return value == "stack_owned_segment_exit" ||
-      value == "stack_planned_region_exit";
+      value == "stack_planned_region_exit" || value == "1" ||
+      value == "default";
 }
 
 const char* stack_region_single_recording_plan_state_name(
@@ -3469,6 +3473,30 @@ void Context::submit_pending_work_and_poll_retire(
         pending_resource_count_for_defer <=
             kStackOwnedRegionRetireDrainDeferResourceCountLimit) {
       poll_retire_queue();
+      note_vulkan_retire_drain(
+          retire_drain_reason_for_current_phase(),
+          callsite,
+          /*queue_submit=*/false,
+          /*blocking_wait=*/false,
+          pending_resource_count_for_defer,
+          pending_bytes);
+      note_stack_retire_drain_blocker_summary(
+          phase,
+          callsite,
+          /*queue_submit=*/false,
+          pending_resource_count_for_defer,
+          pending_bytes,
+          /*qkv_hypothetical_count=*/0u,
+          /*qkv_hypothetical_bytes=*/0u,
+          /*qkv_would_remove_drain=*/false,
+          /*only_already_batched=*/false,
+          /*blocked_requested_intermediate=*/false,
+          /*blocked_missing_proof=*/false,
+          /*blocked_generic_stack_internal_temp=*/false,
+          /*blocked_metadata_or_uniform=*/false,
+          /*blocked_other_roles=*/false,
+          /*skipped_no_old_path_pending=*/false,
+          /*skipped_no_pending_command_work=*/false);
       return;
     }
   }

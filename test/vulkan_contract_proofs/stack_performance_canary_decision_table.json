@@ -217,16 +217,16 @@
     },
     {
       "id": "stack_retire_drain_defer",
-      "status": "candidate_needs_policy",
+      "status": "accepted_default_fix",
       "scope": [
         "retire drain deferral",
         "stack-owned segment cleanup"
       ],
-      "canary_or_path": "stack-owner retire drain deferral canaries",
+      "canary_or_path": "default bounded stack-owned segment retire-drain deferral; set PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=disabled for diagnostics",
       "model_evidence": "Depth Anything V2 vits_140",
-      "latest_observation": "Retire drains remain a structural bottleneck in the safe wide4 lane, but previous broad deferral paths require exact identity, release-owner, and completion proof.",
-      "decision": "Keep as the next control-plane optimization class, not a broad heuristic.",
-      "next_proof": "Implement a completion-owner handoff for exact-identity entries at the correct release boundary and require no double-retire, early destroy, or leak.",
+      "latest_observation": "After stack-planned cleanup callback batching, the bounded deferral gate removed all timed retire_queue_drain submits in a repeat-30 vits_140 bridge run while preserving correctness, zero timed fallback/readback/copy, and visible deferred pending-resource counters.",
+      "decision": "Promote the narrow stack-owned/current-thread/resource-budget deferral as default. It is still not broad retire batching or current-topology submit elision.",
+      "next_proof": "Reduce one of the remaining submit classes or attack the top timestamped GPU kernels; the timed path still has four stack-planned submits, one pre-stack flush, and one explicit synchronize per request.",
       "reusable_backend_policy": true
     }
   ]

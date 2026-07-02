@@ -235,18 +235,23 @@ valid but did not transfer pending retires: the release-owner rows remained
 mean. That result is cataloged as a no-op/rejected path. A future behavior
 canary needs a distinct bridge-scoped handoff batch with explicit restore and
 close-submit retire ownership before it moves entries.
-An opt-in stack-region retire-drain deferral canary is also rejected as a
-standalone latency path. With
-`PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=stack_planned_region_exit`, the
-`vits_140` wide4 bridge remained correctness-clean and removed the 15 timed
-`retire_queue_drain` queue submits over five repeats, but timing regressed from
-the 64.3 ms wide4 baseline to about 77.4 ms when only the submit was deferred
-and to about 94.8 ms when intermediate drain inspection was also skipped. This
-shows that removing those retire-drain submits without stable program-owned
-temporary/replay ownership shifts cost to later stack-close/lifetime work
-instead of improving latency. Do not promote this canary; the next control-plane
-task is stable stack temp identity for command replay or another
-descriptor/command-recording reuse contract.
+The narrow stack-owned segment retire-drain deferral is now the default under
+the same active-stack-planned-recording, current-thread, resource-count, and
+byte-budget predicates that previously gated the canary. The old rejected
+evidence remains valid for the pre-cleanup-batching path: before stack-planned
+cleanup callbacks were flattened, deferring the submit shifted cost to later
+lifetime work and regressed timing. After cleanup batching, a focused
+warmup-3/repeat-30 RX 9070 `vits_140` bridge run stayed correctness-clean,
+kept timed CPU fallback, sync readback, and buffer copies at zero, and removed
+the three timed `retire_queue_drain` queue submits per request. The run measured
+about 65.9 ms mean / 66.1 ms median / 67.1 ms p95 device-resident forward.
+The fast path records the deferred pending resources through the existing
+retire-drain and stack-retire-blocker counters instead of hiding them; the same
+run reported 1800 deferred resources / 42.7 MB over 30 timed forwards. Setting
+`PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER=disabled` restores the old
+retire-drain submit behavior for diagnostics. Focused warmup-1/repeat-3
+`vitb_140` and `vitl_140` bridge smokes also stayed correctness-clean with zero
+timed retire-drain submits, CPU fallback, sync readback, or buffer copies.
 `StackProgramOwnedTempStabilityContract.v0` is now exposed as reporting-only
 stack replay infrastructure. It records that current stack-internal temp
 descriptors are stable for per-forward re-recording, but remain fail-closed for
