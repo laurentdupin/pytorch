@@ -4804,6 +4804,38 @@ Context::prepare_stack_region_exit_work_batch_locked(
   batch->preserve_larger_source =
       !batch->bind_stack_internal_source_at_stack_exit &&
       !batch->pending_retire_handoff_at_stack_exit;
+  batch->source_snapshot_state =
+      batch->pending_retire_handoff_at_stack_exit ? 6u : 2u;
+  {
+    std::lock_guard<std::mutex> batch_lock(
+        stack_internal_temp_retire_batch_mutex_);
+    batch->stack_internal_temp_batch_count =
+        stack_internal_temp_retire_batch_buffers_.size() +
+        stack_internal_temp_retire_batch_images_.size();
+    for (const PendingRetireBuffer& pending :
+         stack_internal_temp_retire_batch_buffers_) {
+      batch->stack_internal_temp_batch_bytes += pending.bytes;
+    }
+    for (const PendingRetireImage& pending :
+         stack_internal_temp_retire_batch_images_) {
+      batch->stack_internal_temp_batch_bytes += pending.bytes;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> handoff_lock(
+        stack_region_pending_retire_handoff_batch_mutex_);
+    batch->stack_region_handoff_batch_count =
+        stack_region_pending_retire_handoff_buffers_.size() +
+        stack_region_pending_retire_handoff_images_.size();
+    for (const PendingRetireBuffer& pending :
+         stack_region_pending_retire_handoff_buffers_) {
+      batch->stack_region_handoff_batch_bytes += pending.bytes;
+    }
+    for (const PendingRetireImage& pending :
+         stack_region_pending_retire_handoff_images_) {
+      batch->stack_region_handoff_batch_bytes += pending.bytes;
+    }
+  }
   note_stack_region_control_plane_work_batch(
       "prepared",
       batch->prepared,
@@ -4811,7 +4843,12 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->pending_retire_handoff_at_stack_exit,
       batch->bind_stack_internal_source_at_stack_exit,
       batch->submission.timeline != VK_NULL_HANDLE &&
-          batch->submission.timeline_value != 0u);
+          batch->submission.timeline_value != 0u,
+      batch->source_snapshot_state,
+      batch->stack_internal_temp_batch_count,
+      batch->stack_internal_temp_batch_bytes,
+      batch->stack_region_handoff_batch_count,
+      batch->stack_region_handoff_batch_bytes);
   return batch;
 }
 
@@ -4821,7 +4858,7 @@ void Context::drain_stack_region_exit_work_batch_locked(
       "stack_exit_before_handoff_batches",
       &batch.submission);
   snapshot_stack_region_pending_retire_transfer_source_locked(
-      batch.pending_retire_handoff_at_stack_exit ? 6u : 2u,
+      batch.source_snapshot_state,
       /*include_context_pending_retires=*/false,
       batch.preserve_larger_source);
   retire_stack_internal_temp_retire_batch_locked(batch.submission);
@@ -4868,7 +4905,12 @@ void Context::drain_stack_region_exit_work_batch_locked(
       batch.pending_retire_handoff_at_stack_exit,
       batch.bind_stack_internal_source_at_stack_exit,
       batch.submission.timeline != VK_NULL_HANDLE &&
-          batch.submission.timeline_value != 0u);
+          batch.submission.timeline_value != 0u,
+      batch.source_snapshot_state,
+      batch.stack_internal_temp_batch_count,
+      batch.stack_internal_temp_batch_bytes,
+      batch.stack_region_handoff_batch_count,
+      batch.stack_region_handoff_batch_bytes);
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {

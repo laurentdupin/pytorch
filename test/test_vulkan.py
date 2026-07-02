@@ -22043,6 +22043,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in graph_batch_rows
                 )
             )
+            self.assertTrue(
+                all(
+                    "source_snapshot_state" in row
+                    and "stack_internal_temp_batch_count" in row
+                    and "stack_internal_temp_batch_bytes" in row
+                    and "stack_region_handoff_batch_count" in row
+                    and "stack_region_handoff_batch_bytes" in row
+                    for row in graph_batch_rows
+                )
+            )
+            self.assertTrue(
+                all(
+                    row.get("source_snapshot_state") in ("2", "6")
+                    for row in graph_batch_rows
+                )
+            )
             dependency_rows = (
                 torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot()
             )
@@ -31177,6 +31193,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["stage"] == "drained_inline"
                     and row["submit_topology_preserved"] == "1"
                     and row["submit_elision_enabled"] == "0"
+                    for row in control_plane_work_batch_rows
+                )
+            )
+            self.assertTrue(
+                all(
+                    "source_snapshot_state" in row
+                    and "stack_internal_temp_batch_count" in row
+                    and "stack_internal_temp_batch_bytes" in row
+                    and "stack_region_handoff_batch_count" in row
+                    and "stack_region_handoff_batch_bytes" in row
                     for row in control_plane_work_batch_rows
                 )
             )

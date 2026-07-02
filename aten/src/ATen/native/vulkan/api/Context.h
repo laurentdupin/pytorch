@@ -245,6 +245,11 @@ class TORCH_API Context final {
     bool pending_retire_handoff_at_stack_exit = false;
     bool bind_stack_internal_source_at_stack_exit = false;
     bool preserve_larger_source = false;
+    uint64_t source_snapshot_state = 0u;
+    uint64_t stack_internal_temp_batch_count = 0u;
+    uint64_t stack_internal_temp_batch_bytes = 0u;
+    uint64_t stack_region_handoff_batch_count = 0u;
+    uint64_t stack_region_handoff_batch_bytes = 0u;
   };
 
   void clear_pending_retire_resources_locked();

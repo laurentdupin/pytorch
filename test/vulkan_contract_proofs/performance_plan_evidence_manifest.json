@@ -2623,6 +2623,9 @@
         "graph_json_control_plane_work_batch_rows_visible": true,
         "control_plane_work_batch_prepared_rows_visible": true,
         "control_plane_work_batch_drained_inline_rows_visible": true,
+        "control_plane_work_batch_source_snapshot_state_visible": true,
+        "control_plane_work_batch_internal_temp_count_bytes_visible": true,
+        "control_plane_work_batch_region_handoff_count_bytes_visible": true,
         "stack_exit_cleanup_drained_immediately": true
       },
       "timing_ms": {

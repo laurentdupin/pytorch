@@ -191,8 +191,11 @@ flattening scaffold for the remaining deep/compiled-session stack-overflow
 class. The rows are now also exposed through
 `stack_region_control_plane_work_batch_rows` in `StackRegionDependencyGraph.v0`
 full and summary-only dumps, so graph artifacts can report the exit batch
-without consulting the raw dry-run snapshot. This does not defer cleanup, remove
-submits, change command-buffer topology, or claim a timing win.
+without consulting the raw dry-run snapshot. The rows now include
+`source_snapshot_state`, stack-internal-temp batch count/bytes, and
+stack-region handoff batch count/bytes so the next flattening task can choose a
+real cleanup payload by pressure. This does not defer cleanup, remove submits,
+change command-buffer topology, or claim a timing win.
 
 A post-guard RX 9070 `vits_140` GPU timestamp pass with
 `segmented_stack_wide4_to_exit` showed about 44.2 ms of timestamped GPU work per

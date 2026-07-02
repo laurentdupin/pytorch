@@ -25146,7 +25146,12 @@ void note_stack_region_control_plane_work_batch(
     const bool drained_inline,
     const bool pending_retire_handoff_at_stack_exit,
     const bool bind_stack_internal_source_at_stack_exit,
-    const bool timeline_valid) {
+    const bool timeline_valid,
+    const uint64_t source_snapshot_state,
+    const uint64_t stack_internal_temp_batch_count,
+    const uint64_t stack_internal_temp_batch_bytes,
+    const uint64_t stack_region_handoff_batch_count,
+    const uint64_t stack_region_handoff_batch_bytes) {
   std::ostringstream key;
   key << "stack_region_control_plane_work_batch=1"
       << " schema=StackRegionControlPlaneWorkBatch.v0"
@@ -25158,6 +25163,15 @@ void note_stack_region_control_plane_work_batch(
       << " bind_stack_internal_source_at_stack_exit="
       << (bind_stack_internal_source_at_stack_exit ? "1" : "0")
       << " timeline_valid=" << (timeline_valid ? "1" : "0")
+      << " source_snapshot_state=" << source_snapshot_state
+      << " stack_internal_temp_batch_count="
+      << stack_internal_temp_batch_count
+      << " stack_internal_temp_batch_bytes="
+      << stack_internal_temp_batch_bytes
+      << " stack_region_handoff_batch_count="
+      << stack_region_handoff_batch_count
+      << " stack_region_handoff_batch_bytes="
+      << stack_region_handoff_batch_bytes
       << " behavior_neutral=1"
       << " submit_topology_preserved=1"
       << " phase_boundary_submits_preserved=1"
