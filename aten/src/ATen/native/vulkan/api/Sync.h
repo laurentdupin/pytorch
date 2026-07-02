@@ -2586,6 +2586,7 @@ TORCH_API bool vision_stack_capture_dependency_reaches_block(
 
 TORCH_API void begin_stack_dispatch_dependency_recording_scope();
 TORCH_API void end_stack_dispatch_dependency_recording_scope();
+TORCH_API bool stack_descriptor_dependency_diagnostics_enabled();
 TORCH_API bool stack_planned_region_context_active();
 TORCH_API VulkanStackPlannedRegionContext current_stack_planned_region_context();
 TORCH_API void set_stack_region_command_buffer_diagnostic_context(

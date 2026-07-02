@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-07-01",
+  "last_updated": "2026-07-02",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -2217,6 +2217,89 @@
         "When a stack temp slot allocator or replay-owned scratch/temp pool records a stable low-level program-temp slot id with allocation id, generation, byte range, and lifetime across forwards.",
         "When an opt-in command-replay canary consumes the proof row and keeps bridge sanity, CPU fallback, sync readback, and copy counters clean.",
         "When CPU-side descriptor/command-recording attribution shows command replay is no longer the top control-plane bottleneck."
+      ]
+    },
+    {
+      "id": "stack_descriptor_dependency_diagnostics_gated_2026_07_02",
+      "status": "accepted_default_fix",
+      "head": "local_stack_descriptor_dependency_diagnostics_gated",
+      "model_provenance": {
+        "model": "Depth Anything V2",
+        "variant": "vits",
+        "input": "140x210"
+      },
+      "device_notes": "RX 9070 focused timing and graph smoke. The code change is generic stack-region diagnostic gating and is not a device, model, shape, route, shader, submit, copy, fallback, or readback predicate.",
+      "contract_or_topology_scope": [
+        "StackRegionDependencyGraph.v0",
+        "StackRegionBarrierPlan.v0",
+        "StackRegionPreDispatchProofTable.v0",
+        "StackRegionSubmitEpochOrdering.v0",
+        "stack descriptor dependency diagnostics",
+        "segmented_stack_wide4_to_exit"
+      ],
+      "candidate": "Gate live-descriptor, pre-dispatch proof-table, descriptor-set update generation, and barrier-canary descriptor row construction behind graph/diagnostic-row or selected barrier-canary requests, while preserving aggregate dispatch counters and graph behavior when explicitly requested.",
+      "correctness": {
+        "status": "passed_repeat10_and_graph_smoke",
+        "bridge_sanity_max_abs": 1.1846423149108887e-06,
+        "bridge_sanity_mean_abs": 6.115393347272402e-08,
+        "graph_smoke_status": "pre_dispatch_proof_and_submit_epoch_rows_present"
+      },
+      "counters": {
+        "execution_behavior_changed": false,
+        "cpu_fallback": 0,
+        "sync_readback": 0,
+        "buffer_copy_count": 0,
+        "buffer_copy_bytes": 0,
+        "measurement_phase_submit_origins": [
+          110,
+          30,
+          30,
+          10,
+          0,
+          10,
+          0,
+          0,
+          30,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "measurement_phase_stack_planned": [
+          10,
+          10,
+          30,
+          30,
+          0
+        ],
+        "graph_smoke_dispatch_nodes": 552,
+        "graph_smoke_pre_dispatch_candidate_records": 3,
+        "graph_smoke_pre_dispatch_proof_complete_records": 3,
+        "graph_smoke_submit_epoch_optimization_plan_records": 3,
+        "repeat20_or_repeat30_exit_code": -1073741571,
+        "repeat20_or_repeat30_failure_class": "pre_existing_windows_stack_overflow"
+      },
+      "timing_ms": {
+        "device_resident_repeat10_mean": 57.64968,
+        "device_resident_repeat10_median": 57.832,
+        "device_resident_repeat10_p95": 58.8946,
+        "performance_claim": "short_run_only_not_repeat30_stable"
+      },
+      "artifacts": [
+        "agent_space/dav2_vits140_dependency_rows_gated_final_repeat10.json",
+        "agent_space/dav2_vits140_dependency_rows_gated_graph_smoke.json",
+        "agent_space/dav2_vits140_dependency_rows_gated_graph_smoke_graph.json",
+        "agent_space/dav2_vits140_submit_stage_timeline_summary.log",
+        "agent_space/dav2_vits140_submit_stage_gated_timeline_summary.log",
+        "agent_space/dav2_vits140_head_control_repeat20.trace"
+      ],
+      "decision": "Keep stack descriptor dependency rows off the default timing path and emit them only for graph/diagnostic-row or selected barrier-canary runs. This fixes a measured control-plane diagnostic overhead without weakening contract or graph observability. Do not promote the 57 ms short-run result as a stable repeat-30 baseline until the independent repeated-forward stack-overflow failure is fixed.",
+      "revisit_conditions": [
+        "If graph or barrier-canary runs stop emitting pre-dispatch proof or submit-epoch rows.",
+        "After repeat-20/30 `vits_140` wide4 no longer exits with Windows stack overflow.",
+        "If a future optimized always-on proof representation can keep the same graph rows without measurable timing overhead."
       ]
     },
     {

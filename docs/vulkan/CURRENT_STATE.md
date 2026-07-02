@@ -1,8 +1,8 @@
 # Vulkan Current State
 
 Last refreshed: 2026-07-01 after DAv2 multi-GPU conv workgroup evidence,
-vitl native private-baton deep-split bridge work, and segment-completion
-retire-handoff evidence.
+vitl native private-baton deep-split bridge work, segment-completion
+retire-handoff evidence, and stack descriptor dependency diagnostic gating.
 
 ## Repo State Summary
 
@@ -113,6 +113,25 @@ device-resident forward, versus the preceding 65.9 ms / 66.1 ms / 67.1 ms
 retire-deferral baseline, with bridge sanity max_abs
 `1.1846423149108887e-06`, zero timed sync readback, and the same submit,
 retire, and stack-planned counters.
+
+Stack descriptor dependency diagnostics are now gated off on the default
+wide4 bridge lane. The heavy live-descriptor, pre-dispatch proof-table, and
+barrier-canary descriptor rows are still emitted when
+`PYTORCH_VULKAN_STACK_DEP_GRAPH`, `PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS`, or a
+selected barrier canary requests them, but successful timing runs no longer
+build those rows by default. This changes no route, shader, submit, fallback,
+readback, copy, or graph semantics. Focused stage attribution showed that
+external-recording descriptor proof rows accounted for about 18 ms/request of
+CPU work after descriptor-update allocation flattening; with default row
+gating, an RX 9070 `vits_140` wide4 warmup-3/repeat-10 run measured about
+57.6 ms mean / 57.8 ms median / 58.9 ms p95 device-resident forward with
+bridge sanity max_abs `1.1846423149108887e-06`, zero timed CPU fallback, sync
+readback, and buffer copies. A separate graph smoke still materialized the
+pre-dispatch proof and submit-epoch rows when `PYTORCH_VULKAN_STACK_DEP_GRAPH`
+was set. This is not yet a stable repeat-30 baseline: repeat-20/30 still hits
+the pre-existing Windows stack-overflow failure around the thirteenth repeated
+forward, so the next stability target remains heap-owned/flat repeated-forward
+stack work rather than another descriptor diagnostic path.
 
 The current RX 9070 `vits_140` retained-pool wide4 bridge lane remains the best
 measured safe lane. The repeat-run stack overflow was traced to the normal

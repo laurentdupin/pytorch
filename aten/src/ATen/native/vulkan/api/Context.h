@@ -1245,19 +1245,21 @@ inline bool Context::submit_compute_job(
         command_buffer_recording_id_, submit_epoch_before);
   }
 
-  detail::note_stack_live_descriptor_bindings(
-      shader.kernel_name.c_str(),
-      std::index_sequence_for<Arguments...>{},
-      std::forward<Arguments>(arguments)...);
-  detail::note_stack_pre_dispatch_proof_table_descriptors(
-      shader.kernel_name.c_str(),
-      std::index_sequence_for<Arguments...>{},
-      std::forward<Arguments>(arguments)...);
-  detail::note_stack_barrier_only_canary_descriptors(
-      shader.kernel_name.c_str(),
-      pipeline_barrier,
-      std::index_sequence_for<Arguments...>{},
-      std::forward<Arguments>(arguments)...);
+  if (stack_descriptor_dependency_diagnostics_enabled()) {
+    detail::note_stack_live_descriptor_bindings(
+        shader.kernel_name.c_str(),
+        std::index_sequence_for<Arguments...>{},
+        std::forward<Arguments>(arguments)...);
+    detail::note_stack_pre_dispatch_proof_table_descriptors(
+        shader.kernel_name.c_str(),
+        std::index_sequence_for<Arguments...>{},
+        std::forward<Arguments>(arguments)...);
+    detail::note_stack_barrier_only_canary_descriptors(
+        shader.kernel_name.c_str(),
+        pipeline_barrier,
+        std::index_sequence_for<Arguments...>{},
+        std::forward<Arguments>(arguments)...);
+  }
 
   detail::bind(
       descriptor_set,

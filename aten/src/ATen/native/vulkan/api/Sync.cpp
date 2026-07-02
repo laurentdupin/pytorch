@@ -39,6 +39,7 @@ thread_local VulkanStackPlannedRegionContext g_stack_planned_region_context;
 thread_local bool g_stack_planned_region_context_active = false;
 thread_local uint64_t g_stack_dispatch_dependency_scope_id = 0u;
 thread_local uint64_t g_stack_dispatch_dependency_position = 0u;
+thread_local bool g_stack_descriptor_dependency_diagnostics_active = false;
 thread_local uint64_t g_stack_command_buffer_recording_id = 0u;
 thread_local uint64_t g_stack_submit_epoch_before = 0u;
 std::atomic<uint64_t> g_next_stack_dispatch_dependency_scope_id{1u};
@@ -3109,6 +3110,12 @@ bool stack_diagnostic_rows_enabled() {
     return value != "0" && value != "false" && value != "False";
   }
   return stack_region_dependency_graph_path() != nullptr;
+}
+
+bool stack_descriptor_dependency_diagnostics_requested() {
+  return stack_diagnostic_rows_enabled() ||
+      stack_region_barrier_only_canary_target_selected(
+             stack_region_barrier_only_canary_target());
 }
 
 bool stack_region_dependency_graph_summary_only() {
@@ -24992,6 +24999,10 @@ void maybe_write_stack_region_dependency_graph_dump() {
 
 } // namespace
 
+bool stack_descriptor_dependency_diagnostics_enabled() {
+  return g_stack_descriptor_dependency_diagnostics_active;
+}
+
 void note_stack_region_recording_domain(
     const char* const event,
     const uint64_t region_id,
@@ -32539,12 +32550,15 @@ void begin_stack_dispatch_dependency_recording_scope() {
       g_next_stack_dispatch_dependency_scope_id.fetch_add(
           1u, std::memory_order_relaxed);
   g_stack_dispatch_dependency_position = 0u;
+  g_stack_descriptor_dependency_diagnostics_active =
+      stack_descriptor_dependency_diagnostics_requested();
 }
 
 void end_stack_dispatch_dependency_recording_scope() {
   maybe_write_stack_region_dependency_graph_dump();
   g_stack_dispatch_dependency_scope_id = 0u;
   g_stack_dispatch_dependency_position = 0u;
+  g_stack_descriptor_dependency_diagnostics_active = false;
   g_stack_command_buffer_recording_id = 0u;
   g_stack_submit_epoch_before = 0u;
 }
@@ -32608,6 +32622,9 @@ void note_stack_region_exit_submit_runtime_point(
 }
 
 void note_vulkan_stack_pre_dispatch_insertion_point(const char* shader_name) {
+  if (!stack_descriptor_dependency_diagnostics_enabled()) {
+    return;
+  }
   if (!inside_vision_stack_phase()) {
     return;
   }
@@ -32642,6 +32659,9 @@ void note_vulkan_stack_live_descriptor_binding(
     const uint32_t binding_idx,
     const char* shader_name,
     const VulkanBuffer& buffer) {
+  if (!stack_descriptor_dependency_diagnostics_enabled()) {
+    return;
+  }
   if (!inside_vision_stack_phase()) {
     return;
   }
@@ -32672,6 +32692,9 @@ void note_vulkan_stack_live_image_descriptor_binding(
     const uint32_t binding_idx,
     const char* shader_name,
     const VulkanImage& image) {
+  if (!stack_descriptor_dependency_diagnostics_enabled()) {
+    return;
+  }
   if (!inside_vision_stack_phase()) {
     return;
   }
@@ -32703,6 +32726,9 @@ void note_vulkan_stack_descriptor_set_update_generation(
     const uint64_t descriptor_set_handle_token,
     const uint64_t update_generation,
     const uint64_t write_count) {
+  if (!stack_descriptor_dependency_diagnostics_enabled()) {
+    return;
+  }
   if (!inside_vision_stack_phase()) {
     return;
   }

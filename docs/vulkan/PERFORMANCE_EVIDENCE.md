@@ -317,6 +317,22 @@ The initial catalog records the current `vits_140` performance lane:
   max_abs `1.1846423149108887e-06`, zero timed sync readback, and unchanged
   submit/retire/stack-planned counters. This is generic descriptor-path cleanup,
   not a DAv2 route, shader, submit, copy, fallback, or readback change;
+- stack descriptor dependency diagnostic gating: accepted default diagnostic
+  overhead fix. The default timing path no longer builds live-descriptor,
+  pre-dispatch proof-table, or barrier-canary descriptor rows unless graph rows,
+  diagnostic rows, or a selected barrier canary request them. Focused stage
+  attribution showed that the external-recording descriptor proof rows accounted
+  for about 18 ms/request of CPU work after descriptor-update allocation
+  flattening. A focused RX 9070 `vits_140` wide4 warmup-3/repeat-10 run measured
+  about 57.6 ms mean / 57.8 ms median / 58.9 ms p95 device-resident forward,
+  with bridge sanity max_abs `1.1846423149108887e-06`, zero timed CPU fallback,
+  sync readback, and buffer copies. A separate graph smoke kept the
+  pre-dispatch proof and submit-epoch rows visible when
+  `PYTORCH_VULKAN_STACK_DEP_GRAPH` was set. This is not a stable repeat-30
+  baseline: repeat-20/30 still hits the pre-existing Windows stack-overflow
+  failure around the thirteenth repeated forward, so the next stability target
+  remains heap-owned/flat repeated-forward stack work rather than another
+  descriptor diagnostic path;
 - stack-region external recording pool lease:
   `PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is an
   opt-in ownership experiment for stack-owned external recording. A focused
