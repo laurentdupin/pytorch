@@ -134,14 +134,27 @@ condition that justifies revisiting it.
 - HY-MT control-tensor blocker: after the same cleanup, RX 9070 HY-MT still
   surfaces Long/Bool control-tensor fallbacks in generation (`isin`, `any/all`,
   Long comparison, Long binary op, `masked_fill`, dtype cast, and scalar
-  extraction). The next reusable improvement should be a control-tensor
-  residency/comparison contract, not another linear-weight or pointwise row.
+  extraction). These are now classified in transition logs by
+  `SmallControlTensorFallbackContract` and
+  `SmallControlScalarExtractionContract` when the tensors stay inside the
+  bounded control envelope (`Bool`/`Long`/`Int` with `numel <= 16`, plus Float
+  only for tiny comparison-control rows). The classification is
+  behavior-neutral: CPU fallback and scalar sync-readback counters still
+  increment, native execution is not authorized, and larger/unlisted tensors
+  stay on the generic fallback bucket. The focused HY-MT RX 9070 artifact is
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/hymt_rx9070_small_control_transition_classified/`;
+  it records 30 `SmallControlTensorFallbackContract` rows and 6
+  `SmallControlScalarExtractionContract` rows in a one-token run.
 - HY-MT Bool control negative evidence: routing the existing single-element
   Bool `or`/`and` path through `buffer_binary_op_tensor_bool` was rejected in
   `agent_space/hymt_bool_shader_probe.md`. The shader dispatched without CPU
   fallback but returned incorrect values for cases such as `False | True` and
   `False & False`. Do not promote HY-MT Bool control ops through that shader
-  until the Bool buffer representation/indexing contract is fixed.
+  until the Bool buffer representation/indexing contract is fixed. The same
+  caution now applies to the small-control Bool any/all canary recorded in
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/bool_any_all_reduction_rejected.md`:
+  forcing Bool reduction through the current uint8 buffer shader also produced
+  wrong answers for simple vectors.
 
 ## Update Rules
 

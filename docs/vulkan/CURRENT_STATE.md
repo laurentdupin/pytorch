@@ -53,6 +53,14 @@ projection rows stay on Vulkan. Current smoke timings remain single-repeat
 diagnostics: PaddleOCR was about 0.81s on RX 9070, 0.65s on RX 6700 XT, and
 1.14s on GTX 1080 in the post-checkpoint artifact; HY-MT one-token decode was
 about 2.68s on RX 9070, 3.42s on RX 6700 XT, and 8.42s on GTX 1080.
+The remaining HY-MT generation-control traffic is now classified in transition
+logs instead of appearing only as generic fallback materialization:
+`SmallControlTensorFallbackContract` covers bounded Bool/Long/Int control
+tensors with `numel <= 16`, plus Float only for tiny comparison-control rows,
+and `SmallControlScalarExtractionContract` covers scalar `_local_scalar_dense`
+readbacks from bounded control tensors. Both contracts are behavior-neutral:
+native execution remains unauthorized, fallback/readback counters still
+increment, and the rejected Bool buffer-kernel evidence stays recorded.
 
 Two generic PaddleOCR/HY-MT cleanup fixes are now in place. First, legal 2D
 Vulkan buffer linear weights can use a metadata-only transposed view for

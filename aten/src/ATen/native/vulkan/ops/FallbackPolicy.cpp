@@ -234,6 +234,80 @@ bool is_conv_weight_layout_repack_transition(
       std::strcmp(reason, "vulkan_weight_cpu_materialization") == 0;
 }
 
+bool is_small_control_dtype(const ScalarType dtype, const bool allow_float) {
+  return dtype == kBool || dtype == kLong || dtype == kInt ||
+      (allow_float && dtype == kFloat);
+}
+
+bool is_small_control_tensor(const Tensor& tensor, const bool allow_float) {
+  return tensor.defined() && tensor.is_vulkan() &&
+      is_small_control_dtype(tensor.scalar_type(), allow_float) &&
+      tensor.dim() <= 4 && tensor.numel() <= 16;
+}
+
+bool all_vulkan_tensors_are_small_control(
+    ArrayRef<Tensor> tensors,
+    const bool allow_float) {
+  bool found_vulkan_tensor = false;
+  for (const Tensor& tensor : tensors) {
+    if (!tensor.defined() || !tensor.is_vulkan()) {
+      continue;
+    }
+    found_vulkan_tensor = true;
+    if (!is_small_control_tensor(tensor, allow_float)) {
+      return false;
+    }
+  }
+  return found_vulkan_tensor;
+}
+
+bool is_small_control_tensor_fallback(
+    const char* op_name,
+    const char* reason,
+    ArrayRef<Tensor> tensors,
+    const VulkanCpuFallbackKind kind) {
+  if (kind != VulkanCpuFallbackKind::OpFallback || op_name == nullptr ||
+      reason == nullptr) {
+    return false;
+  }
+  const bool is_control_comparison =
+      std::strcmp(op_name, "aten::comparison") == 0;
+  if (!all_vulkan_tensors_are_small_control(tensors, is_control_comparison)) {
+    return false;
+  }
+  return std::strcmp(op_name, "aten::binary_op") == 0 ||
+      is_control_comparison ||
+      std::strcmp(op_name, "aten::cat") == 0 ||
+      std::strcmp(op_name, "aten::isin.Tensor_Tensor") == 0 ||
+      std::strcmp(op_name, "aten::all") == 0 ||
+      std::strcmp(op_name, "aten::any") == 0 ||
+      std::strcmp(op_name, "aten::max") == 0 ||
+      std::strcmp(op_name, "aten::masked_fill") == 0 ||
+      std::strcmp(op_name, "aten::fill_.Scalar") == 0 ||
+      std::strcmp(op_name, "aten::to") == 0 ||
+      std::strcmp(reason, "bool_not_cpu_fallback") == 0 ||
+      std::strcmp(reason, "bool_or_cpu_fallback") == 0 ||
+      std::strcmp(reason, "bool_and_cpu_fallback") == 0 ||
+      std::strcmp(reason, "small_control_tensor_cpu_fallback") == 0;
+}
+
+bool is_small_control_scalar_extraction(
+    const char* op_name,
+    ArrayRef<Tensor> tensors,
+    const VulkanCpuFallbackKind kind) {
+  if (kind != VulkanCpuFallbackKind::SyncReadback || op_name == nullptr ||
+      std::strcmp(op_name, "aten::_local_scalar_dense") != 0 ||
+      !all_vulkan_tensors_are_small_control(tensors, false)) {
+    return false;
+  }
+  for (const Tensor& tensor : tensors) {
+    if (tensor.defined() && tensor.is_vulkan() && tensor.numel() != 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void log_fallback_transition(
     const char* op_name,
     const char* reason,
@@ -259,21 +333,42 @@ void log_fallback_transition(
   }
   const bool conv_weight_layout_repack =
       is_conv_weight_layout_repack_transition(op_name, reason);
-  const char* producer_contract = conv_weight_layout_repack
-      ? "ConvWeightLayoutRepackTransitionContract"
-      : nullptr;
-  const char* consumer_contract = conv_weight_layout_repack
-      ? "LegacyConv2DWeightCPURepack"
-      : nullptr;
+  const bool small_control_tensor_fallback =
+      is_small_control_tensor_fallback(op_name, reason, tensors, kind);
+  const bool small_control_scalar_extraction =
+      is_small_control_scalar_extraction(op_name, tensors, kind);
+  const char* producer_contract = nullptr;
+  const char* consumer_contract = nullptr;
+  if (conv_weight_layout_repack) {
+    producer_contract = "ConvWeightLayoutRepackTransitionContract";
+    consumer_contract = "LegacyConv2DWeightCPURepack";
+  } else if (small_control_scalar_extraction) {
+    producer_contract = "SmallControlScalarExtractionContract";
+    consumer_contract = "PythonControlPlaneScalarConsumer";
+  } else if (small_control_tensor_fallback) {
+    producer_contract = "SmallControlTensorFallbackContract";
+    consumer_contract = "PythonControlPlaneTensorConsumer";
+  }
   const char* destination_layout = conv_weight_layout_repack
       ? "legacy_shader_packed_conv_weight"
       : nullptr;
   const char* destination_storage =
       conv_weight_layout_repack ? "TEXTURE_2D" : nullptr;
-  const char* detail = conv_weight_layout_repack
-      ? "packer_path=pack_weights;actual_values_required=1;"
-        "explicit_unpack_preserved=1;pickle_unpack_preserved=1"
-      : nullptr;
+  std::string detail_string;
+  if (conv_weight_layout_repack) {
+    detail_string =
+        "packer_path=pack_weights;actual_values_required=1;"
+        "explicit_unpack_preserved=1;pickle_unpack_preserved=1";
+  } else if (small_control_scalar_extraction) {
+    detail_string =
+        "control_tensor=1;scalar_extraction=1;behavior_neutral=1;"
+        "native_kernel_unsupported=1";
+  } else if (small_control_tensor_fallback) {
+    detail_string =
+        "control_tensor=1;small_tensor=1;behavior_neutral=1;"
+        "native_kernel_unsupported=1";
+  }
+  const char* detail = detail_string.empty() ? nullptr : detail_string.c_str();
   utils::log_vulkan_transition(utils::VulkanTransitionRequest{
       phase_name(fallback_phase_tls()),
       utils::TransitionReason::FallbackMaterialization,

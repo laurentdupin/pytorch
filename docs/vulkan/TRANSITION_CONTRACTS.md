@@ -139,6 +139,17 @@ only a collector bucket for existing safe contiguous materialization evidence.
 remain counted fallback materialization, host transfers, and sync readbacks;
 the spec only gives the collector a source-of-truth bucket for reporting them.
 
+`SmallControlTensorFallbackContract` and
+`SmallControlScalarExtractionContract` refine the generic fallback bucket for
+tiny Python control-plane tensors. They classify bounded Bool/Long/Int tensors
+with `numel <= 16`, plus Float only for comparison-control rows, when execution
+falls back through known generation-control ops such as `isin`, `any/all`,
+comparison, binary/bitwise control ops, `masked_fill`, `fill_`, `to`, `max`, or
+`cat`. Scalar extraction covers `_local_scalar_dense` on single-element control
+tensors. These contracts do not authorize native Bool or Long execution, do not
+hide fallback/readback counters, and keep larger or unlisted tensors in the
+generic fallback bucket.
+
 `ConvWeightLayoutRepackTransitionContract` is a more specific
 classification-only bucket for `vulkan_prepack::conv2d_context ->
 vulkan_weight_cpu_materialization` events. It records that the legacy conv2d
