@@ -347,6 +347,21 @@ VulkanRouteDecision select_sdpa_route(
           enable_gqa);
   const bool allow_vision_self_attention_sdpa =
       vision_self_attention_sdpa_match.matched;
+  const SDPAExecutionPolicyMatch sdpa_execution_policy_match =
+      match_sdpa_execution_policy_contract(
+          query.sizes(),
+          key.sizes(),
+          value.sizes(),
+          query.scalar_type(),
+          key.scalar_type(),
+          value.scalar_type(),
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa);
+  const bool allow_sdpa_execution_policy =
+      sdpa_execution_policy_match.matched;
 
   if (
       (has_attn_mask || is_causal || enable_gqa) &&
@@ -371,7 +386,7 @@ VulkanRouteDecision select_sdpa_route(
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
       !allow_transformer_gqa_sdpa && !allow_masked_tiny_sdpa &&
-      !allow_diffusion_sdpa) {
+      !allow_diffusion_sdpa && !allow_sdpa_execution_policy) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
@@ -387,6 +402,7 @@ VulkanRouteDecision select_sdpa_route(
       !allow_masked_tiny_sdpa &&
       !allow_diffusion_sdpa &&
       !allow_vision_self_attention_sdpa &&
+      !allow_sdpa_execution_policy &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);
@@ -428,6 +444,10 @@ VulkanRouteDecision select_sdpa_route(
     decision.kernel_family = "vision_self_attention_sdpa";
     decision.telemetry_label = vision_self_attention_sdpa_route_label(
         vision_self_attention_sdpa_match.family);
+  } else if (allow_sdpa_execution_policy) {
+    decision.kernel_family = "sdpa_execution_policy";
+    decision.telemetry_label =
+        sdpa_execution_policy_family_name(sdpa_execution_policy_match.family);
   } else {
     decision.kernel_family = "sdpa";
     decision.telemetry_label = "SelectedSdpa";

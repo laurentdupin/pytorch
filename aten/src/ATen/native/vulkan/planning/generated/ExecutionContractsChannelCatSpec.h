@@ -17,7 +17,7 @@ namespace generated {
 
 constexpr const char* kChannelCatContractName = "ChannelCatContract";
 constexpr const char* kChannelCatRank4Dim1BufferViewFamilyName = "Rank4Dim1BufferView";
-constexpr const char* kChannelCatRank4Dim1BufferViewTupleId = "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024";
+constexpr const char* kChannelCatRank4Dim1BufferViewTupleId = "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le4096";
 constexpr const char* kChannelCatRank4Dim1BufferViewWriterOp = "aten::cat";
 constexpr const char* kChannelCatRank4Dim1BufferViewRouteLabel = "aten::cat.buffer_channel_view";
 
@@ -27,10 +27,10 @@ constexpr std::int64_t kChannelCatRank4Dim1Rank = 4;
 constexpr std::int64_t kChannelCatRank4Dim1Dim = 1;
 constexpr std::int64_t kChannelCatRank4Dim1Batch = 1;
 constexpr std::int64_t kChannelCatRank4Dim1MinInputChannels = 4;
-constexpr std::int64_t kChannelCatRank4Dim1MaxInputChannels = 256;
+constexpr std::int64_t kChannelCatRank4Dim1MaxInputChannels = 1024;
 constexpr std::int64_t kChannelCatRank4Dim1ChannelMultiple = 4;
 constexpr std::int64_t kChannelCatRank4Dim1MinTotalChannels = 1;
-constexpr std::int64_t kChannelCatRank4Dim1MaxTotalChannels = 1024;
+constexpr std::int64_t kChannelCatRank4Dim1MaxTotalChannels = 4096;
 constexpr std::int64_t kChannelCatRank4Dim1MinHeight = 1;
 constexpr std::int64_t kChannelCatRank4Dim1MaxHeight = 128;
 constexpr std::int64_t kChannelCatRank4Dim1MinWidth = 1;

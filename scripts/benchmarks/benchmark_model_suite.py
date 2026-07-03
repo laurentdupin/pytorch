@@ -1043,9 +1043,10 @@ class VulkanFallbackAttribution:
         names = {
             "total": 0,
             "normal_cmd_submit_frequency": 1,
-            "stack_planned_recording_submit": 5,
+            "stack_planned_recording_submit": 2,
             "tensor_cpu_readback": 6,
-            "retire_queue_drain": 8,
+            "host_upload": 7,
+            "retire_queue_drain": 9,
         }
         return {
             name: deltas[index] if index < len(deltas) else 0
@@ -2439,75 +2440,140 @@ def install_paddleocr_postprocess_cpu_metadata_patch(
 ) -> tuple[list[dict[str, Any]], Any]:
     if backend != "vulkan":
         return [], None
+    patches = []
     try:
         from transformers.models.pp_ocrv5_server_det import (
             image_processing_pp_ocrv5_server_det,
         )
     except Exception:
-        return [], None
-
-    cls = image_processing_pp_ocrv5_server_det.PPOCRV5ServerDetImageProcessor
-    original = cls.post_process_object_detection
+        image_processing_pp_ocrv5_server_det = None
     calls: list[dict[str, Any]] = []
 
-    def post_process_object_detection_cpu_metadata(
-        self: Any,
-        predictions: Any,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        last_hidden_state = predictions.last_hidden_state
-        target_device = str(last_hidden_state.device)
-        cpu_predictions = types.SimpleNamespace(last_hidden_state=last_hidden_state.cpu())
-        original_boxes_from_bitmap = self._boxes_from_bitmap
+    if image_processing_pp_ocrv5_server_det is not None:
+        cls = image_processing_pp_ocrv5_server_det.PPOCRV5ServerDetImageProcessor
+        original = cls.post_process_object_detection
 
-        def boxes_from_bitmap_recorder(*box_args: Any, **box_kwargs: Any) -> Any:
-            boxes, scores = original_boxes_from_bitmap(*box_args, **box_kwargs)
+        def post_process_object_detection_cpu_metadata(
+            self: Any,
+            predictions: Any,
+            *args: Any,
+            **kwargs: Any,
+        ) -> Any:
+            last_hidden_state = predictions.last_hidden_state
+            target_device = str(last_hidden_state.device)
+            cpu_predictions = types.SimpleNamespace(
+                last_hidden_state=last_hidden_state.cpu()
+            )
+            original_boxes_from_bitmap = self._boxes_from_bitmap
+
+            def boxes_from_bitmap_recorder(
+                *box_args: Any, **box_kwargs: Any
+            ) -> Any:
+                boxes, scores = original_boxes_from_bitmap(*box_args, **box_kwargs)
+                calls.append(
+                    {
+                        "reason": "paddleocr_postprocess_cpu_metadata_tensor",
+                        "module": cls.__module__,
+                        "target_device_without_patch": target_device,
+                        "boxes_numpy_dtype": str(getattr(boxes, "dtype", None)),
+                        "boxes_shape": list(getattr(boxes, "shape", ())),
+                        "boxes_numel": int(getattr(boxes, "size", 0)),
+                        "scores_count": len(scores),
+                        "participates_in_model_compute": False,
+                    }
+                )
+                return boxes, scores
+
+            self._boxes_from_bitmap = boxes_from_bitmap_recorder
+            try:
+                results = original(self, cpu_predictions, *args, **kwargs)
+            finally:
+                self._boxes_from_bitmap = original_boxes_from_bitmap
+
+            for call, result in zip(calls[-len(results) :], results):
+                boxes = result.get("boxes")
+                scores = result.get("scores")
+                labels = result.get("labels")
+                call.update(
+                    {
+                        "result_boxes_dtype": str(getattr(boxes, "dtype", None)),
+                        "result_boxes_device": str(getattr(boxes, "device", None)),
+                        "result_scores_dtype": str(getattr(scores, "dtype", None)),
+                        "result_scores_device": str(getattr(scores, "device", None)),
+                        "result_labels_dtype": str(getattr(labels, "dtype", None)),
+                        "result_labels_device": str(getattr(labels, "device", None)),
+                    }
+                )
+            return results
+
+        cls.post_process_object_detection = post_process_object_detection_cpu_metadata
+        patches.append((cls, "post_process_object_detection", original))
+
+    try:
+        from transformers.models.pp_ocrv5_server_rec import (
+            image_processing_pp_ocrv5_server_rec,
+        )
+    except Exception:
+        image_processing_pp_ocrv5_server_rec = None
+
+    if image_processing_pp_ocrv5_server_rec is not None:
+        rec_cls = image_processing_pp_ocrv5_server_rec.PPOCRV5ServerRecImageProcessor
+        rec_original = rec_cls.post_process_text_recognition
+
+        def post_process_text_recognition_cpu_decode(
+            self: Any,
+            predictions: Any,
+        ) -> Any:
+            logits = predictions.last_hidden_state
+            if getattr(logits, "device", None) is None or logits.device.type != "vulkan":
+                return rec_original(self, predictions)
+
+            preds_prob, preds_idx = logits.max(dim=-1)
             calls.append(
                 {
-                    "reason": "paddleocr_postprocess_cpu_metadata_tensor",
-                    "module": cls.__module__,
-                    "target_device_without_patch": target_device,
-                    "boxes_numpy_dtype": str(getattr(boxes, "dtype", None)),
-                    "boxes_shape": list(getattr(boxes, "shape", ())),
-                    "boxes_numel": int(getattr(boxes, "size", 0)),
-                    "scores_count": len(scores),
+                    "reason": "paddleocr_recognition_postprocess_cpu_decode_tensors",
+                    "module": rec_cls.__module__,
+                    "target_device_without_patch": str(logits.device),
+                    "logits_shape": list(logits.shape),
+                    "preds_prob_shape": list(preds_prob.shape),
+                    "preds_idx_shape": list(preds_idx.shape),
                     "participates_in_model_compute": False,
                 }
             )
-            return boxes, scores
+            preds_prob = preds_prob.cpu()
+            preds_idx = preds_idx.cpu()
+            results = []
+            for idx in range(logits.shape[0]):
+                selection = torch.ones(
+                    len(preds_idx[idx]), dtype=torch.bool, device=preds_idx.device
+                )
+                selection[1:] = preds_idx[idx][1:] != preds_idx[idx][:-1]
+                selection &= preds_idx[idx] != 0
 
-        self._boxes_from_bitmap = boxes_from_bitmap_recorder
-        try:
-            results = original(self, cpu_predictions, *args, **kwargs)
-        finally:
-            self._boxes_from_bitmap = original_boxes_from_bitmap
+                character_list = []
+                for text_id in preds_idx[idx][selection]:
+                    character_list.append(self.character_list[text_id])
 
-        for call, result in zip(calls[-len(results) :], results):
-            boxes = result.get("boxes")
-            scores = result.get("scores")
-            labels = result.get("labels")
-            call.update(
-                {
-                    "result_boxes_dtype": str(getattr(boxes, "dtype", None)),
-                    "result_boxes_device": str(getattr(boxes, "device", None)),
-                    "result_scores_dtype": str(getattr(scores, "dtype", None)),
-                    "result_scores_device": str(getattr(scores, "device", None)),
-                    "result_labels_dtype": str(getattr(labels, "dtype", None)),
-                    "result_labels_device": str(getattr(labels, "device", None)),
-                }
-            )
-        return results
+                results.append(
+                    {
+                        "text": "".join(character_list),
+                        "score": preds_prob[idx][selection].mean().item(),
+                    }
+                )
+            return results
 
-    cls.post_process_object_detection = post_process_object_detection_cpu_metadata
-    return calls, (cls, original)
+        rec_cls.post_process_text_recognition = post_process_text_recognition_cpu_decode
+        patches.append((rec_cls, "post_process_text_recognition", rec_original))
+
+    return calls, patches
 
 
 def restore_paddleocr_postprocess_cpu_metadata_patch(patch: Any) -> None:
     if patch is None:
         return
-    cls, original = patch
-    cls.post_process_object_detection = original
+    patches = patch if isinstance(patch, list) else [patch]
+    for cls, method_name, original in patches:
+        setattr(cls, method_name, original)
 
 
 def public_patch_info(patch_info: dict[str, Any]) -> dict[str, Any]:

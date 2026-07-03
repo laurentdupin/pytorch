@@ -30,9 +30,10 @@ SUBMIT_ORIGIN_COUNTER_INDEX = {
     "post_stack_flush_submits": 4,
     "explicit_synchronize_submits": 5,
     "tensor_cpu_readback_submits": 6,
-    "fallback_readback_submits": 7,
-    "retire_queue_drain_submits": 8,
-    "conv_prepack_upload_submits": 13,
+    "host_upload_submits": 7,
+    "fallback_readback_submits": 8,
+    "retire_queue_drain_submits": 9,
+    "conv_prepack_upload_submits": 14,
 }
 
 CONV_PLAN_COUNTER_FIELDS = [
@@ -2361,6 +2362,7 @@ def validate_model_suite_ingestion() -> None:
                 4,
                 5,
                 66,
+                77,
                 7,
                 8,
                 9,
@@ -2368,6 +2370,7 @@ def validate_model_suite_ingestion() -> None:
                 11,
                 12,
                 13,
+                14,
             ]
         }
     )
@@ -2378,7 +2381,24 @@ def validate_model_suite_ingestion() -> None:
         "cpu_fallback_count": 0,
         "sync_readback_count": 1,
         "buffer_copy_counters": [3, 1024, 1, 1, 1],
-        "submit_origin_counters": [100, 1, 2, 3, 4, 5, 66, 7, 8, 9, 10, 11, 12, 13],
+        "submit_origin_counters": [
+            100,
+            1,
+            2,
+            3,
+            4,
+            5,
+            66,
+            77,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+        ],
         "submit_origin_phase_counters_delta": [
             "submit_origin_phase origin=tensor_cpu_readback phase=timed_forward count=1173",
             "submit_origin_phase origin=retire_queue_drain phase=timed_forward count=35",
@@ -2598,7 +2618,7 @@ def validate_execution_plan_evidence() -> None:
         "cpu_fallback_count": 0,
         "sync_readback_count": 0,
         "buffer_copy_counters": [2, 2048, 1, 1, 0],
-        "submit_origin_counters": [7, 1, 0, 0, 0, 0, 3, 0, 1, 0, 0, 0, 0, 2],
+        "submit_origin_counters": [7, 1, 0, 0, 0, 0, 3, 0, 0, 1, 0, 0, 0, 0, 2, 0],
         "retire_drain_counters": [1, 1, 0, 0, 0, 0],
         "conv_plan_counters": [4, 2, 0, 0, 0, 0, 0],
         "pointwise_conv_route_counters": [2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

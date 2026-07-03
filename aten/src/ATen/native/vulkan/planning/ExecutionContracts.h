@@ -200,6 +200,7 @@ enum class SDPAExecutionPolicyFamily : uint8_t {
   DiffusionCloneOnlySquare,
   TransformerDecodeGQACloneOnly,
   VisionSelfAttentionCloneOnly,
+  RecognizerNonCausalMHACloneOnly,
 };
 
 struct SDPAExecutionPolicyMatch final {

@@ -128,6 +128,7 @@ enum class VulkanSubmitOrigin : uint8_t {
   PostStackFlush,
   ExplicitSynchronize,
   TensorCpuReadback,
+  HostUpload,
   FallbackReadback,
   RetireQueueDrain,
   ProfilingTimestampReset,
@@ -137,7 +138,7 @@ enum class VulkanSubmitOrigin : uint8_t {
   ConvPrepackUpload,
 };
 
-constexpr size_t kNumSubmitOrigins = 14u;
+constexpr size_t kNumSubmitOrigins = 15u;
 
 enum class VulkanSubmitPhase : uint8_t {
   Unknown = 0,
@@ -1963,6 +1964,7 @@ struct VulkanSubmitOriginCounters final {
   std::atomic<uint64_t> post_stack_flush{0u};
   std::atomic<uint64_t> explicit_synchronize{0u};
   std::atomic<uint64_t> tensor_cpu_readback{0u};
+  std::atomic<uint64_t> host_upload{0u};
   std::atomic<uint64_t> fallback_readback{0u};
   std::atomic<uint64_t> retire_queue_drain{0u};
   std::atomic<uint64_t> profiling_timestamp_reset{0u};

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_name": "ChannelCatContract",
   "family": "Rank4Dim1BufferView",
-  "tuple_id": "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024",
+  "tuple_id": "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le4096",
   "writer_op": "aten::cat",
   "route_label": "aten::cat.buffer_channel_view",
   "metadata": {
@@ -43,7 +43,7 @@
             "symbol": "C",
             "field": "channels",
             "min": 4,
-            "max": 256,
+            "max": 1024,
             "multiple_of": 4
           },
           {
@@ -77,11 +77,11 @@
         "max": 8
       },
       "batch": 1,
-      "channels": {
-        "min": 4,
-        "max_per_input": 256,
-        "multiple_of": 4,
-        "max_total": 1024
+        "channels": {
+          "min": 4,
+          "max_per_input": 1024,
+          "multiple_of": 4,
+          "max_total": 4096
       },
       "height": {
         "min": 1,
@@ -120,7 +120,7 @@
         "input": "tensors",
         "field": "channels",
         "min": 1,
-        "max": 1024,
+        "max": 4096,
         "multiple_of": 4
       }
     },
@@ -161,12 +161,12 @@
       {
         "violates": "channels.max_per_input",
         "adjacent": "above_max",
-        "value": 260
+        "value": 1028
       },
       {
         "violates": "channels.max_total",
         "adjacent": "above_max",
-        "value": 1280
+        "value": 5120
       },
       {
         "violates": "height.max",
@@ -205,9 +205,9 @@
     "batch": 1,
     "channels": {
       "min": 4,
-      "max_per_input": 256,
+      "max_per_input": 1024,
       "multiple_of": 4,
-      "max_total": 1024
+      "max_total": 4096
     },
     "height": {
       "min": 1,
@@ -286,10 +286,10 @@
     {
       "name": "max_per_input_and_total_channels",
       "input_shapes": [
-        [1, 256, 2, 2],
-        [1, 256, 2, 2],
-        [1, 256, 2, 2],
-        [1, 256, 2, 2]
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2]
       ],
       "dim": 1
     },
@@ -335,11 +335,11 @@
       "expected_cpu_fallback": true
     },
     {
-      "name": "per_input_channels_260",
+      "name": "per_input_channels_1028",
       "input_shapes": [
-        [1, 260, 5, 7],
-        [1, 260, 5, 7],
-        [1, 260, 5, 7]
+        [1, 1028, 5, 7],
+        [1, 1028, 5, 7],
+        [1, 1028, 5, 7]
       ],
       "dim": 1,
       "violates": "channels.max_per_input",
@@ -347,13 +347,13 @@
       "expected_cpu_fallback": true
     },
     {
-      "name": "total_channels_1280",
+      "name": "total_channels_5120",
       "input_shapes": [
-        [1, 256, 2, 2],
-        [1, 256, 2, 2],
-        [1, 256, 2, 2],
-        [1, 256, 2, 2],
-        [1, 256, 2, 2]
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2],
+        [1, 1024, 2, 2]
       ],
       "dim": 1,
       "violates": "channels.max_total",

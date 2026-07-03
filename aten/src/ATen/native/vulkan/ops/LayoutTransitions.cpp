@@ -28,6 +28,7 @@ void validate_created_view(
 utils::TransitionReason transition_reason_for_materialize_reason(
     const VulkanMaterializeReason reason) {
   switch (reason) {
+    case VulkanMaterializeReason::KernelRequiresBuffer:
     case VulkanMaterializeReason::KernelRequiresDirectBuffer:
     case VulkanMaterializeReason::KernelRequiresTexture:
       return utils::TransitionReason::RequiredConsumerLayout;
@@ -62,6 +63,7 @@ utils::TransitionKind transition_kind_for_materialize_reason(
       return utils::TransitionKind::HostTransfer;
     case VulkanMaterializeReason::ReplayOutputEscaped:
       return utils::TransitionKind::SemanticMaterialization;
+    case VulkanMaterializeReason::KernelRequiresBuffer:
     case VulkanMaterializeReason::KernelRequiresDirectBuffer:
     case VulkanMaterializeReason::KernelRequiresTexture:
     case VulkanMaterializeReason::RawCopyRequiresContiguous:
@@ -79,6 +81,8 @@ utils::TransitionKind transition_kind_for_materialize_reason(
 const char* vulkan_materialize_reason_name(
     const VulkanMaterializeReason reason) {
   switch (reason) {
+    case VulkanMaterializeReason::KernelRequiresBuffer:
+      return "KernelRequiresBuffer";
     case VulkanMaterializeReason::KernelRequiresDirectBuffer:
       return "KernelRequiresDirectBuffer";
     case VulkanMaterializeReason::KernelRequiresTexture:

@@ -240,9 +240,10 @@ class VulkanModelProbe:
         submit_names = {
             "total": 0,
             "normal_cmd_submit_frequency": 1,
-            "stack_planned_recording_submit": 5,
+            "stack_planned_recording_submit": 2,
             "tensor_cpu_readback": 6,
-            "retire_queue_drain": 8,
+            "host_upload": 7,
+            "retire_queue_drain": 9,
         }
         width = min(len(before_submit), len(after_submit))
         submit_delta = {

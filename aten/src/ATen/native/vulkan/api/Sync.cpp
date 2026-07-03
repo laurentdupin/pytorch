@@ -28381,6 +28381,7 @@ void reset_vulkan_submit_origin_counters() {
   counters.post_stack_flush.store(0u, std::memory_order_relaxed);
   counters.explicit_synchronize.store(0u, std::memory_order_relaxed);
   counters.tensor_cpu_readback.store(0u, std::memory_order_relaxed);
+  counters.host_upload.store(0u, std::memory_order_relaxed);
   counters.fallback_readback.store(0u, std::memory_order_relaxed);
   counters.retire_queue_drain.store(0u, std::memory_order_relaxed);
   counters.profiling_timestamp_reset.store(0u, std::memory_order_relaxed);
@@ -28668,6 +28669,9 @@ void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
     case VulkanSubmitOrigin::TensorCpuReadback:
       counters.tensor_cpu_readback.fetch_add(1u, std::memory_order_relaxed);
       break;
+    case VulkanSubmitOrigin::HostUpload:
+      counters.host_upload.fetch_add(1u, std::memory_order_relaxed);
+      break;
     case VulkanSubmitOrigin::FallbackReadback:
       counters.fallback_readback.fetch_add(1u, std::memory_order_relaxed);
       break;
@@ -28712,6 +28716,8 @@ const char* submit_origin_name(const VulkanSubmitOrigin origin) {
       return "explicit_synchronize";
     case VulkanSubmitOrigin::TensorCpuReadback:
       return "tensor_cpu_readback";
+    case VulkanSubmitOrigin::HostUpload:
+      return "host_upload";
     case VulkanSubmitOrigin::FallbackReadback:
       return "fallback_readback";
     case VulkanSubmitOrigin::RetireQueueDrain:

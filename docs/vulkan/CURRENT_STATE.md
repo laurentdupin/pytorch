@@ -73,6 +73,22 @@ authorized until a consumer-chain proof exists. Direct host-visible
 small-control upload was probed and rejected because tiny Long/Int Vulkan
 factory buffers hit `VK_ERROR_MEMORY_MAP_FAILED`; those uploads remain staged
 until allocator/map safety is proven.
+The current local control-path cleanup additionally separates host-upload
+submits from tensor CPU readback submits, adds bounded Bool direct-buffer
+`any`/`all` reductions for the proven small-control rows, keeps legal
+Float/BFloat16 `max(dim)` values and indices on Vulkan direct buffers, and
+lets the PaddleOCR recognition benchmark compute its logits max on Vulkan
+before CPU-side string decoding. Focused all-GPU guardrails under
+`agent_space/paddleocr_control_dirty_all_gpus/` show PaddleOCR still completes
+with `cpu_fallback_count=0` on RX 9070, GTX 1080, and RX 6700 XT. HY-MT
+one-token guardrails under `agent_space/hymt_control_dirty_all_gpus/` still
+report `cpu_fallback_count=33` and `sync_readback_count=8` on all three
+adapters; the remaining fallbacks are generation-control operations
+(`argmax`, `isin`, scalar comparisons, Long/Bool binary/control ops, and
+scalar extraction), not packed-weight or attention execution. A standalone
+Float/BFloat16 last-dim `argmax` promotion was probed and left fail-closed
+because the current Long index-output shader path exposed incorrect index
+materialization outside the validated `max(dim)` route.
 
 Two generic PaddleOCR/HY-MT cleanup fixes are now in place. First, legal 2D
 Vulkan buffer linear weights can use a metadata-only transposed view for

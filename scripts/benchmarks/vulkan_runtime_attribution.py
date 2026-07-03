@@ -19,6 +19,7 @@ SUBMIT_ORIGIN_COUNTER_NAMES = (
     "post_stack_flush",
     "explicit_synchronize",
     "tensor_cpu_readback",
+    "host_upload",
     "fallback_readback",
     "retire_queue_drain",
     "profiling_timestamp_reset",

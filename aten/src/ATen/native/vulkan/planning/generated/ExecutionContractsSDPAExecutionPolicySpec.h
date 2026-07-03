@@ -24,10 +24,12 @@ constexpr const char* kSDPAExecutionPolicySparsePolicyRowsEvidenceId = "sdpa_exe
 constexpr const char* kSDPAExecutionPolicySparsePolicyRowsGuardId = "sdpa_execution_policy_adjacent_guards";
 constexpr const char* kSDPAExecutionPolicySparsePolicyRowsFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kSDPAExecutionPolicySparsePolicyRowsMaterializationPolicy = "per_policy_row_materialization";
-constexpr std::int64_t kSDPAExecutionPolicyPolicyRowsRowCount = 6;
+constexpr std::int64_t kSDPAExecutionPolicyPolicyRowsRowCount = 7;
 
 struct SDPAExecutionPolicyPolicyRowsRow final {
   const char* family;
+  std::int64_t batch_min;
+  std::int64_t batch_max;
   std::int64_t query_heads;
   std::int64_t key_value_heads;
   std::int64_t query_sequence_min;
@@ -75,6 +77,8 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
         "DiffusionMaterializedSquare",
         1,
         1,
+        1,
+        1,
         640,
         640,
         640,
@@ -90,6 +94,8 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
     },
     {
         "DiffusionMaterializedSquare",
+        1,
+        1,
         5,
         5,
         640,
@@ -109,6 +115,8 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
         "DiffusionMaterializedSquare",
         1,
         1,
+        1,
+        1,
         504,
         504,
         504,
@@ -124,6 +132,8 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
     },
     {
         "DiffusionMaterializedSquare",
+        1,
+        1,
         5,
         5,
         504,
@@ -141,6 +151,8 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
     },
     {
         "DiffusionCloneOnlySquare",
+        1,
+        1,
         10,
         10,
         126,
@@ -158,6 +170,8 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
     },
     {
         "TransformerDecodeGQACloneOnly",
+        1,
+        1,
         16,
         16,
         1,
@@ -172,12 +186,32 @@ constexpr SDPAExecutionPolicyPolicyRowsRow kSDPAExecutionPolicyPolicyRowsRows[] 
         "post_softmax_clone",
         "transformer_decode_gqa_clone_only_head128_source100_to_116",
         ExecutionContractMetadata{kSDPAExecutionPolicySparsePolicyRowsContractName, "TransformerDecodeGQACloneOnly", "transformer_decode_gqa_clone_only_head128_source100_to_116", kSDPAExecutionPolicySparsePolicyRowsEvidenceId, kSDPAExecutionPolicySparsePolicyRowsGuardId, kSDPAExecutionPolicySparsePolicyRowsFallbackPolicy, "post_softmax_clone"}
+    },
+    {
+        "RecognizerNonCausalMHACloneOnly",
+        1,
+        6,
+        8,
+        8,
+        40,
+        40,
+        40,
+        40,
+        15,
+        false,
+        false,
+        false,
+        false,
+        "runtime_fused_direct_buffer",
+        "recognizer_mha_batch1_to6_heads8_sequence40_dim15",
+        ExecutionContractMetadata{kSDPAExecutionPolicySparsePolicyRowsContractName, "RecognizerNonCausalMHACloneOnly", "recognizer_mha_batch1_to6_heads8_sequence40_dim15", kSDPAExecutionPolicySparsePolicyRowsEvidenceId, kSDPAExecutionPolicySparsePolicyRowsGuardId, kSDPAExecutionPolicySparsePolicyRowsFallbackPolicy, "runtime_fused_direct_buffer"}
     }
 };
 
 inline bool sdpa_execution_policy_policy_rows_row_matches(
     const SDPAExecutionPolicyPolicyRowsRow& row,
     const char* family,
+    const std::int64_t batch,
     const std::int64_t query_heads,
     const std::int64_t key_value_heads,
     const std::int64_t query_sequence,
@@ -185,6 +219,7 @@ inline bool sdpa_execution_policy_policy_rows_row_matches(
     const std::int64_t head_dim,
     const bool enable_gqa) {
   return std::string_view(row.family) == family &&
+      (batch >= row.batch_min && batch <= row.batch_max) &&
       row.query_heads == query_heads &&
       row.key_value_heads == key_value_heads &&
       (query_sequence >= row.query_sequence_min && query_sequence <= row.query_sequence_max) &&
@@ -195,6 +230,8 @@ inline bool sdpa_execution_policy_policy_rows_row_matches(
 
 inline const SDPAExecutionPolicyPolicyRowsRow* sdpa_execution_policy_policy_rows_find(
     const char* family,
+    const std::int64_t batch_min,
+    const std::int64_t batch_max,
     const std::int64_t query_heads,
     const std::int64_t key_value_heads,
     const std::int64_t query_sequence_min,
@@ -205,6 +242,8 @@ inline const SDPAExecutionPolicyPolicyRowsRow* sdpa_execution_policy_policy_rows
     const bool enable_gqa) {
   for (const SDPAExecutionPolicyPolicyRowsRow& row : kSDPAExecutionPolicyPolicyRowsRows) {
     if (std::string_view(row.family) == family &&
+        row.batch_min == batch_min &&
+        row.batch_max == batch_max &&
         row.query_heads == query_heads &&
         row.key_value_heads == key_value_heads &&
         row.query_sequence_min == query_sequence_min &&

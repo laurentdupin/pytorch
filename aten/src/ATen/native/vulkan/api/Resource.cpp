@@ -560,6 +560,9 @@ void capture_last_allocation_failure(
                                    .tensor_cpu_readback.load(
                                        std::memory_order_relaxed)),
           static_cast<int64_t>(vulkan_submit_origin_counters()
+                                   .host_upload.load(
+                                       std::memory_order_relaxed)),
+          static_cast<int64_t>(vulkan_submit_origin_counters()
                                    .retire_queue_drain.load(
                                        std::memory_order_relaxed)),
           static_cast<int64_t>(vulkan_submit_origin_counters()

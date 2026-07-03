@@ -428,6 +428,8 @@ std::vector<int64_t> submit_origin_counters_runtime() {
       static_cast<int64_t>(
           counters.tensor_cpu_readback.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
+          counters.host_upload.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
           counters.fallback_readback.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.retire_queue_drain.load(std::memory_order_relaxed)),

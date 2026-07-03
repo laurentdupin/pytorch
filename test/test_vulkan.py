@@ -63,6 +63,7 @@ VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES = (
     "post_stack_flush",
     "explicit_synchronize",
     "tensor_cpu_readback",
+    "host_upload",
     "fallback_readback",
     "retire_queue_drain",
     "profiling_timestamp_reset",
@@ -1297,7 +1298,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:6", result.stdout)
-        self.assertIn("sdpa_execution_policy_contract.json:6", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("gqa_repeat_contract.json:2", result.stdout)
@@ -1361,7 +1362,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:11", result.stdout)
-        self.assertIn("sdpa_execution_policy_contract.json:6", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json:7", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:4", result.stdout)
         self.assertIn("gqa_repeat_contract.json:3", result.stdout)
@@ -1670,7 +1671,7 @@ class TestVulkanGovernance(TestCase):
             "batch_norm_inference_materialized_contract.json": (1, 3),
             "channel_cat_contract.json": (5, 7),
             "diffusion_sdpa_contract.json": (11, 6),
-            "sdpa_execution_policy_contract.json": (6, 6),
+            "sdpa_execution_policy_contract.json": (7, 7),
             "embedding_lookup_contract.json": (4, 4),
             "elementwise_broadcast_contract.json": (4, 3),
             "gqa_repeat_contract.json": (3, 2),
@@ -1961,7 +1962,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "sdpa_execution_policy_contract.json:policy_rows:rows=6",
+            "sdpa_execution_policy_contract.json:policy_rows:rows=7",
             result.stdout,
         )
         self.assertIn(
@@ -4626,7 +4627,7 @@ class TestVulkanGovernance(TestCase):
 
         rowset = spec["shape_envelope"]["sparse_rowsets"][0]
         self.assertEqual(rowset["name"], "policy_rows")
-        self.assertEqual(len(rowset["rows"]), 6)
+        self.assertEqual(len(rowset["rows"]), 7)
         family_counts = {}
         tuple_ids = set()
         materialization_policies = set()
@@ -4642,6 +4643,12 @@ class TestVulkanGovernance(TestCase):
                         "name": "family",
                         "field": "family",
                         "type": "string",
+                    },
+                    {
+                        "name": "batch",
+                        "min_field": "batch_min",
+                        "max_field": "batch_max",
+                        "type": "int64",
                     },
                     {
                         "name": "query_heads",
@@ -4684,21 +4691,25 @@ class TestVulkanGovernance(TestCase):
                 "DiffusionMaterializedSquare": 4,
                 "DiffusionCloneOnlySquare": 1,
                 "TransformerDecodeGQACloneOnly": 1,
+                "RecognizerNonCausalMHACloneOnly": 1,
             },
         )
-        self.assertEqual(len(tuple_ids), 6)
+        self.assertEqual(len(tuple_ids), 7)
         self.assertEqual(
             materialization_policies,
             {
                 "score_pre_materialization_and_post_softmax_clone",
                 "materialized_math_path_and_post_softmax_clone",
                 "post_softmax_clone",
+                "runtime_fused_direct_buffer",
             },
         )
 
         row_keys = {
             (
                 row["family"],
+                row["batch_min"],
+                row["batch_max"],
                 row["query_heads"],
                 row["key_value_heads"],
                 row["query_sequence_min"],
@@ -4713,6 +4724,8 @@ class TestVulkanGovernance(TestCase):
         positive_keys = {
             (
                 case["expected_contract_family"],
+                case["policy_batch_range"][0],
+                case["policy_batch_range"][1],
                 case["query_shape"][1],
                 case["key_shape"][1],
                 case["policy_query_sequence_range"][0],
@@ -4754,6 +4767,7 @@ class TestVulkanGovernance(TestCase):
             _require_contract_spec_fields(
                 case,
                 (
+                    "policy_batch_range",
                     "policy_query_sequence_range",
                     "policy_key_value_sequence_range",
                     "expected_contract_family",
@@ -4957,7 +4971,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(spec["family"], "Rank4Dim1BufferView")
         self.assertEqual(
             spec["tuple_id"],
-            "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le1024",
+            "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le4096",
         )
         self.assertEqual(spec["writer_op"], "aten::cat")
         self.assertEqual(spec["route_label"], "aten::cat.buffer_channel_view")
@@ -5009,9 +5023,9 @@ class TestVulkanGovernance(TestCase):
             bounds["channels"],
             {
                 "min": 4,
-                "max_per_input": 256,
+                "max_per_input": 1024,
                 "multiple_of": 4,
-                "max_total": 1024,
+                "max_total": 4096,
             },
         )
         self.assertEqual(bounds["height"], {"min": 1, "max": 128})
@@ -8260,6 +8274,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         actual_dim = matrix.to("vulkan").any(dim=1).cpu()
         self.assertEqual(matrix.any(dim=1), actual_dim)
 
+    def test_small_control_bool_any_all_matches_cpu(self):
+        cases = [
+            torch.tensor([False, False, True, False], dtype=torch.bool),
+            torch.tensor([[False] * 13 + [True]], dtype=torch.bool),
+            torch.ones((1, 14), dtype=torch.bool),
+            torch.zeros((1,), dtype=torch.bool),
+        ]
+
+        for values in cases:
+            values_vulkan = values.to("vulkan")
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            actual_any = values_vulkan.any()
+            actual_all = values_vulkan.all()
+
+            self.assertTrue(actual_any.is_vulkan)
+            self.assertTrue(actual_all.is_vulkan)
+            fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
+            sync_readback_count = torch.ops.vulkan_prepack.sync_readback_count()
+            if fallback_count == 0:
+                self.assertEqual(sync_readback_count, 0)
+            self.assertEqual(values.any(), actual_any.cpu())
+            self.assertEqual(values.all(), actual_all.cpu())
+
     def test_cpu_noncontiguous_scalar_inplace_preserves_beit_indices(self):
         previous_num_threads = torch.get_num_threads()
         torch.set_num_threads(2)
@@ -9094,6 +9132,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             actual_out = torch.argmax(x.to("vulkan"), dim=-1, out=out).cpu()
             self._assert_outputs_close(expected, actual_out)
             self._assert_outputs_close(expected, out.cpu())
+
+    def test_max_dim_last_dim_matches_cpu_without_fallback(self):
+        with torch.inference_mode():
+            cases = [
+                torch.tensor(
+                    [[[1.0, 3.0, 3.0, -2.0], [5.0, 4.0, 5.0, 1.0]]],
+                    dtype=torch.float32,
+                ),
+                torch.randn(2, 40, 18385),
+            ]
+
+            for x in cases:
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                values, indices = torch.max(x.to("vulkan"), dim=-1)
+
+                self.assertTrue(values.is_vulkan)
+                self.assertTrue(indices.is_vulkan)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+                expected_values, expected_indices = torch.max(x, dim=-1)
+                self._assert_outputs_close(expected_values, values.cpu())
+                self.assertEqual(expected_indices, indices.cpu())
+
+    def test_max_dim_last_dim_keepdim_matches_cpu_without_fallback(self):
+        with torch.inference_mode():
+            x = torch.randn(2, 3, 17)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            values, indices = torch.max(x.to("vulkan"), dim=-1, keepdim=True)
+
+            self.assertTrue(values.is_vulkan)
+            self.assertTrue(indices.is_vulkan)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+            expected_values, expected_indices = torch.max(
+                x, dim=-1, keepdim=True)
+            self._assert_outputs_close(expected_values, values.cpu())
+            self.assertEqual(expected_indices, indices.cpu())
 
     def test_max_and_min_matches_cpu(self):
         with torch.inference_mode():
@@ -12046,14 +12123,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_float_channel_cat_multi_buffer_view_inputs_match_cpu(self):
         with torch.inference_mode():
             cases = [
-                (6, (1, 128, 45, 31)),
-                (3, (1, 16, 5, 7)),
+                [(1, 128, 45, 31) for _ in range(6)],
+                [(1, 16, 5, 7) for _ in range(3)],
+                [(1, 1024, 14, 14)] +
+                [(1, 192, 14, 14) for _ in range(6)],
+                [(1, 1024, 7, 7)] + [(1, 384, 7, 7) for _ in range(6)],
             ]
-            for count, shape in cases:
-                with self.subTest(count=count, shape=shape):
+            for shapes in cases:
+                with self.subTest(shapes=shapes):
                     tensors = [
                         torch.randn(*shape, dtype=torch.float32)
-                        for _ in range(count)
+                        for shape in shapes
                     ]
                     torch.ops.vulkan_prepack.reset_fallback_counters()
 
@@ -12071,6 +12151,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             cases = [
                 ("too_many_inputs", [torch.randn(1, 16, 5, 7) for _ in range(9)]),
                 ("unaligned_channels", [torch.randn(1, 6, 5, 7) for _ in range(3)]),
+                (
+                    "per_input_too_large",
+                    [torch.randn(1, 1028, 5, 7) for _ in range(3)],
+                ),
+                (
+                    "total_channels_too_large",
+                    [torch.randn(1, 1024, 2, 2) for _ in range(5)],
+                ),
             ]
             for name, tensors in cases:
                 with self.subTest(name=name):
@@ -16835,16 +16923,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             submit_origins = _vulkan_submit_origin_counters_by_name()
             self.assertEqual(submit_origins["tensor_cpu_readback"], 0)
             self.assertEqual(submit_origins["retire_queue_drain"], 0)
-            self.assertGreater(submit_origins["conv_prepack_upload"], 0)
+        self.assertGreater(submit_origins["conv_prepack_upload"], 0)
 
-            for expected, actual in zip(expected_outputs, actual_outputs):
-                self._assert_outputs_close(
-                    expected,
+        for expected, actual in zip(expected_outputs, actual_outputs):
+            self._assert_outputs_close(
+                expected,
                     actual.cpu(),
                     atol=5e-3,
                     rtol=5e-3)
 
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_host_upload_submit_origin_is_not_readback(self):
+        torch.manual_seed(2603)
+        x_cpu = torch.randn(1, 4, 8, 8)
+
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+
+        with torch.inference_mode():
+            x_vulkan = x_cpu.to("vulkan")
+
+        submit_origins = _vulkan_submit_origin_counters_by_name()
+        self.assertGreater(submit_origins["host_upload"], 0)
+        self.assertEqual(submit_origins["tensor_cpu_readback"], 0)
+        self.assertEqual(x_vulkan.device.type, "vulkan")
 
     def test_tensor_cpu_readback_submit_origin_stays_readback(self):
         torch.manual_seed(2602)

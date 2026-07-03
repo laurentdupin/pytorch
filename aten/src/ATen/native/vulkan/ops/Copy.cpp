@@ -1594,7 +1594,7 @@ void copy_staging_buffer_to_vtensor_buffer(
     vTensor& dst,
     const VkFence fence_handle,
     const api::VulkanSubmitOrigin fenced_submit_origin =
-        api::VulkanSubmitOrigin::TensorCpuReadback) {
+        api::VulkanSubmitOrigin::HostUpload) {
   api::PipelineBarrier pipeline_barrier{};
   context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
       pipeline_barrier,

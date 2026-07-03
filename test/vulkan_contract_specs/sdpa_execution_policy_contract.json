@@ -18,30 +18,37 @@
     "query_rank": 4,
     "key_rank": 4,
     "value_rank": 4,
-    "batch": 1,
+    "batch": [
+      1,
+      6
+    ],
     "query_heads": [
       1,
       5,
+      8,
       10,
       16
     ],
     "key_value_heads": [
       1,
       5,
+      8,
       10,
       16
     ],
     "query_sequence": [
       1,
+      40,
       126,
       504,
       640
     ],
     "key_value_sequence": {
-      "min": 100,
+      "min": 40,
       "max": 640
     },
     "head_dim": [
+      15,
       64,
       128,
       512
@@ -79,36 +86,40 @@
             "symbol": "N",
             "field": "batch",
             "values": [
-              1
+              1,
+              2
             ]
           },
           {
             "symbol": "HQ",
             "field": "query_heads",
-            "values": [
-              1,
-              5,
-              10,
-              16
-            ]
+              "values": [
+                1,
+                5,
+                8,
+                10,
+                16
+              ]
           },
           {
             "symbol": "TQ",
             "field": "query_sequence",
-            "values": [
-              1,
-              126,
-              504,
-              640
+              "values": [
+                1,
+                40,
+                126,
+                504,
+                640
             ]
           },
           {
             "symbol": "D",
             "field": "head_dim",
-            "values": [
-              64,
-              128,
-              512
+              "values": [
+                15,
+                64,
+                128,
+                512
             ]
           }
         ]
@@ -130,29 +141,32 @@
             "symbol": "N",
             "field": "batch",
             "values": [
-              1
+              1,
+              2
             ]
           },
           {
             "symbol": "HKV",
             "field": "key_value_heads",
-            "values": [
-              1,
-              5,
-              10,
-              16
-            ]
+              "values": [
+                1,
+                5,
+                8,
+                10,
+                16
+              ]
           },
           {
             "symbol": "TKV",
             "field": "key_value_sequence",
-            "min": 100,
+            "min": 40,
             "max": 640
           },
           {
             "symbol": "D",
             "field": "head_dim",
             "values": [
+              15,
               64,
               128,
               512
@@ -177,32 +191,35 @@
             "symbol": "N",
             "field": "batch",
             "values": [
-              1
+              1,
+              2
             ]
           },
           {
             "symbol": "HKV",
             "field": "key_value_heads",
-            "values": [
-              1,
-              5,
-              10,
-              16
-            ]
+              "values": [
+                1,
+                5,
+                8,
+                10,
+                16
+              ]
           },
           {
             "symbol": "TKV",
             "field": "key_value_sequence",
-            "min": 100,
-            "max": 640
+              "min": 40,
+              "max": 640
           },
           {
             "symbol": "D",
             "field": "head_dim",
-            "values": [
-              64,
-              128,
-              512
+              "values": [
+                15,
+                64,
+                128,
+                512
             ]
           }
         ]
@@ -243,30 +260,37 @@
       "query_rank": 4,
       "key_rank": 4,
       "value_rank": 4,
-      "batch": 1,
+      "batch": [
+        1,
+        6
+      ],
       "query_heads": [
         1,
         5,
+        8,
         10,
         16
       ],
       "key_value_heads": [
         1,
         5,
+        8,
         10,
         16
       ],
       "query_sequence": [
         1,
+        40,
         126,
         504,
         640
       ],
       "key_value_sequence": {
-        "min": 100,
+        "min": 40,
         "max": 640
       },
       "head_dim": [
+        15,
         64,
         128,
         512
@@ -392,6 +416,8 @@
         "name": "policy_rows",
         "fields": [
           "family",
+          "batch_min",
+          "batch_max",
           "query_heads",
           "key_value_heads",
           "query_sequence_min",
@@ -408,6 +434,8 @@
         ],
         "identity_fields": [
           "family",
+          "batch_min",
+          "batch_max",
           "query_heads",
           "key_value_heads",
           "query_sequence_min",
@@ -419,6 +447,8 @@
         ],
         "lookup_fields": [
           "family",
+          "batch_min",
+          "batch_max",
           "query_heads",
           "key_value_heads",
           "query_sequence_min",
@@ -432,6 +462,8 @@
         "rows": [
           {
             "family": "DiffusionMaterializedSquare",
+            "batch_min": 1,
+            "batch_max": 1,
             "query_heads": 1,
             "key_value_heads": 1,
             "query_sequence_min": 640,
@@ -448,6 +480,8 @@
           },
           {
             "family": "DiffusionMaterializedSquare",
+            "batch_min": 1,
+            "batch_max": 1,
             "query_heads": 5,
             "key_value_heads": 5,
             "query_sequence_min": 640,
@@ -464,6 +498,8 @@
           },
           {
             "family": "DiffusionMaterializedSquare",
+            "batch_min": 1,
+            "batch_max": 1,
             "query_heads": 1,
             "key_value_heads": 1,
             "query_sequence_min": 504,
@@ -480,6 +516,8 @@
           },
           {
             "family": "DiffusionMaterializedSquare",
+            "batch_min": 1,
+            "batch_max": 1,
             "query_heads": 5,
             "key_value_heads": 5,
             "query_sequence_min": 504,
@@ -496,6 +534,8 @@
           },
           {
             "family": "DiffusionCloneOnlySquare",
+            "batch_min": 1,
+            "batch_max": 1,
             "query_heads": 10,
             "key_value_heads": 10,
             "query_sequence_min": 126,
@@ -512,6 +552,8 @@
           },
           {
             "family": "TransformerDecodeGQACloneOnly",
+            "batch_min": 1,
+            "batch_max": 1,
             "query_heads": 16,
             "key_value_heads": 16,
             "query_sequence_min": 1,
@@ -525,6 +567,24 @@
             "requires_post_softmax_clone": true,
             "materialization_policy": "post_softmax_clone",
             "tuple_id": "transformer_decode_gqa_clone_only_head128_source100_to_116"
+          },
+          {
+            "family": "RecognizerNonCausalMHACloneOnly",
+            "batch_min": 1,
+            "batch_max": 6,
+            "query_heads": 8,
+            "key_value_heads": 8,
+            "query_sequence_min": 40,
+            "query_sequence_max": 40,
+            "key_value_sequence_min": 40,
+            "key_value_sequence_max": 40,
+            "head_dim": 15,
+            "enable_gqa": false,
+            "requires_materialized_math_path": false,
+            "requires_score_pre_materialization": false,
+            "requires_post_softmax_clone": false,
+            "materialization_policy": "runtime_fused_direct_buffer",
+            "tuple_id": "recognizer_mha_batch1_to6_heads8_sequence40_dim15"
           }
         ],
         "negative_axes": [
@@ -533,6 +593,8 @@
             "kind": "forbidden_cross_product",
             "fields": {
               "family": "DiffusionMaterializedSquare",
+              "batch_min": 1,
+              "batch_max": 1,
               "query_heads": 1,
               "key_value_heads": 1,
               "query_sequence_min": 504,
@@ -548,6 +610,8 @@
             "kind": "adjacent_field",
             "fields": {
               "family": "TransformerDecodeGQACloneOnly",
+              "batch_min": 1,
+              "batch_max": 1,
               "query_heads": 16,
               "key_value_heads": 16,
               "query_sequence_min": 1,
@@ -565,6 +629,12 @@
               "name": "family",
               "field": "family",
               "type": "string"
+            },
+            {
+              "name": "batch",
+              "min_field": "batch_min",
+              "max_field": "batch_max",
+              "type": "int64"
             },
             {
               "name": "query_heads",
@@ -630,6 +700,10 @@
       "is_causal": false,
       "scale": null,
       "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        1
+      ],
       "policy_query_sequence_range": [
         640,
         640
@@ -672,6 +746,10 @@
       "is_causal": false,
       "scale": null,
       "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        1
+      ],
       "policy_query_sequence_range": [
         640,
         640
@@ -714,6 +792,10 @@
       "is_causal": false,
       "scale": null,
       "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        1
+      ],
       "policy_query_sequence_range": [
         504,
         504
@@ -756,6 +838,10 @@
       "is_causal": false,
       "scale": null,
       "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        1
+      ],
       "policy_query_sequence_range": [
         504,
         504
@@ -798,6 +884,10 @@
       "is_causal": false,
       "scale": null,
       "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        1
+      ],
       "policy_query_sequence_range": [
         126,
         126
@@ -858,6 +948,10 @@
       "is_causal": false,
       "scale": 0.0883883,
       "enable_gqa": true,
+      "policy_batch_range": [
+        1,
+        1
+      ],
       "policy_query_sequence_range": [
         1,
         1
@@ -872,6 +966,144 @@
       "expected_requires_score_pre_materialization": false,
       "expected_requires_post_softmax_clone": true,
       "expected_materialization_policy": "post_softmax_clone",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "recognizer_mha_heads8_sequence40_dim15",
+      "query_shape": [
+        1,
+        8,
+        40,
+        15
+      ],
+      "key_shape": [
+        1,
+        8,
+        40,
+        15
+      ],
+      "value_shape": [
+        1,
+        8,
+        40,
+        15
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.2581988897471611,
+      "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        6
+      ],
+      "policy_query_sequence_range": [
+        40,
+        40
+      ],
+      "policy_key_value_sequence_range": [
+        40,
+        40
+      ],
+      "expected_contract_family": "RecognizerNonCausalMHACloneOnly",
+      "expected_contract_tuple_id": "recognizer_mha_batch1_to6_heads8_sequence40_dim15",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": false,
+      "expected_requires_post_softmax_clone": false,
+      "expected_materialization_policy": "runtime_fused_direct_buffer",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "recognizer_mha_batch2_heads8_sequence40_dim15",
+      "query_shape": [
+        2,
+        8,
+        40,
+        15
+      ],
+      "key_shape": [
+        2,
+        8,
+        40,
+        15
+      ],
+      "value_shape": [
+        2,
+        8,
+        40,
+        15
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.2581988897471611,
+      "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        6
+      ],
+      "policy_query_sequence_range": [
+        40,
+        40
+      ],
+      "policy_key_value_sequence_range": [
+        40,
+        40
+      ],
+      "expected_contract_family": "RecognizerNonCausalMHACloneOnly",
+      "expected_contract_tuple_id": "recognizer_mha_batch1_to6_heads8_sequence40_dim15",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": false,
+      "expected_requires_post_softmax_clone": false,
+      "expected_materialization_policy": "runtime_fused_direct_buffer",
+      "expected_cpu_fallback": false
+    },
+    {
+      "name": "recognizer_mha_batch6_heads8_sequence40_dim15",
+      "query_shape": [
+        6,
+        8,
+        40,
+        15
+      ],
+      "key_shape": [
+        6,
+        8,
+        40,
+        15
+      ],
+      "value_shape": [
+        6,
+        8,
+        40,
+        15
+      ],
+      "dtype": "float32",
+      "has_attn_mask": false,
+      "dropout_p": 0.0,
+      "is_causal": false,
+      "scale": 0.2581988897471611,
+      "enable_gqa": false,
+      "policy_batch_range": [
+        1,
+        6
+      ],
+      "policy_query_sequence_range": [
+        40,
+        40
+      ],
+      "policy_key_value_sequence_range": [
+        40,
+        40
+      ],
+      "expected_contract_family": "RecognizerNonCausalMHACloneOnly",
+      "expected_contract_tuple_id": "recognizer_mha_batch1_to6_heads8_sequence40_dim15",
+      "expected_requires_materialized_math_path": false,
+      "expected_requires_score_pre_materialization": false,
+      "expected_requires_post_softmax_clone": false,
+      "expected_materialization_policy": "runtime_fused_direct_buffer",
       "expected_cpu_fallback": false
     }
   ],

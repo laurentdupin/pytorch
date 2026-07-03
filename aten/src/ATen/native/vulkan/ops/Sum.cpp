@@ -3,10 +3,13 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
+#include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Reduction.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <limits>
+#include <optional>
+#include <tuple>
 #include <torch/library.h>
 
 namespace at {
@@ -19,6 +22,7 @@ using namespace api::utils;
 
 constexpr int64_t kParallelReduceAllChunkSize = 1024;
 constexpr int64_t kParallelReduceAllMinNumel = 4096;
+constexpr int64_t kSmallControlBoolReductionMaxNumel = 1024;
 
 Device vulkan_output_device(const Tensor& tensor) {
   return tensor.is_vulkan() ? tensor.device()
@@ -109,6 +113,131 @@ Tensor max_dim_buffer_chunk(
 
   return record_tensor_write_and_return(
       convert(v_output), "aten::amax", "buffer_dim_chunk", {prepared_input});
+}
+
+Tensor argmax_dim_buffer_chunk(
+    const Tensor& prepared_input,
+    const std::vector<int64_t>& output_sizes) {
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(prepared_input);
+
+  vTensor v_output{
+      context,
+      output_sizes,
+      api::kLong,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  context->submit_compute_job(
+      VK_KERNEL(buffer_argmax_dim_long),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer());
+
+  return record_tensor_write_and_return(
+      convert(v_output), "aten::argmax", "buffer_dim_chunk", {prepared_input});
+}
+
+bool can_run_small_control_bool_all_reduction(const Tensor& self) {
+  if (
+      !self.is_vulkan() || self.scalar_type() != c10::ScalarType::Bool ||
+      self.dim() > 4 || self.numel() > kSmallControlBoolReductionMaxNumel) {
+    return false;
+  }
+
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_self.has_direct_buffer_layout() &&
+      utils::supports_native_bool_buffer_compute(self);
+}
+
+std::optional<Tensor> prepare_small_control_bool_reduction_input(
+    const Tensor& self) {
+  if (
+      !self.is_vulkan() || self.scalar_type() != c10::ScalarType::Bool ||
+      self.dim() > 4 || self.numel() > kSmallControlBoolReductionMaxNumel) {
+    return std::nullopt;
+  }
+  const auto plan = utils::build_vulkan_execution_plan(
+      self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  if (!api::uses_buffer_execution(plan.execution_layout)) {
+    return std::nullopt;
+  }
+  Tensor prepared =
+      utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+  if (!can_run_small_control_bool_all_reduction(prepared)) {
+    return std::nullopt;
+  }
+  return prepared;
+}
+
+Tensor bool_all_reduce_buffer(const Tensor& self, const bool reduce_any) {
+  api::AllocationScope allocation_scope(
+      reduce_any ? "any.small_control_bool_buffer"
+                 : "all.small_control_bool_buffer");
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(self);
+
+  vTensor v_output{
+      context,
+      {},
+      api::kBool,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::PipelineBarrier pipeline_barrier{};
+  const api::ShaderInfo& shader =
+      reduce_any ? VK_KERNEL(buffer_bool_reduce_any)
+                 : VK_KERNEL(buffer_bool_reduce_all);
+
+  utils::log_vulkan_op_hit(
+      reduce_any ? "aten::any.small_control_bool_buffer"
+                 : "aten::all.small_control_bool_buffer");
+  context->submit_compute_job(
+      shader,
+      pipeline_barrier,
+      {1u, 1u, 1u},
+      {1u, 1u, 1u},
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_input.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      in_meta.buffer());
+
+  return record_tensor_write_and_return(
+      convert(v_output),
+      reduce_any ? "aten::any" : "aten::all",
+      reduce_any ? "small_control_bool_buffer_any"
+                 : "small_control_bool_buffer_all",
+      {self});
 }
 
 Tensor sum_cpu_fallback(
@@ -500,6 +629,41 @@ Tensor max_dim_buffer(
       {prepared_input_arg});
 }
 
+Tensor argmax_dim_buffer(
+    const Tensor& prepared_input_arg,
+    int64_t dim,
+    bool keepdim) {
+  api::AllocationScope allocation_scope("argmax.buffer_dim");
+
+  Tensor prepared = prepared_input_arg;
+  if (prepared.scalar_type() == c10::ScalarType::BFloat16) {
+    prepared = utils::cast_vulkan_tensor_dtype(prepared, c10::ScalarType::Float);
+  }
+
+  TORCH_CHECK(
+      prepared.scalar_type() == c10::ScalarType::Float,
+      "Vulkan buffer dim argmax currently only supports float and bfloat16 inputs");
+
+  Tensor canonical = dim == safe_downcast<int64_t>(prepared.dim()) - 1
+      ? prepared
+      : reduction::canonicalize_buffer_reduction_input(prepared, dim);
+  const vTensor& v_input = convert(canonical);
+  TORCH_CHECK(
+      v_input.sizes().back() <= std::numeric_limits<int32_t>::max(),
+      "Vulkan buffer dim argmax currently supports reduction dimensions up to int32 max");
+  const std::vector<int64_t> output_sizes =
+      reduction::reduced_output_sizes(
+          v_input.sizes(),
+          safe_downcast<int64_t>(v_input.sizes().size()) - 1,
+          keepdim);
+  Tensor output = argmax_dim_buffer_chunk(canonical, output_sizes);
+  output = reduction::restore_buffer_reduction_output_layout(
+      output, prepared.sizes(), dim, keepdim);
+
+  return record_tensor_write_and_return(
+      output, "aten::argmax", "buffer_dim", {prepared_input_arg});
+}
+
 Tensor sum_dim(
     const at::Tensor& self,
     int64_t dim,
@@ -861,6 +1025,49 @@ Tensor max_all(const Tensor& self) {
       at::max(self.cpu()).vulkan(), "aten::max", "cpu_fallback", {self});
 }
 
+std::tuple<Tensor, Tensor> max_dim(
+    const Tensor& self,
+    int64_t dim,
+    bool keepdim) {
+  if (
+      self.is_vulkan() && self.dim() >= 1 && self.dim() <= 4 &&
+      (self.scalar_type() == c10::ScalarType::Float ||
+       self.scalar_type() == c10::ScalarType::BFloat16)) {
+    const auto plan = utils::build_vulkan_execution_plan(
+        self, utils::VulkanExecutionPlanKind::ReductionDimInput);
+    if (api::uses_buffer_execution(plan.execution_layout)) {
+      const int64_t normalized_dim = utils::normalize(dim, self.dim());
+      Tensor prepared =
+          utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+      return std::make_tuple(
+          max_dim_buffer(prepared, normalized_dim, keepdim),
+          argmax_dim_buffer(prepared, normalized_dim, keepdim));
+    }
+  }
+
+  report_vulkan_cpu_fallback("aten::max.dim", "cpu_fallback", {self});
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  auto result = at::max(self.cpu(), dim, keepdim);
+  return std::make_tuple(
+      std::get<0>(result).vulkan(),
+      std::get<1>(result).vulkan());
+}
+
+std::tuple<Tensor&, Tensor&> max_dim_out(
+    const Tensor& self,
+    int64_t dim,
+    bool keepdim,
+    Tensor& values,
+    Tensor& indices) {
+  auto result = max_dim(self, dim, keepdim);
+  Tensor result_values = std::get<0>(result);
+  Tensor result_indices = std::get<1>(result);
+  rebind_vulkan_output(values, result_values);
+  rebind_vulkan_output(indices, result_indices);
+  return std::forward_as_tuple(values, indices);
+}
+
 Tensor min_all(const Tensor& self) {
   if (
       self.is_vulkan() &&
@@ -911,6 +1118,8 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl(TORCH_SELECTIVE_NAME("aten::any.dim"), TORCH_FN(any_dim));
   m.impl(TORCH_SELECTIVE_NAME("aten::any.out"), TORCH_FN(any_dim_out));
   m.impl("max", TORCH_FN(max_all));
+  m.impl(TORCH_SELECTIVE_NAME("aten::max.dim"), TORCH_FN(max_dim));
+  m.impl(TORCH_SELECTIVE_NAME("aten::max.dim_max"), TORCH_FN(max_dim_out));
   m.impl("min", TORCH_FN(min_all));
   m.impl(TORCH_SELECTIVE_NAME("aten::argmax"), TORCH_FN(argmax));
   m.impl(TORCH_SELECTIVE_NAME("aten::argmax.out"), TORCH_FN(argmax_out));

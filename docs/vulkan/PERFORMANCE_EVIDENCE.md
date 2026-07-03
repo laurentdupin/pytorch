@@ -196,6 +196,27 @@ condition that justifies revisiting it.
   `agent_space/paddle_hymt_perf_goal_c5dee8d/hymt_rx9070_small_control_transition_classified/`;
   it records 30 `SmallControlTensorFallbackContract` rows and 6
   `SmallControlScalarExtractionContract` rows in a one-token run.
+- HY-MT and PaddleOCR current control-path guardrails: the local cleanup
+  separates host-upload submits from tensor CPU readback submits and adds
+  bounded native paths for proven small-control Bool `any`/`all` reductions,
+  legal Float/BFloat16 `max(dim)` reductions, and PaddleOCR recognition
+  postprocess logits max. One-repeat all-GPU guardrails under
+  `agent_space/paddleocr_control_dirty_all_gpus/` show PaddleOCR at about
+  853 ms on RX 9070, 1088 ms on GTX 1080, and 641 ms on RX 6700 XT with
+  `cpu_fallback_count=0`. HY-MT one-token guardrails under
+  `agent_space/hymt_control_dirty_all_gpus/` show about 2068 ms on RX 9070,
+  4100 ms on GTX 1080, and 3488 ms on RX 6700 XT with
+  `cpu_fallback_count=33` and `sync_readback_count=8` on each adapter. The
+  rebuilt-DLL RX 9070 guardrail under
+  `agent_space/hymt_control_final_rx9070/` completes at about 2531 ms with the
+  same `cpu_fallback_count=33`, `sync_readback_count=8`, 280 tensor-readback
+  submits, and 252 host-upload submits. The remaining HY-MT cluster is still
+  generation-control: `argmax`, `isin`,
+  scalar comparisons, Long/Bool binary/control ops, and scalar extraction.
+  A standalone Float/BFloat16 last-dim `argmax` route was probed as the next
+  candidate and rejected for now because the current Long index-output shader
+  path produced incorrect index materialization outside the validated
+  `max(dim)` route.
 - HY-MT Bool control negative evidence: routing the existing single-element
   Bool `or`/`and` path through `buffer_binary_op_tensor_bool` was rejected in
   `agent_space/hymt_bool_shader_probe.md`. The shader dispatched without CPU

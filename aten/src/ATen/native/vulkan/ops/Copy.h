@@ -22,7 +22,7 @@ void pack_cpu_to_vulkan(
     const Tensor& src,
     vTensor& dst,
     api::VulkanSubmitOrigin fenced_submit_origin =
-        api::VulkanSubmitOrigin::TensorCpuReadback);
+        api::VulkanSubmitOrigin::HostUpload);
 
 void pack_vulkan_to_cpu(vTensor& src, Tensor& dst);
 

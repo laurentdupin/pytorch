@@ -2882,7 +2882,6 @@ def _validate_diffusion_sdpa_shape_envelope(file_name, spec, envelope):
         ("query_rank", 4),
         ("key_rank", 4),
         ("value_rank", 4),
-        ("batch", 1),
         ("has_attn_mask", False),
         ("dropout_zero", True),
         ("is_causal", False),
@@ -3050,6 +3049,8 @@ def _sdpa_execution_policy_rowset(envelope, context):
     _require_equal(rowset["name"], "policy_rows", f"{context} rowset name")
     expected_fields = [
         "family",
+        "batch_min",
+        "batch_max",
         "query_heads",
         "key_value_heads",
         "query_sequence_min",
@@ -3067,6 +3068,8 @@ def _sdpa_execution_policy_rowset(envelope, context):
     _require_equal(rowset["fields"], expected_fields, f"{context} rowset fields")
     expected_identity_fields = [
         "family",
+        "batch_min",
+        "batch_max",
         "query_heads",
         "key_value_heads",
         "query_sequence_min",
@@ -3091,10 +3094,13 @@ def _sdpa_execution_policy_rowset(envelope, context):
 
 
 def _sdpa_execution_policy_row_key_from_case(case):
+    batch_range = case["policy_batch_range"]
     query_sequence_range = case["policy_query_sequence_range"]
     key_value_sequence_range = case["policy_key_value_sequence_range"]
     return (
         case["expected_contract_family"],
+        batch_range[0],
+        batch_range[1],
         case["query_shape"][1],
         case["key_shape"][1],
         query_sequence_range[0],
@@ -3109,6 +3115,8 @@ def _sdpa_execution_policy_row_key_from_case(case):
 def _sdpa_execution_policy_row_key(row):
     return (
         row["family"],
+        row["batch_min"],
+        row["batch_max"],
         row["query_heads"],
         row["key_value_heads"],
         row["query_sequence_min"],
@@ -3138,34 +3146,34 @@ def _validate_sdpa_execution_policy_shape_envelope(file_name, spec, envelope):
         ("query_rank", 4),
         ("key_rank", 4),
         ("value_rank", 4),
-        ("batch", 1),
         ("has_attn_mask", False),
         ("dropout_zero", True),
         ("is_causal", False),
         ("scale_policy", "delegated_to_dependent_contracts"),
     ):
         _require_equal(bounds[key], expected, f"{context} {key}")
-    _require_equal(bounds["query_heads"], [1, 5, 10, 16], f"{context} q heads")
-    _require_equal(bounds["key_value_heads"], [1, 5, 10, 16], f"{context} kv heads")
+    _require_equal(bounds["batch"], [1, 6], f"{context} batch")
+    _require_equal(bounds["query_heads"], [1, 5, 8, 10, 16], f"{context} q heads")
+    _require_equal(bounds["key_value_heads"], [1, 5, 8, 10, 16], f"{context} kv heads")
     _require_equal(
         bounds["query_sequence"],
-        [1, 126, 504, 640],
+        [1, 40, 126, 504, 640],
         f"{context} query sequence",
     )
     _require_equal(
         bounds["key_value_sequence"],
-        {"min": 100, "max": 640},
+        {"min": 40, "max": 640},
         f"{context} key/value sequence",
     )
-    _require_equal(bounds["head_dim"], [64, 128, 512], f"{context} head dim")
+    _require_equal(bounds["head_dim"], [15, 64, 128, 512], f"{context} head dim")
     _require_equal(bounds["enable_gqa"], [False, True], f"{context} enable_gqa")
     for key in ("requires_vulkan", "requires_buffer_storage", "requires_buffer_compute"):
         _require_equal(bounds[key], True, f"{context} {key}")
 
     rowset = _sdpa_execution_policy_rowset(envelope, context)
     rows = rowset["rows"]
-    if len(rows) != 6:
-        raise AssertionError(f"{context} expected 6 sparse rows")
+    if len(rows) != 7:
+        raise AssertionError(f"{context} expected 7 sparse rows")
     family_counts = {}
     row_keys = set()
     tuple_ids = set()
@@ -3184,11 +3192,12 @@ def _validate_sdpa_execution_policy_shape_envelope(file_name, spec, envelope):
             "DiffusionMaterializedSquare": 4,
             "DiffusionCloneOnlySquare": 1,
             "TransformerDecodeGQACloneOnly": 1,
+            "RecognizerNonCausalMHACloneOnly": 1,
         },
         f"{context} family counts",
     )
-    _require_equal(len(tuple_ids), 6, f"{context} tuple ids")
-    _require_equal(len(lookup_keys), 6, f"{context} lookup keys")
+    _require_equal(len(tuple_ids), 7, f"{context} tuple ids")
+    _require_equal(len(lookup_keys), 7, f"{context} lookup keys")
 
     positive_keys = {
         _sdpa_execution_policy_row_key_from_case(case)
@@ -3207,7 +3216,8 @@ def _validate_sdpa_execution_policy_shape_envelope(file_name, spec, envelope):
             shape = case[shape_name]
             if len(shape) != 4:
                 raise AssertionError(f"{case_context} {shape_name} rank mismatch")
-            _require_equal(shape[0], bounds["batch"], f"{case_context} batch")
+            if not (bounds["batch"][0] <= shape[0] <= bounds["batch"][1]):
+                raise AssertionError(f"{case_context} batch")
             _require_equal(
                 shape[3],
                 case["query_shape"][3],
@@ -3290,6 +3300,8 @@ def _validate_sdpa_execution_policy_shape_envelope(file_name, spec, envelope):
                     if case["query_shape"][1] == 10
                     else "DiffusionMaterializedSquare"
                 ),
+                case["query_shape"][0],
+                case["query_shape"][0],
                 case["query_shape"][1],
                 case["key_shape"][1],
                 case["query_shape"][2],

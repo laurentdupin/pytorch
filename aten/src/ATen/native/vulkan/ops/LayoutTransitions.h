@@ -21,6 +21,7 @@ struct VulkanLayoutTarget final {
 };
 
 enum class VulkanMaterializeReason {
+  KernelRequiresBuffer,
   KernelRequiresDirectBuffer,
   KernelRequiresTexture,
   RawCopyRequiresContiguous,

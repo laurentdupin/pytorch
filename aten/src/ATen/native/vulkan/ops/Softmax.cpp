@@ -3862,6 +3862,29 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
   value_3d = utils::prepare_vulkan_execution_tensor(
       value_3d, attention_policy.key_value_plan_kind, key_value_request);
 
+  const bool has_explicit_mask = attn_mask && attn_mask->defined();
+  const int64_t buffer_tiled_max_sequence =
+      tiled_sdpa_buffer_fast_path_max_sequence(input_runtime_policy);
+  if (
+      sdpa_execution_policy.family ==
+          utils::SDPAExecutionPolicyFamily::RecognizerNonCausalMHACloneOnly &&
+      !has_explicit_mask && !is_causal && !enable_gqa &&
+      can_use_tiled_sdpa_buffer_fast_path(
+          convert(query_3d),
+          convert(key_3d),
+          convert(value_3d),
+          buffer_tiled_max_sequence)) {
+    Tensor output = scaled_dot_product_attention_tiled_3d_buffer_vulkan(
+        query_3d, key_3d, value_3d, buffer_tiled_max_sequence);
+    if (query.dim() == 3) {
+      return std::make_tuple(output, Tensor());
+    }
+    return std::make_tuple(
+        materialize_buffer_attention_output_view(
+            output.reshape({batch, heads, target_len, value_dim})),
+        Tensor());
+  }
+
   query_3d = prepare_buffer_math_input_direct(query_3d);
   key_3d = prepare_buffer_math_input_direct(key_3d);
   value_3d = prepare_buffer_math_input_direct(value_3d);
@@ -3872,9 +3895,6 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
     utils::log_vulkan_op_hit("aten::scaled_dot_product_attention.buffer_math_ops");
   }
 
-  const bool has_explicit_mask = attn_mask && attn_mask->defined();
-  const int64_t buffer_tiled_max_sequence =
-      tiled_sdpa_buffer_fast_path_max_sequence(input_runtime_policy);
   if (
       uses_buffer_math &&
       !is_generic_attention_policy(input_runtime_policy) &&

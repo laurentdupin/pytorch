@@ -23,6 +23,8 @@ const char* sdpa_execution_policy_contract_family_name(
       return "TransformerDecodeGQACloneOnly";
     case SDPAExecutionPolicyFamily::VisionSelfAttentionCloneOnly:
       return "VisionSelfAttentionCloneOnly";
+    case SDPAExecutionPolicyFamily::RecognizerNonCausalMHACloneOnly:
+      return "RecognizerNonCausalMHACloneOnly";
     case SDPAExecutionPolicyFamily::None:
       return fallback_name;
   }
@@ -41,6 +43,7 @@ find_sdpa_execution_policy_row(
     if (generated::sdpa_execution_policy_policy_rows_row_matches(
             row,
             family_name,
+            query_sizes[0],
             query_sizes[1],
             key_sizes[1],
             query_sizes[2],
@@ -81,6 +84,8 @@ const char* sdpa_execution_policy_family_name(
       return "SDPAExecutionTransformerDecodeGQACloneOnly";
     case SDPAExecutionPolicyFamily::VisionSelfAttentionCloneOnly:
       return "SDPAExecutionVisionSelfAttentionCloneOnly";
+    case SDPAExecutionPolicyFamily::RecognizerNonCausalMHACloneOnly:
+      return "SDPAExecutionRecognizerNonCausalMHACloneOnly";
     case SDPAExecutionPolicyFamily::None:
       return "SDPAExecutionNone";
   }
@@ -136,8 +141,8 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
   }
 
   if (
-      query_sizes.size() != 4 || query_sizes[0] != 1 ||
-      key_sizes[0] != 1 || value_sizes[0] != 1 ||
+      query_sizes.size() != 4 || query_sizes[0] < 1 ||
+      key_sizes[0] != query_sizes[0] || value_sizes[0] != query_sizes[0] ||
       key_sizes[2] != value_sizes[2] || query_sizes[3] != key_sizes[3] ||
       query_sizes[3] != value_sizes[3]) {
     return result;
@@ -184,6 +189,17 @@ SDPAExecutionPolicyMatch match_sdpa_execution_policy_contract(
           apply_sdpa_execution_policy_row(result, family, *row);
           return result;
         }
+      }
+    }
+
+    if (query_sizes[1] == key_sizes[1] && key_sizes[1] == value_sizes[1]) {
+      constexpr auto family =
+          SDPAExecutionPolicyFamily::RecognizerNonCausalMHACloneOnly;
+      const auto* const row = find_sdpa_execution_policy_row(
+          family, query_sizes, key_sizes, enable_gqa);
+      if (row != nullptr) {
+        apply_sdpa_execution_policy_row(result, family, *row);
+        return result;
       }
     }
   }

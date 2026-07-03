@@ -530,6 +530,9 @@ CommandBuffer CommandPool::get_new_cmd(bool reusable) {
 
 void CommandPool::flush() {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (in_use_ == 0u) {
+    return;
+  }
   VK_CHECK(vkResetCommandPool(device_, pool_, 0u));
   in_use_ = 0u;
 }
