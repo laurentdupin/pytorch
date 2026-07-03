@@ -154,6 +154,24 @@ condition that justifies revisiting it.
   token-1 packed handles. This means HY-MT packed-weight pressure is a
   first-token prepack/residency issue, while the repeated-token fallback
   pressure is generation-control metadata.
+- Large sliding-window conv packed-weight residency: the old 2 MB
+  `store_skip_large` cutoff was a memory-pressure heuristic, not a correctness
+  guard. Non-conservative adapters now admit float, non-quantized,
+  buffer-direct `Conv2dSlidingWindow` packed weights up to 8 MB into the
+  existing source/version/bias/device identity cache. The focused test uses a
+  `[128,128,5,5]` row to prove same-weight reuse, weight-version invalidation,
+  and same-shape different-weight misses. GTX 1080 and RX 6700 XT remain on the
+  conservative large persistent-cache policy and keep the old skip for this
+  expansion until separate cross-adapter evidence promotes a broader rule. The
+  RX 9070 artifact under
+  `agent_space/paddle_hymt_large_sliding_window_cache_rx9070/` confirms the
+  two PaddleOCR large rows now store persistently and hit on warm repeats:
+  `[128,128,5,5]` records 33 hits out of 44 lookups after one warmup plus three
+  repeats, and `[64,256,9,9]` records 12 hits out of 16 lookups. The same
+  directory contains RX 6700 XT and GTX 1080 one-repeat guardrails where those
+  rows still report `store_skip_large`, `cpu_fallback_count=0`, and successful
+  model completion. Treat the current PaddleOCR timings as noisy smoke evidence,
+  not as a stable regression threshold.
 - HY-MT control-tensor blocker: after the same cleanup, RX 9070 HY-MT still
   surfaces Long/Bool control-tensor fallbacks in generation (`isin`, `any/all`,
   Long comparison, Long binary op, `masked_fill`, dtype cast, and scalar

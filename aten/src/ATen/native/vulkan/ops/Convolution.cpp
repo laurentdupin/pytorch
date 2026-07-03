@@ -2282,11 +2282,30 @@ bool should_cache_float_buffer_conv2d_handle(
   // own their in-flight lifetime instead.
   constexpr size_t kLargeSlidingWindowConvCacheLimitBytes =
       size_t{2} * 1024u * 1024u;
+  constexpr size_t kLargeSlidingWindowConvContractLimitBytes =
+      size_t{8} * 1024u * 1024u;
   if (
       handle.residency_class() ==
           PackedWeightResidencyClass::PersistentInference &&
       packed_weight_kind == PackedWeightKind::Conv2dSlidingWindow &&
       handle.resident_nbytes() > kLargeSlidingWindowConvCacheLimitBytes) {
+    const utils::VulkanDevicePolicy device_policy =
+        utils::current_vulkan_device_policy();
+    if (
+        !device_policy.avoid_large_persistent_weight_cache &&
+        handle.resident_nbytes() <=
+            kLargeSlidingWindowConvContractLimitBytes &&
+        handle.weight().scalar_type() == kFloat &&
+        !handle.quantized() &&
+        handle.execution_layout() == api::ExecutionLayout::BUFFER_DIRECT) {
+      utils::log_vulkan_op_hit(
+          std::string(
+              "aten::convolution.packed_weight_cache_accept."
+              "large_sliding_window bytes=") +
+          std::to_string(handle.resident_nbytes()) + " weight=" +
+          conv2d::format_conv_sizes(handle.logical_weight_sizes()));
+      return true;
+    }
     utils::log_vulkan_op_hit(
         std::string("aten::convolution.packed_weight_cache_skip.large bytes=") +
         std::to_string(handle.resident_nbytes()) + " weight=" +
