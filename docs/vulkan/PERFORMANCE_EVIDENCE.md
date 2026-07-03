@@ -133,8 +133,10 @@ condition that justifies revisiting it.
   hard-fail.
 - PaddleOCR two-input channel cat cleanup: the generic
   `aten::cat.buffer_channel_pair` route covers rank-4 dim-1 float buffer-backed
-  two-input channel cats with equal batch/spatial sizes. The focused unit test
-  verifies route-hit logging, parity, zero CPU fallback, and explicit copy
+  two-input channel cats with equal batch/spatial sizes, `N=1`, total
+  `C <= 4096`, and spatial sizes up to `224x224`; it no longer requires
+  channels to be multiples of four. The focused unit test verifies route-hit
+  logging, parity, odd-channel pairs, zero CPU fallback, and explicit copy
   accounting. A one-repeat RX 9070 op-hit sample under
   `agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/`
   observed two pair-channel-cat hits, plus five existing multi-input

@@ -112,10 +112,11 @@ because the run was logging-heavy.
 The channel-cat cleanup now also has a generic two-input rank-4 dim-1 float
 buffer route, `aten::cat.buffer_channel_pair`, backed by
 `cat_dim1_4d_buffer_float`. The route is guarded by dtype/rank/dim, equal
-batch/spatial sizes, Vulkan buffer storage, and buffer-compute support; it is
-not a PaddleOCR-named production route. Focused tests cover buffer-view parity,
-route hit logging, and visible copy accounting. A one-repeat PaddleOCR RX 9070
-op-hit sample under
+batch/spatial sizes, `N=1`, positive channels with total `C <= 4096`,
+spatial sizes up to `224x224`, Vulkan buffer storage, and buffer-compute
+support; it is not a PaddleOCR-named production route. Focused tests cover
+buffer-view parity, odd-channel pairs, route hit logging, and visible copy
+accounting. A one-repeat PaddleOCR RX 9070 op-hit sample under
 `agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/`
 observed two `aten::cat.buffer_channel_pair` hits, so this is a small reusable
 dispatch cleanup rather than the dominant bottleneck. The remaining PaddleOCR

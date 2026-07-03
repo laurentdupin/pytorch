@@ -303,6 +303,9 @@ Tensor cat_last_dim2_buffer(
 bool can_use_dim1_4d_pair_buffer_cat(
     const MaterializedITensorListRef& tensors,
     const int64_t dim) {
+  constexpr int64_t kMaxPairCatChannels = 4096;
+  constexpr int64_t kMaxPairCatHeight = 224;
+  constexpr int64_t kMaxPairCatWidth = 224;
   if (tensors.size() != 2 || dim != 1) {
     return false;
   }
@@ -323,7 +326,11 @@ bool can_use_dim1_4d_pair_buffer_cat(
         tensor.size(3) != reference.size(3)) {
       return false;
     }
-    if (tensor.size(1) % 4 != 0) {
+    if (
+        tensor.size(0) != 1 || tensor.size(1) <= 0 ||
+        tensor.size(1) > kMaxPairCatChannels ||
+        tensor.size(2) <= 0 || tensor.size(2) > kMaxPairCatHeight ||
+        tensor.size(3) <= 0 || tensor.size(3) > kMaxPairCatWidth) {
       return false;
     }
     total_channels += tensor.size(1);
@@ -334,7 +341,7 @@ bool can_use_dim1_4d_pair_buffer_cat(
       return false;
     }
   }
-  return total_channels % 4 == 0;
+  return total_channels <= kMaxPairCatChannels;
 }
 
 Tensor cat_dim1_4d_pair_buffer(

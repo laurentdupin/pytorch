@@ -114,10 +114,11 @@ condition and migration target.
   covers the rank-4 dim-1 channel-cat buffer slice with generated positive and
   adjacent negative runtime tests and generic ShapeEnvelope C++ metadata/helper
   output for the multi-input route. The two-input rank-4 dim-1 buffer route
-  `aten::cat.buffer_channel_pair` is covered by a focused parity/op-hit test
-  and remains handwritten until the generated `ChannelCatContract` admits the
-  pair case directly. Other cat-axis rows still need fixtures or documented
-  follow-up before this exception can expire.
+  `aten::cat.buffer_channel_pair` is covered by focused parity/op-hit tests,
+  including odd-channel pairs under bounded `N=1`, total `C <= 4096`, and
+  spatial `224x224` guards, and remains handwritten until the generated
+  `ChannelCatContract` admits the pair case directly. Other cat-axis rows still
+  need fixtures or documented follow-up before this exception can expire.
 - Expiry: broader cat-axis parity plus adjacent negative coverage are
   available.
 - Migration target: generated `CatAxisContract` and `ChannelCatContract`
