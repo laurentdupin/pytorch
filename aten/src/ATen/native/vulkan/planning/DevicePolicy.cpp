@@ -47,6 +47,8 @@ VulkanDevicePolicy current_vulkan_device_policy() {
   const bool conservative_large_conv_device = gtx_class || rx_6700_xt;
   policy.prefer_strict_replay_retirement = true;
   policy.avoid_large_persistent_weight_cache = gtx_class || rx_6700_xt;
+  policy.disable_large_float_buffer_conv_prepack = gtx_class;
+  policy.transient_large_linear_weight_cache_threshold_bytes = 0u;
   policy.disable_generic_tiled_diffusion_linear = true;
   policy.disable_generic_4d_sdpa = true;
   policy.disable_large_buffer_conv_3x3 = conservative_large_conv_device;
@@ -70,6 +72,10 @@ std::string describe_device_policy(const VulkanDevicePolicy& policy) {
       << " strict_replay=" << (policy.prefer_strict_replay_retirement ? 1 : 0)
       << " avoid_weight_cache="
       << (policy.avoid_large_persistent_weight_cache ? 1 : 0)
+      << " disable_large_float_buffer_conv_prepack="
+      << (policy.disable_large_float_buffer_conv_prepack ? 1 : 0)
+      << " transient_large_linear_weight_cache_threshold_bytes="
+      << policy.transient_large_linear_weight_cache_threshold_bytes
       << " disable_large_conv3x3="
       << (policy.disable_large_buffer_conv_3x3 ? 1 : 0);
   return out.str();

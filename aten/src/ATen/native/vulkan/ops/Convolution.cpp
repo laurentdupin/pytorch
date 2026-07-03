@@ -1908,6 +1908,22 @@ bool can_use_float_buffer_conv2d_prepack(
   return true;
 }
 
+size_t estimated_float_buffer_conv2d_prepack_nbytes(
+    const Tensor& weight,
+    const std::optional<Tensor>& bias) {
+  auto tensor_nbytes = [](const Tensor& tensor) -> size_t {
+    if (!tensor.defined()) {
+      return 0u;
+    }
+    const size_t element_size = tensor.scalar_type() == kHalf
+        ? sizeof(float)
+        : tensor.element_size();
+    return static_cast<size_t>(tensor.numel()) * element_size;
+  };
+  return tensor_nbytes(weight) +
+      (bias && bias->defined() ? tensor_nbytes(*bias) : 0u);
+}
+
 bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
   if (
       !input.is_vulkan() || input.scalar_type() != kFloat || input.dim() != 4 ||
@@ -2192,7 +2208,11 @@ bool is_gtx_class_runtime_device() {
 PackedWeightResidencyClass float_buffer_conv2d_weight_residency_class(
     const size_t resident_nbytes,
     const std::vector<int64_t>& logical_weight_sizes) {
-  if (is_gtx_class_runtime_device() && resident_nbytes > 64u * 1024u) {
+  constexpr size_t kGtxTransientFloatBufferConvCacheLimitBytes =
+      size_t{4} * 1024u * 1024u;
+  if (
+      is_gtx_class_runtime_device() &&
+      resident_nbytes > kGtxTransientFloatBufferConvCacheLimitBytes) {
     utils::log_vulkan_op_hit(
         std::string(
             "aten::convolution.packed_weight_cache_transient.gtx bytes=") +
@@ -2237,6 +2257,16 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
 bool should_cache_float_buffer_conv2d_handle(
     const PackedWeightHandle& handle,
     const PackedWeightKind packed_weight_kind) {
+  if (
+      is_gtx_class_runtime_device() &&
+      handle.residency_class() == PackedWeightResidencyClass::Transient) {
+    utils::log_vulkan_op_hit(
+        std::string(
+            "aten::convolution.packed_weight_cache_skip.transient_gtx bytes=") +
+        std::to_string(handle.resident_nbytes()) + " weight=" +
+        conv2d::format_conv_sizes(handle.logical_weight_sizes()));
+    return false;
+  }
   // Large eager 3x3 diffusion/decoder weights are often touched once per frame.
   // Keeping all of them in the persistent packed-weight cache creates live
   // memory pressure without producing hits; let normal Vulkan deferred cleanup
@@ -4031,8 +4061,23 @@ Tensor run_bfloat16_buffer_conv2d(
       should_force_image_conv_for_small_metadata_input(compute_input) &&
       !small_metadata_padded_conv2d_match.matched &&
       !patch_embed_float_buffer_route;
+  constexpr size_t kLargeGtxFloatBufferConvPrepackLimitBytes =
+      size_t{4} * 1024u * 1024u;
+  const auto device_policy = utils::current_vulkan_device_policy();
+  const bool force_gtx_large_float_buffer_prepack_skip =
+      device_policy.disable_large_float_buffer_conv_prepack &&
+      can_use_float_buffer_conv2d_prepack(
+          compute_weight,
+          compute_bias,
+          transposed,
+          false,
+          output_padding) &&
+      estimated_float_buffer_conv2d_prepack_nbytes(
+          compute_weight, compute_bias) >
+          kLargeGtxFloatBufferConvPrepackLimitBytes;
   const bool force_legacy_image_pack =
-      force_small_metadata_image_pack || avoid_large_buffer_conv_3x3;
+      force_small_metadata_image_pack || avoid_large_buffer_conv_3x3 ||
+      force_gtx_large_float_buffer_prepack_skip;
   if (
       patch_embed_float_buffer_route && !force_small_metadata_image_pack) {
     utils::log_vulkan_op_hit(
@@ -4042,6 +4087,8 @@ Tensor run_bfloat16_buffer_conv2d(
     utils::log_vulkan_op_hit(
         force_small_metadata_image_pack
             ? "aten::convolution.buffer_float_skip.small_metadata_input"
+        : force_gtx_large_float_buffer_prepack_skip
+            ? "aten::convolution.buffer_float_skip.gtx_large_prepack_upload"
             : "aten::convolution.buffer_float_skip.known_bad_large_3x3");
   }
   if (utils::has_inference_tensor(compute_weight, compute_bias)) {

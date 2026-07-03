@@ -1,10 +1,10 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-02 at `485796529f8` plus local PaddleOCR/HY-MT
-cleanup work: HY-MT KV-cache append broadening, device-policy packed-weight
-transient residency, PaddleOCR OCR projection cross-adapter fixes, generic
-transfer cleanup, buffer Float->Byte cast, buffer float flip, and OCR
-recognizer pointwise sparse-row coverage.
+Last refreshed: 2026-07-03 at local PaddleOCR/HY-MT cleanup head:
+HY-MT KV-cache append broadening, device-policy packed-weight transient
+residency, generic large-linear execution checkpoints, PaddleOCR OCR
+projection cross-adapter fixes, generic transfer cleanup, buffer Float->Byte
+cast, buffer float flip, and OCR recognizer pointwise sparse-row coverage.
 
 ## Repo State Summary
 
@@ -19,7 +19,7 @@ this fix recorded requested device metadata but could still run on the current
 default Vulkan device; new benchmark records include `current_index` so device
 selection mismatches are visible.
 
-HY-MT now has two generic compatibility fixes for Vulkan decode. The existing
+HY-MT now has generic compatibility fixes for Vulkan decode. The existing
 `KVCacheAppendContract` admits the observed short sequence-append rows
 (`S=1..115`) and initial empty-cache rows (`S=14..116`) under the existing
 float32 rank-4 `batch=1`, `heads=4`, `head_dim=128`, `dim=2` guards, so
@@ -29,28 +29,30 @@ transient when the active adapter policy requests avoiding large persistent
 weight caches, and retired packed-weight handles are released after the existing
 synchronize/fence wait points instead of being quarantined indefinitely. This
 is adapter-policy driven and not HY-MT-specific production routing.
+Large inference linear submissions now also have a generic checkpoint in
+`run_float_buffer_linear`: after a bounded number of large packed-weight linear
+submissions or accumulated bytes, the backend synchronizes the stream and
+releases retired packed-weight/linear contexts. The checkpoint is keyed on
+linear weight size and inference mode, not on a model name.
 
 Fresh cross-adapter diagnostics under
-`agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_current/` show the current
-state. HY-MT RX 6700 XT 16-token decode now completes where the previous
-multi-GB persistent linear cache path could device-lost: `live_persistent_bytes`
-is zero, 43 transient entries remain live, and transient evictions are recorded.
-HY-MT GTX 1080 also switches linear residency to transient and removes the
-7GB-class persistent cache pressure, but still fails later with `DeviceLost`
-from a tensor-CPU-readback/lm-head-adjacent path. HY-MT RX 9070 keeps persistent
-linear residency on a one-token smoke (`live_persistent_bytes` about 7.16GB),
-while longer HY-MT generation currently exits with the existing Windows stack
-overflow `-1073741571` before result JSON. PaddleOCR now completes one-repeat
-smokes on RX 9070, GTX 1080, and RX 6700 XT. The GTX path uses transient
+`agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_post_large_linear_checkpoint/`
+show the current state. HY-MT one-token decode now completes on RX 9070,
+GTX 1080, and RX 6700 XT without DeviceLost or Windows stack overflow. The
+remaining HY-MT row is not clean: it still reports `cpu_fallback_count=32`,
+`sync_readback_count=8`, 279 tensor CPU readback submits, and 251 host-upload
+submits from generation-control and packed-weight/control traffic. PaddleOCR
+now completes one-repeat smokes on RX 9070, GTX 1080, and RX 6700 XT with
+`cpu_fallback_count=0`. The GTX path uses transient
 float-buffer conv packed-weight residency for large packed weights instead of
 skipping the cache and repeatedly uploading through the previous
 `conv_prepack_upload` device-lost path. The OCR projection contract also admits
 the observed dynamic crop/recognition batch rows under an OCR-only batch policy
 so the formerly failing `[6,512,3,80] -> 512` and `[3,512,6,80] -> 192` 1x1
 projection rows stay on Vulkan. Current smoke timings remain single-repeat
-diagnostics: RX 9070 about 1.23s, RX 6700 XT about 1.15s, and GTX 1080 about
-2.58s end-to-end with the known PaddleOCR postprocess fallback/readback costs
-still present.
+diagnostics: PaddleOCR was about 0.81s on RX 9070, 0.65s on RX 6700 XT, and
+1.14s on GTX 1080 in the post-checkpoint artifact; HY-MT one-token decode was
+about 2.68s on RX 9070, 3.42s on RX 6700 XT, and 8.42s on GTX 1080.
 
 Two generic PaddleOCR/HY-MT cleanup fixes are now in place. First, legal 2D
 Vulkan buffer linear weights can use a metadata-only transposed view for
@@ -66,9 +68,13 @@ on the current screenshot input improved from about 4.78s to about 4.30s with
 the same CPU fallback, sync readback, submit, and retire counters; the sync log
 showed 1957 raw-transfer fence waits with `flush_descriptor_pool=0` and 6
 descriptor/shader paths that still flushed descriptors. HY-MT one-token RX 9070
-linear diagnostics removed the Vulkan-weight CPU transpose fallbacks, but the
-remaining runtime is still dominated by token/control scalar fallbacks and the
-longer RX 9070 HY-MT row remains blocked by the existing Windows stack overflow.
+linear diagnostics removed the Vulkan-weight CPU transpose fallbacks. A later
+large-linear checkpoint probe showed the recurring stack overflow is triggered
+by full-model depth/resource accumulation: reduced-layer HY-MT succeeds through
+6 layers without extra synchronization, fails around 8 layers, and succeeds at
+full depth when explicit synchronization is inserted every 7 layers or fewer.
+The production checkpoint is a generic large-linear lifetime guard, not that
+layer-count probe.
 
 The local PaddleOCR follow-up adds two more reusable frontend cleanup paths:
 Float buffer-to-Byte buffer dtype casts and buffer-backed float `flip` now stay

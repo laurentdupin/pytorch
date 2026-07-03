@@ -61,6 +61,29 @@ condition and migration target.
 - Migration target: generated `KVCacheAppendContract` and `CatAxisContract`
   tables with positive and negative tests.
 
+### Large Linear Execution Checkpoint
+
+- Location: `aten/src/ATen/native/vulkan/ops/Mm.cpp`
+- Status: temporary, generic lifetime guard
+- Reason: large inference-only packed-weight linear sequences can accumulate
+  enough pending resources to trigger Windows stack overflow/device instability
+  before the broader decoder-region ownership path can retire them safely. The
+  checkpoint is keyed by packed linear weight size plus submission/byte budgets,
+  not by model name.
+- Evidence: HY-MT layer-depth probing showed full-model depth/resource
+  accumulation fails around 8 layers without synchronization and succeeds when
+  explicit synchronization is inserted at a smaller interval. Cross-adapter
+  one-token HY-MT diagnostics under
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_post_large_linear_checkpoint/`
+  complete on RX 9070, GTX 1080, and RX 6700 XT without stack overflow.
+- Expiry: region-owned decoder/linear command ownership can transfer and retire
+  large linear packed-weight resources without periodic stream synchronization,
+  and HY-MT one-token decode remains stable across all three adapters with the
+  checkpoint disabled.
+- Migration target: a planned Transformer decoder region or linear execution
+  ownership contract with explicit packed-weight/scratch lifetime handoff,
+  timeline-gated retire, and no generation-control CPU fallback hiding.
+
 ### Embedding Lookup Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

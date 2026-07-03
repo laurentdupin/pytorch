@@ -932,6 +932,71 @@ void log_float_buffer_linear_submit(
   utils::log_vulkan_op_hit(stream.str());
 }
 
+constexpr uint64_t kLargeLinearCheckpointMinWeightBytes = 4ull * 1024ull * 1024ull;
+constexpr uint64_t kLargeLinearCheckpointSubmitBudget = 48ull;
+constexpr uint64_t kLargeLinearCheckpointByteBudget = 1024ull * 1024ull * 1024ull;
+
+std::atomic<uint64_t>& large_linear_checkpoint_submit_count() {
+  static std::atomic<uint64_t> count{0u};
+  return count;
+}
+
+std::atomic<uint64_t>& large_linear_checkpoint_bytes() {
+  static std::atomic<uint64_t> bytes{0u};
+  return bytes;
+}
+
+void maybe_synchronize_after_large_linear_checkpoint(
+    const Tensor& input,
+    const Tensor& packed_weight,
+    const Tensor& output) {
+  if (!c10::InferenceMode::is_enabled() || !packed_weight.defined()) {
+    return;
+  }
+
+  const uint64_t weight_bytes = static_cast<uint64_t>(packed_weight.nbytes());
+  if (weight_bytes < kLargeLinearCheckpointMinWeightBytes) {
+    return;
+  }
+
+  const uint64_t observed_submits =
+      large_linear_checkpoint_submit_count().fetch_add(
+          1u, std::memory_order_relaxed) +
+      1u;
+  const uint64_t observed_bytes = large_linear_checkpoint_bytes().fetch_add(
+                                      static_cast<uint64_t>(input.nbytes()) +
+                                          weight_bytes +
+                                          static_cast<uint64_t>(output.nbytes()),
+                                      std::memory_order_relaxed) +
+      static_cast<uint64_t>(input.nbytes()) + weight_bytes +
+      static_cast<uint64_t>(output.nbytes());
+
+  if (
+      observed_submits < kLargeLinearCheckpointSubmitBudget &&
+      observed_bytes < kLargeLinearCheckpointByteBudget) {
+    return;
+  }
+
+  const uint64_t checkpoint_submits =
+      large_linear_checkpoint_submit_count().exchange(
+          0u, std::memory_order_relaxed);
+  const uint64_t checkpoint_bytes =
+      large_linear_checkpoint_bytes().exchange(0u, std::memory_order_relaxed);
+
+  std::ostringstream stream;
+  stream << "aten::linear.large_stack_checkpoint"
+         << " submits=" << checkpoint_submits
+         << " bytes=" << checkpoint_bytes
+         << " weight_bytes=" << weight_bytes;
+  utils::log_vulkan_op_hit(stream.str());
+
+  api::AllocationScope allocation_scope("linear.large_stack_checkpoint");
+  api::Context* const context = api::context();
+  context->synchronize_stream(context->current_c10_stream());
+  utils::release_retired_packed_weight_entries();
+  utils::release_retired_linear_contexts();
+}
+
 struct DeferredLinearGeluCandidate final {
   Tensor input_arg;
   Tensor buffer_input;
@@ -1796,6 +1861,8 @@ Tensor run_float_buffer_linear(
   decision.rejected_because_not_packed = !decision.weight_packed;
   note_linear_plan_decision(decision);
   append_vulkan_linear_plan_log(decision, "aten::linear.float_buffer");
+  maybe_synchronize_after_large_linear_checkpoint(
+      input_arg_2d, packed_weight_tensor, output);
 
   return reshape_linear_output_if_needed(output, input_arg);
 }
@@ -4179,7 +4246,25 @@ PackedWeightResidencyClass linear_buffer_weight_residency_class(
     const std::vector<int64_t>& logical_weight_sizes) {
   const auto policy = utils::current_vulkan_device_policy();
   if (!policy.avoid_large_persistent_weight_cache) {
-    return PackedWeightResidencyClass::PersistentInference;
+    const size_t transient_threshold =
+        policy.transient_large_linear_weight_cache_threshold_bytes;
+    if (transient_threshold == 0u || resident_nbytes < transient_threshold) {
+      return PackedWeightResidencyClass::PersistentInference;
+    }
+    std::ostringstream stream;
+    stream
+        << "aten::linear.packed_weight_cache_transient.large_device_policy bytes="
+        << resident_nbytes << " threshold=" << transient_threshold
+        << " weight=[";
+    for (size_t idx = 0; idx < logical_weight_sizes.size(); ++idx) {
+      if (idx != 0u) {
+        stream << ",";
+      }
+      stream << logical_weight_sizes[idx];
+    }
+    stream << "]";
+    utils::log_vulkan_op_hit(stream.str());
+    return PackedWeightResidencyClass::Transient;
   }
 
   std::ostringstream stream;
@@ -4194,6 +4279,26 @@ PackedWeightResidencyClass linear_buffer_weight_residency_class(
   stream << "]";
   utils::log_vulkan_op_hit(stream.str());
   return PackedWeightResidencyClass::Transient;
+}
+
+bool should_store_linear_buffer_packed_weight_handle(
+    const PackedWeightHandle& handle) {
+  if (handle.residency_class() == PackedWeightResidencyClass::Transient) {
+    std::ostringstream stream;
+    stream << "aten::linear.packed_weight_cache_skip.transient bytes="
+           << handle.resident_nbytes() << " weight=[";
+    const auto& logical_weight_sizes = handle.logical_weight_sizes();
+    for (size_t idx = 0; idx < logical_weight_sizes.size(); ++idx) {
+      if (idx != 0u) {
+        stream << ",";
+      }
+      stream << logical_weight_sizes[idx];
+    }
+    stream << "]";
+    utils::log_vulkan_op_hit(stream.str());
+    return false;
+  }
+  return true;
 }
 
 Tensor bmm_buffer_out_vulkan(
@@ -4318,7 +4423,9 @@ LinearPackedContext::LinearPackedContext(
           texture_compute_bias && texture_compute_bias->defined(),
           packed_weight.is_quantized());
     }
-    if (use_packed_weight_cache) {
+    if (
+        use_packed_weight_cache &&
+        should_store_linear_buffer_packed_weight_handle(packed_weight_)) {
       utils::store_packed_weight_handle(
           weight,
           normalized_bias,

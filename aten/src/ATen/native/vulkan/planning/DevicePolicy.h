@@ -2,6 +2,7 @@
 
 #ifdef USE_VULKAN_API
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -24,6 +25,8 @@ struct VulkanDevicePolicy final {
   bool supports_zero_initialize_workgroup_memory{false};
   bool prefer_strict_replay_retirement{true};
   bool avoid_large_persistent_weight_cache{false};
+  bool disable_large_float_buffer_conv_prepack{false};
+  size_t transient_large_linear_weight_cache_threshold_bytes{0u};
   bool disable_generic_tiled_diffusion_linear{true};
   bool disable_generic_4d_sdpa{true};
   bool disable_large_buffer_conv_3x3{true};

@@ -73,12 +73,20 @@ condition that justifies revisiting it.
   GTX 1080 use the adapter policy to mark linear buffer packed weights
   transient and retired packed-weight handles are released after existing
   synchronize/fence wait points. The current diagnostic artifact is
-  `agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_current/`. RX 6700 XT
-  16-token decode completes with `live_persistent_bytes=0` and transient
-  evictions recorded. GTX 1080 also removes persistent linear-cache pressure,
-  but still fails later in a tensor-readback/lm-head-adjacent submit path.
-  RX 9070 keeps persistent residency as intended; one-token smoke is OK, while
-  longer HY-MT generation currently hits the existing Windows stack overflow.
+  `agent_space/paddle_hymt_perf_goal_c5dee8d/diagnostic_post_large_linear_checkpoint/`.
+  RX 6700 XT and GTX 1080 remove the previous persistent linear-cache pressure,
+  and HY-MT one-token decode now completes on RX 9070, GTX 1080, and RX 6700 XT
+  without DeviceLost or Windows stack overflow. The remaining row still has
+  generation-control cost: `cpu_fallback_count=32`, `sync_readback_count=8`,
+  279 tensor CPU readback submits, and 251 host-upload submits.
+- HY-MT large-linear execution checkpoint: reduced-layer probing showed the
+  stack overflow was caused by full-model depth/resource accumulation rather
+  than by a standalone linear or direct-GQA SDPA kernel. HY-MT succeeds through
+  6 layers without extra synchronization, fails around 8 layers, and succeeds
+  at full depth when an explicit sync is inserted every 7 layers or fewer. The
+  production fix is a generic inference-only large packed-weight linear
+  checkpoint in `run_float_buffer_linear`, keyed by weight size/submission
+  budget/byte budget rather than by model name.
 - HY-MT linear context packing now has a generic metadata-view cleanup for
   legal 2D Vulkan buffer weights. When the existing buffer metadata-view guards
   pass, inference/labeled linear prepack uses a Vulkan-resident transposed view
@@ -89,8 +97,7 @@ condition that justifies revisiting it.
   `agent_space/paddle_hymt_perf_goal_c5dee8d/hymt_rx9070_1tok_after_linear_view/`
   removed the Vulkan-weight CPU transpose fallbacks and reduced fallback
   materialization/readback transition counts slightly, but the row is still
-  dominated by token/control scalar fallbacks and the longer RX 9070 HY-MT row
-  remains blocked by the existing Windows stack overflow.
+  dominated by token/control scalar fallbacks.
 - PaddleOCR cross-adapter status after the follow-up conv/OCR fixes: RX 9070,
   GTX 1080, and RX 6700 XT all complete one-repeat smokes. GTX 1080 uses
   transient float-buffer conv packed-weight residency for large packed weights,
@@ -129,6 +136,12 @@ condition that justifies revisiting it.
   Long comparison, Long binary op, `masked_fill`, dtype cast, and scalar
   extraction). The next reusable improvement should be a control-tensor
   residency/comparison contract, not another linear-weight or pointwise row.
+- HY-MT Bool control negative evidence: routing the existing single-element
+  Bool `or`/`and` path through `buffer_binary_op_tensor_bool` was rejected in
+  `agent_space/hymt_bool_shader_probe.md`. The shader dispatched without CPU
+  fallback but returned incorrect values for cases such as `False | True` and
+  `False & False`. Do not promote HY-MT Bool control ops through that shader
+  until the Bool buffer representation/indexing contract is fixed.
 
 ## Update Rules
 
