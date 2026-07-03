@@ -362,11 +362,17 @@ void log_fallback_transition(
   } else if (small_control_scalar_extraction) {
     detail_string =
         "control_tensor=1;scalar_extraction=1;behavior_neutral=1;"
-        "native_kernel_unsupported=1";
+        "native_kernel_unsupported=1;"
+        "host_residency_contract=SmallControlHostResidencyContract.v0;"
+        "host_scalar_boundary_preserved=1;host_residency_authorized=0;"
+        "host_residency_top_blocker=python_scalar_boundary_required";
   } else if (small_control_tensor_fallback) {
     detail_string =
         "control_tensor=1;small_tensor=1;behavior_neutral=1;"
-        "native_kernel_unsupported=1";
+        "native_kernel_unsupported=1;"
+        "host_residency_contract=SmallControlHostResidencyContract.v0;"
+        "host_result_reuploaded_to_vulkan=1;host_residency_authorized=0;"
+        "host_residency_top_blocker=consumer_chain_proof_missing";
   }
   const char* detail = detail_string.empty() ? nullptr : detail_string.c_str();
   utils::log_vulkan_transition(utils::VulkanTransitionRequest{

@@ -110,6 +110,12 @@ submit, fallback, materialization, or readback behavior.
 `host_transfer` events from CPU tensors into Vulkan tensors. These events are
 physical host transfers and remain counted as uploads; the spec only gives the
 collector a source-of-truth bucket for reporting them.
+Direct host-visible uploads for bounded Long/Int small-control tensors were
+probed but are not admitted: the generic Vulkan factory allocation path hit
+`VK_ERROR_MEMORY_MAP_FAILED` when mapping tiny host-visible Long buffers.
+Small-control uploads therefore remain staged host-upload events until
+allocator/map safety is proven. Bool uploads remain staged until the Bool
+buffer representation contract is fixed.
 
 `MetadataViewTransitionContract` covers `metadata_view_only` /
 `metadata_view` events such as `MetadataViewCreated` and

@@ -164,7 +164,15 @@ condition that justifies revisiting it.
   only for tiny comparison-control rows). The classification is
   behavior-neutral: CPU fallback and scalar sync-readback counters still
   increment, native execution is not authorized, and larger/unlisted tensors
-  stay on the generic fallback bucket. The focused HY-MT RX 9070 artifact is
+  stay on the generic fallback bucket. The same rows now expose
+  `SmallControlHostResidencyContract.v0` as fail-closed: tensor fallback
+  results are uploaded back to Vulkan, scalar extraction remains a Python
+  boundary, and host residency is not authorized without a consumer-chain
+  proof. Direct host-visible Long/Int small-control uploads were probed and
+  rejected after `VK_ERROR_MEMORY_MAP_FAILED` in the Vulkan factory allocation
+  path, so those uploads remain staged until allocator/map safety is proven.
+  Bool uploads also stay staged until the rejected Bool buffer representation
+  evidence is resolved. The focused HY-MT RX 9070 artifact is
   `agent_space/paddle_hymt_perf_goal_c5dee8d/hymt_rx9070_small_control_transition_classified/`;
   it records 30 `SmallControlTensorFallbackContract` rows and 6
   `SmallControlScalarExtractionContract` rows in a one-token run.

@@ -31,6 +31,41 @@ from torch.testing._internal.common_utils import run_tests, TestCase
 
 @unittest.skipUnless(torch.is_vulkan_available(), "Vulkan not available")
 class TestVulkanSmallControlTransition(TestCase):
+    def test_bool_any_all_stays_fail_closed(self):
+        cases = [
+            torch.tensor([True, False, False, False], dtype=torch.bool),
+            torch.tensor([False, True, False, False], dtype=torch.bool),
+            torch.tensor([False, False, True, False], dtype=torch.bool),
+            torch.tensor([False, False, False, True], dtype=torch.bool),
+            torch.ones((1, 14), dtype=torch.bool),
+            torch.zeros((1, 14), dtype=torch.bool),
+            torch.zeros((1025,), dtype=torch.bool),
+        ]
+
+        for values in cases:
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            vulkan_values = values.to("vulkan")
+
+            self.assertEqual(vulkan_values.any().cpu(), values.any())
+            self.assertEqual(vulkan_values.all().cpu(), values.all())
+            self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_argmax_last_dim_stays_fail_closed(self):
+        cases = [
+            (torch.arange(17, dtype=torch.float32).reshape(1, 17), 16),
+            (torch.zeros((1, 14), dtype=torch.float32), 7),
+        ]
+        cases[1][0][0, 7] = 3.0
+
+        for values, expected in cases:
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            result = values.to("vulkan").argmax(dim=-1)
+
+            self.assertEqual(result.cpu(), torch.tensor([expected]))
+            self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
     def test_transition_log_classifies_small_control_tensor_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "transition.jsonl")
@@ -71,6 +106,19 @@ class TestVulkanSmallControlTransition(TestCase):
                     and record.get("consumer_contract")
                     == "PythonControlPlaneTensorConsumer"
                     and "control_tensor=1" in record.get("detail", "")
+                    and (
+                        "host_residency_contract="
+                        "SmallControlHostResidencyContract.v0"
+                    )
+                    in record.get("detail", "")
+                    and "host_result_reuploaded_to_vulkan=1"
+                    in record.get("detail", "")
+                    and "host_residency_authorized=0" in record.get("detail", "")
+                    and (
+                        "host_residency_top_blocker="
+                        "consumer_chain_proof_missing"
+                    )
+                    in record.get("detail", "")
                     for record in records
                 )
             )
@@ -81,6 +129,19 @@ class TestVulkanSmallControlTransition(TestCase):
                     and record.get("consumer_contract")
                     == "PythonControlPlaneScalarConsumer"
                     and record.get("sync_required")
+                    and (
+                        "host_residency_contract="
+                        "SmallControlHostResidencyContract.v0"
+                    )
+                    in record.get("detail", "")
+                    and "host_scalar_boundary_preserved=1"
+                    in record.get("detail", "")
+                    and "host_residency_authorized=0" in record.get("detail", "")
+                    and (
+                        "host_residency_top_blocker="
+                        "python_scalar_boundary_required"
+                    )
+                    in record.get("detail", "")
                     for record in records
                 )
             )

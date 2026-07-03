@@ -64,6 +64,13 @@ and `SmallControlScalarExtractionContract` covers scalar `_local_scalar_dense`
 readbacks from bounded control tensors. Both contracts are behavior-neutral:
 native execution remains unauthorized, fallback/readback counters still
 increment, and the rejected Bool buffer-kernel evidence stays recorded.
+Transition rows now also name `SmallControlHostResidencyContract.v0` as
+fail-closed: tensor fallbacks are still uploaded back to Vulkan, scalar
+extraction remains a Python control boundary, and host residency is not
+authorized until a consumer-chain proof exists. Direct host-visible
+small-control upload was probed and rejected because tiny Long/Int Vulkan
+factory buffers hit `VK_ERROR_MEMORY_MAP_FAILED`; those uploads remain staged
+until allocator/map safety is proven.
 
 Two generic PaddleOCR/HY-MT cleanup fixes are now in place. First, legal 2D
 Vulkan buffer linear weights can use a metadata-only transposed view for
