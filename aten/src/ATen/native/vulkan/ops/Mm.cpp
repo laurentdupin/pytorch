@@ -4282,7 +4282,8 @@ PackedWeightResidencyClass linear_buffer_weight_residency_class(
 }
 
 bool should_store_linear_buffer_packed_weight_handle(
-    const PackedWeightHandle& handle) {
+    const PackedWeightHandle& handle,
+    const uint64_t options_key) {
   if (handle.residency_class() == PackedWeightResidencyClass::Transient) {
     std::ostringstream stream;
     stream << "aten::linear.packed_weight_cache_skip.transient bytes="
@@ -4296,6 +4297,14 @@ bool should_store_linear_buffer_packed_weight_handle(
     }
     stream << "]";
     utils::log_vulkan_op_hit(stream.str());
+    utils::note_packed_weight_store_skip(
+        handle.logical_weight_sizes(),
+        handle.weight().scalar_type(),
+        handle.kind(),
+        handle.quantized(),
+        options_key,
+        "transient",
+        handle.resident_nbytes());
     return false;
   }
   return true;
@@ -4425,7 +4434,8 @@ LinearPackedContext::LinearPackedContext(
     }
     if (
         use_packed_weight_cache &&
-        should_store_linear_buffer_packed_weight_handle(packed_weight_)) {
+        should_store_linear_buffer_packed_weight_handle(
+            packed_weight_, pack_options)) {
       utils::store_packed_weight_handle(
           weight,
           normalized_bias,

@@ -32516,6 +32516,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for row in packed_rows
             )
         )
+        self.assertTrue(
+            any(
+                "packed_weight_query_aggregate" in row
+                and "kind=Linear" in row
+                and "logical_weight_shape=[64,128]" in row
+                and "lookups=5" in row
+                and "hits=4" in row
+                and "misses=1" in row
+                and "stores=1" in row
+                for row in packed_rows
+            )
+        )
 
         with torch.no_grad():
             linear.weight.copy_(torch.randn_like(linear.weight.cpu()).to("vulkan"))

@@ -273,6 +273,15 @@ void store_packed_weight_handle(
     bool quantized = false,
     uint64_t options_key = 0u);
 
+void note_packed_weight_store_skip(
+    IntArrayRef logical_weight_sizes,
+    ScalarType dtype,
+    PackedWeightKind kind,
+    bool quantized,
+    uint64_t options_key,
+    const char* reason,
+    size_t resident_nbytes);
+
 std::vector<std::string> packed_weight_residency_snapshot();
 
 void reset_packed_weight_residency_snapshot();

@@ -141,6 +141,19 @@ condition that justifies revisiting it.
   `aten::cat.buffer_channel_view` hits. Treat this as a modest reusable dispatch
   cleanup; it does not address the larger packed-weight identity, host-upload,
   retire, and multi-input cat materialization costs.
+- Packed-weight residency aggregate attribution: packed-weight snapshots now
+  emit `packed_weight_query_aggregate` rows keyed by kind, logical shape, dtype,
+  quantization, and pack options. The focused unit test verifies the aggregate
+  row for linear cache hits/misses/stores. The RX 9070 artifact under
+  `agent_space/paddle_hymt_perf_goal_current/packed_weight_aggregate_rx9070/`
+  shows PaddleOCR large sliding-window convs are intentionally skipped by the
+  existing `store_skip_large` policy (`[128,128,5,5]` and `[64,256,9,9]`),
+  while HY-MT first-token decode stores 225 persistent linear packed weights
+  totaling about 7.16 GB with zero hits. The HY-MT two-token sample records
+  450 lookups, 225 hits, 225 misses, and 225 stores, proving token 2 reuses the
+  token-1 packed handles. This means HY-MT packed-weight pressure is a
+  first-token prepack/residency issue, while the repeated-token fallback
+  pressure is generation-control metadata.
 - HY-MT control-tensor blocker: after the same cleanup, RX 9070 HY-MT still
   surfaces Long/Bool control-tensor fallbacks in generation (`isin`, `any/all`,
   Long comparison, Long binary op, `masked_fill`, dtype cast, and scalar

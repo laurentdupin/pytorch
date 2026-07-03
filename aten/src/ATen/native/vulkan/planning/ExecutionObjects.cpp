@@ -14,6 +14,7 @@
 #include <ATen/native/vulkan/ops/Utils.h>
 
 #include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
@@ -22,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <unordered_map>
 #include <c10/core/Storage.h>
 
 namespace at {
@@ -146,6 +148,38 @@ uint64_t tensor_packed_weight_source_key(const Tensor& tensor) {
   return tensor_provenance_first_input_key(tensor);
 }
 
+std::string packed_weight_query_aggregate_key(
+    IntArrayRef logical_weight_sizes,
+    const ScalarType dtype,
+    const PackedWeightKind kind,
+    const bool quantized,
+    const uint64_t options_key) {
+  std::ostringstream stream;
+  stream << "kind=" << to_string(kind)
+         << " logical_weight_shape="
+         << format_size_list(
+                std::vector<int64_t>(
+                    logical_weight_sizes.begin(), logical_weight_sizes.end()))
+         << " dtype=" << dtype << " quantized=" << (quantized ? 1 : 0)
+         << " options_key=" << options_key;
+  return stream.str();
+}
+
+std::string packed_weight_query_aggregate_key(
+    const Tensor& source_weight,
+    IntArrayRef logical_weight_sizes,
+    const PackedWeightKind kind,
+    const bool quantized,
+    const uint64_t options_key) {
+  return packed_weight_query_aggregate_key(
+      logical_weight_sizes,
+      source_weight.defined() ? source_weight.scalar_type()
+                              : ScalarType::Undefined,
+      kind,
+      quantized,
+      options_key);
+}
+
 bool weak_ref_matches_tensor(
     const std::optional<TensorWeakRef>& ref,
     const Tensor& tensor) {
@@ -255,6 +289,31 @@ struct RetiredPackedWeightMetadata final {
   std::optional<TensorWeakRef> weight_ref;
   std::optional<TensorWeakRef> bias_ref;
   std::vector<int64_t> logical_weight_sizes;
+};
+
+struct PackedWeightQueryAggregate final {
+  uint64_t lookups{0u};
+  uint64_t hits{0u};
+  uint64_t misses{0u};
+  uint64_t miss_empty_cache{0u};
+  uint64_t miss_no_match{0u};
+  uint64_t mismatch_tensor_impl{0u};
+  uint64_t mismatch_storage_identity{0u};
+  uint64_t mismatch_provenance_source{0u};
+  uint64_t mismatch_shape_stride_dtype{0u};
+  uint64_t mismatch_version{0u};
+  uint64_t mismatch_bias{0u};
+  uint64_t mismatch_context_device{0u};
+  uint64_t stores{0u};
+  uint64_t persistent_stores{0u};
+  uint64_t transient_stores{0u};
+  uint64_t stored_bytes{0u};
+  uint64_t persistent_stored_bytes{0u};
+  uint64_t transient_stored_bytes{0u};
+  uint64_t store_skip_transient{0u};
+  uint64_t store_skip_large{0u};
+  uint64_t store_skip_other{0u};
+  uint64_t skipped_bytes{0u};
 };
 
 size_t packed_weight_cache_limit_bytes() {
@@ -451,6 +510,7 @@ class PackedWeightResidencyManager final {
   std::mutex mutex_;
   std::deque<PackedWeightResidencyEntry> cache_;
   std::deque<std::string> recent_misses_;
+  std::unordered_map<std::string, PackedWeightQueryAggregate> query_aggregate_;
   size_t cache_bytes_{0u};
   size_t persistent_cache_bytes_{0u};
 
@@ -714,6 +774,32 @@ class PackedWeightResidencyManager final {
     }
   }
 
+  static void note_aggregate_miss_breakdown(
+      PackedWeightQueryAggregate& aggregate,
+      const MissBreakdown& breakdown) {
+    if (breakdown.tensor_impl) {
+      ++aggregate.mismatch_tensor_impl;
+    }
+    if (breakdown.storage_identity) {
+      ++aggregate.mismatch_storage_identity;
+    }
+    if (breakdown.provenance_source) {
+      ++aggregate.mismatch_provenance_source;
+    }
+    if (breakdown.shape_stride_dtype) {
+      ++aggregate.mismatch_shape_stride_dtype;
+    }
+    if (breakdown.version) {
+      ++aggregate.mismatch_version;
+    }
+    if (breakdown.bias) {
+      ++aggregate.mismatch_bias;
+    }
+    if (breakdown.context_device) {
+      ++aggregate.mismatch_context_device;
+    }
+  }
+
   void update_log_snapshot_locked() const {
     if (!packed_weight_cache_logging_enabled()) {
       return;
@@ -897,6 +983,58 @@ class PackedWeightResidencyManager final {
             << " pruned_expired_sources="
             << log_state.pruned_expired_sources.load(std::memory_order_relaxed);
     rows.emplace_back(summary.str());
+    std::vector<std::pair<std::string, PackedWeightQueryAggregate>>
+        aggregate_rows(
+            query_aggregate_.begin(),
+            query_aggregate_.end());
+    std::sort(
+        aggregate_rows.begin(),
+        aggregate_rows.end(),
+        [](const auto& lhs, const auto& rhs) {
+          const auto lhs_pressure =
+              lhs.second.misses + lhs.second.store_skip_transient +
+              lhs.second.store_skip_large + lhs.second.store_skip_other;
+          const auto rhs_pressure =
+              rhs.second.misses + rhs.second.store_skip_transient +
+              rhs.second.store_skip_large + rhs.second.store_skip_other;
+          if (lhs_pressure != rhs_pressure) {
+            return lhs_pressure > rhs_pressure;
+          }
+          return lhs.first < rhs.first;
+        });
+    for (const auto& item : aggregate_rows) {
+      const PackedWeightQueryAggregate& aggregate = item.second;
+      std::ostringstream stream;
+      stream << "packed_weight_query_aggregate " << item.first
+             << " lookups=" << aggregate.lookups
+             << " hits=" << aggregate.hits
+             << " misses=" << aggregate.misses
+             << " miss_empty_cache=" << aggregate.miss_empty_cache
+             << " miss_no_match=" << aggregate.miss_no_match
+             << " mismatch_tensor_impl=" << aggregate.mismatch_tensor_impl
+             << " mismatch_storage_identity="
+             << aggregate.mismatch_storage_identity
+             << " mismatch_provenance_source="
+             << aggregate.mismatch_provenance_source
+             << " mismatch_shape_stride_dtype="
+             << aggregate.mismatch_shape_stride_dtype
+             << " mismatch_version=" << aggregate.mismatch_version
+             << " mismatch_bias=" << aggregate.mismatch_bias
+             << " mismatch_context_device="
+             << aggregate.mismatch_context_device
+             << " stores=" << aggregate.stores
+             << " persistent_stores=" << aggregate.persistent_stores
+             << " transient_stores=" << aggregate.transient_stores
+             << " stored_bytes=" << aggregate.stored_bytes
+             << " persistent_stored_bytes="
+             << aggregate.persistent_stored_bytes
+             << " transient_stored_bytes=" << aggregate.transient_stored_bytes
+             << " store_skip_transient=" << aggregate.store_skip_transient
+             << " store_skip_large=" << aggregate.store_skip_large
+             << " store_skip_other=" << aggregate.store_skip_other
+             << " skipped_bytes=" << aggregate.skipped_bytes;
+      rows.emplace_back(stream.str());
+    }
     for (const std::string& row : recent_misses_) {
       rows.emplace_back(row);
     }
@@ -906,6 +1044,7 @@ class PackedWeightResidencyManager final {
   void reset_diagnostics() {
     std::lock_guard<std::mutex> lock(mutex_);
     recent_misses_.clear();
+    query_aggregate_.clear();
   }
 
   std::optional<PackedWeightHandle> lookup(
@@ -925,12 +1064,17 @@ class PackedWeightResidencyManager final {
     const int64_t weight_version = tensor_version_or_zero(source_weight);
     const int64_t bias_version =
         normalized_bias ? tensor_version_or_zero(*normalized_bias) : 0u;
+    const std::string aggregate_key = packed_weight_query_aggregate_key(
+        source_weight, logical_weight_sizes, kind, quantized, options_key);
 
     std::deque<PackedWeightResidencyEntry> retired_entries;
     std::optional<PackedWeightHandle> result;
     bool cache_was_empty = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      PackedWeightQueryAggregate& aggregate =
+          query_aggregate_[aggregate_key];
+      ++aggregate.lookups;
       cache_was_empty = cache_.empty();
       std::optional<MissBreakdown> best_miss;
       for (auto it = cache_.begin(); it != cache_.end();) {
@@ -976,17 +1120,22 @@ class PackedWeightResidencyManager final {
         }
 
         log_state.hits.fetch_add(1u, std::memory_order_relaxed);
+        ++aggregate.hits;
         result = handle;
         break;
       }
       if (!result.has_value()) {
         log_state.misses.fetch_add(1u, std::memory_order_relaxed);
+        ++aggregate.misses;
         if (cache_was_empty) {
           log_state.miss_empty_cache.fetch_add(1u, std::memory_order_relaxed);
+          ++aggregate.miss_empty_cache;
         } else {
           log_state.miss_no_match.fetch_add(1u, std::memory_order_relaxed);
+          ++aggregate.miss_no_match;
           if (best_miss.has_value()) {
             note_miss_breakdown(*best_miss);
+            note_aggregate_miss_breakdown(aggregate, *best_miss);
             recent_misses_.emplace_back(std::move(best_miss->row));
             while (recent_misses_.size() > kRecentMissRowsLimit) {
               recent_misses_.pop_front();
@@ -1039,6 +1188,8 @@ class PackedWeightResidencyManager final {
     entry.quantized = quantized;
     entry.options_key = options_key;
     entry.handle = handle;
+    const std::string aggregate_key = packed_weight_query_aggregate_key(
+        source_weight, logical_weight_sizes, kind, quantized, options_key);
 
     packed_weight_cache_log_state().stores.fetch_add(
         1u, std::memory_order_relaxed);
@@ -1071,15 +1222,50 @@ class PackedWeightResidencyManager final {
       }
 
       cache_bytes_ += handle.resident_nbytes();
+      PackedWeightQueryAggregate& aggregate =
+          query_aggregate_[aggregate_key];
+      ++aggregate.stores;
+      aggregate.stored_bytes +=
+          static_cast<uint64_t>(handle.resident_nbytes());
       if (
           handle.residency_class() ==
           PackedWeightResidencyClass::PersistentInference) {
         persistent_cache_bytes_ += handle.resident_nbytes();
+        ++aggregate.persistent_stores;
+        aggregate.persistent_stored_bytes +=
+            static_cast<uint64_t>(handle.resident_nbytes());
+      } else {
+        ++aggregate.transient_stores;
+        aggregate.transient_stored_bytes +=
+            static_cast<uint64_t>(handle.resident_nbytes());
       }
       cache_.emplace_front(std::move(entry));
       trim_locked(retired_entries);
     }
     release_retired_entries(retired_entries);
+  }
+
+  void note_store_skip(
+      IntArrayRef logical_weight_sizes,
+      const ScalarType dtype,
+      const PackedWeightKind kind,
+      const bool quantized,
+      const uint64_t options_key,
+      const char* reason,
+      const size_t resident_nbytes) {
+    const std::string aggregate_key = packed_weight_query_aggregate_key(
+        logical_weight_sizes, dtype, kind, quantized, options_key);
+    std::lock_guard<std::mutex> lock(mutex_);
+    PackedWeightQueryAggregate& aggregate = query_aggregate_[aggregate_key];
+    const std::string reason_string = reason ? reason : "";
+    if (reason_string == "transient") {
+      ++aggregate.store_skip_transient;
+    } else if (reason_string == "large") {
+      ++aggregate.store_skip_large;
+    } else {
+      ++aggregate.store_skip_other;
+    }
+    aggregate.skipped_bytes += static_cast<uint64_t>(resident_nbytes);
   }
 };
 
@@ -2182,6 +2368,24 @@ void store_packed_weight_handle(
       handle,
       quantized,
       options_key);
+}
+
+void note_packed_weight_store_skip(
+    IntArrayRef logical_weight_sizes,
+    const ScalarType dtype,
+    const PackedWeightKind kind,
+    const bool quantized,
+    const uint64_t options_key,
+    const char* reason,
+    const size_t resident_nbytes) {
+  packed_weight_residency_manager().note_store_skip(
+      logical_weight_sizes,
+      dtype,
+      kind,
+      quantized,
+      options_key,
+      reason,
+      resident_nbytes);
 }
 
 std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(

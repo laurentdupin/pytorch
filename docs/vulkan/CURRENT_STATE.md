@@ -6,6 +6,8 @@ residency, generic large-linear execution checkpoints, PaddleOCR OCR
 projection cross-adapter fixes, generic transfer cleanup, buffer Float->Byte
 cast, buffer float flip, OCR recognizer pointwise sparse-row coverage, and
 two-input rank-4 channel-cat buffer dispatch coverage.
+Packed-weight residency snapshots now also include per-shape aggregate
+hit/miss/store/skip rows for PaddleOCR/HY-MT attribution.
 
 ## Repo State Summary
 
@@ -108,8 +110,25 @@ op-hit sample under
 `agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/`
 observed two `aten::cat.buffer_channel_pair` hits, so this is a small reusable
 dispatch cleanup rather than the dominant bottleneck. The remaining PaddleOCR
-pressure is still packed-weight/prepack identity, host uploads, retire/copy
-traffic, and larger multi-input channel-cat materialization.
+packed-weight pressure is now visible in
+`packed_weight_query_aggregate` rows: the current RX 9070 one-repeat sample
+under
+`agent_space/paddle_hymt_perf_goal_current/packed_weight_aggregate_rx9070/`
+shows two large sliding-window conv shapes rejected by the existing
+`store_skip_large` policy, while smaller conv/depthwise rows still miss by
+source/storage identity and then store persistent packed weights. HY-MT
+one-token on the same artifact stores 225 persistent linear packed weights
+with zero hits; a two-token sample then records 225 hits and no extra stores,
+so repeated decode does reuse the packed handles after token 1. The first-token
+row still accumulates about 7.16 GB of persistent linear packed-weight
+residency on RX 9070, above the nominal 2 GB packed-weight cache limit because
+the current trimmer only evicts transient entries. The remaining per-token
+HY-MT fallbacks are generation-control metadata (`mul`, `add`, comparison,
+`isin`, `all`, bitwise/logical ops, and scalar extraction), not core tensor
+math.
+PaddleOCR's broader remaining pressure is still packed-weight/prepack identity,
+host uploads, retire/copy traffic, and larger multi-input channel-cat
+materialization.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket

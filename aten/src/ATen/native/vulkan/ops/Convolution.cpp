@@ -2256,7 +2256,8 @@ PackedWeightHandle make_float_buffer_conv2d_handle(
 
 bool should_cache_float_buffer_conv2d_handle(
     const PackedWeightHandle& handle,
-    const PackedWeightKind packed_weight_kind) {
+    const PackedWeightKind packed_weight_kind,
+    const uint64_t options_key) {
   if (
       is_gtx_class_runtime_device() &&
       handle.residency_class() == PackedWeightResidencyClass::Transient) {
@@ -2265,6 +2266,14 @@ bool should_cache_float_buffer_conv2d_handle(
             "aten::convolution.packed_weight_cache_skip.transient_gtx bytes=") +
         std::to_string(handle.resident_nbytes()) + " weight=" +
         conv2d::format_conv_sizes(handle.logical_weight_sizes()));
+    utils::note_packed_weight_store_skip(
+        handle.logical_weight_sizes(),
+        handle.weight().scalar_type(),
+        handle.kind(),
+        handle.quantized(),
+        options_key,
+        "transient",
+        handle.resident_nbytes());
     return false;
   }
   // Large eager 3x3 diffusion/decoder weights are often touched once per frame.
@@ -2282,6 +2291,14 @@ bool should_cache_float_buffer_conv2d_handle(
         std::string("aten::convolution.packed_weight_cache_skip.large bytes=") +
         std::to_string(handle.resident_nbytes()) + " weight=" +
         conv2d::format_conv_sizes(handle.logical_weight_sizes()));
+    utils::note_packed_weight_store_skip(
+        handle.logical_weight_sizes(),
+        handle.weight().scalar_type(),
+        handle.kind(),
+        handle.quantized(),
+        options_key,
+        "large",
+        handle.resident_nbytes());
     return false;
   }
   return true;
@@ -4504,7 +4521,7 @@ Conv2dPackedContext::Conv2dPackedContext(
           quantized);
     }
     if (should_cache_float_buffer_conv2d_handle(
-            packed_weight_, packed_weight_kind)) {
+            packed_weight_, packed_weight_kind, pack_options)) {
       utils::store_packed_weight_handle(
           cache_weight,
           normalized_cache_bias,
