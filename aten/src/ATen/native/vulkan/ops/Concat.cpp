@@ -300,6 +300,132 @@ Tensor cat_last_dim2_buffer(
   return output;
 }
 
+bool can_use_dim1_4d_pair_buffer_cat(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  if (tensors.size() != 2 || dim != 1) {
+    return false;
+  }
+  const Tensor& reference = tensors[0];
+  if (reference.scalar_type() != kFloat || reference.dim() != 4) {
+    return false;
+  }
+  int64_t total_channels = 0;
+  for (const Tensor& tensor : tensors) {
+    if (
+        !tensor.is_vulkan() || tensor.dim() != 4 ||
+        tensor.scalar_type() != reference.scalar_type()) {
+      return false;
+    }
+    if (
+        tensor.size(0) != reference.size(0) ||
+        tensor.size(2) != reference.size(2) ||
+        tensor.size(3) != reference.size(3)) {
+      return false;
+    }
+    if (tensor.size(1) % 4 != 0) {
+      return false;
+    }
+    total_channels += tensor.size(1);
+    const vTensor& v_tensor = convert(tensor);
+    if (
+        v_tensor.storage_type() != api::StorageType::BUFFER ||
+        !utils::supports_buffer_elementwise_compute(v_tensor)) {
+      return false;
+    }
+  }
+  return total_channels % 4 == 0;
+}
+
+Tensor cat_dim1_4d_pair_buffer(
+    const MaterializedITensorListRef& tensors,
+    IntArrayRef result_size) {
+  api::AllocationScope allocation_scope("cat.dim1_4d_pair_buffer");
+  Tensor left = utils::mark_tensor_execution(
+      tensors[0],
+      utils::resolve_buffer_execution_layout(convert(tensors[0])),
+      false);
+  Tensor right = utils::mark_tensor_execution(
+      tensors[1],
+      utils::resolve_buffer_execution_layout(convert(tensors[1])),
+      false);
+  Tensor output = utils::create_buffer_tensor(
+      result_size,
+      tensors[0].get().scalar_type(),
+      /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  vTensor& v_output = convert(output);
+  vTensor& v_left = convert(left);
+  vTensor& v_right = convert(right);
+  TORCH_CHECK(
+      v_left.storage_type() == api::StorageType::BUFFER &&
+          v_right.storage_type() == api::StorageType::BUFFER &&
+          v_output.storage_type() == api::StorageType::BUFFER,
+      "Vulkan dim-1 pair cat requires buffer-backed tensors");
+
+  api::Context* const context = api::context();
+  api::PipelineBarrier pipeline_barrier{};
+  const api::utils::uvec3 global_size = {
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+  const struct Block final {
+    uint32_t left_channels;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+  } block{
+      api::utils::safe_downcast<uint32_t>(tensors[0].get().size(1)),
+      0u,
+      0u,
+      0u,
+  };
+  api::UniformParamsBuffer params(context, block);
+
+  utils::log_vulkan_op_hit("aten::cat.buffer_channel_pair");
+  note_vulkan_buffer_copy(
+      VulkanBufferCopyReason::ViewMaterialization,
+      v_left,
+      v_output,
+      "aten::cat",
+      "cat.dim1_4d_pair_buffer");
+  note_vulkan_buffer_copy(
+      VulkanBufferCopyReason::ViewMaterialization,
+      v_right,
+      v_output,
+      "aten::cat",
+      "cat.dim1_4d_pair_buffer");
+  context->submit_compute_job(
+      VK_KERNEL(cat_dim1_4d_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      utils::make_buffer_compute_metadata_ubo(context, v_output).buffer(),
+      v_left.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_left).buffer(),
+      v_right.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ),
+      utils::make_buffer_compute_metadata_ubo(context, v_right).buffer(),
+      params.buffer());
+
+  return output;
+}
+
 Tensor cat_kv_cache_append_dim2_buffer(
     const MaterializedITensorListRef& tensors,
     IntArrayRef result_size,
@@ -851,6 +977,9 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
 
   if (can_use_last_dim2_buffer_cat(materialized, dim)) {
     return cat_last_dim2_buffer(materialized, result_size);
+  }
+  if (can_use_dim1_4d_pair_buffer_cat(materialized, dim)) {
+    return cat_dim1_4d_pair_buffer(materialized, result_size);
   }
   const utils::KVCacheAppendMatch append_kv_cache_contract =
       match_kv_cache_append_cat_contract(materialized, dim);

@@ -11955,6 +11955,69 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 actual = torch.cat((left_vulkan, right_vulkan), dim=1).cpu()
                 self.assertEqual(actual, expected)
 
+    def test_float_channel_cat_two_buffer_view_inputs_single_kernel(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        with torch.inference_mode():
+            left = torch.randn(1, 64, 7, 5, dtype=torch.float32)
+            right = torch.randn(1, 32, 7, 5, dtype=torch.float32)
+            left_vulkan = make_nchw_buffer_view(left)
+            right_vulkan = make_nchw_buffer_view(right)
+            expected = torch.cat((left, right), dim=1)
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            torch.ops.vulkan_prepack.reset_buffer_copy_counters()
+
+            op_hit_log_path = os.path.join(
+                REPO_ROOT,
+                "float_channel_cat_pair_op_hit_test.log",
+            )
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+            old_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+            try:
+                actual_vulkan = torch.cat((left_vulkan, right_vulkan), dim=1)
+                actual = actual_vulkan.cpu()
+                buffer_copy_counters = (
+                    torch.ops.vulkan_prepack.buffer_copy_counters()
+                )
+            finally:
+                if old_op_hit_log is None:
+                    os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+                else:
+                    os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = old_op_hit_log
+
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(buffer_copy_counters[0], 2)
+            with open(op_hit_log_path, encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+            self.assertIn("op=aten::cat.buffer_channel_pair", op_hit_text)
+            self.assertEqual(actual, expected)
+            os.remove(op_hit_log_path)
+
+    def test_float_channel_cat_two_buffer_view_inputs_unaligned_fallback(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        with torch.inference_mode():
+            left = torch.randn(1, 6, 7, 5, dtype=torch.float32)
+            right = torch.randn(1, 10, 7, 5, dtype=torch.float32)
+            left_vulkan = make_nchw_buffer_view(left)
+            right_vulkan = make_nchw_buffer_view(right)
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            actual = torch.cat((left_vulkan, right_vulkan), dim=1).cpu()
+
+            self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(actual, torch.cat((left, right), dim=1))
+
     def test_float_channel_cat_multi_buffer_view_inputs_match_cpu(self):
         with torch.inference_mode():
             cases = [

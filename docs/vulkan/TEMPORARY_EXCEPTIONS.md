@@ -113,8 +113,11 @@ condition and migration target.
 - Generated spec coverage: `test/vulkan_contract_specs/channel_cat_contract.json`
   covers the rank-4 dim-1 channel-cat buffer slice with generated positive and
   adjacent negative runtime tests and generic ShapeEnvelope C++ metadata/helper
-  output. Other cat-axis rows still need fixtures or documented follow-up
-  before this exception can expire.
+  output for the multi-input route. The two-input rank-4 dim-1 buffer route
+  `aten::cat.buffer_channel_pair` is covered by a focused parity/op-hit test
+  and remains handwritten until the generated `ChannelCatContract` admits the
+  pair case directly. Other cat-axis rows still need fixtures or documented
+  follow-up before this exception can expire.
 - Expiry: broader cat-axis parity plus adjacent negative coverage are
   available.
 - Migration target: generated `CatAxisContract` and `ChannelCatContract`

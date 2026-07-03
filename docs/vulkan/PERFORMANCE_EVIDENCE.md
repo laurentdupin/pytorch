@@ -131,6 +131,16 @@ condition that justifies revisiting it.
   setup-time conv-weight materialization sync visible, and shows remaining
   movement dominated by host uploads/layout repacks rather than a route
   hard-fail.
+- PaddleOCR two-input channel cat cleanup: the generic
+  `aten::cat.buffer_channel_pair` route covers rank-4 dim-1 float buffer-backed
+  two-input channel cats with equal batch/spatial sizes. The focused unit test
+  verifies route-hit logging, parity, zero CPU fallback, and explicit copy
+  accounting. A one-repeat RX 9070 op-hit sample under
+  `agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/`
+  observed two pair-channel-cat hits, plus five existing multi-input
+  `aten::cat.buffer_channel_view` hits. Treat this as a modest reusable dispatch
+  cleanup; it does not address the larger packed-weight identity, host-upload,
+  retire, and multi-input cat materialization costs.
 - HY-MT control-tensor blocker: after the same cleanup, RX 9070 HY-MT still
   surfaces Long/Bool control-tensor fallbacks in generation (`isin`, `any/all`,
   Long comparison, Long binary op, `masked_fill`, dtype cast, and scalar

@@ -4,7 +4,8 @@ Last refreshed: 2026-07-03 at local PaddleOCR/HY-MT cleanup head:
 HY-MT KV-cache append broadening, device-policy packed-weight transient
 residency, generic large-linear execution checkpoints, PaddleOCR OCR
 projection cross-adapter fixes, generic transfer cleanup, buffer Float->Byte
-cast, buffer float flip, and OCR recognizer pointwise sparse-row coverage.
+cast, buffer float flip, OCR recognizer pointwise sparse-row coverage, and
+two-input rank-4 channel-cat buffer dispatch coverage.
 
 ## Repo State Summary
 
@@ -96,6 +97,19 @@ completed with `cpu_fallback_count=0`; the remaining explicit
 transition, and transition logs are dominated by required host uploads and
 layout repacks rather than route hard-fails. This is not a new timing baseline
 because the run was logging-heavy.
+
+The channel-cat cleanup now also has a generic two-input rank-4 dim-1 float
+buffer route, `aten::cat.buffer_channel_pair`, backed by
+`cat_dim1_4d_buffer_float`. The route is guarded by dtype/rank/dim, equal
+batch/spatial sizes, Vulkan buffer storage, and buffer-compute support; it is
+not a PaddleOCR-named production route. Focused tests cover buffer-view parity,
+route hit logging, and visible copy accounting. A one-repeat PaddleOCR RX 9070
+op-hit sample under
+`agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/`
+observed two `aten::cat.buffer_channel_pair` hits, so this is a small reusable
+dispatch cleanup rather than the dominant bottleneck. The remaining PaddleOCR
+pressure is still packed-weight/prepack identity, host uploads, retire/copy
+traffic, and larger multi-input channel-cat materialization.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket
