@@ -155,6 +155,19 @@ bool is_linear_or_matmul_semantics(const DynamicProgramRequest& request) {
       shape.rhs_rank == 2 && shape.output_rank == request.rank;
 }
 
+bool is_embedding_lookup_semantics(const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat &&
+      request.other_dtype == kLong && request.output_dtype == kFloat &&
+      request.rank == 2 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && request.index_bounds_proven &&
+      request.padding_idx_has_hint && !request.scale_grad_by_freq &&
+      !request.sparse && shape.index_rank >= 1 && shape.index_rank <= 2 &&
+      positive(shape.num_embeddings) && positive(shape.embedding_dim) &&
+      positive(shape.num_indices);
+}
+
 DynamicProgramCommandPlan pointwise_conv1x1_static_shader_plan() {
   DynamicProgramCommandPlan plan;
   plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
@@ -216,6 +229,18 @@ DynamicProgramCommandPlan linear_or_matmul_static_shader_plan(
   return plan;
 }
 
+DynamicProgramCommandPlan embedding_lookup_static_shader_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "embedding_2d_buffer_float_long";
+  plan.command_list_label = "embedding_lookup_direct_buffer_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
 const char* status_for_reject(const DynamicProgramRejectReason reason) {
   switch (reason) {
     case DynamicProgramRejectReason::None:
@@ -242,6 +267,8 @@ const char* status_for_reject(const DynamicProgramRejectReason reason) {
       return "dynamic_program_runtime_rejected_runtime_compilation_unavailable";
     case DynamicProgramRejectReason::BehaviorDisabled:
       return "dynamic_program_runtime_scaffold_present_behavior_disabled";
+    case DynamicProgramRejectReason::MissingIndexBoundsProof:
+      return "dynamic_program_runtime_rejected_missing_index_bounds_proof";
   }
   return "dynamic_program_runtime_rejected_incomplete_program_key";
 }
@@ -261,6 +288,8 @@ const char* dynamic_program_semantic_family_name(
       return "ElementwiseBroadcastDirectBuffer";
     case DynamicProgramSemanticFamily::LinearOrMatmulDirectBuffer:
       return "LinearOrMatmulDirectBuffer";
+    case DynamicProgramSemanticFamily::EmbeddingLookupDirectBuffer:
+      return "EmbeddingLookupDirectBuffer";
     case DynamicProgramSemanticFamily::StackRegionCommandReplay:
       return "StackRegionCommandReplay";
     case DynamicProgramSemanticFamily::None:
@@ -347,6 +376,8 @@ const char* dynamic_program_reject_reason_name(
       return "RuntimeCompilationUnavailable";
     case DynamicProgramRejectReason::BehaviorDisabled:
       return "BehaviorDisabled";
+    case DynamicProgramRejectReason::MissingIndexBoundsProof:
+      return "MissingIndexBoundsProof";
   }
   return "IncompleteProgramKey";
 }
@@ -444,6 +475,26 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
         return decision;
       }
       break;
+    case DynamicProgramSemanticFamily::EmbeddingLookupDirectBuffer:
+      if (!is_embedding_lookup_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kLong ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 2 ||
+                    (request.shape.index_rank != 1 &&
+                     request.shape.index_rank != 2)
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : !request.index_bounds_proven
+            ? DynamicProgramRejectReason::MissingIndexBoundsProof
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
     case DynamicProgramSemanticFamily::StackRegionCommandReplay:
     case DynamicProgramSemanticFamily::None:
       decision.reject_reason =
@@ -466,6 +517,9 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
       : request.semantic_family ==
               DynamicProgramSemanticFamily::LinearOrMatmulDirectBuffer
       ? linear_or_matmul_static_shader_plan(request.has_bias)
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::EmbeddingLookupDirectBuffer
+      ? embedding_lookup_static_shader_plan()
       : pointwise_conv1x1_static_shader_plan();
   decision.command_plan_available = true;
 
@@ -504,7 +558,9 @@ DynamicProgramAdmission admit_dynamic_program(
       decision.reject_reason !=
           DynamicProgramRejectReason::UnsupportedKernelSemantics &&
       decision.reject_reason !=
-          DynamicProgramRejectReason::UnsupportedSemanticFamily;
+          DynamicProgramRejectReason::UnsupportedSemanticFamily &&
+      decision.reject_reason !=
+          DynamicProgramRejectReason::MissingIndexBoundsProof;
   return admission;
 }
 
@@ -756,6 +812,45 @@ DynamicProgramRequest make_linear_or_matmul_direct_buffer_dynamic_program(
   request.output_direct_buffer = true;
   request.has_bias = has_bias;
   request.post_op_none = true;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_embedding_lookup_direct_buffer_dynamic_program(
+    const IntArrayRef weight_sizes,
+    const IntArrayRef indices_sizes,
+    const ScalarType weight_dtype,
+    const ScalarType indices_dtype,
+    const bool weight_direct_buffer,
+    const bool indices_direct_buffer,
+    const bool output_direct_buffer,
+    const bool index_bounds_proven,
+    const bool padding_idx_has_hint,
+    const bool scale_grad_by_freq,
+    const bool sparse,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::EmbeddingLookupDirectBuffer;
+  request.dtype = weight_dtype;
+  request.other_dtype = indices_dtype;
+  request.output_dtype = weight_dtype;
+  request.rank = static_cast<int64_t>(weight_sizes.size());
+  if (weight_sizes.size() == 2) {
+    request.shape.num_embeddings = weight_sizes[0];
+    request.shape.embedding_dim = weight_sizes[1];
+  }
+  request.shape.index_rank = static_cast<int64_t>(indices_sizes.size());
+  request.shape.num_indices = numel_or_zero(indices_sizes);
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = weight_direct_buffer;
+  request.weight_direct_buffer = indices_direct_buffer;
+  request.output_direct_buffer = output_direct_buffer;
+  request.index_bounds_proven = index_bounds_proven;
+  request.padding_idx_has_hint = padding_idx_has_hint;
+  request.scale_grad_by_freq = scale_grad_by_freq;
+  request.sparse = sparse;
   request.behavior_enabled = behavior_enabled;
   return request;
 }

@@ -22,6 +22,7 @@ uIndex;
 
 layout(set = 0, binding = 3) uniform PRECISION restrict Block {
   ivec4 info;
+  ivec4 strides;
 }
 uBlock;
 
@@ -33,6 +34,8 @@ void main() {
   const int num_indices = uBlock.info.y;
   const int num_embeddings = uBlock.info.z;
   const int index_word_stride = uBlock.info.w;
+  const int output_row_stride = uBlock.strides.x;
+  const int weight_row_stride = uBlock.strides.y;
 
   if (pos.x >= embedding_dim || pos.y >= num_indices) {
     return;
@@ -43,6 +46,6 @@ void main() {
     return;
   }
 
-  uOutput.data[pos.y * embedding_dim + pos.x] =
-      uWeight.data[src_row * embedding_dim + pos.x];
+  uOutput.data[pos.y * output_row_stride + pos.x] =
+      uWeight.data[src_row * weight_row_stride + pos.x];
 }

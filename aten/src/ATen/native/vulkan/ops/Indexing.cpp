@@ -3,7 +3,9 @@
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <torch/library.h>
@@ -33,6 +35,48 @@ using namespace api::utils;
 
 bool buffer_allocation_is_host_visible(const vTensor& tensor) {
   return tensor.buffer_uses_host_visible_allocation();
+}
+
+constexpr utils::ExecutionContractMetadata
+    kDynamicEmbeddingLookupValidCpuIndicesMetadata{
+    "DynamicEmbeddingLookupDirectBufferContract",
+    "ValidCpuIndices",
+    "embedding_lookup_direct_buffer_valid_cpu_indices",
+    "dynamic_embedding_lookup_random_valid_index_tests",
+    "dynamic_embedding_lookup_cpu_index_bounds_guard",
+    "unsupported_semantics_do_not_match",
+    "embedding_lookup_buffer_kernel"};
+
+constexpr const char* kDynamicEmbeddingLookupValidCpuIndicesRouteLabel =
+    "buffer_float_index.dynamic_valid_cpu_indices";
+
+bool fits_embedding_dispatch_limits(
+    const int64_t num_embeddings,
+    const int64_t embedding_dim,
+    const int64_t num_indices) {
+  constexpr int64_t int32_max = std::numeric_limits<int32_t>::max();
+  constexpr int64_t uint32_max = std::numeric_limits<uint32_t>::max();
+  return num_embeddings > 0 && embedding_dim > 0 && num_indices > 0 &&
+      num_embeddings <= int32_max && embedding_dim <= int32_max &&
+      num_indices <= int32_max && embedding_dim <= uint32_max &&
+      num_indices <= uint32_max;
+}
+
+void fill_checked_embedding_index_buffer(
+    api::StorageBuffer& index_buffer,
+    const Tensor& indices,
+    const int64_t num_embeddings) {
+  api::MemoryMap mapping(index_buffer.buffer(), api::MemoryAccessType::WRITE);
+  int32_t* const dst = mapping.template data<int32_t>();
+  const int64_t num_indices = indices.numel();
+  const int64_t* const src = indices.const_data_ptr<int64_t>();
+  for (const auto i : c10::irange(num_indices)) {
+    const int64_t value = src[i];
+    TORCH_CHECK_INDEX(
+        value >= 0 && value < num_embeddings,
+        "index out of range in self");
+    dst[i] = safe_downcast<int32_t>(value);
+  }
 }
 
 Tensor upload_cpu_result_to_vulkan(
@@ -407,6 +451,122 @@ Tensor embedding_2d_buffer_float_long(
       match_embedding_2d_buffer_float_long_contract(
           weight, indices, padding_idx, scale_grad_by_freq, sparse);
   if (!embedding_contract.matched) {
+    if (
+        weight.is_vulkan() && !indices.is_vulkan() &&
+        weight.scalar_type() == kFloat &&
+        (indices.scalar_type() == kLong || indices.scalar_type() == kInt) &&
+        weight.dim() == 2 && (indices.dim() == 1 || indices.dim() == 2) &&
+        padding_idx.has_hint() && !scale_grad_by_freq && !sparse &&
+        fits_embedding_dispatch_limits(
+            weight.size(0), weight.size(1), indices.numel())) {
+      api::Context* const context = api::context();
+      vTensor v_weight = convert(weight);
+      if (
+          v_weight.storage_type() != api::StorageType::BUFFER ||
+          !v_weight.has_direct_buffer_layout() ||
+          v_weight.gpu_memory_layout() !=
+              api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+        v_weight = utils::materialize_to_contiguous_buffer(
+            v_weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+      }
+
+      const Tensor indices_contiguous = indices.contiguous();
+      api::StorageBuffer index_buffer(context, api::kInt, indices.numel());
+      fill_checked_embedding_index_buffer(
+          index_buffer, indices_contiguous, weight.size(0));
+
+      const utils::DynamicProgramDecision dynamic_decision =
+          utils::build_dynamic_program_runtime_plan(
+              utils::make_embedding_lookup_direct_buffer_dynamic_program(
+                  weight.sizes(),
+                  indices.sizes(),
+                  weight.scalar_type(),
+                  indices.scalar_type(),
+                  /*weight_direct_buffer=*/true,
+                  /*indices_direct_buffer=*/true,
+                  /*output_direct_buffer=*/true,
+                  /*index_bounds_proven=*/true,
+                  padding_idx.has_hint(),
+                  scale_grad_by_freq,
+                  sparse,
+                  &kDynamicEmbeddingLookupValidCpuIndicesMetadata,
+                  /*behavior_enabled=*/true));
+      if (dynamic_decision.runtime_selection_authorized) {
+        std::vector<int64_t> output_sizes = indices.sizes().vec();
+        output_sizes.push_back(weight.size(1));
+
+        vTensor v_output{
+            context,
+            output_sizes,
+            convert_dtype(weight.scalar_type()),
+            api::StorageType::BUFFER,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        };
+
+        const int64_t embedding_dim = weight.size(1);
+        const int64_t num_embeddings = weight.size(0);
+        const int64_t num_indices = indices.numel();
+        const int64_t output_row_stride =
+            v_output.gpu_strides().at(v_output.gpu_strides().size() - 2);
+        const int64_t weight_row_stride = v_weight.gpu_strides().at(0);
+        const struct Block final {
+          ivec4 info;
+          ivec4 strides;
+        } block{
+            {safe_downcast<int32_t>(embedding_dim),
+             safe_downcast<int32_t>(num_indices),
+             safe_downcast<int32_t>(num_embeddings),
+             1},
+            {safe_downcast<int32_t>(output_row_stride),
+             safe_downcast<int32_t>(weight_row_stride),
+             0,
+             0},
+        };
+
+        api::UniformParamsBuffer params(context, block);
+        api::PipelineBarrier pipeline_barrier{};
+        const uvec3 global_size{
+            safe_downcast<uint32_t>(embedding_dim),
+            safe_downcast<uint32_t>(num_indices),
+            1u};
+
+        context->submit_compute_job(
+            VK_KERNEL(embedding_2d_buffer_float_long),
+            pipeline_barrier,
+            global_size,
+            adaptive_work_group_size(global_size),
+            VK_NULL_HANDLE,
+            v_output.buffer(
+                pipeline_barrier,
+                api::PipelineStage::COMPUTE,
+                api::MemoryAccessType::WRITE),
+            v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+            index_buffer.buffer(),
+            params.buffer());
+
+        utils::log_vulkan_op_hit(
+            std::string("aten::embedding.") +
+            kDynamicEmbeddingLookupValidCpuIndicesRouteLabel +
+            " contract=" +
+            kDynamicEmbeddingLookupValidCpuIndicesMetadata.contract_name);
+
+        TensorContractProvenance provenance;
+        provenance.contract_name =
+            kDynamicEmbeddingLookupValidCpuIndicesMetadata.contract_name;
+        provenance.contract_family =
+            kDynamicEmbeddingLookupValidCpuIndicesMetadata.family_name;
+        provenance.contract_tuple_id =
+            kDynamicEmbeddingLookupValidCpuIndicesMetadata.tuple_id;
+        provenance.contract_materialization_policy =
+            kDynamicEmbeddingLookupValidCpuIndicesMetadata.materialization_policy;
+        return record_tensor_write_and_return(
+            convert(v_output),
+            "aten::embedding",
+            kDynamicEmbeddingLookupValidCpuIndicesRouteLabel,
+            {weight, indices},
+            &provenance);
+      }
+    }
     return embedding_cpu_fallback(
         weight,
         indices,
@@ -461,14 +621,22 @@ Tensor embedding_2d_buffer_float_long(
   const int64_t num_embeddings = weight.size(0);
   const int64_t num_indices = indices.numel();
   const int64_t dispatch_rows = num_indices;
+  const int64_t output_row_stride =
+      v_output.gpu_strides().at(v_output.gpu_strides().size() - 2);
+  const int64_t weight_row_stride = v_weight.gpu_strides().at(0);
 
   const struct Block final {
     ivec4 info;
+    ivec4 strides;
   } block{
-      safe_downcast<int32_t>(embedding_dim),
-      safe_downcast<int32_t>(num_indices),
-      safe_downcast<int32_t>(num_embeddings),
-      2,
+      {safe_downcast<int32_t>(embedding_dim),
+       safe_downcast<int32_t>(num_indices),
+       safe_downcast<int32_t>(num_embeddings),
+       2},
+      {safe_downcast<int32_t>(output_row_stride),
+       safe_downcast<int32_t>(weight_row_stride),
+       0,
+       0},
   };
 
   api::UniformParamsBuffer params(context, block);

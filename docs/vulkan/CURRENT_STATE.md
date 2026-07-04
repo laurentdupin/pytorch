@@ -12,7 +12,11 @@ append under batch/head/head-dim equality semantics and fresh random sequence
 length coverage.
 `LinearOrMatmulDirectBuffer` now gates generic fp32 rank-2/rank-3 direct-buffer
 linear execution by semantic M/K/N compatibility instead of exact tiled-plan
-evidence. `DynamicNoOverlapConvTranspose2DContract` now admits no-overlap
+evidence. `EmbeddingLookupDirectBuffer` now removes the old small-row bounds
+for fp32 2D Vulkan weights when Long indices are CPU-resident and host-checked
+for valid range before dispatch; Vulkan-resident indices remain on the finite
+contract/fallback path until a no-readback index-bounds proof or device error
+path exists. `DynamicNoOverlapConvTranspose2DContract` now admits no-overlap
 fp32 direct-buffer transposed convs by kernel/stride/layout semantics with
 random batch/channel/spatial coverage in the clean packed-buffer envelope.
 Low-channel no-overlap transposed conv remains a named small-metadata

@@ -92,20 +92,27 @@ condition and migration target.
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Indexing.cpp`
-- Status: temporary, contract-named
-- Reason: finite token-batch and small-bounded embedding lookup rows are proven
-  by existing embedding tests, but broader vocab, index-rank, and layout
-  behavior is not proven yet.
+- Status: partially migrated, contract-named
+- Reason: finite token-batch and small-bounded embedding lookup rows remain
+  evidence/regression fixtures. The dynamic program runtime now owns fp32
+  rank-2 Vulkan weights with CPU-resident Long rank-1/rank-2 indices
+  after host index-bounds checking, so vocab size, embedding dim, and index
+  count are no longer production admission limits for that safe path.
+  Vulkan-resident indices outside the old finite rows still need a no-readback
+  value-bounds proof or device-side error path before they can be broadly
+  admitted without weakening PyTorch's out-of-range semantics.
 - Generated spec coverage: `test/vulkan_contract_specs/embedding_lookup_contract.json`
   covers the small-bounded lookup slice with generated positive and adjacent
   negative runtime tests and generic ShapeEnvelope C++ metadata/helper output,
   including the derived indices product helper.
   Other embedding rows still need broader generated coverage before the
   exception can expire.
-- Expiry: broader embedding lookup parity plus adjacent negative coverage are
-  available.
-- Migration target: generated `EmbeddingLookupContract` tables with positive
-  and negative tests.
+- Expiry: Vulkan-resident index tensors have a value-bounds/error contract, or
+  the dynamic embedding family records a real proof source that preserves
+  PyTorch out-of-range behavior without per-shape allowlists.
+- Migration target: `EmbeddingLookupDirectBuffer` semantic admission plus
+  generated value-bounds and layout tests; finite rows remain only as
+  performance evidence or regression fixtures.
 
 ### Cat Axis And Channel Cat Exact Tuples
 

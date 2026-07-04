@@ -98,6 +98,7 @@ PointwiseConv1x1DirectBuffer / GenericRuntimeShape
 SequenceCatDirectBuffer / GenericRuntimeShape
 ElementwiseBroadcastDirectBuffer / GenericRuntimeShape
 LinearOrMatmulDirectBuffer / GenericRuntimeShape
+EmbeddingLookupDirectBuffer / ValidCpuIndices
 DynamicNoOverlapConvTranspose2DContract / KernelStrideFloatBuffer
 ```
 
@@ -187,6 +188,15 @@ or matmul-style execution when the RHS is rank 2, dimensions are positive,
 `K` matches, and the existing `mm_buffer_float` or `mm_buffer_float_bias`
 program can execute the runtime descriptor. Exact tiled QKV/FC2 rows remain
 optimization evidence, not shape admission.
+
+`EmbeddingLookupDirectBuffer` admits fp32 rank-2 Vulkan weights with rank-1 or
+rank-2 CPU Long indices after the host index values are checked against the
+runtime `num_embeddings` bound and copied into the existing int32 index buffer.
+The old `num_embeddings <= 4096`, `embedding_dim <= 256`, and
+`num_indices <= 128` rows are evidence limits for this safe CPU-index path, not
+shader limits. Vulkan-resident Long indices are not broadly admitted because the
+current shader cannot raise PyTorch's out-of-range error without a separate
+valid-index proof or device-side error path.
 
 `DynamicNoOverlapConvTranspose2DContract` admits fp32 rank-4 direct-buffer
 transposed convolutions in the no-overlap family when `kernel == stride`,

@@ -21,6 +21,7 @@ enum class DynamicProgramSemanticFamily : uint8_t {
   SequenceCatDirectBuffer,
   ElementwiseBroadcastDirectBuffer,
   LinearOrMatmulDirectBuffer,
+  EmbeddingLookupDirectBuffer,
   StackRegionCommandReplay,
 };
 
@@ -61,6 +62,7 @@ enum class DynamicProgramRejectReason : uint8_t {
   MissingCommandPlan,
   RuntimeCompilationUnavailable,
   BehaviorDisabled,
+  MissingIndexBoundsProof,
 };
 
 struct DynamicProgramShapeDesc final {
@@ -97,6 +99,10 @@ struct DynamicProgramShapeDesc final {
   int64_t rhs_k{0};
   int64_t lhs_rank{0};
   int64_t rhs_rank{0};
+  int64_t num_embeddings{0};
+  int64_t embedding_dim{0};
+  int64_t num_indices{0};
+  int64_t index_rank{0};
 };
 
 struct DynamicProgramCapabilityDesc final {
@@ -125,6 +131,10 @@ struct DynamicProgramRequest final {
   bool inplace{false};
   bool broadcast_compatible{false};
   bool post_op_none{true};
+  bool index_bounds_proven{false};
+  bool padding_idx_has_hint{false};
+  bool scale_grad_by_freq{false};
+  bool sparse{false};
   bool behavior_enabled{false};
 };
 
@@ -266,6 +276,21 @@ DynamicProgramRequest make_linear_or_matmul_direct_buffer_dynamic_program(
     IntArrayRef weight_sizes,
     bool has_bias,
     ScalarType dtype,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_embedding_lookup_direct_buffer_dynamic_program(
+    IntArrayRef weight_sizes,
+    IntArrayRef indices_sizes,
+    ScalarType weight_dtype,
+    ScalarType indices_dtype,
+    bool weight_direct_buffer,
+    bool indices_direct_buffer,
+    bool output_direct_buffer,
+    bool index_bounds_proven,
+    bool padding_idx_has_hint,
+    bool scale_grad_by_freq,
+    bool sparse,
     const ExecutionContractMetadata* contract_metadata,
     bool behavior_enabled = false);
 

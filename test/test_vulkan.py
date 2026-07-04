@@ -778,9 +778,11 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("SequenceCatDirectBuffer", header)
         self.assertIn("ElementwiseBroadcastDirectBuffer", header)
         self.assertIn("LinearOrMatmulDirectBuffer", header)
+        self.assertIn("EmbeddingLookupDirectBuffer", header)
         self.assertIn("make_conv2d_direct_buffer_dynamic_program", header)
         self.assertIn("make_sequence_cat_direct_buffer_dynamic_program", header)
         self.assertIn("make_linear_or_matmul_direct_buffer_program_request", header)
+        self.assertIn("make_embedding_lookup_direct_buffer_dynamic_program", header)
         self.assertIn("RuntimeSpecializedShader", header)
         self.assertIn("RuntimeGeneratedShader", header)
         self.assertIn("CustomCommandList", header)
@@ -797,9 +799,14 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("mm_buffer_float", source)
         self.assertIn("linear_or_matmul_single_dispatch", source)
         self.assertIn("is_linear_or_matmul_semantics", source)
+        self.assertIn("embedding_2d_buffer_float_long", source)
+        self.assertIn("embedding_lookup_direct_buffer_single_dispatch", source)
+        self.assertIn("is_embedding_lookup_semantics", source)
+        self.assertIn("MissingIndexBoundsProof", source)
         self.assertNotIn("dynamic_program_runtime_rejected_budget_exceeded", source)
         self.assertIn("request.rank != 2 && request.rank != 3", source)
         self.assertIn("shape.k == shape.rhs_k", source)
+        self.assertIn("index_bounds_proven", source)
 
     def test_tensor_provenance_can_record_contract_admission_metadata(self):
         header = self._repo_text(
@@ -10912,6 +10919,84 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 actual,
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_embedding_dynamic_valid_cpu_indices_random_shapes_match_cpu(self):
+        import random
+
+        seed_env = os.environ.get("PYTORCH_VULKAN_DYNAMIC_EMBEDDING_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"dynamic_embedding_lookup_random_seed={seed}")
+        rng = random.Random(seed)
+
+        cases = [
+            (4097, 257, (1, 129), torch.long),
+            (513, 33, (211,), torch.long),
+            (1200, 384, (7, 19), torch.long),
+        ]
+        for _ in range(5):
+            num_embeddings = rng.choice((17, 97, 513, 4097, 5000, 8191))
+            embedding_dim = rng.choice((1, 7, 32, 128, 257, 384, 512))
+            if rng.choice((True, False)):
+                indices_shape = (rng.randint(129, 260),)
+            else:
+                rows = rng.randint(2, 9)
+                cols = rng.randint(17, 47)
+                indices_shape = (rows, cols)
+            cases.append(
+                (num_embeddings, embedding_dim, indices_shape, torch.long))
+
+        torch_generator = torch.Generator()
+        torch_generator.manual_seed(seed & 0xFFFFFFFF)
+        for num_embeddings, embedding_dim, indices_shape, dtype in cases:
+            with self.subTest(
+                    seed=seed,
+                    num_embeddings=num_embeddings,
+                    embedding_dim=embedding_dim,
+                    indices_shape=indices_shape,
+                    dtype=dtype):
+                weight_cpu = torch.randn(
+                    num_embeddings,
+                    embedding_dim,
+                    generator=torch_generator,
+                )
+                weight_vulkan = weight_cpu.to("vulkan")
+                indices_cpu = torch.randint(
+                    0,
+                    num_embeddings,
+                    indices_shape,
+                    generator=torch_generator,
+                    dtype=dtype,
+                )
+
+                with torch.inference_mode():
+                    expected = F.embedding(indices_cpu, weight_cpu)
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.embedding(indices_cpu, weight_vulkan)
+                    self.assertTrue(actual.is_vulkan)
+                    actual_cpu = actual.cpu()
+
+                self._assert_outputs_close(
+                    expected,
+                    actual_cpu,
+                    atol=1e-4,
+                    rtol=1e-4)
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.cpu_fallback_count(),
+                    0)
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.sync_readback_count(),
+                    0)
+
+    def test_embedding_dynamic_valid_cpu_indices_raises_on_bad_index(self):
+        weight_cpu = torch.randn(32, 8)
+        weight_vulkan = weight_cpu.to("vulkan")
+        indices_cpu = torch.tensor([0, 7, 32], dtype=torch.long)
+
+        with torch.inference_mode():
+            with self.assertRaisesRegex(IndexError, "index out of range"):
+                F.embedding(indices_cpu, weight_vulkan)
 
     def test_embedding_with_vulkan_weight_and_vulkan_indices(self):
         torch.manual_seed(0)
