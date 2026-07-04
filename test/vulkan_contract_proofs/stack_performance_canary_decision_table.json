@@ -251,7 +251,7 @@
     },
     {
       "id": "linear_exact_fc2_tiled_vec2",
-      "status": "accepted_default_exact_plan",
+      "status": "correctness_blocked",
       "scope": [
         "FP32 linear plan",
         "exact fc2 candidate",
@@ -259,14 +259,14 @@
       ],
       "canary_or_path": "VisionFc2ExactTiledVec2LinearPlanContract default exact row",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
-      "latest_observation": "Focused route testing now hits aten::linear.buffer_float_tiled_bias_vec2 for the exact [151,1536] x [384,1536] + [384] FC2 row without PYTORCH_VULKAN_LINEAR_TILED_CANARY and matches CPU within atol=1e-3, rtol=1e-3. Adjacent negatives keep non-FC2, M=150/152, N=385, and no-bias rows on the old route. A warmup-3/repeat-30 RX 9070 vits_140 wide4 bridge run measured about 42.6 ms mean / 42.0 ms median / 44.7 ms p95 device-resident forward with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
-      "decision": "Keep as a default exact linear plan contract. Do not broaden the tiled vec2 route beyond this row without generated LinearPlanContract evidence and focused guardrail timing.",
-      "next_proof": "Run focused multi-GPU and adjacent-model guardrails. If more rows are added, migrate the exact row into a generated linear plan contract/spec instead of growing handwritten predicates.",
+      "latest_observation": "A post-37c8efe full DAv2 vits_140 bridge regression check showed that keeping FC2 tiled active while disabling QKV tiled still failed bridge sanity with max_abs around 1.62. Disabling all exact tiled vision linear rows restored bridge sanity at max_abs=1.1846423149108887e-06. The local per-op route test remains numerically clean, but it is not sufficient evidence for stack-output bridge execution.",
+      "decision": "Fail closed by default and keep the exact shape on the conservative buffer-linear route until a stack-bridge parity proof exists.",
+      "next_proof": "Develop a generated LinearPlanContract or replacement kernel whose positive evidence includes full stack-output bridge parity, not only isolated F.linear parity.",
       "reusable_backend_policy": true
     },
     {
       "id": "linear_exact_qkv_tiled",
-      "status": "accepted_default_exact_plan",
+      "status": "correctness_blocked",
       "scope": [
         "FP32 linear plan",
         "exact qkv candidate",
@@ -274,9 +274,9 @@
       ],
       "canary_or_path": "VisionQkvExactTiledLinearPlanContract default exact row",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
-      "latest_observation": "Focused route testing now hits aten::linear.buffer_float_tiled for the exact [151,384] x [1152,384] no-bias QKV row without PYTORCH_VULKAN_LINEAR_TILED_CANARY and matches CPU within atol=1e-3, rtol=1e-3. Adjacent negatives keep non-QKV, M=150/152, N=1153, and bias-present rows on the old route. A warmup-3/repeat-30 RX 9070 vits_140 wide4 bridge run measured about 42.4 ms mean / 40.8 ms median / 53.7 ms p95 device-resident forward with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0.",
-      "decision": "Keep as a default exact linear plan contract. Do not broaden the tiled QKV route beyond this row without generated LinearPlanContract evidence and focused guardrail timing.",
-      "next_proof": "Run focused multi-GPU and adjacent-model guardrails. If more rows are added, migrate the exact rows into a generated linear plan contract/spec instead of growing handwritten predicates.",
+      "latest_observation": "A post-37c8efe full DAv2 vits_140 bridge regression check showed that keeping QKV tiled active while disabling FC2 tiled still failed bridge sanity with max_abs around 0.97. Disabling all exact tiled vision linear rows restored bridge sanity at max_abs=1.1846423149108887e-06. The local per-op route test remains numerically clean, but it is not sufficient evidence for stack-output bridge execution.",
+      "decision": "Fail closed by default and keep the exact shape on the conservative buffer-linear route until a stack-bridge parity proof exists.",
+      "next_proof": "Develop a generated LinearPlanContract or replacement kernel whose positive evidence includes full stack-output bridge parity, not only isolated F.linear parity.",
       "reusable_backend_policy": true
     },
     {
@@ -305,6 +305,21 @@
       "latest_observation": "After stack-planned cleanup callback batching, the bounded deferral gate removed all timed retire_queue_drain submits in a repeat-30 vits_140 bridge run while preserving correctness, zero timed fallback/readback/copy, and visible deferred pending-resource counters.",
       "decision": "Promote the narrow stack-owned/current-thread/resource-budget deferral as default. It is still not broad retire batching or current-topology submit elision.",
       "next_proof": "Reduce one of the remaining submit classes or attack the top timestamped GPU kernels; the timed path still has four stack-planned submits, one pre-stack flush, and one explicit synchronize per request.",
+      "reusable_backend_policy": true
+    },
+    {
+      "id": "packed_weight_cpu_upload_source_identity",
+      "status": "accepted_default_fix",
+      "scope": [
+        "PackedWeightSourceIdentity",
+        "CPU-to-Vulkan upload provenance",
+        "persistent packed-weight residency"
+      ],
+      "canary_or_path": "default upload-provenance threading for generic aten::copy_ CPU uploads and linear buffer uploads",
+      "model_evidence": "PaddleOCR/HY-MT packed-weight miss attribution with DAv2 vits_140 bridge correctness guardrail",
+      "latest_observation": "The focused repeated CPU-source upload test now reports five linear packed-weight lookups with four hits, one miss, and one store, with zero provenance-source mismatches. A post-change DAv2 vits_140 wide4 bridge smoke preserved max_abs=1.1846423149108887e-06, CPU fallback=0, and sync readback=0.",
+      "decision": "Keep as default generic source-identity behavior. This is not an env canary, not shape-only reuse, and not a model-name route.",
+      "next_proof": "Run fresh PaddleOCR/HY-MT model guardrails and confirm packed_weight_query_aggregate provenance-source misses and repeated host upload/prepack traffic move down.",
       "reusable_backend_policy": true
     }
   ]

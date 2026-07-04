@@ -9,7 +9,19 @@ two-input rank-4 channel-cat buffer dispatch coverage. Non-conservative
 adapters now admit bounded large sliding-window conv packed weights into the
 existing identity-checked persistent cache.
 Packed-weight residency snapshots now also include per-shape aggregate
-hit/miss/store/skip rows for PaddleOCR/HY-MT attribution.
+hit/miss/store/skip rows for PaddleOCR/HY-MT attribution. CPU-to-Vulkan upload
+provenance now threads through generic `aten::copy_` CPU upload and linear
+buffer-upload helpers, so repeated Vulkan uploads of the same CPU weight source
+can reuse existing persistent linear packed weights through the existing
+source/version/provenance identity cache instead of missing by fresh Vulkan
+storage identity. The benchmark setup linear prepack path now consults the
+live Vulkan device policy before seeding those packed weights: RX 9070 keeps
+the setup prepack path, while GTX 1080 and RX 6700 XT skip it through
+`avoid_weight_cache=1` instead of trying to persist the full HY-MT linear
+weight set. Generic Vulkan `aten::linear` now uses the same packed-linear
+runtime cache path, removing the RX 9070 HY-MT inference-mode raw-weight clone
+bucket while leaving no-cache adapters on the explicit raw/direct-weight plan
+blocker.
 
 ## Repo State Summary
 
@@ -76,9 +88,12 @@ until allocator/map safety is proven.
 The current local control-path cleanup additionally separates host-upload
 submits from tensor CPU readback submits, adds bounded Bool direct-buffer
 `any`/`all` reductions for the proven small-control rows, keeps legal
-Float/BFloat16 `max(dim)` values and indices on Vulkan direct buffers, and
-lets the PaddleOCR recognition benchmark compute its logits max on Vulkan
-before CPU-side string decoding. Focused all-GPU guardrails under
+value-only Float/BFloat16 reductions on Vulkan direct buffers, and lets the
+PaddleOCR recognition benchmark compute its logits max on Vulkan before
+CPU-side string decoding. Public `max(dim)`/`argmax(dim)` index-producing
+routes are fail-closed because the current Long index-output shader path
+returns incorrect indices outside the blocked prototype. Focused all-GPU
+guardrails under
 `agent_space/paddleocr_control_dirty_all_gpus/` show PaddleOCR still completes
 with `cpu_fallback_count=0` on RX 9070, GTX 1080, and RX 6700 XT. HY-MT
 one-token guardrails under `agent_space/hymt_control_dirty_all_gpus/` still
@@ -88,7 +103,45 @@ adapters; the remaining fallbacks are generation-control operations
 scalar extraction), not packed-weight or attention execution. A standalone
 Float/BFloat16 last-dim `argmax` promotion was probed and left fail-closed
 because the current Long index-output shader path exposed incorrect index
-materialization outside the validated `max(dim)` route.
+materialization; `max(dim)` now also uses the CPU fallback path until a real
+Long index-output contract exists.
+A follow-up HY-MT small-control review records the next safe direction as
+`SmallControlHostResidencyContract.v0`, not native Bool/Long compute. The new
+focused regression
+`test_transition_log_classifies_small_control_host_residency_blocker` proves
+that a tiny Long scalar comparison and its Python scalar extraction are
+classified through `SmallControlTensorFallbackContract` and
+`SmallControlScalarExtractionContract` with host residency explicitly
+unauthorized. Native `isin`, Bool binary, general Bool reduction, Long
+comparison, Long `masked_fill`, public `argmax`, and public `max(dim)` Long
+index routes remain blocked until separate Bool buffer representation,
+Long direct-buffer materialization, and host-control consumer-chain proofs are
+added.
+One narrow Long generation-control cat case is now separated from that blocker:
+rank-2 Vulkan Long tensors in `BUFFER`/`TENSOR_WIDTH_PACKED` storage can append
+two inputs along the last dimension by row-wise device copies when row count,
+width, strides, storage offsets, and dtype/layout checks pass. This covers the
+HY-MT `[1,T] + [1,1]` position/id/mask append pattern without treating padded
+Long buffers as raw-contiguous storage and without enabling general Long tensor
+compute. The focused regression
+`test_long_last_dim_cat_two_direct_buffer_inputs_no_fallback` keeps non-last-dim
+Long cat on the visible CPU fallback path. The RX 9070 HY-MT one-token smoke in
+`agent_space/hymt_long_cat_row_copy_smoke/` drops `cpu_fallback_count` from 33
+to 30 and leaves `sync_readback_count=8`; the remaining HY-MT control blockers
+are still `argmax`, `isin`, scalar comparisons, Bool/Long binary/control ops,
+and scalar extraction.
+A second narrow generation-control cleanup now covers tiny Long `fill_(0/1)`
+buffer tensors through an explicit host-upload transition instead of the opaque
+`aten::fill_.Scalar` CPU fallback. This removes the HY-MT `new_ones` fallback
+class without authorizing native Long direct-buffer writes: a probed
+`fill_buffer_long` shader returned zeros for value `1`, matching the existing
+public Long index-output blocker, so it was removed rather than left as a
+latent fast path. The focused regression
+`test_small_long_buffer_fill_no_fallback` proves correct `[2,3]` Long
+`ones`/`fill_(0)` behavior with zero CPU fallback and preserves fallback for
+unsupported value `2`. The RX 9070 HY-MT one-token smoke in
+`agent_space/hymt_long_fill_cat_smoke/` drops `cpu_fallback_count` from 30 to
+28 and leaves `sync_readback_count=8`.
 
 Two generic PaddleOCR/HY-MT cleanup fixes are now in place. First, legal 2D
 Vulkan buffer linear weights can use a metadata-only transposed view for
@@ -163,6 +216,56 @@ scalar extraction), not core tensor math.
 PaddleOCR's broader remaining pressure is still packed-weight/prepack identity,
 host uploads, retire/copy traffic, and larger multi-input channel-cat
 materialization.
+The follow-up channel-cat attribution confirms that the largest remaining
+PaddleOCR cat-copy cluster is not a missing shape row: the pair route already
+hits for the 224x224 case, and multi-input `ChannelCatContract` rows still
+materialize a concatenated output through per-input `buffer_to_buffer`
+dispatches. Do not broaden channel-cat rows as a performance fix unless the
+implementation reduces real movement. The next performance-bearing direction
+is a private `ChannelCatToConvInputContract`-style consumer handoff/fusion
+proof, guarded by single consumer, no public/host/readback escape, stable
+layout/allocation identity, and compatible Vulkan conv ownership. A
+behavior-neutral readiness surface now records `aten::cat` tensor provenance
+for buffer channel-cat outputs and emits
+`ChannelCatToConvInputContract.v0` rows when those outputs feed float buffer
+conv. These rows keep `behavior_enabled=0` and
+`copy_elision_authorized=0`; compatible rows currently reject on
+`missing_single_consumer_non_escape_proof` rather than removing the cat
+materialization. A one-repeat RX 9070 PaddleOCR smoke under
+`agent_space/paddleocr_cat_to_conv_readiness/` completed with
+`cpu_fallback_count=0`, `sync_readback_count=1`, and 10 cat-to-conv readiness
+rows; all 10 were bridge-shape-ready and all 10 remained unauthorized.
+The local packed-weight source-identity follow-up fixes one generic cache miss
+class: repeated `weight_cpu.to("vulkan")` uploads followed by Vulkan linear now
+record CPU-upload provenance on the Vulkan destination, and transposed
+metadata views inherit that root through the existing alias path. The focused
+test `test_vulkan_packed_weight_cache_reuses_reuploaded_cpu_source` now reports
+five lookups, four hits, one miss, and one store instead of five misses and five
+stores; the matching Conv2d test now proves the same reuploaded CPU-source
+reuse for sliding-window packed weights. This is a reusable
+`PackedWeightSourceIdentity` fix, not a model-name route; PaddleOCR/HY-MT
+model timing rows still need fresh guardrails before a model-level performance
+claim. A follow-up HY-MT one-token smoke under
+`agent_space/paddle_hymt_policy_gated_prepack/` validates the policy-gated
+setup prepack behavior across all three adapters: RX 9070 prepacked 225 linear
+modules and reused them during the timed generate row, while GTX 1080 and RX
+6700 XT recorded `device_policy_avoids_large_persistent_weight_cache` and
+completed without the previous large-persistent-prepack device-lost failure.
+The remaining HY-MT row is still not clean: generation-control CPU fallbacks
+and scalar readbacks remain at roughly the same level, so the next reusable
+target is the small-control tensor contract family, not broader prepack.
+Direct Vulkan `aten::linear` now routes through the existing packed-linear
+`run_addmm_context` implementation, closing the cache-capable inference-mode
+hole where `F.linear` cloned raw Vulkan linear weights during the timed row.
+Focused tests cover prepacked 2D no-bias and 3D bias rows with zero CPU
+fallback, sync readback, or buffer-copy events. On RX 9070, the HY-MT
+one-token smoke drops buffer-copy accounting from about 977 copies / 7.24 GB
+to about 303 copies / 9.9 MB and reuses all 225 setup-packed linear weights
+without retaining raw unpacked weights. GTX 1080 and RX 6700 XT still
+intentionally avoid the large persistent cache, so they continue to
+transient-pack/copy about 7.17 GB of linear weights and need a no-cache
+raw/direct-weight or inference-owned packed-linear plan rather than a
+cache-policy broadening.
 
 `conv2d_buffer_float_3x3_s1p1` keeps the existing 8x8x1 default workgroup for
 `Kernel3x3Stride1Pad1`. Focused DAv2 multi-GPU evidence rejected both a blanket
@@ -376,30 +479,18 @@ forward while the timestamp-instrumented wall time was inflated to about
 115.7 ms mean. The top GPU row remained `fc2 | mm_buffer_float_bias` at about
 15.2 ms/forward, followed by decoder/other convs, `fc1_gelu`, qkv/proj
 linears, attention BMM, and LayerNorm. The original exact FC2 tiled canary
-remains rejected as slower. The narrower vec2 FC2 row is now promoted as the
-default `VisionFc2ExactTiledVec2LinearPlanContract` for the exact vision
-backbone FP32 bias/no-post-op row `[151,1536] x [384,1536] + [384]`. The
-contract still rejects adjacent rows such as non-FC2 labels, `M=150/152`,
-`N=385`, and no-bias exact dimensions.
-A warmup-3/repeat-30 RX 9070 `vits_140` wide4 bridge run without
-`PYTORCH_VULKAN_LINEAR_TILED_CANARY` measured about 42.6 ms mean / 42.0 ms
-median / 44.7 ms p95 device-resident forward. Bridge sanity passed at
-`max_abs=1.1846423149108887e-06`, CPU fallback remained zero, and sync readback
-remained zero.
-
-The next exact linear row is now promoted separately as
-`VisionQkvExactTiledLinearPlanContract` for the exact vision-backbone FP32
-no-bias/no-post-op QKV row `[151,384] x [1152,384]`. It routes to
-`aten::linear.buffer_float_tiled` without the legacy linear tiled canary, while
-FC2 remains on `aten::linear.buffer_float_tiled_bias_vec2`. Focused contract
-tests cover the QKV positive row and adjacent negatives for non-QKV labels,
-`M=150/152`, `N=1153`, and bias-present exact dimensions. A warmup-3/repeat-30
-RX 9070 `vits_140` wide4 bridge run without `PYTORCH_VULKAN_LINEAR_TILED_CANARY`
-measured about 42.4 ms mean / 40.8 ms median / 53.7 ms p95 device-resident
-forward. Bridge sanity again passed at `max_abs=1.1846423149108887e-06`,
-CPU fallback remained zero, sync readback remained zero, and the benchmark
-selected Vulkan adapter index 0 (`AMD Radeon RX 9070`). This is still an exact
-plan-contract row, not a broad tiled-linear policy.
+remains rejected as slower. The later exact FC2 vec2 and QKV tiled default
+rows are now fail-closed as well: a post-37c8efe DAv2 `vits_140` bridge
+regression check showed that keeping either exact tiled row active still failed
+bridge sanity (`max_abs` about 1.62 with FC2 tiled active and QKV tiled
+disabled; `max_abs` about 0.97 with QKV tiled active and FC2 tiled disabled).
+Disabling all exact tiled vision linear rows restored bridge sanity at
+`max_abs=1.1846423149108887e-06`. The isolated per-op linear tests remain
+numerically clean, but that is no longer accepted as sufficient evidence for
+stack-output bridge execution. `VisionFc2ExactTiledVec2LinearPlanContract` and
+`VisionQkvExactTiledLinearPlanContract` must stay off the default route until a
+replacement generated `LinearPlanContract` or kernel proves full stack-bridge
+parity.
 
 Stack-planned submit cleanup now batches pending-retire buffers and images into
 one timeline-gated `RetiredResource` callback per stack-planned submission while
@@ -473,16 +564,19 @@ device-resident mean versus the 64.3 ms wide4 baseline. Keep this as rejected
 linear plan evidence; sub-50 work should not promote the current tiled fc2
 kernel.
 
-The follow-up exact FC2 vec2 tiled-linear path is now an accepted default exact
-linear plan contract, not an env-gated canary. Focused tests prove that the
-exact `[151,1536] x [384,1536] + [384]` FC2 row selects
-`aten::linear.buffer_float_tiled_bias_vec2` without
-`PYTORCH_VULKAN_LINEAR_TILED_CANARY`, matches CPU within `atol=1e-3, rtol=1e-3`,
-and keeps adjacent non-FC2, `M=150/152`, `N=385`, and no-bias rows on the old
-route. The legacy `PYTORCH_VULKAN_LINEAR_TILED_CANARY` runtime gate is retired;
-default promotion is limited to the exact
-`VisionFc2ExactTiledVec2LinearPlanContract` row, and future rows should migrate
-through linear plan contracts instead of restoring the env canary.
+The follow-up exact FC2 vec2 tiled-linear row is historical canary evidence, not
+an accepted default route. The exact `[151,1536] x [384,1536] + [384]` FC2 row
+previously selected `aten::linear.buffer_float_tiled_bias_vec2` and produced a
+sub-50 ms `vits_140` canary, but later full DAv2 stack-output bridge regression
+checks showed that keeping FC2 tiled active still failed bridge sanity
+(`max_abs` about 1.62). The exact QKV tiled row similarly failed full bridge
+sanity (`max_abs` about 0.97). Both `VisionFc2ExactTiledVec2LinearPlanContract`
+and `VisionQkvExactTiledLinearPlanContract` are therefore fail-closed by default:
+focused fail-closed tests assert the old tiled ops are not selected, adjacent
+negative tests keep nearby rows on the conservative path, and isolated per-op
+linear parity is no longer sufficient evidence for promotion. Future sub-50
+work needs a replacement FP32 linear plan or generated `LinearPlanContract` that
+passes full stack-output bridge parity before timing claims.
 
 The native `vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge`
 path enforces the same max-12-block proven-depth guard as the benchmark control
@@ -2284,7 +2378,7 @@ These files are diagnostic inputs. Production code must not depend on
 
 - `SmallSpatialPointwiseConvContract`: finite projection rows, now split into
   a family-specific source. The `SparseProjectionRows` slice has a JSON
-  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 57
+  contract spec backed by `ShapeEnvelope` v1 `sparse_rowsets` with all 67
   current projection rows plus a generated factorized depth-vision projection
   group for the cross-adapter proven 144-shape set. That group is the product
   of 18 approved `(input_c, output_c)` channel pairs and eight approved
@@ -2296,6 +2390,10 @@ These files are diagnostic inputs. Production code must not depend on
   shader-family decisions, family op-hit labels, and match-result assembly
   remain handwritten. Naive min/max H/W bounds, independent H/W cross-products,
   and the 648/1296 channel/spatial cross-products remain explicitly forbidden.
+  The `depth_projection_384_18x10_192` and
+  `depth_projection_384_18x10_384` rows are exact sparse rows for the vits
+  decoder projection pair and do not promote `18x10` into the factorized
+  spatial set.
   OCR projection rows now have an OCR-only dynamic crop batch policy
   (`N=1..8`) while depth-vision and diffusion projection rows remain batch-1.
   The newest OCR sparse row is `ocr_projection_512_6x80_192`, admitted after

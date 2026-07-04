@@ -24,7 +24,7 @@ constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId =
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsGuardId = "small_spatial_pointwise_conv_adjacent_guards";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy = "unsupported_shapes_do_not_match";
 constexpr const char* kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy = "native_buffer_kernel";
-constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 65;
+constexpr std::int64_t kSmallSpatialPointwiseConvProjectionRowsRowCount = 67;
 
 struct SmallSpatialPointwiseConvProjectionRowsRow final {
   const char* family;
@@ -80,6 +80,24 @@ constexpr SmallSpatialPointwiseConvProjectionRowsRow kSmallSpatialPointwiseConvP
         384,
         "depth_projection_384_15x10_384",
         ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "DepthVisionProjection", "depth_projection_384_15x10_384", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "DepthVisionProjection",
+        384,
+        18,
+        10,
+        192,
+        "depth_projection_384_18x10_192",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "DepthVisionProjection", "depth_projection_384_18x10_192", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
+    },
+    {
+        "DepthVisionProjection",
+        384,
+        18,
+        10,
+        384,
+        "depth_projection_384_18x10_384",
+        ExecutionContractMetadata{kSmallSpatialPointwiseConvSparseProjectionRowsContractName, "DepthVisionProjection", "depth_projection_384_18x10_384", kSmallSpatialPointwiseConvSparseProjectionRowsEvidenceId, kSmallSpatialPointwiseConvSparseProjectionRowsGuardId, kSmallSpatialPointwiseConvSparseProjectionRowsFallbackPolicy, kSmallSpatialPointwiseConvSparseProjectionRowsMaterializationPolicy}
     },
     {
         "DepthVisionProjection",

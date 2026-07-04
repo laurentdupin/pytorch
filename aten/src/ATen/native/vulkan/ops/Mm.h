@@ -69,7 +69,8 @@ class LinearPackedContext final : public torch::jit::CustomClassHolder {
       const std::optional<Tensor>& bias,
       const bool use_batch = false,
       std::string allocation_label = std::string(),
-      const bool retain_unpacked = true);
+      const bool retain_unpacked = true,
+      const bool use_packed_weight_cache = true);
 
   /*
    * Assigns a name to each index in the unpacked list.

@@ -13,6 +13,34 @@ namespace {
 
 using namespace api::utils;
 
+bool can_use_small_long_host_upload_fill(
+    const Tensor& self,
+    const Scalar& value) {
+  if (self.scalar_type() != at::kLong || self.dim() < 1 || self.dim() > 2) {
+    return false;
+  }
+  if (self.numel() < 0 || self.numel() > 4096) {
+    return false;
+  }
+  if (value.toLong() != 0 && value.toLong() != 1) {
+    return false;
+  }
+  const vTensor& v_self = convert(self);
+  return v_self.storage_type() == api::StorageType::BUFFER &&
+      v_self.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_self.storage_offset() == 0;
+}
+
+Tensor& fill_scalar_small_long_host_upload(Tensor& self, const Scalar& value) {
+  utils::log_vulkan_op_hit("aten::fill_.Scalar.small_long_host_upload");
+  c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
+  c10::InferenceMode inference_mode_guard(false);
+  Tensor cpu_full =
+      at::full(self.sizes(), value, self.options().device(at::kCPU));
+  ops::copy_(self, cpu_full);
+  return self;
+}
+
 Tensor& fill_scalar_cpu_fallback(Tensor& self, const Scalar& value) {
   report_vulkan_cpu_fallback(
       "aten::fill_.Scalar", "unsupported_shape_storage_or_dtype", {self});
@@ -37,6 +65,9 @@ Tensor& fill_scalar_(Tensor& self_arg, const Scalar& value) {
     if (self_arg.scalar_type() == at::kFloat) {
       return utils::fill_buffer_float_(
           self_arg, value.to<float>(), "aten::fill_.Scalar");
+    }
+    if (can_use_small_long_host_upload_fill(self_arg, value)) {
+      return fill_scalar_small_long_host_upload(self_arg, value);
     }
     return fill_scalar_cpu_fallback(self_arg, value);
   }

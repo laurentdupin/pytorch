@@ -3099,6 +3099,95 @@ Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
       false);
 }
 
+void log_channel_cat_to_conv_input_readiness(
+    const Tensor& input_arg,
+    const Tensor& buffer_input,
+    const PackedWeightHandle& packed_weight,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding,
+    const int64_t groups) {
+  const std::string writer = tensor_provenance_writer(input_arg);
+  if (writer != "aten::cat") {
+    return;
+  }
+
+  const std::string route = tensor_provenance_route(input_arg);
+  const bool route_is_channel_cat =
+      route == "buffer_channel_pair" || route == "buffer_channel_view" ||
+      route == "buffer_direct";
+  const bool input_rank_ok = input_arg.dim() == 4 && buffer_input.dim() == 4;
+  const bool dtype_ok =
+      input_arg.scalar_type() == kFloat && buffer_input.scalar_type() == kFloat;
+  const bool weight_rank_ok = packed_weight.logical_weight_sizes().size() == 4;
+  const bool conv_options_ok =
+      !transposed && !quantized && output_padding_is_zero(output_padding) &&
+      groups == 1;
+
+  bool input_layout_ok = false;
+  bool input_direct = false;
+  int64_t input_storage_offset = -1;
+  if (buffer_input.is_vulkan()) {
+    const vTensor& v_input = convert(buffer_input);
+    input_direct = v_input.has_direct_buffer_layout();
+    input_layout_ok =
+        v_input.storage_type() == api::StorageType::BUFFER &&
+        v_input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+        utils::supports_buffer_elementwise_compute(v_input) &&
+        v_input.storage_offset() == 0;
+    input_storage_offset = v_input.storage_offset();
+  }
+
+  bool channels_match = false;
+  if (input_rank_ok && weight_rank_ok && groups == 1) {
+    channels_match = packed_weight.logical_weight_sizes()[1] == buffer_input.size(1);
+  }
+
+  const bool bridge_shape_ready =
+      route_is_channel_cat && input_rank_ok && dtype_ok && weight_rank_ok &&
+      conv_options_ok && input_layout_ok && channels_match;
+  const char* reason = bridge_shape_ready
+      ? "missing_single_consumer_non_escape_proof"
+      : "unsupported_cat_conv_edge";
+  if (!route_is_channel_cat) {
+    reason = "unsupported_cat_route";
+  } else if (!input_rank_ok) {
+    reason = "unsupported_rank";
+  } else if (!dtype_ok) {
+    reason = "unsupported_dtype";
+  } else if (!weight_rank_ok) {
+    reason = "unsupported_weight_rank";
+  } else if (!conv_options_ok) {
+    reason = "unsupported_conv_options";
+  } else if (!input_layout_ok) {
+    reason = "unsupported_input_layout";
+  } else if (!channels_match) {
+    reason = "channel_mismatch";
+  }
+
+  std::ostringstream stream;
+  stream << "aten::convolution.channel_cat_to_conv_input_readiness"
+         << " schema=ChannelCatToConvInputContract.v0"
+         << " producer=aten::cat"
+         << " route=" << (route.empty() ? "unknown" : route)
+         << " consumer=aten::convolution"
+         << " input=" << conv2d::format_conv_sizes(buffer_input.sizes())
+         << " weight="
+         << conv2d::format_conv_sizes(packed_weight.logical_weight_sizes())
+         << " groups=" << groups
+         << " transposed=" << (transposed ? 1 : 0)
+         << " quantized=" << (quantized ? 1 : 0)
+         << " input_direct=" << (input_direct ? 1 : 0)
+         << " input_offset=" << input_storage_offset
+         << " bridge_shape_ready=" << (bridge_shape_ready ? 1 : 0)
+         << " single_consumer_proof=0"
+         << " non_escape_proof=0"
+         << " behavior_enabled=0"
+         << " copy_elision_authorized=0"
+         << " reason=" << reason;
+  utils::log_vulkan_op_hit(stream.str());
+}
+
 Tensor prepare_runtime_float_buffer_conv_output(
     Tensor output,
     IntArrayRef expected_sizes) {
@@ -4740,6 +4829,14 @@ static Tensor run_conv2d_context_impl(
   if (!quantized && packed_weight.execution_layout() ==
           api::ExecutionLayout::BUFFER_DIRECT) {
     Tensor buffer_input = prepare_runtime_float_buffer_conv_input(input_arg);
+    log_channel_cat_to_conv_input_readiness(
+        input_arg,
+        buffer_input,
+        packed_weight,
+        transposed,
+        quantized,
+        output_padding,
+        conv_context->groups());
     const char* const buffer_transpose_skip_reason =
         float_buffer_conv_transpose2d_skip_reason(
             buffer_input, packed_weight, transposed, quantized);

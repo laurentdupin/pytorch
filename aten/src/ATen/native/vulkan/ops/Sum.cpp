@@ -1029,22 +1029,6 @@ std::tuple<Tensor, Tensor> max_dim(
     const Tensor& self,
     int64_t dim,
     bool keepdim) {
-  if (
-      self.is_vulkan() && self.dim() >= 1 && self.dim() <= 4 &&
-      (self.scalar_type() == c10::ScalarType::Float ||
-       self.scalar_type() == c10::ScalarType::BFloat16)) {
-    const auto plan = utils::build_vulkan_execution_plan(
-        self, utils::VulkanExecutionPlanKind::ReductionDimInput);
-    if (api::uses_buffer_execution(plan.execution_layout)) {
-      const int64_t normalized_dim = utils::normalize(dim, self.dim());
-      Tensor prepared =
-          utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
-      return std::make_tuple(
-          max_dim_buffer(prepared, normalized_dim, keepdim),
-          argmax_dim_buffer(prepared, normalized_dim, keepdim));
-    }
-  }
-
   report_vulkan_cpu_fallback("aten::max.dim", "cpu_fallback", {self});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);

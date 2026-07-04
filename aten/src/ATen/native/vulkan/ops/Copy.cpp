@@ -2370,6 +2370,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
         cpu_src = cpu_src.to(dst.scalar_type());
       }
       pack_cpu_to_vulkan(cpu_src, v_self);
+      record_tensor_write(dst, "aten::copy_", "cpu_to_vulkan", {cpu_src});
     }
   }
   // Vulkan -> X

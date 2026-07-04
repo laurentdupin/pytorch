@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-07-02",
+  "last_updated": "2026-07-03",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -2777,7 +2777,7 @@
     },
     {
       "id": "dav2_vits140_exact_fc2_tiled_vec2_default_contract_2026_07_02",
-      "status": "accepted_default_exact_plan",
+      "status": "correctness_blocked",
       "head": "local_exact_fc2_tiled_vec2_plan_contract",
       "model_provenance": {
         "model": "Depth Anything V2",
@@ -2791,20 +2791,21 @@
         "exact vision FC2 row",
         "segmented_stack_wide4_to_exit bridge lane"
       ],
-      "candidate": "Route the exact vision-backbone FP32 bias/no-post-op FC2 row [151,1536] x [384,1536] + [384] through aten::linear.buffer_float_tiled_bias_vec2 by default after VisionFc2ExactTiledVec2LinearPlanContract admission.",
+      "candidate": "Former default route for the exact vision-backbone FP32 bias/no-post-op FC2 row [151,1536] x [384,1536] + [384] through aten::linear.buffer_float_tiled_bias_vec2 after VisionFc2ExactTiledVec2LinearPlanContract admission.",
       "correctness": {
-        "status": "passed_focused_tests_and_bridge_sanity",
+        "status": "failed_full_bridge_regression",
         "tests": [
-          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_contract",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_fail_closed",
           "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_adjacent_negatives",
-          "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy without PYTORCH_VULKAN_LINEAR_TILED_CANARY"
+          "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy without PYTORCH_VULKAN_LINEAR_TILED_CANARY",
+          "Post-37c8efe isolation: QKV tiled disabled, FC2 tiled active still failed bridge sanity"
         ],
         "focused_test_tolerance": {
           "atol": 0.001,
           "rtol": 0.001
         },
-        "bridge_sanity_max_abs": 1.1846423149108887e-06,
-        "bridge_sanity_mean_abs": 6.115393347272402e-08
+        "bridge_sanity_max_abs": 1.621228575706482,
+        "bridge_sanity_mean_abs": 0.9958318471908569
       },
       "counters": {
         "cpu_fallback": 0,
@@ -2812,7 +2813,7 @@
         "route_hit": "aten::linear.buffer_float_tiled_bias_vec2",
         "tiled": true,
         "vec2": true,
-        "default_route_changed": true,
+        "default_route_changed": false,
         "adjacent_negatives_passed": true
       },
       "timing_ms": {
@@ -2833,16 +2834,16 @@
         "agent_space/dav2_vits140_fc2_vec2_canary_repeat30.log",
         "agent_space/dav2_vits140_fc2_vec2_canary_repeat5.json"
       ],
-      "decision": "Promote as a default exact linear plan contract. Do not broaden beyond the exact predicates without generated LinearPlanContract evidence and guardrail timing.",
+      "decision": "Fail closed by default. The isolated op route can match CPU, but full stack-output bridge execution regressed when FC2 tiled remained active, so the exact row must stay on the conservative buffer-linear route until stack-bridge parity proof exists.",
       "revisit_conditions": [
-        "If adjacent FC2, non-FC2, non-backbone, non-float, no-bias, N=385, or post-op linear rows route through the contract.",
-        "If RX 6700 XT or GTX 1080 timing regresses under the same exact default contract.",
+        "If a replacement FP32 linear kernel or generated LinearPlanContract proves the exact FC2 row in full stack-output bridge parity.",
+        "If multi-GPU stack-bridge guardrails prove the route is correct across RX 9070, RX 6700 XT, and GTX 1080.",
         "If more linear exact rows are added without migrating to a generated LinearPlanContract/spec."
       ]
     },
     {
       "id": "dav2_vits140_exact_qkv_tiled_default_contract_2026_07_02",
-      "status": "accepted_default_exact_plan",
+      "status": "correctness_blocked",
       "head": "local_exact_qkv_tiled_plan_contract",
       "model_provenance": {
         "model": "Depth Anything V2",
@@ -2856,20 +2857,21 @@
         "exact vision QKV row",
         "segmented_stack_wide4_to_exit bridge lane"
       ],
-      "candidate": "Route the exact vision-backbone FP32 no-bias/no-post-op QKV row [151,384] x [1152,384] through aten::linear.buffer_float_tiled by default after VisionQkvExactTiledLinearPlanContract admission.",
+      "candidate": "Former default route for the exact vision-backbone FP32 no-bias/no-post-op QKV row [151,384] x [1152,384] through aten::linear.buffer_float_tiled after VisionQkvExactTiledLinearPlanContract admission.",
       "correctness": {
-        "status": "passed_focused_tests_and_bridge_sanity",
+        "status": "failed_full_bridge_regression",
         "tests": [
-          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_contract",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_fail_closed",
           "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_adjacent_negatives",
-          "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy without PYTORCH_VULKAN_LINEAR_TILED_CANARY"
+          "DAv2 vits_140 wide4 bridge warmup=3 repeats=30 skip_output_copy without PYTORCH_VULKAN_LINEAR_TILED_CANARY",
+          "Post-37c8efe isolation: FC2 tiled disabled, QKV tiled active still failed bridge sanity"
         ],
         "focused_test_tolerance": {
           "atol": 0.001,
           "rtol": 0.001
         },
-        "bridge_sanity_max_abs": 1.1846423149108887e-06,
-        "bridge_sanity_mean_abs": 6.115393347272402e-08
+        "bridge_sanity_max_abs": 0.9719079732894897,
+        "bridge_sanity_mean_abs": 0.6436081528663635
       },
       "counters": {
         "cpu_fallback": 0,
@@ -2877,7 +2879,7 @@
         "route_hit": "aten::linear.buffer_float_tiled",
         "tiled": true,
         "vec2": false,
-        "default_route_changed": true,
+        "default_route_changed": false,
         "adjacent_negatives_passed": true,
         "selected_vulkan_device_index": 0,
         "selected_vulkan_device_name": "AMD Radeon RX 9070"
@@ -2897,11 +2899,495 @@
         "agent_space/dav2_vits140_qkv_canary_repeat30/result_30repeat.json",
         "agent_space/linear_exact_candidate_probe_c5dc7f"
       ],
-      "decision": "Promote as a default exact linear plan contract. Do not broaden beyond the exact predicates without generated LinearPlanContract evidence and guardrail timing.",
+      "decision": "Fail closed by default. The isolated op route can match CPU, but full stack-output bridge execution regressed when QKV tiled remained active, so the exact row must stay on the conservative buffer-linear route until stack-bridge parity proof exists.",
       "revisit_conditions": [
-        "If adjacent QKV, non-QKV, non-backbone, non-float, bias-present, M=150/152, N=1153, or post-op linear rows route through the contract.",
-        "If RX 6700 XT or GTX 1080 timing regresses under the same exact default contract.",
+        "If a replacement FP32 linear kernel or generated LinearPlanContract proves the exact QKV row in full stack-output bridge parity.",
+        "If multi-GPU stack-bridge guardrails prove the route is correct across RX 9070, RX 6700 XT, and GTX 1080.",
         "If more linear exact rows are added without migrating to a generated LinearPlanContract/spec."
+      ]
+    },
+    {
+      "id": "packed_weight_cpu_upload_source_identity_2026_07_03",
+      "status": "accepted_default_fix",
+      "head": "local_packed_weight_cpu_upload_source_identity",
+      "model_provenance": {
+        "models": [
+          "PaddleOCR",
+          "HY-MT",
+          "Depth Anything V2"
+        ],
+        "purpose": "PaddleOCR/HY-MT attribution exposed repeated packed-weight misses; DAv2 vits_140 was used as a correctness guardrail after the generic upload-provenance change."
+      },
+      "device_notes": "Focused unit and DAv2 guardrail evidence on RX 9070. The fix is generic CPU-upload provenance and packed-weight source identity, not device-name routing.",
+      "contract_or_topology_scope": [
+        "PackedWeightSourceIdentity",
+        "CPUToVulkanUploadProvenance",
+        "LinearBufferUploadProvenance",
+        "ConvPackedWeightSourceIdentity",
+        "PersistentInference packed-weight residency"
+      ],
+      "candidate": "Record CPU source provenance on generic CPU-to-Vulkan copies and linear buffer uploads so repeated uploads of the same CPU weight source can match the existing persistent packed-weight residency cache through source/version/provenance identity instead of fresh Vulkan storage identity. The same source-key match is covered for conv packed weights by a focused reuploaded CPU-source test.",
+      "correctness": {
+        "status": "passed_focused_and_dav2_smoke",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vulkan_packed_weight_cache_reuses_reuploaded_cpu_source",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vulkan_conv_packed_weight_cache_reuses_reuploaded_cpu_source",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_fail_closed TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_fail_closed TestVulkanEagerRuntime.test_vision_fc2_exact_tiled_vec2_linear_plan_adjacent_negatives TestVulkanEagerRuntime.test_vision_qkv_exact_tiled_linear_plan_adjacent_negatives",
+          "DAv2 vits_140 wide4 bridge warmup=1 repeats=1 skip_output_copy after upload-provenance change"
+        ],
+        "dav2_bridge_sanity_max_abs": 1.1846423149108887e-06,
+        "dav2_bridge_sanity_mean_abs": 6.115393347272402e-08
+      },
+      "counters": {
+        "focused_linear_lookups": 5,
+        "focused_linear_hits": 4,
+        "focused_linear_misses": 1,
+        "focused_linear_stores": 1,
+        "focused_linear_mismatch_provenance_source": 0,
+        "focused_conv_lookups": 5,
+        "focused_conv_hits": 4,
+        "focused_conv_misses": 1,
+        "focused_conv_stores": 1,
+        "dav2_cpu_fallback": 0,
+        "dav2_sync_readback": 0,
+        "dav2_buffer_copy_count": 183
+      },
+      "timing_ms": {
+        "dav2_vits140_device_resident_mean": 60.778,
+        "repeat_count": 1,
+        "performance_claim": "correctness smoke only; PaddleOCR/HY-MT model timings pending"
+      },
+      "artifacts": [
+        "agent_space/dav2_post_packed_source_identity_vits140.json"
+      ],
+      "decision": "Accept as a generic residency/source-identity fix. It removes a proven packed-weight cache miss class for repeated CPU-source uploads in both linear and conv packed-weight paths while preserving the existing version/provenance checks and DAv2 bridge correctness.",
+      "revisit_conditions": [
+        "If PaddleOCR/HY-MT packed-weight aggregate rows still show mismatch_provenance_source for repeated uploads of the same CPU weight source after a fresh model run.",
+        "If a mutation/version-invalidation test exposes stale reuse from CPU-upload provenance.",
+        "If broader source identity for fresh CPU views is needed, add a separate storage-view contract instead of broadening this TensorImpl/source upload proof silently."
+      ]
+    },
+    {
+      "id": "hymt_policy_gated_setup_linear_prepack_2026_07_03",
+      "status": "accepted_default_fix",
+      "head": "local_hymt_policy_gated_setup_linear_prepack",
+      "model_provenance": {
+        "models": [
+          "HY-MT"
+        ],
+        "purpose": "HY-MT one-token decode exposed that setup-time linear prepack helps non-conservative adapters but can be harmful or unsafe on adapters whose backend policy avoids large persistent weight caches."
+      },
+      "device_notes": "Uses the generic Vulkan device policy snapshot. RX 9070 admits setup prepack because avoid_weight_cache=0; GTX 1080 and RX 6700 XT skip it because avoid_weight_cache=1.",
+      "contract_or_topology_scope": [
+        "VulkanDevicePolicy",
+        "LinearPackedWeightPreloadContract evidence",
+        "PersistentInference packed-weight residency"
+      ],
+      "candidate": "Expose the live Vulkan device policy through a diagnostic op and make the benchmark setup prepack fail closed when the backend policy avoids large persistent weight caches. Labeled linear context setup now seeds the same packed-weight residency cache that runtime linear uses.",
+      "correctness": {
+        "status": "passed_focused_and_cross_adapter_smoke",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_vulkan_device_policy_snapshot_reports_cache_policy TestVulkanEagerRuntime.test_vulkan_labeled_linear_context_seeds_runtime_packed_cache_no_bias TestVulkanEagerRuntime.test_vulkan_packed_weight_cache_reuses_reuploaded_cpu_source TestVulkanEagerRuntime.test_vulkan_linear_weight_cache_reuses_inference_mode_views TestVulkanEagerRuntime.test_vulkan_addmm_addend_does_not_poison_weight_cache_key TestVulkanEagerRuntime.test_vulkan_packed_weight_residency_prunes_expired_sources TestVulkanEagerRuntime.test_vulkan_linear_context_cache_prunes_expired_sources",
+          "HY-MT one-token Vulkan smoke on RX 9070, GTX 1080, and RX 6700 XT"
+        ]
+      },
+      "counters": {
+        "rx9070_prepack_attempted": true,
+        "rx9070_prepacked_linear_modules": 225,
+        "rx9070_linear_pack_created_reused": [
+          225,
+          225
+        ],
+        "rx9070_packed_weight_hits_misses_stores": [
+          225,
+          225,
+          225
+        ],
+        "gtx1080_prepack_attempted": false,
+        "gtx1080_skip_reason": "device_policy_avoids_large_persistent_weight_cache",
+        "rx6700xt_prepack_attempted": false,
+        "rx6700xt_skip_reason": "device_policy_avoids_large_persistent_weight_cache",
+        "rx9070_cpu_fallback": 33,
+        "gtx1080_cpu_fallback": 36,
+        "rx6700xt_cpu_fallback": 33,
+        "sync_readback_all_adapters": 8
+      },
+      "timing_ms": {
+        "rx9070_one_token": 2269.675,
+        "gtx1080_one_token": 3677.526,
+        "rx6700xt_one_token": 3366.617,
+        "repeat_count": 1,
+        "performance_claim": "HY-MT smoke and policy validation only; remaining generation-control fallbacks still dominate"
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_policy_gated_prepack/summary.json",
+        "agent_space/paddle_hymt_policy_gated_prepack/summary.md",
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0.json",
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu1.json",
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu2.json"
+      ],
+      "decision": "Accept the policy gate and cache-seeding path as setup/benchmark infrastructure. It keeps the RX 9070 fast path available while preventing the previous GTX 1080/RX 6700 XT large-persistent-prepack regression and device-lost failure.",
+      "revisit_conditions": [
+        "If a future adapter policy can safely keep large HY-MT linear weights persistent on GTX-class or RX 6700 XT hardware, update VulkanDevicePolicy and rerun the three-adapter smoke.",
+        "If production model setup needs this behavior outside the benchmark harness, promote it through a generated LinearPackedWeightPreloadContract instead of adding a model-name route.",
+        "If HY-MT timings remain dominated by generation-control fallbacks, target the small-control tensor contracts before broadening setup prepack."
+      ]
+    },
+    {
+      "id": "hymt_small_control_host_residency_blocker_2026_07_03",
+      "status": "accepted_reporting_infrastructure",
+      "head": "local_hymt_small_control_host_residency_blocker",
+      "model_provenance": {
+        "models": [
+          "HY-MT"
+        ],
+        "purpose": "HY-MT one-token attribution still contains tiny Bool/Long/Int generation-control fallbacks after model-core Vulkan residency and SDPA/linear cleanup. The safe next abstraction is host-control residency proof, not native Bool/Long tensor kernels."
+      },
+      "device_notes": "RX 9070 attribution plus agent inspection. This is a generic small-control transition decision; no HY-MT production route or native Bool/Long compute promotion is admitted.",
+      "contract_or_topology_scope": [
+        "SmallControlTensorFallbackContract",
+        "SmallControlScalarExtractionContract",
+        "SmallControlHostResidencyContract.v0",
+        "BoolBufferRepresentationContract blocked",
+        "LongDirectBufferMaterializationContract blocked"
+      ],
+      "candidate": "Promote remaining tiny Long comparisons, `isin(...).any()`, Bool any/all, Bool binary ops, and Long masked_fill into native Vulkan control kernels.",
+      "correctness": {
+        "status": "rejected_native_promotion_classified_host_boundary",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_transition_log_classifies_small_control_host_residency_blocker",
+          "agent inspection of agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0_attribution_summary.md",
+          "prior Bool buffer shader probe in agent_space/hymt_bool_shader_probe.md",
+          "prior public argmax/max(dim) Long-index fail-closed tests"
+        ],
+        "observed_result": "Tiny Long comparison and scalar extraction now emit SmallControlTensorFallbackContract and SmallControlScalarExtractionContract transition rows with SmallControlHostResidencyContract.v0 named as fail-closed. Native Bool/Long promotion remains blocked by Bool buffer representation and Long index-output materialization correctness."
+      },
+      "counters": {
+        "hymt_rx9070_cpu_fallback": 33,
+        "hymt_rx9070_sync_readback": 8,
+        "tiny_generation_metadata_rows": 29,
+        "tiny_generation_metadata_cpu_fallback": 23,
+        "tiny_generation_metadata_sync_readback": 5,
+        "model_core_metadata_rows": 9,
+        "model_core_metadata_cpu_fallback": 6,
+        "model_core_metadata_sync_readback": 3,
+        "expected_scalar_comparison_delta_if_host_residency_proven": "cpu_fallback -3..-5, sync_readback -2..-3",
+        "native_bool_long_kernel_authorized": false
+      },
+      "timing_ms": {
+        "rx9070_one_token_reference": 3668.8005,
+        "repeat_count": 1,
+        "performance_claim": "none; this row records the safe contract direction and the rejected native promotion class"
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0_attribution_summary.md",
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0_attribution_summary.json",
+        "agent_space/hymt_bool_shader_probe.md"
+      ],
+      "decision": "Do not implement native `isin`, Bool binary, general Bool reduction, Long comparison, Long masked_fill, public argmax, or public max(dim) Long-index routes from this evidence. The next reusable performance path is a SmallControlHostResidencyContract consumer-chain proof that keeps tiny metadata/control results on host only when they feed Python/generation control and fail-closes if they feed model-core Vulkan tensor compute.",
+      "revisit_conditions": [
+        "If a typed host-control consumer-chain proof can prove the fallback result is consumed only by Python/generation control and is not re-uploaded into model-core Vulkan compute.",
+        "If BoolBufferRepresentationContract proves direct-buffer Bool layout, storage offset, metadata view, any/all, and binary Bool semantics across adjacent negatives.",
+        "If LongDirectBufferMaterializationContract proves public Long writes and index outputs for max(dim), argmax, comparisons, and masked_fill across tie and shape cases."
+      ]
+    },
+    {
+      "id": "hymt_long_rank2_last_dim_cat_row_copy_2026_07_03",
+      "status": "accepted_default_fix",
+      "head": "local_hymt_long_rank2_last_dim_cat_row_copy",
+      "model_provenance": {
+        "models": [
+          "HY-MT"
+        ],
+        "purpose": "HY-MT one-token attribution showed three small Long last-dim cat rows appending `[1,1]` generation-control tensors to `[1,T]` Long tensors, producing CPU fallback, tensor CPU readback submits, and host uploads."
+      },
+      "device_notes": "RX 9070 focused unit and transition-log evidence. The route is generic rank-2 Long width-packed buffer row-copy, not an HY-MT production route, Long arithmetic route, Bool route, or Long index-output route.",
+      "contract_or_topology_scope": [
+        "LayoutTransitionContract materialization evidence",
+        "LongRank2LastDimCatRowCopyContract.v0",
+        "SmallControlTensorFallbackContract reduction",
+        "WidthPackedBufferRowCopy"
+      ],
+      "candidate": "Replace the two-input rank-2 Long last-dim cat CPU fallback with bounded row-wise Vulkan buffer copies that skip physical width padding instead of treating width-packed buffers as raw-contiguous.",
+      "correctness": {
+        "status": "passed",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_long_last_dim_cat_two_direct_buffer_inputs_no_fallback",
+          "manual HY-MT-shaped `[1,14] + [1,1]` transition-log probe",
+          "HY-MT RX 9070 one-token Vulkan smoke with fallback attribution"
+        ],
+        "observed_result": "The accepted route hits `aten::cat.long_last_dim2_row_copy`, matches CPU parity for `[1,14] + [1,1]`, preserves CPU fallback for non-last-dim Long cat, and reports zero fallback/sync immediately after cat. The HY-MT one-token smoke no longer reports cat-like fallback attribution objects."
+      },
+      "counters": {
+        "focused_cpu_fallback_after_cat": 0,
+        "focused_sync_readback_after_cat": 0,
+        "focused_device_copy_count": 2,
+        "focused_device_copy_bytes": 160,
+        "hymt_observed_cat_rows": 3,
+        "hymt_rx9070_cpu_fallback_before": 33,
+        "hymt_rx9070_cpu_fallback_after": 30,
+        "hymt_rx9070_sync_readback_after": 8,
+        "hymt_rx9070_tensor_cpu_readback_submit_after": 274,
+        "hymt_rx9070_host_upload_submit_after": 24,
+        "hymt_rx9070_cat_like_fallback_objects_after": 0
+      },
+      "timing_ms": {
+        "hymt_rx9070_one_token_after": 2955.535,
+        "repeat_count": 1,
+        "performance_claim": "HY-MT smoke only; not a stable timing baseline"
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0_attribution_summary.md",
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0_attribution_summary.json",
+        "agent_space/long_cat_transition_after_row_copy.jsonl",
+        "agent_space/long_cat_op_hit_after_row_copy.log",
+        "agent_space/hymt_long_cat_row_copy_smoke/hymt_gpu0.json"
+      ],
+      "decision": "Accept the bounded row-copy path as a default generic layout-transition cleanup for two-input rank-2 Long last-dim cats. Do not generalize this into native Long tensor compute, Bool control kernels, public argmax/max(dim) Long-index materialization, broad cat rowsets, or model-name routing.",
+      "revisit_conditions": [
+        "If HY-MT attribution no longer contains the `[1,T] + [1,1]` Long last-dim append pattern.",
+        "If a future generic Long buffer materialization shader replaces per-row buffer copies with lower submit overhead while preserving width-packing semantics.",
+        "If wider ranks, nonzero storage offsets, non-contiguous logical strides, more than two inputs, or larger row/output budgets are requested; add generated contract evidence before broadening."
+      ]
+    },
+    {
+      "id": "hymt_small_long_fill_host_upload_2026_07_03",
+      "status": "accepted_default_fix",
+      "head": "local_hymt_small_long_fill_host_upload",
+      "model_provenance": {
+        "models": [
+          "HY-MT"
+        ],
+        "purpose": "HY-MT one-token attribution showed tiny Long `aten::fill_.Scalar`/`new_ones` generation-control rows that could be classified as bounded host uploads instead of opaque CPU fallback."
+      },
+      "device_notes": "RX 9070 focused unit and one-token smoke evidence. This is a generic tiny Long host-upload fill cleanup, not native Long direct-buffer compute, a Bool route, a Long index-output route, or an HY-MT production route.",
+      "contract_or_topology_scope": [
+        "HostUploadTransitionContract",
+        "SmallControlTensorFallbackContract reduction",
+        "SmallLongFillHostUploadContract.v0",
+        "LongDirectBufferMaterializationContract rejected evidence"
+      ],
+      "candidate": "Replace bounded rank-1/2 Long `fill_(0/1)` CPU fallback with an explicit CPU scalar materialization plus CPU-to-Vulkan host upload when the destination is width-packed buffer storage with zero storage offset.",
+      "correctness": {
+        "status": "passed_with_native_long_shader_rejected",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_small_long_buffer_fill_no_fallback",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_fill_and_triangular_factories",
+          "HY-MT RX 9070 one-token Vulkan smoke with fallback attribution"
+        ],
+        "observed_result": "The accepted route hits `aten::fill_.Scalar.small_long_host_upload`, matches CPU parity for Long `ones` and `fill_(0)`, reports zero CPU fallback on those bounded rows, records host-upload submit accounting, and preserves CPU fallback for unsupported value `2`. A probed `fill_buffer_long` storage-buffer shader returned zeros for value `1`, so native Long direct-buffer writes remain blocked."
+      },
+      "counters": {
+        "focused_cpu_fallback_after_supported_fill": 0,
+        "focused_host_upload_submit_after_supported_fill": "greater_than_zero",
+        "focused_cpu_fallback_after_unsupported_fill": 1,
+        "hymt_rx9070_cpu_fallback_before": 30,
+        "hymt_rx9070_cpu_fallback_after": 28,
+        "hymt_rx9070_sync_readback_after": 8,
+        "hymt_rx9070_tensor_cpu_readback_submit_after": 274,
+        "hymt_rx9070_host_upload_submit_after": 24
+      },
+      "timing_ms": {
+        "hymt_rx9070_one_token_after": 2695.237,
+        "repeat_count": 1,
+        "performance_claim": "HY-MT smoke only; not a stable timing baseline"
+      },
+      "artifacts": [
+        "agent_space/hymt_long_cat_row_copy_smoke/hymt_gpu0.json",
+        "agent_space/hymt_long_fill_cat_smoke/hymt_gpu0.json"
+      ],
+      "decision": "Accept the bounded host-upload fill path as a default small-control cleanup for tiny Long `fill_(0/1)` rows. Do not generalize this into native Long tensor compute, public Long index materialization, broad Long factory coverage, or model-name routing.",
+      "revisit_conditions": [
+        "If HY-MT attribution no longer contains tiny Long `fill_(0/1)` or `new_ones` generation-control rows.",
+        "If `LongDirectBufferMaterializationContract` proves correct Vulkan storage-buffer Long writes across 0/1, nonzero values, index outputs, width padding, storage offsets, and adjacent negatives.",
+        "If wider ranks, nonzero storage offsets, values outside 0/1, or larger budgets are requested; add generated contract evidence before broadening."
+      ]
+    },
+    {
+      "id": "hymt_argmax_dim_long_index_output_rejected_2026_07_03",
+      "status": "correctness_blocked",
+      "head": "local_hymt_argmax_dim_long_index_output_rejected",
+      "model_provenance": {
+        "models": [
+          "HY-MT"
+        ],
+        "purpose": "HY-MT one-token attribution showed one `aten::argmax(dim=-1)` fallback on logits, but the reusable Long index-output path must be correct before public argmax can stay on Vulkan."
+      },
+      "device_notes": "Focused RX 9070 unit evidence. This is a generic control-reduction blocker, not an HY-MT production route.",
+      "contract_or_topology_scope": [
+        "SmallControlTensorFallbackContract",
+        "ControlReductionContract candidate",
+        "FloatBufferArgmaxDimLongOutputContract rejected evidence",
+        "buffer_argmax_dim_long index-output materialization"
+      ],
+      "candidate": "Route explicit-dim Float/BFloat16 Vulkan direct-buffer `aten::argmax` through the existing `argmax_dim_buffer` helper used by `max(dim)` indices, while leaving flatten argmax on CPU fallback.",
+      "correctness": {
+        "status": "failed_focused_index_materialization",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_argmax_matches_cpu",
+          "manual focused probe comparing torch.max(x.to('vulkan'), dim).indices against CPU for 1D, 2D, and 3D tensors"
+        ],
+        "observed_failure": "The direct Long index-output path returned zero indices for simple 1D/2D reductions and garbage indices for some non-last-dim 3D reductions while max(dim) values remained correct."
+      },
+      "counters": {
+        "public_argmax_route_enabled": false,
+        "public_max_dim_route_enabled": false,
+        "cpu_fallback_preserved": true,
+        "expected_hymt_argmax_fallback_delta_if_fixed": 1,
+        "sync_readback_expected_delta_if_fixed": 0,
+        "max_dim_values_correct": true,
+        "max_dim_indices_correct": false
+      },
+      "timing_ms": {
+        "repeat_count": 0,
+        "performance_claim": "none; the candidate was rejected before model timing because focused correctness failed"
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_policy_gated_prepack/hymt_gpu0_attribution_summary.md",
+        "agent_space/hymt_argmax_dim_long_index_output_rejected_2026_07_03.md"
+      ],
+      "decision": "Keep public argmax and max(dim) tuple outputs fail-closed through CPU fallback. Do not promote standalone argmax or rely on max(dim) indices until Long index-output materialization has a focused correctness fix and contract coverage.",
+      "revisit_conditions": [
+        "If `buffer_argmax_dim_long` or Long direct-buffer materialization is fixed and `torch.max(...).indices` matches CPU across 1D, 2D, 3D, keepdim, and tie cases.",
+        "If a generated `ControlReductionContract` covers explicit-dim Float/BFloat16 argmax with Long output, first-index tie behavior, and adjacent negative cases.",
+        "If HY-MT generation-control attribution still shows `aten::argmax` after the Long index-output path is fixed."
+      ]
+    },
+    {
+      "id": "paddleocr_channel_cat_materialization_consumer_handoff_needed_2026_07_03",
+      "status": "accepted_reporting_infrastructure",
+      "head": "local_paddleocr_channel_cat_materialization_report",
+      "model_provenance": {
+        "models": [
+          "PaddleOCR"
+        ],
+        "purpose": "PaddleOCR attribution showed remaining timed-forward GPU copy bytes dominated by `aten::cat -> buffer_to_buffer` channel-cat materializations after CPU fallback had already reached zero."
+      },
+      "device_notes": "RX 9070 focused artifact with matching RX 6700 XT and GTX 1080 copy-shape clusters in the multi-GPU attribution report. This is generic channel-cat materialization evidence, not a PaddleOCR production route.",
+      "contract_or_topology_scope": [
+        "ChannelCatContract",
+        "aten::cat.buffer_channel_pair",
+        "aten::cat.buffer_channel_view",
+        "ChannelCatToConvInputContract proposed",
+        "ChannelCatToConvInputContract.v0 readiness rows",
+        "LayoutTransitionContract materialization evidence"
+      ],
+      "candidate": "Reduce PaddleOCR cat-copy bytes by widening the existing multi-input ChannelCatContract or by relying on the existing two-input pair shader.",
+      "correctness": {
+        "status": "diagnostic_complete_no_behavior_change",
+        "tests": [
+          "PaddleOCR RX 9070 one-repeat op-hit artifact",
+          "agent diagnostic inspection of op_hits.log and benchmark counters",
+          "implementer read-only review of Concat.cpp and ChannelCatContract",
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_channel_cat_to_conv_readiness_is_observed_but_unauthorized"
+        ],
+        "observed_result": "The two-input pair shader already hits for the largest 224x224 pair case and the multi-input ChannelCatContract still routes through per-input buffer_to_buffer materialization. Widening rowsets would mostly reclassify copies rather than remove bytes. A local focused regression now records `aten::cat` tensor provenance and emits fail-closed `ChannelCatToConvInputContract.v0` readiness rows when a cat output reaches a compatible Vulkan conv consumer; behavior remains disabled because single-consumer/non-escape proof is still missing."
+      },
+      "counters": {
+        "rx9070_timed_buffer_copy_count": 71,
+        "rx9070_timed_buffer_copy_bytes": 39967280,
+        "cat_buffer_channel_pair_hits": 2,
+        "cat_buffer_channel_view_hits": 5,
+        "cat_buffer_direct_hits": 3,
+        "cat_to_conv_readiness_rows": 10,
+        "cat_to_conv_bridge_shape_ready_rows": 10,
+        "largest_cat_copy_shape": "[1,64,224,224]",
+        "largest_cat_copy_bytes": 38535168,
+        "cpu_fallback": 0,
+        "sync_readback": 1,
+        "cat_to_conv_readiness_behavior_enabled": false,
+        "cat_to_conv_copy_elision_authorized": false,
+        "cat_to_conv_missing_proof": "single_consumer_non_escape"
+      },
+      "timing_ms": {
+        "repeat_count": 1,
+        "performance_claim": "none; this entry records why ChannelCat row widening is not a performance fix"
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_perf_goal_current/next_attribution.md",
+        "agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/paddleocr.json",
+        "agent_space/paddle_hymt_perf_goal_current/paddleocr_gpu0_pair_channel_cat_hits/op_hits.log",
+        "agent_space/paddleocr_cat_to_conv_readiness/paddleocr_gpu0.json",
+        "agent_space/paddleocr_cat_to_conv_readiness/op_hits.log"
+      ],
+      "decision": "Do not broaden ChannelCatContract rows as the next PaddleOCR performance change. The materialized channel-cat output is the cost; a performance-bearing fix needs a consumer handoff/fusion contract such as ChannelCatToConvInputContract that proves a private cat output is consumed immediately by a compatible Vulkan conv without public, host, readback, alias, or multi-consumer escape. The current readiness rows are observation only and explicitly report copy elision unauthorized.",
+      "revisit_conditions": [
+        "If a generated multi-input cat shader is added and proves lower dispatch overhead without hiding copy bytes.",
+        "If a ChannelCatToConvInputContract can prove single-consumer cat-to-conv handoff and either avoid materializing the cat output or fuse the materialization into the conv consumer.",
+        "If future PaddleOCR artifacts show the top `aten::cat -> buffer_to_buffer` clusters have changed route labels, arity, or shapes.",
+        "If the PaddleOCR benchmark environment is restored, rerun the RX 9070 smoke before claiming a counter delta."
+      ]
+    },
+    {
+      "id": "hymt_direct_vulkan_linear_prepacked_cache_2026_07_03",
+      "status": "accepted_default_fix",
+      "head": "local_hymt_direct_vulkan_linear_prepacked_cache",
+      "model_provenance": {
+        "models": [
+          "HY-MT"
+        ],
+        "purpose": "HY-MT one-token decode exposed that `torch.nn.functional.linear` in inference mode bypassed the Vulkan packed-weight cache and cloned raw Vulkan linear weights during the timed row even after setup prepack had created cacheable contexts."
+      },
+      "device_notes": "RX 9070 cache-capable evidence. GTX 1080 and RX 6700 XT still avoid the large persistent packed-weight cache by device policy, so they remain blocked on a no-cache raw/direct-weight or inference-owned packed-linear plan rather than this cache reuse path.",
+      "contract_or_topology_scope": [
+        "Vulkan aten::linear direct dispatch",
+        "LinearPackedContext runtime cache",
+        "PackedWeightSourceIdentity",
+        "LinearPackedWeightPreloadContract evidence",
+        "RawDirectWeightLinearPlan blocker for no-cache adapters"
+      ],
+      "candidate": "Register the generic Vulkan `aten::linear` op and route it through the existing `run_addmm_context` packed-linear implementation, while allowing prepacked/labeled linear contexts to use the packed-weight cache without retaining raw unpacked Vulkan weights.",
+      "correctness": {
+        "status": "passed_focused_and_model_smoke",
+        "tests": [
+          "python test/test_vulkan.py TestVulkanEagerRuntime.test_linear_inference_uses_prepacked_weight_without_clone_copy TestVulkanEagerRuntime.test_linear_module_with_vulkan_weights TestVulkanEagerRuntime.test_linear_vulkan_weight_transpose_view_avoids_sync_readback TestVulkanEagerRuntime.test_vulkan_labeled_linear_context_seeds_runtime_packed_cache_no_bias TestVulkanEagerRuntime.test_vulkan_linear_context_cache_prunes_expired_sources",
+          "HY-MT RX 9070 one-token Vulkan smoke with buffer-copy aggregation",
+          "PaddleOCR RX 9070 one-repeat Vulkan smoke"
+        ],
+        "observed_result": "Focused tests cover no-bias 2D and bias 3D `F.linear` inference rows with zero CPU fallback, sync readback, or buffer-copy events after labeled prepack. RX 9070 HY-MT no longer emits the raw full-weight linear clone/copy bucket during the timed one-token row. PaddleOCR RX 9070 remains cpu_fallback=0 and sync_readback=1."
+      },
+      "counters": {
+        "rx9070_hymt_buffer_copy_count_before": 977,
+        "rx9070_hymt_buffer_copy_bytes_before": 7241550552,
+        "rx9070_hymt_buffer_copy_count_after": 303,
+        "rx9070_hymt_buffer_copy_bytes_after": 9890520,
+        "rx9070_hymt_explicit_copy_count_after": 3,
+        "rx9070_hymt_explicit_copy_bytes_after": 966608,
+        "rx9070_hymt_linear_cache_created": 225,
+        "rx9070_hymt_linear_cache_reused": 225,
+        "rx9070_hymt_linear_cache_retain_unpacked": 0,
+        "rx9070_hymt_cpu_fallback_after": 31,
+        "rx9070_hymt_sync_readback_after": 8,
+        "gtx1080_hymt_status": "device_lost_at_lm_head",
+        "gtx1080_hymt_buffer_copy_bytes_after": 7171713312,
+        "gtx1080_linear_cache_hits_after": 0,
+        "rx6700xt_hymt_status": "ok_no_cache",
+        "rx6700xt_hymt_buffer_copy_bytes_after": 7173647064,
+        "rx6700xt_linear_cache_hits_after": 0,
+        "paddleocr_rx9070_cpu_fallback_after": 0,
+        "paddleocr_rx9070_sync_readback_after": 1
+      },
+      "timing_ms": {
+        "rx9070_hymt_one_token_before": 5798.0,
+        "rx9070_hymt_one_token_after": 4074.577,
+        "rx6700xt_hymt_one_token_after": 6291.861,
+        "paddleocr_rx9070_one_repeat_after": 1426.777,
+        "repeat_count": 1,
+        "performance_claim": "HY-MT cache-capable adapter smoke only; no-cache adapters still need a separate direct/raw-weight linear plan"
+      },
+      "artifacts": [
+        "agent_space/paddle_hymt_current_focus/hymt_after_linear_cache_split_gpu0.json",
+        "agent_space/paddle_hymt_current_focus/hymt_after_direct_linear_gpu0.json",
+        "agent_space/paddle_hymt_current_focus/hymt_after_direct_linear_gpu1.json",
+        "agent_space/paddle_hymt_current_focus/hymt_after_direct_linear_gpu2.json",
+        "agent_space/paddle_hymt_current_focus/paddleocr_after_direct_linear_gpu0.json"
+      ],
+      "decision": "Accept the generic `aten::linear` direct dispatch and packed-cache split as a default cache-capable adapter fix. Do not treat the GTX 1080/RX 6700 XT results as regressions of this path: those adapters intentionally skip large persistent weight caching and still require a no-cache linear execution plan that avoids per-forward full-weight repack/copy without retaining all packed weights persistently.",
+      "revisit_conditions": [
+        "If RX 9070 HY-MT raw linear weight explicit-copy buckets reappear after setup prepack and counter reset.",
+        "If a no-cache RawDirectWeightLinearPlan or InferenceOwnedPackedLinearModulePlan is implemented for GTX 1080/RX 6700 XT, rerun all three adapters and update this entry instead of broadening cache policy.",
+        "If broad `aten::linear` dispatch shows a correctness or layout regression on non-HY-MT workloads, add generated `LinearDirectDispatchContract` coverage or narrow the dispatch predicate before claiming model speedups.",
+        "If HY-MT timings are compared, use multi-repeat runs; the recorded timings are one-token smoke evidence."
       ]
     }
   ]

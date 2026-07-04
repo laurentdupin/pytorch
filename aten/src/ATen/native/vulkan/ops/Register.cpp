@@ -25,6 +25,7 @@
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/ops/VulkanValueTrace.h>
 #include <ATen/native/vulkan/ops/Zero.h>
+#include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
@@ -315,6 +316,10 @@ bool check_tensor_finite_runtime(const Tensor& tensor, std::string label) {
 
 bool value_trace_enabled_runtime() {
   return vulkan_value_trace_enabled();
+}
+
+std::vector<std::string> device_policy_snapshot_runtime() {
+  return {utils::describe_device_policy(utils::current_vulkan_device_policy())};
 }
 
 int64_t cpu_fallback_count_runtime() {
@@ -1677,6 +1682,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::value_trace_enabled() -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::device_policy_snapshot() -> str[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::cpu_fallback_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_readback_count() -> int"));
@@ -1970,6 +1977,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::value_trace_enabled"),
       TORCH_FN(value_trace_enabled_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::device_policy_snapshot"),
+      TORCH_FN(device_policy_snapshot_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::cpu_fallback_count"),
       TORCH_FN(cpu_fallback_count_runtime));

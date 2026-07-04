@@ -1,0 +1,254 @@
+{
+  "schema": "VulkanCorpusResilienceAxesManifest.v0",
+  "last_updated": "2026-07-03",
+  "purpose": "Checked-in review memory for PaddleOCR and HY-MT contract rows whose real model coverage depends on input variation axes such as crop width, recognition sequence length, prompt length, and decode window length.",
+  "policy_kinds": [
+    "bounded_envelope",
+    "sparse_rowset",
+    "factorized_group",
+    "schema_only_fail_closed",
+    "behavioral_policy"
+  ],
+  "entries": [
+    {
+      "id": "paddleocr_ocr_projection_sparse_rows",
+      "corpus_models": [
+        "PaddleOCR"
+      ],
+      "contract": {
+        "name": "SmallSpatialPointwiseConvContract",
+        "spec_file": "small_spatial_pointwise_conv_contract.json",
+        "family": "OCRProjection",
+        "rowset": "projection_rows"
+      },
+      "policy_kind": "sparse_rowset",
+      "admitted_axes": {
+        "batch": "OCRProjection only, batch 1..8",
+        "channels": "finite correlated input/output channel pairs",
+        "spatial": "finite correlated HxW rows including 3x80, 6x80, 7x7, 14x14, and 1x1",
+        "dtype_layout": "float32 rank-4 direct-buffer pointwise conv"
+      },
+      "input_variation_coverage": [
+        "ShapeEnvelope sparse-rowset positives cover the checked-in OCRProjection rows.",
+        "Adjacent negatives cover forbidden cross-products, non-OCR batch policy, OCR batch above max, input_h, input_w, output_c, dtype, rank, kernel, stride, padding, dilation, groups, storage, and buffer-compute capability.",
+        "Current PaddleOCR smoke evidence covers the screenshot/crop distribution recorded in PERFORMANCE_EVIDENCE.md and CURRENT_STATE.md."
+      ],
+      "known_out_of_envelope": [
+        "Unobserved recognizer crop widths other than the admitted spatial rows are rejected.",
+        "Unobserved channel/spatial cross-products are rejected.",
+        "Batch greater than 8 is rejected even if individual shapes otherwise match."
+      ],
+      "migration_target": "Promote OCRProjection to a bounded factorized group or explicitly permanent finite rowset after a crop-width/channel census covers realistic PaddleOCR input variation.",
+      "next_guardrail": "Before adding another OCRProjection row, collect a PaddleOCR varied-input route census and update this manifest with whether the new row reduces a factorization gap or remains permanent finite evidence."
+    },
+    {
+      "id": "paddleocr_recognizer_sdpa_policy_row",
+      "corpus_models": [
+        "PaddleOCR"
+      ],
+      "contract": {
+        "name": "SDPAExecutionPolicyContract",
+        "spec_file": "sdpa_execution_policy_contract.json",
+        "family": "RecognizerNonCausalMHACloneOnly",
+        "rowset": "policy_rows"
+      },
+      "policy_kind": "sparse_rowset",
+      "admitted_axes": {
+        "batch": "1..6",
+        "heads": "query/key/value heads fixed at 8",
+        "sequence": "query and key/value sequence fixed at 40",
+        "head_dim": "15",
+        "mask_dropout_causal": "no mask, dropout zero, non-causal, GQA disabled"
+      },
+      "input_variation_coverage": [
+        "ShapeEnvelope positives and adjacent negatives cover the current recognizer policy row.",
+        "Adjacent negatives include forbidden cross-products and sequence/head policy drift."
+      ],
+      "known_out_of_envelope": [
+        "Recognizer sequence lengths other than 40 are rejected.",
+        "Recognizer batches above 6 are rejected.",
+        "Different recognizer head_dim or head count is rejected."
+      ],
+      "migration_target": "Replace the single recognizer policy row with a bounded recognizer sequence envelope only after varied OCR-width evidence proves sequence-length and head-dim independence.",
+      "next_guardrail": "Run PaddleOCR with varied input image widths or crop-resize settings and record SDPA policy-row misses before broadening sequence coverage."
+    },
+    {
+      "id": "paddleocr_channel_cat_pair_route_gap",
+      "corpus_models": [
+        "PaddleOCR"
+      ],
+      "contract": {
+        "name": "ChannelCatContract",
+        "spec_file": "channel_cat_contract.json",
+        "family": "Rank4Dim1BufferView",
+        "rowset": "generated_multi_input_rows"
+      },
+      "policy_kind": "bounded_envelope",
+      "admitted_axes": {
+        "generated_multi_input": "3..8 rank-4 dim-1 float inputs, channels multiple-of-4, total channels <=4096, H/W <=128",
+        "handwritten_pair_route": "2 rank-4 dim-1 float inputs, positive channels including odd pairs, total channels <=4096, H/W <=224"
+      },
+      "input_variation_coverage": [
+        "Generated ChannelCatContract positives and adjacent negatives cover the 3..8 input buffer-view envelope.",
+        "Focused pair-route tests cover two-input odd-channel pairs and route hit logging."
+      ],
+      "known_out_of_envelope": [
+        "The two-input pair route is not yet represented directly in the generated ChannelCatContract ShapeEnvelope.",
+        "Pair-route spatial coverage beyond 224x224 is rejected.",
+        "Non-rank-4 or non-dim-1 cats remain outside this family."
+      ],
+      "migration_target": "Fold the two-input pair route into generated ChannelCatContract coverage or split a generated TwoInputChannelCatContract with adjacent negatives.",
+      "next_guardrail": "Do not add more handwritten pair-cat variants; extend generated contract coverage first."
+    },
+    {
+      "id": "paddleocr_large_sliding_window_packed_weight_policy",
+      "corpus_models": [
+        "PaddleOCR"
+      ],
+      "contract": {
+        "name": "LargeSlidingWindowPackedWeightResidency",
+        "spec_file": null,
+        "family": "Conv2dSlidingWindowPackedWeightCachePolicy",
+        "rowset": "runtime_policy"
+      },
+      "policy_kind": "behavioral_policy",
+      "admitted_axes": {
+        "adapter_policy": "non-conservative adapters only",
+        "weight_size": "float non-quantized buffer-direct Conv2dSlidingWindow handles up to 8 MB",
+        "identity": "source/version/bias/device identity cache only; no shape-only reuse"
+      },
+      "input_variation_coverage": [
+        "RX 9070 warm PaddleOCR repeats hit the two large sliding-window rows.",
+        "GTX 1080 and RX 6700 XT guardrails keep the conservative 2 MB skip policy and complete successfully."
+      ],
+      "known_out_of_envelope": [
+        "Conservative adapters keep skipping large entries.",
+        "Large shapes above the policy byte bound are not retained.",
+        "Shape-only reuse without source identity remains forbidden."
+      ],
+      "migration_target": "Convert packed-weight residency into a generated packed-weight policy manifest keyed by capability profile, byte budget, and source identity once multi-input PaddleOCR evidence is stable.",
+      "next_guardrail": "Before changing the byte threshold, collect all three GPU packed-weight hit/miss/store/skip evidence and update performance evidence."
+    },
+    {
+      "id": "hymt_kv_cache_append_sequence_window",
+      "corpus_models": [
+        "HY-MT"
+      ],
+      "contract": {
+        "name": "KVCacheAppendContract",
+        "spec_file": "kv_cache_append_contract.json",
+        "family": "SequenceAppend",
+        "rowset": "bounded_sequence_append"
+      },
+      "policy_kind": "bounded_envelope",
+      "admitted_axes": {
+        "batch": "1",
+        "heads": "4",
+        "head_dim": "128",
+        "source_sequence": "1..115",
+        "token_sequence": "1"
+      },
+      "input_variation_coverage": [
+        "ShapeEnvelope positives cover source sequence endpoints inside 1..115.",
+        "Adjacent negatives cover sequence below/above bounds and incompatible rank/head/head-dim cases."
+      ],
+      "known_out_of_envelope": [
+        "Generation windows requiring source sequence above 115 are rejected.",
+        "Batch greater than 1, head count other than 4, or head dim other than 128 is rejected.",
+        "Appending more than one token at a time is outside the current sequence append family."
+      ],
+      "migration_target": "Promote to a broader transformer KV-cache append contract only after longer-prompt and multi-token decode evidence proves lifetime/copy behavior across sequence lengths.",
+      "next_guardrail": "Run HY-MT prompt/decode variation before extending the sequence upper bound."
+    },
+    {
+      "id": "hymt_kv_cache_initial_prompt_window",
+      "corpus_models": [
+        "HY-MT"
+      ],
+      "contract": {
+        "name": "KVCacheAppendContract",
+        "spec_file": "kv_cache_append_initial_contract.json",
+        "family": "InitialCache",
+        "rowset": "bounded_initial_empty_cache"
+      },
+      "policy_kind": "bounded_envelope",
+      "admitted_axes": {
+        "batch": "1",
+        "heads": "4",
+        "head_dim": "128",
+        "initial_sequence": "14..116",
+        "empty_cache_shape": "rank-1 empty cache"
+      },
+      "input_variation_coverage": [
+        "ShapeEnvelope positives cover the bounded initial prompt window.",
+        "Adjacent negatives cover below-min and above-max prompt sequence cases."
+      ],
+      "known_out_of_envelope": [
+        "Prompts shorter than 14 or longer than 116 are rejected by this initial-cache family.",
+        "Different batch/head/head_dim layouts are rejected."
+      ],
+      "migration_target": "Fold initial-empty handling into a broader KV-cache region contract after prompt-length variation proves transition and copy budgets.",
+      "next_guardrail": "Before adding another initial prompt row, record whether the new prompt is a bound extension, a new layout, or a different cache-init semantic."
+    },
+    {
+      "id": "hymt_transformer_gqa_decode_rows",
+      "corpus_models": [
+        "HY-MT"
+      ],
+      "contract": {
+        "name": "TransformerGQASDPAContract",
+        "spec_file": "transformer_gqa_sdpa_contract.json",
+        "family": "SmallNonCausalGQA",
+        "rowset": "sparse_attention_rows"
+      },
+      "policy_kind": "sparse_rowset",
+      "admitted_axes": {
+        "batch": "1",
+        "query_sequence": "1 for decode row",
+        "source_sequence": "bounded short decode row",
+        "heads": "GQA decode head layout from sparse rowset",
+        "head_dim": "128"
+      },
+      "input_variation_coverage": [
+        "Generated sparse-rowset positives cover the checked-in TransformerGQA SDPA rows.",
+        "Adjacent negatives cover forbidden cross-products and causal/GQA policy drift."
+      ],
+      "known_out_of_envelope": [
+        "Longer source sequences outside the sparse rowset remain rejected.",
+        "Different GQA head grouping or head_dim remains rejected."
+      ],
+      "migration_target": "Replace sparse decode rows with a bounded Transformer decode SDPA policy once longer prompt/decode windows and GQA head relationships are proven.",
+      "next_guardrail": "Collect HY-MT prompt-length sweeps with route labels before extending decode SDPA rows."
+    },
+    {
+      "id": "hymt_generation_control_fallback_rows",
+      "corpus_models": [
+        "HY-MT"
+      ],
+      "contract": {
+        "name": "SmallControlTensorFallbackContract",
+        "spec_file": null,
+        "family": "SmallControlHostResidencyContract",
+        "rowset": "fallback_classification"
+      },
+      "policy_kind": "schema_only_fail_closed",
+      "admitted_axes": {
+        "native_execution": "not admitted",
+        "small_control_classification": "bounded Bool/Long/Int control tensors, Float only for tiny comparison-control rows",
+        "scalar_extraction": "classified as Python control boundary"
+      },
+      "input_variation_coverage": [
+        "HY-MT one-token transition logs classify the remaining generation-control fallbacks.",
+        "Direct host-visible tiny Long/Int upload was probed and rejected with VK_ERROR_MEMORY_MAP_FAILED.",
+        "Public standalone argmax remains fail-closed after incorrect Long index materialization outside max(dim)."
+      ],
+      "known_out_of_envelope": [
+        "HY-MT logits argmax over [1,120818] is not solved by the small-control fallback policy.",
+        "isin, scalar comparisons, Long/Bool binary/control ops, and scalar extraction still cross CPU boundaries.",
+        "max(dim).indices coverage does not prove public argmax(dim) correctness."
+      ],
+      "migration_target": "Create separate generated control contracts for each native promotion, starting with a proven FloatBufferArgmaxDimLongOutputContract before any broader Long/Bool compute route.",
+      "next_guardrail": "Do not broaden small-control fallback into native execution without per-op positive, adjacent-negative, and transition-budget tests."
+    }
+  ]
+}

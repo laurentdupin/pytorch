@@ -2274,6 +2274,79 @@ class TestVulkanGovernance(TestCase):
             self.assertIsInstance(entry["revisit_conditions"], list)
             self.assertGreater(len(entry["revisit_conditions"]), 0)
 
+    def test_vulkan_corpus_resilience_axes_manifest_schema(self):
+        path = os.path.join(
+            REPO_ROOT,
+            "test",
+            "vulkan_contract_proofs",
+            "corpus_resilience_axes_manifest.json",
+        )
+        with open(path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+
+        self.assertEqual(
+            manifest.get("schema"),
+            "VulkanCorpusResilienceAxesManifest.v0",
+        )
+        self.assertIn("PaddleOCR", manifest.get("purpose", ""))
+        self.assertIn("HY-MT", manifest.get("purpose", ""))
+
+        policy_kinds = set(manifest.get("policy_kinds", ()))
+        self.assertTrue(policy_kinds)
+        entries = manifest.get("entries", [])
+        self.assertGreater(len(entries), 0)
+
+        seen_ids = set()
+        seen_models = set()
+        required_fields = (
+            "id",
+            "corpus_models",
+            "contract",
+            "policy_kind",
+            "admitted_axes",
+            "input_variation_coverage",
+            "known_out_of_envelope",
+            "migration_target",
+            "next_guardrail",
+        )
+        allowed_models = {"PaddleOCR", "HY-MT"}
+        for entry in entries:
+            for field in required_fields:
+                self.assertIn(field, entry)
+            self.assertNotIn(entry["id"], seen_ids)
+            seen_ids.add(entry["id"])
+            self.assertIn(entry["policy_kind"], policy_kinds)
+
+            corpus_models = entry["corpus_models"]
+            self.assertIsInstance(corpus_models, list)
+            self.assertGreater(len(corpus_models), 0)
+            self.assertTrue(set(corpus_models).issubset(allowed_models))
+            seen_models.update(corpus_models)
+
+            contract = entry["contract"]
+            for field in ("name", "family", "rowset"):
+                self.assertIn(field, contract)
+                self.assertIsInstance(contract[field], str)
+                self.assertTrue(contract[field])
+            spec_file = contract.get("spec_file")
+            if spec_file is not None:
+                spec = _load_vulkan_contract_spec(spec_file)
+                self.assertEqual(spec["contract_name"], contract["name"])
+
+            for field in (
+                "admitted_axes",
+                "input_variation_coverage",
+                "known_out_of_envelope",
+            ):
+                self.assertGreater(len(entry[field]), 0)
+            self.assertIsInstance(entry["admitted_axes"], dict)
+            self.assertIsInstance(entry["input_variation_coverage"], list)
+            self.assertIsInstance(entry["known_out_of_envelope"], list)
+            self.assertNotEqual(entry["migration_target"], "")
+            self.assertNotEqual(entry["next_guardrail"], "")
+
+        self.assertEqual(seen_models, allowed_models)
+
     def test_vulkan_conv_plan_tuning_result_self_test(self):
         script_path = os.path.join(
             REPO_ROOT,
@@ -5295,7 +5368,7 @@ class TestVulkanGovernance(TestCase):
             ["input_c", "input_h", "input_w", "output_c"],
         )
         self.assertEqual(rowset["label_field"], "tuple_id")
-        self.assertEqual(len(rowset["rows"]), 65)
+        self.assertEqual(len(rowset["rows"]), 67)
         self.assertEqual(
             spec["shape_envelope"]["family_batch_policy"],
             {
@@ -5326,13 +5399,13 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(
             family_counts,
             {
-                "DepthVisionProjection": 26,
+                "DepthVisionProjection": 28,
                 "OCRProjection": 23,
                 "DiffusionProjection": 16,
             },
         )
-        self.assertEqual(len(lookup_keys), 65)
-        self.assertEqual(len(tuple_ids), 65)
+        self.assertEqual(len(lookup_keys), 67)
+        self.assertEqual(len(tuple_ids), 67)
         self.assertNotIn((512, 7, 7, 2048), lookup_keys)
 
         factorized_groups = spec["shape_envelope"]["factorized_groups"]
@@ -8700,6 +8773,83 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_transition_log_classifies_small_control_host_residency_blocker(self):
+        log_name = "vulkan_small_control_transition_contract_test.jsonl"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+
+                log_path = os.path.join(os.getcwd(), "vulkan_small_control_transition_contract_test.jsonl")
+                if os.path.exists(log_path):
+                    os.remove(log_path)
+                os.environ["PYTORCH_VULKAN_TRANSITION_LOG"] = log_path
+
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                values = torch.tensor([1, 2, 3], dtype=torch.long).to("vulkan")
+                comparison = values < 0
+                result = bool(comparison.any().item())
+                assert result is False
+                assert torch.ops.vulkan_prepack.cpu_fallback_count() >= 1
+                assert torch.ops.vulkan_prepack.sync_readback_count() >= 1
+
+                with open(log_path, encoding="utf-8") as log_file:
+                    records = [
+                        json.loads(line)
+                        for line in log_file
+                        if line.strip()
+                    ]
+                print(json.dumps(records, sort_keys=True))
+            """
+
+            _, result = self._run_repo_python_subprocess(
+                script,
+                timeout=120,
+                error_prefix="Vulkan small-control transition subprocess failed.",
+            )
+            records = json.loads(result.stdout.strip().splitlines()[-1])
+            tensor_fallback_rows = [
+                record for record in records
+                if record.get("producer_contract")
+                == "SmallControlTensorFallbackContract"
+            ]
+            scalar_extraction_rows = [
+                record for record in records
+                if record.get("producer_contract")
+                == "SmallControlScalarExtractionContract"
+            ]
+
+            self.assertGreaterEqual(len(tensor_fallback_rows), 1)
+            self.assertGreaterEqual(len(scalar_extraction_rows), 1)
+            self.assertTrue(
+                any(
+                    record.get("producer_schema") == "aten::comparison"
+                    and "SmallControlHostResidencyContract.v0"
+                    in record.get("detail", "")
+                    and "host_residency_authorized=0"
+                    in record.get("detail", "")
+                    for record in tensor_fallback_rows
+                )
+            )
+            self.assertTrue(
+                any(
+                    record.get("producer_schema") == "aten::_local_scalar_dense"
+                    and record.get("host_transfer")
+                    and record.get("sync_required")
+                    and "PythonControlPlaneScalarConsumer"
+                    == record.get("consumer_contract")
+                    for record in scalar_extraction_rows
+                )
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_raw_buffer_transfer_retire_skips_descriptor_pool_flush(self):
         log_name = "vulkan_raw_buffer_transfer_retire_sync_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
@@ -9064,6 +9214,48 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         mask = torch.ones(6, 6, dtype=torch.bool)
         self._assert_vulkan_matches_cpu(lambda t: torch.triu(t, diagonal=0), mask)
 
+    def test_small_long_buffer_fill_no_fallback(self):
+        op_hit_log_path = os.path.join(
+            REPO_ROOT, "vulkan_small_long_buffer_fill_op_hit.log")
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        old_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                torch.ops.vulkan_prepack.reset_submit_origin_counters()
+                ones = torch.ones((2, 3), dtype=torch.long, device="vulkan")
+                self.assertEqual(ones.cpu(), torch.ones((2, 3), dtype=torch.long))
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+                zeros = torch.empty((2, 3), dtype=torch.long, device="vulkan")
+                zeros.fill_(0)
+                self.assertEqual(zeros.cpu(), torch.zeros((2, 3), dtype=torch.long))
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+                submit_origins = _vulkan_submit_origin_counters_by_name()
+                self.assertGreater(submit_origins["host_upload"], 0)
+
+                unsupported = torch.empty((2, 3), dtype=torch.long, device="vulkan")
+                unsupported.fill_(2)
+                self.assertEqual(
+                    unsupported.cpu(), torch.full((2, 3), 2, dtype=torch.long))
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+
+            with open(op_hit_log_path, encoding="utf-8") as log_file:
+                op_hits = log_file.read()
+            self.assertIn(
+                "op=aten::fill_.Scalar.small_long_host_upload", op_hits)
+        finally:
+            if old_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = old_op_hit_log
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
     def test_eye_factory_and_out(self):
         with torch.inference_mode():
             expected_square = torch.eye(5, dtype=torch.float32)
@@ -9123,54 +9315,90 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def test_argmax_matches_cpu(self):
         with torch.inference_mode():
+            cases = [
+                (torch.randn(2, 3, 5), -1, False),
+                (torch.tensor([[2.0, 5.0, 5.0, -1.0]]), -1, False),
+                (torch.randn(2, 3, 7), 1, True),
+                (torch.randn(1, 120818), -1, False),
+            ]
+            for x, dim, keepdim in cases:
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                expected = torch.argmax(x, dim=dim, keepdim=keepdim)
+                actual = torch.argmax(x.to("vulkan"), dim=dim, keepdim=keepdim)
+
+                self.assertTrue(actual.is_vulkan)
+                self.assertEqual(expected, actual.cpu())
+                self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                out = torch.empty(expected.shape, device="vulkan", dtype=torch.long)
+                actual_out = torch.argmax(
+                    x.to("vulkan"), dim=dim, keepdim=keepdim, out=out)
+                self.assertEqual(expected, actual_out.cpu())
+                self.assertEqual(expected, out.cpu())
+                self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+            torch.ops.vulkan_prepack.reset_fallback_counters()
             x = torch.randn(2, 3, 5)
-            expected = torch.argmax(x, dim=-1)
-            actual = torch.argmax(x.to("vulkan"), dim=-1).cpu()
-            self._assert_outputs_close(expected, actual)
+            expected_flat = torch.argmax(x)
+            actual_flat = torch.argmax(x.to("vulkan"))
+            self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(expected_flat, actual_flat.cpu())
 
-            out = torch.empty((1, 1), device="vulkan", dtype=torch.long)
-            actual_out = torch.argmax(x.to("vulkan"), dim=-1, out=out).cpu()
-            self._assert_outputs_close(expected, actual_out)
-            self._assert_outputs_close(expected, out.cpu())
-
-    def test_max_dim_last_dim_matches_cpu_without_fallback(self):
+    def test_max_dim_matches_cpu_with_index_output_fallback(self):
         with torch.inference_mode():
             cases = [
-                torch.tensor(
-                    [[[1.0, 3.0, 3.0, -2.0], [5.0, 4.0, 5.0, 1.0]]],
-                    dtype=torch.float32,
+                (torch.tensor([1.0, 3.0, 2.0]), 0, False),
+                (
+                    torch.tensor(
+                        [[[1.0, 3.0, 3.0, -2.0], [5.0, 4.0, 5.0, 1.0]]],
+                        dtype=torch.float32,
+                    ),
+                    -1,
+                    False,
                 ),
-                torch.randn(2, 40, 18385),
+                (torch.randn(2, 3, 5), 1, False),
+                (torch.randn(2, 3, 17), -1, True),
+                (torch.randn(2, 40, 18385), -1, False),
             ]
 
-            for x in cases:
+            for x, dim, keepdim in cases:
                 torch.ops.vulkan_prepack.reset_fallback_counters()
-                values, indices = torch.max(x.to("vulkan"), dim=-1)
+                values, indices = torch.max(
+                    x.to("vulkan"), dim=dim, keepdim=keepdim)
 
                 self.assertTrue(values.is_vulkan)
                 self.assertTrue(indices.is_vulkan)
-                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
-                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+                self.assertGreater(
+                    torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-                expected_values, expected_indices = torch.max(x, dim=-1)
+                expected_values, expected_indices = torch.max(
+                    x, dim=dim, keepdim=keepdim)
                 self._assert_outputs_close(expected_values, values.cpu())
                 self.assertEqual(expected_indices, indices.cpu())
 
-    def test_max_dim_last_dim_keepdim_matches_cpu_without_fallback(self):
+    def test_max_dim_out_matches_cpu_with_index_output_fallback(self):
         with torch.inference_mode():
             x = torch.randn(2, 3, 17)
             torch.ops.vulkan_prepack.reset_fallback_counters()
-            values, indices = torch.max(x.to("vulkan"), dim=-1, keepdim=True)
+            values_out = torch.empty((2, 3, 1), device="vulkan")
+            indices_out = torch.empty((2, 3, 1), device="vulkan", dtype=torch.long)
+            values, indices = torch.max(
+                x.to("vulkan"),
+                dim=-1,
+                keepdim=True,
+                out=(values_out, indices_out))
 
             self.assertTrue(values.is_vulkan)
             self.assertTrue(indices.is_vulkan)
-            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
-            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+            self.assertGreater(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
             expected_values, expected_indices = torch.max(
                 x, dim=-1, keepdim=True)
             self._assert_outputs_close(expected_values, values.cpu())
             self.assertEqual(expected_indices, indices.cpu())
+            self._assert_outputs_close(expected_values, values_out.cpu())
+            self.assertEqual(expected_indices, indices_out.cpu())
 
     def test_max_and_min_matches_cpu(self):
         with torch.inference_mode():
@@ -11920,6 +12148,74 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             actual_stack = torch.stack((a_vulkan, b_vulkan), dim=0).cpu()
             self.assertEqual(actual_stack, expected_stack)
 
+    def test_long_last_dim_cat_two_direct_buffer_inputs_no_fallback(self):
+        log_path = os.path.join(
+            REPO_ROOT,
+            "long_last_dim_cat_raw_copy_op_hit_test.log",
+        )
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        old_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            with torch.inference_mode():
+                left = torch.arange(14, dtype=torch.long).reshape(1, 14)
+                right = torch.tensor([[101]], dtype=torch.long)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                expected = torch.cat((left, right), dim=-1)
+                actual = torch.cat(
+                    (left.to("vulkan"), right.to("vulkan")),
+                    dim=-1,
+                ).cpu()
+
+                self.assertEqual(actual, expected)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+                multi_row_left = torch.arange(28, dtype=torch.long).reshape(2, 14)
+                multi_row_right = torch.tensor([[101], [202]], dtype=torch.long)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                expected_multi_row = torch.cat(
+                    (multi_row_left, multi_row_right),
+                    dim=-1,
+                )
+                actual_multi_row = torch.cat(
+                    (
+                        multi_row_left.to("vulkan"),
+                        multi_row_right.to("vulkan"),
+                    ),
+                    dim=-1,
+                ).cpu()
+                self.assertEqual(actual_multi_row, expected_multi_row)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+                same_shape_left = torch.arange(14, dtype=torch.long).reshape(1, 14)
+                same_shape_right = same_shape_left + 100
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                expected_fallback = torch.cat(
+                    (same_shape_left, same_shape_right),
+                    dim=0,
+                )
+                actual_fallback = torch.cat(
+                    (
+                        same_shape_left.to("vulkan"),
+                        same_shape_right.to("vulkan"),
+                    ),
+                    dim=0,
+                ).cpu()
+                self.assertEqual(actual_fallback, expected_fallback)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+        finally:
+            if old_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = old_op_hit_log
+
+        with open(log_path, encoding="utf-8") as log_file:
+            op_hit_text = log_file.read()
+        self.assertIn("op=aten::cat.long_last_dim2_row_copy", op_hit_text)
+        os.remove(log_path)
+
     def test_float_split_and_cat_with_zero_size_vulkan_chunks(self):
         with torch.inference_mode():
             src = torch.randn(3, 5, dtype=torch.float32)
@@ -12074,6 +12370,77 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 op_hit_text = log_file.read()
             self.assertIn("op=aten::cat.buffer_channel_pair", op_hit_text)
             self.assertEqual(actual, expected)
+            os.remove(op_hit_log_path)
+
+    def test_channel_cat_to_conv_readiness_is_observed_but_unauthorized(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        torch.manual_seed(2718)
+        with torch.inference_mode():
+            left = torch.randn(1, 64, 7, 5, dtype=torch.float32)
+            right = torch.randn(1, 32, 7, 5, dtype=torch.float32)
+            weight = torch.randn(8, 96, 3, 3, dtype=torch.float32)
+            bias = torch.randn(8, dtype=torch.float32)
+            context = torch.ops.vulkan_prepack.create_conv2d_context(
+                weight,
+                bias,
+                [1, 1],
+                [1, 1],
+                [1, 1],
+                1,
+            )
+
+            op_hit_log_path = os.path.join(
+                REPO_ROOT,
+                "channel_cat_to_conv_readiness_op_hit_test.log",
+            )
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+            old_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+            try:
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                left_vulkan = make_nchw_buffer_view(left)
+                right_vulkan = make_nchw_buffer_view(right)
+                cat_vulkan = torch.cat((left_vulkan, right_vulkan), dim=1)
+                actual = torch.ops.vulkan_prepack.run_conv2d_context(
+                    cat_vulkan,
+                    context,
+                ).cpu()
+            finally:
+                if old_op_hit_log is None:
+                    os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+                else:
+                    os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = old_op_hit_log
+
+            expected = torch.nn.functional.conv2d(
+                torch.cat((left, right), dim=1),
+                weight,
+                bias,
+                padding=1,
+            )
+            torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            with open(op_hit_log_path, encoding="utf-8") as log_file:
+                op_hit_text = log_file.read()
+            self.assertIn("op=aten::cat.buffer_channel_pair", op_hit_text)
+            self.assertIn(
+                "op=aten::convolution.channel_cat_to_conv_input_readiness",
+                op_hit_text,
+            )
+            self.assertIn(
+                "schema=ChannelCatToConvInputContract.v0",
+                op_hit_text,
+            )
+            self.assertIn("bridge_shape_ready=1", op_hit_text)
+            self.assertIn("copy_elision_authorized=0", op_hit_text)
+            self.assertIn(
+                "reason=missing_single_consumer_non_escape_proof",
+                op_hit_text,
+            )
             os.remove(op_hit_log_path)
 
     def test_float_channel_cat_two_buffer_view_inputs_odd_channels_match_cpu(self):
@@ -15936,6 +16303,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
     def test_large_pointwise_conv2d_exact_midres_depth_vision_matches_cpu(self):
         torch.manual_seed(2733)
         cases = (
+            ((1, 384, 18, 10), 192),
+            ((1, 384, 18, 10), 384),
             ((1, 384, 30, 45), 192),
             ((1, 384, 30, 45), 384),
             ((1, 384, 40, 62), 192),
@@ -16266,6 +16635,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ((1, 768, 20, 30), 640),
                 ((1, 1024, 20, 30), 640),
                 ((1, 384, 20, 29), 192),
+                ((1, 384, 18, 11), 192),
+                ((1, 384, 19, 10), 192),
                 ((1, 1024, 50, 74), 256),
                 ((1, 1024, 60, 93), 1024),
                 ((2, 384, 30, 45), 192),
@@ -17690,6 +18061,56 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 actual_prepack.cpu(),
                 atol=1e-4,
                 rtol=1e-4)
+
+    def test_linear_inference_uses_prepacked_weight_without_clone_copy(self):
+        torch.manual_seed(0)
+        x_cpu = torch.randn(4, 8)
+        weight_cpu = torch.randn(12, 8)
+
+        x_vulkan = x_cpu.to("vulkan")
+        weight_vulkan = weight_cpu.to("vulkan")
+        torch.ops.vulkan_prepack.create_linear_context_labeled(
+            weight_vulkan,
+            None,
+            "test_linear_inference_prepacked_weight")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            actual = F.linear(x_vulkan, weight_vulkan, None)
+        torch.ops.vulkan_prepack.synchronize()
+
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.buffer_copy_counters()[0], 0)
+        self._assert_outputs_close(
+            F.linear(x_cpu, weight_cpu, None),
+            actual.cpu(),
+            atol=1e-4,
+            rtol=1e-4)
+
+        batched_input_cpu = torch.randn(2, 3, 8)
+        bias_cpu = torch.randn(12)
+        batched_input_vulkan = batched_input_cpu.to("vulkan")
+        bias_vulkan = bias_cpu.to("vulkan")
+        torch.ops.vulkan_prepack.create_linear_context_labeled(
+            weight_vulkan,
+            bias_vulkan,
+            "test_linear_inference_prepacked_weight_bias")
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            actual_batched = F.linear(
+                batched_input_vulkan, weight_vulkan, bias_vulkan)
+        torch.ops.vulkan_prepack.synchronize()
+
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.buffer_copy_counters()[0], 0)
+        self._assert_outputs_close(
+            F.linear(batched_input_cpu, weight_cpu, bias_cpu),
+            actual_batched.cpu(),
+            atol=1e-4,
+            rtol=1e-4)
 
     def test_layer_norm_then_linear_in_inference_mode(self):
         torch.manual_seed(0)
@@ -32721,6 +33142,161 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
         )
 
+    def test_vulkan_packed_weight_cache_reuses_reuploaded_cpu_source(self):
+        torch.manual_seed(0)
+        torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+        torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+        weight_cpu = torch.randn(128, 64)
+        bias_cpu = torch.randn(128)
+        x_cpu = torch.randn(2, 64)
+        x = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            for _ in range(5):
+                weight = weight_cpu.to("vulkan")
+                bias = bias_cpu.to("vulkan")
+                y = torch.nn.functional.linear(x, weight, bias)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(x_cpu, weight_cpu, bias_cpu)
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=5" in row
+                and "created=1" in row
+                and "reused=4" in row
+                for row in rows
+            )
+        )
+        packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        self.assertTrue(
+            any(
+                "packed_weight_residency_summary" in row
+                and "hits=4" in row
+                and "misses=1" in row
+                and "stores=1" in row
+                for row in packed_rows
+            )
+        )
+        self.assertTrue(
+            any(
+                "packed_weight_query_aggregate" in row
+                and "kind=Linear" in row
+                and "logical_weight_shape=[64,128]" in row
+                and "lookups=5" in row
+                and "hits=4" in row
+                and "misses=1" in row
+                and "stores=1" in row
+                for row in packed_rows
+            )
+        )
+
+    def test_vulkan_conv_packed_weight_cache_reuses_reuploaded_cpu_source(self):
+        torch.manual_seed(0)
+        torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+        weight_cpu = torch.randn(8, 4, 3, 3)
+        bias_cpu = torch.randn(8)
+        x_cpu = torch.randn(1, 4, 16, 16)
+        x = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            for _ in range(5):
+                weight = weight_cpu.to("vulkan")
+                bias = bias_cpu.to("vulkan")
+                y = torch.nn.functional.conv2d(x, weight, bias, padding=1)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.conv2d(
+            x_cpu, weight_cpu, bias_cpu, padding=1)
+        self.assertEqual(y.cpu(), expected)
+        packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        self.assertTrue(
+            any(
+                "packed_weight_residency_summary" in row
+                and "hits=4" in row
+                and "misses=1" in row
+                and "stores=1" in row
+                for row in packed_rows
+            ),
+            msg="\n".join(packed_rows),
+        )
+        self.assertTrue(
+            any(
+                "packed_weight_query_aggregate" in row
+                and "kind=Conv2dSlidingWindow" in row
+                and "logical_weight_shape=[8,4,3,3]" in row
+                and "lookups=5" in row
+                and "hits=4" in row
+                and "misses=1" in row
+                and "stores=1" in row
+                for row in packed_rows
+            ),
+            msg="\n".join(packed_rows),
+        )
+
+    def test_vulkan_device_policy_snapshot_reports_cache_policy(self):
+        rows = torch.ops.vulkan_prepack.device_policy_snapshot()
+        self.assertGreater(len(rows), 0)
+        joined = "\n".join(rows)
+        self.assertIn("vendor=0x", joined)
+        self.assertIn("device=0x", joined)
+        self.assertIn("avoid_weight_cache=", joined)
+        self.assertIn(
+            "transient_large_linear_weight_cache_threshold_bytes=",
+            joined,
+        )
+
+    def test_vulkan_labeled_linear_context_seeds_runtime_packed_cache_no_bias(self):
+        torch.manual_seed(0)
+        torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+        torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+        weight_cpu = torch.randn(128, 64)
+        x_cpu = torch.randn(2, 64)
+        weight = weight_cpu.to("vulkan")
+        x = x_cpu.to("vulkan")
+
+        with torch.inference_mode():
+            context = torch.ops.vulkan_prepack.create_linear_context_labeled(
+                weight,
+                None,
+                "test_labeled_linear_seeds_runtime_cache",
+            )
+            self.assertIsNotNone(context)
+            torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
+            torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+            y = torch.nn.functional.linear(x, weight, None)
+        torch.ops.vulkan_prepack.synchronize()
+
+        expected = torch.nn.functional.linear(x_cpu, weight_cpu, None)
+        self.assertEqual(y.cpu(), expected)
+        rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
+        self.assertTrue(
+            any(
+                "weight_shape=[64,128]" in row
+                and "count=1" in row
+                and "created=0" in row
+                and "reused=1" in row
+                for row in rows
+            ),
+            msg="\n".join(rows),
+        )
+        packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        self.assertTrue(
+            any(
+                "packed_weight_query_aggregate" in row
+                and "kind=Linear" in row
+                and "logical_weight_shape=[64,128]" in row
+                and "lookups=1" in row
+                and "hits=1" in row
+                and "misses=0" in row
+                and "stores=0" in row
+                for row in packed_rows
+            ),
+            msg="\n".join(packed_rows),
+        )
+
     def test_vulkan_vision_stack_execution_manifest_reports_capture_blocker(self):
         torch.manual_seed(0)
         embed_dim = 384
@@ -37166,7 +37742,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_vision_fc2_exact_tiled_vec2_linear_plan_contract(self):
+    def test_vision_fc2_exact_tiled_vec2_linear_plan_fail_closed(self):
         log_name = "vision_fc2_exact_tiled_vec2_linear_plan_contract_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(repo_root, log_name)
@@ -37205,7 +37781,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                 torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
                 plan_keys = torch.ops.vulkan_prepack.linear_plan_key_snapshot()
-                assert any(
+                assert not any(
                     "schema=VulkanLinearOrMatmulPlanKey.v0" in row
                     and "selected=FloatBufferTiledLinear" in row
                     and "contract=VisionFc2ExactTiledVec2LinearPlanContract" in row
@@ -37221,16 +37797,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "PYTORCH_VULKAN_OP_HIT_LOG": log_name,
                 },
                 timeout=180,
-                error_prefix="Vision fc2 tiled vec2 linear plan contract subprocess failed.",
+                error_prefix="Vision fc2 tiled vec2 fail-closed subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(log_path))
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn("op=aten::linear.buffer_float_tiled_bias_vec2", log_text)
-            self.assertIn("tiled=1", log_text)
-            self.assertIn("vec2=1", log_text)
+            self.assertIn("op=aten::linear.buffer_float_bias", log_text)
+            self.assertNotIn("op=aten::linear.buffer_float_tiled_bias_vec2", log_text)
+            self.assertNotIn("op=aten::linear.buffer_float_tiled_bias", log_text)
+            self.assertIn("tiled=0", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
@@ -37312,7 +37889,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_vision_qkv_exact_tiled_linear_plan_contract(self):
+    def test_vision_qkv_exact_tiled_linear_plan_fail_closed(self):
         log_name = "vision_qkv_exact_tiled_linear_plan_contract_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(repo_root, log_name)
@@ -37350,7 +37927,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                 torch.testing.assert_close(actual, expected, atol=1e-3, rtol=1e-3)
                 plan_keys = torch.ops.vulkan_prepack.linear_plan_key_snapshot()
-                assert any(
+                assert not any(
                     "schema=VulkanLinearOrMatmulPlanKey.v0" in row
                     and "selected=FloatBufferTiledLinear" in row
                     and "contract=VisionQkvExactTiledLinearPlanContract" in row
@@ -37366,16 +37943,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "PYTORCH_VULKAN_OP_HIT_LOG": log_name,
                 },
                 timeout=180,
-                error_prefix="Vision qkv tiled linear plan contract subprocess failed.",
+                error_prefix="Vision qkv tiled linear fail-closed subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(log_path))
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn("op=aten::linear.buffer_float_tiled", log_text)
-            self.assertIn("tiled=1", log_text)
-            self.assertIn("vec2=0", log_text)
+            self.assertIn("op=aten::linear.buffer_float", log_text)
+            self.assertNotIn("op=aten::linear.buffer_float_tiled", log_text)
+            self.assertIn("tiled=0", log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)

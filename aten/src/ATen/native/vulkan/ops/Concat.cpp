@@ -7,9 +7,11 @@
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
+#include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <c10/util/irange.h>
+#include <limits>
 #include <torch/library.h>
 
 namespace at {
@@ -230,6 +232,68 @@ bool can_use_last_dim2_buffer_cat(
   return true;
 }
 
+bool can_use_last_dim2_long_raw_copy_cat(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  constexpr int64_t kMaxRows = 16;
+  constexpr int64_t kMaxOutputWidth = 4096;
+  if (tensors.size() != 2) {
+    return false;
+  }
+  const Tensor& reference = tensors[0];
+  if (
+      reference.scalar_type() != kLong || reference.dim() != 2 ||
+      dim != reference.dim() - 1) {
+    return false;
+  }
+  if (
+      reference.size(0) <= 0 || reference.size(0) > kMaxRows ||
+      reference.size(1) <= 0 || reference.size(1) > kMaxOutputWidth) {
+    return false;
+  }
+  int64_t total_bytes = 0;
+  int64_t output_width = 0;
+  for (const Tensor& tensor : tensors) {
+    if (
+        !tensor.is_vulkan() || tensor.dim() != reference.dim() ||
+        tensor.scalar_type() != reference.scalar_type()) {
+      return false;
+    }
+    if (!tensor.is_contiguous() || tensor.storage_offset() != 0) {
+      return false;
+    }
+    for (const auto d : c10::irange(reference.dim())) {
+      if (d != dim && tensor.size(d) != reference.size(d)) {
+        return false;
+      }
+    }
+    output_width += tensor.size(dim);
+    if (output_width > kMaxOutputWidth) {
+      return false;
+    }
+    const vTensor& v_tensor = convert(tensor);
+    if (
+        v_tensor.storage_type() != api::StorageType::BUFFER ||
+        v_tensor.gpu_memory_layout() != api::GPUMemoryLayout::TENSOR_WIDTH_PACKED ||
+        v_tensor.storage_offset() != 0 ||
+        v_tensor.logical_strides() != calc_contiguous_strides(tensor.sizes()) ||
+        v_tensor.physical_sizes().size() !=
+            static_cast<size_t>(tensor.dim()) ||
+        v_tensor.physical_sizes().back() < tensor.size(dim)) {
+      return false;
+    }
+    const int64_t bytes = safe_downcast<int64_t>(v_tensor.gpu_nbytes());
+    if (bytes < 0 || bytes > std::numeric_limits<uint32_t>::max()) {
+      return false;
+    }
+    total_bytes += bytes;
+    if (total_bytes > std::numeric_limits<uint32_t>::max()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 Tensor cat_last_dim2_buffer(
     const MaterializedITensorListRef& tensors,
     IntArrayRef result_size) {
@@ -296,6 +360,76 @@ Tensor cat_last_dim2_buffer(
           api::MemoryAccessType::READ),
       utils::make_buffer_compute_metadata_ubo(context, v_right).buffer(),
       params.buffer());
+
+  return output;
+}
+
+Tensor cat_last_dim2_long_raw_copy(
+    const MaterializedITensorListRef& tensors,
+    IntArrayRef result_size) {
+  api::AllocationScope allocation_scope("cat.last_dim2_long_raw_copy");
+  Tensor output = utils::create_buffer_tensor(
+      result_size,
+      tensors[0].get().scalar_type(),
+      /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  api::Context* const context = api::context();
+  vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.gpu_memory_layout() ==
+              api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+          v_output.storage_offset() == 0,
+      "Vulkan Long last-dim cat row-copy route requires width-packed buffer output");
+
+  utils::log_vulkan_op_hit("aten::cat.long_last_dim2_row_copy");
+  const int64_t element_size =
+      safe_downcast<int64_t>(api::element_size(v_output.dtype()));
+  const int64_t row_count = result_size[0];
+  const int64_t dst_physical_width = v_output.physical_sizes().back();
+  int64_t dst_logical_width_offset = 0;
+  for (const Tensor& tensor : tensors) {
+    vTensor& v_input = convert(tensor);
+    const int64_t input_width = tensor.size(-1);
+    const int64_t src_physical_width = v_input.physical_sizes().back();
+    const uint32_t copy_bytes = safe_downcast<uint32_t>(
+        input_width * element_size);
+    if (copy_bytes == 0u) {
+      dst_logical_width_offset += input_width;
+      continue;
+    }
+    for (const auto row : c10::irange(row_count)) {
+      const int64_t src_byte_offset =
+          row * src_physical_width * element_size;
+      const int64_t dst_byte_offset =
+          (row * dst_physical_width + dst_logical_width_offset) *
+          element_size;
+      api::PipelineBarrier pipeline_barrier{};
+      note_vulkan_buffer_copy(
+          VulkanBufferCopyReason::ViewMaterialization,
+          v_input,
+          v_output,
+          "aten::cat",
+          "long_last_dim2_row_copy");
+      context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+          pipeline_barrier,
+          v_input.buffer(pipeline_barrier, api::PipelineStage::TRANSFER),
+          v_output.buffer(
+              pipeline_barrier,
+              api::PipelineStage::TRANSFER,
+              api::MemoryAccessType::WRITE),
+          {copy_bytes, 0u, 0u},
+          {safe_downcast<uint32_t>(src_byte_offset), 0u, 0u},
+          {safe_downcast<uint32_t>(dst_byte_offset), 0u, 0u},
+          VK_NULL_HANDLE,
+          api::VulkanSubmitOrigin::Unknown);
+    }
+    dst_logical_width_offset += input_width;
+  }
 
   return output;
 }
@@ -429,6 +563,13 @@ Tensor cat_dim1_4d_pair_buffer(
           api::MemoryAccessType::READ),
       utils::make_buffer_compute_metadata_ubo(context, v_right).buffer(),
       params.buffer());
+
+  const std::vector<Tensor> provenance_inputs{left, right};
+  record_tensor_write(
+      output,
+      "aten::cat",
+      "buffer_channel_pair",
+      provenance_inputs);
 
   return output;
 }
@@ -639,6 +780,11 @@ bool cat_buffer_direct_out_impl(
   }
 
   output_arg = output;
+  const char* const route_label =
+      op_hit_label_override != nullptr
+      ? op_hit_label_override
+      : (uses_buffer_view ? "buffer_channel_view" : "buffer_direct");
+  record_tensor_write(output_arg, "aten::cat", route_label, prepared_tensors);
   return true;
 }
 
@@ -951,6 +1097,12 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   const at::Tensor& tensor = materialized[0];
   auto ndim = safe_downcast<uint32_t>(tensor.dim());
   const int64_t dim = normalize_dim(in_dim, ndim);
+  if (can_use_last_dim2_long_raw_copy_cat(materialized, dim)) {
+    auto result_size = tensor.sizes().vec();
+    result_size[dim] = materialized[0].get().size(dim) +
+        materialized[1].get().size(dim);
+    return cat_last_dim2_long_raw_copy(materialized, result_size);
+  }
   if (!c10::isFloatingType(tensor.scalar_type())) {
     return cat_cpu_fallback(materialized, in_dim);
   }

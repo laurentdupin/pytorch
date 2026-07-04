@@ -1334,6 +1334,137 @@ def summarize_model_parameters(torch: Any, model: Any) -> dict[str, Any]:
     }
 
 
+def prepack_vulkan_linear_modules(
+    torch: Any,
+    root: Any,
+    label_prefix: str,
+) -> tuple[dict[str, Any], list[Any]]:
+    info: dict[str, Any] = {
+        "attempted": True,
+        "visited_objects": 0,
+        "linear_module_count": 0,
+        "prepacked_count": 0,
+        "skipped_not_vulkan": 0,
+        "skipped_invalid_weight": 0,
+        "failed_count": 0,
+        "bias_count": 0,
+        "no_bias_count": 0,
+        "weight_bytes": 0,
+        "bias_bytes": 0,
+        "sample_failures": [],
+        "contexts_retained": 0,
+    }
+    ops = getattr(getattr(torch, "ops", None), "vulkan_prepack", None)
+    policy_snapshot = getattr(ops, "device_policy_snapshot", None) if ops else None
+    if policy_snapshot is None:
+        info["attempted"] = False
+        info["reason"] = "missing_vulkan_device_policy_snapshot_api"
+        return info, []
+    try:
+        policy_rows = [str(row) for row in policy_snapshot()]
+    except Exception as exc:
+        info["attempted"] = False
+        info["reason"] = "device_policy_snapshot_failed"
+        info["device_policy_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+        return info, []
+    info["device_policy_snapshot"] = policy_rows
+    if any("avoid_weight_cache=1" in row for row in policy_rows):
+        info["attempted"] = False
+        info["reason"] = "device_policy_avoids_large_persistent_weight_cache"
+        return info, []
+
+    create_context = getattr(ops, "create_linear_context_labeled", None) if ops else None
+    if create_context is None:
+        info["attempted"] = False
+        info["reason"] = "missing_vulkan_linear_context_api"
+        return info, []
+
+    contexts: list[Any] = []
+    seen_objects: set[int] = set()
+    seen_modules: set[int] = set()
+    stack: list[tuple[str, Any]] = [(label_prefix, root)]
+    max_visits = 20000
+    linear_cls = torch.nn.Linear
+
+    def visit_named_modules(owner_name: str, owner: Any) -> None:
+        named_modules = getattr(owner, "named_modules", None)
+        if not callable(named_modules):
+            return
+        try:
+            modules = list(named_modules())
+        except Exception as exc:
+            if len(info["sample_failures"]) < 8:
+                info["sample_failures"].append(
+                    {
+                        "name": owner_name,
+                        "stage": "named_modules",
+                        "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                    }
+                )
+            return
+        for module_name, module in modules:
+            module_id = id(module)
+            if module_id in seen_modules or not isinstance(module, linear_cls):
+                continue
+            seen_modules.add(module_id)
+            info["linear_module_count"] += 1
+            weight = getattr(module, "weight", None)
+            bias = getattr(module, "bias", None)
+            if not torch.is_tensor(weight) or weight.dim() != 2:
+                info["skipped_invalid_weight"] += 1
+                continue
+            if not is_vulkan_tensor(torch, weight):
+                info["skipped_not_vulkan"] += 1
+                continue
+            if bias is not None and (not torch.is_tensor(bias) or not is_vulkan_tensor(torch, bias)):
+                info["skipped_not_vulkan"] += 1
+                continue
+            label_name = module_name if module_name else f"linear_{module_id:x}"
+            label = f"{label_prefix}.{label_name}"
+            try:
+                contexts.append(create_context(weight, bias, label))
+                info["prepacked_count"] += 1
+                info["weight_bytes"] += int(weight.numel() * weight.element_size())
+                if bias is None:
+                    info["no_bias_count"] += 1
+                else:
+                    info["bias_count"] += 1
+                    info["bias_bytes"] += int(bias.numel() * bias.element_size())
+            except Exception as exc:
+                info["failed_count"] += 1
+                if len(info["sample_failures"]) < 8:
+                    info["sample_failures"].append(
+                        {
+                            "name": label,
+                            "shape": [int(dim) for dim in weight.shape],
+                            "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                        }
+                    )
+
+    while stack and info["visited_objects"] < max_visits:
+        owner_name, obj = stack.pop()
+        obj_id = id(obj)
+        if obj_id in seen_objects:
+            continue
+        seen_objects.add(obj_id)
+        info["visited_objects"] += 1
+        visit_named_modules(owner_name, obj)
+        if isinstance(obj, dict):
+            stack.extend((f"{owner_name}.{key}", value) for key, value in obj.items())
+            continue
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            stack.extend((f"{owner_name}.{idx}", value) for idx, value in enumerate(obj))
+            continue
+        obj_dict = getattr(obj, "__dict__", None)
+        if obj_dict:
+            stack.extend((f"{owner_name}.{key}", value) for key, value in obj_dict.items())
+
+    if stack:
+        info["truncated"] = True
+    info["contexts_retained"] = len(contexts)
+    return info, contexts
+
+
 def parse_key_value_log_line(line: str) -> dict[str, str]:
     parsed: dict[str, str] = {}
     for part in line.strip().split():
@@ -1971,6 +2102,8 @@ def run_text_generation(
     torch = import_torch()
     distributed_import = prepare_benchmark_distributed_import(torch)
     linear_diag: dict[str, Any] = {}
+    linear_prepack: dict[str, Any] = {"attempted": False}
+    linear_prepack_contexts: list[Any] = []
     parameter_summary: dict[str, Any] = {}
     vulkan_parameter_summary: dict[str, Any] = {}
     fallback_attribution: dict[str, Any] | None = None
@@ -2025,6 +2158,13 @@ def run_text_generation(
         if backend == "vulkan":
             vulkan_parameter_summary = summarize_model_parameters(torch, model)
         model.eval()
+        if backend == "vulkan":
+            linear_prepack, linear_prepack_contexts = prepack_vulkan_linear_modules(
+                torch,
+                model,
+                f"{model_name}.setup_linear",
+            )
+            linear_prepack["contexts_retained"] = len(linear_prepack_contexts)
         linear_diag = install_linear_forward_diagnostics(torch, model)
         setup_s = time.perf_counter() - setup_start
 
@@ -2173,6 +2313,7 @@ def run_text_generation(
             "distributed_import_shim": distributed_import,
         }
         if backend == "vulkan":
+            record.output_sanity["linear_module_prepack"] = linear_prepack
             record.output_sanity["linear_forward_diagnostics"] = (
                 summarize_linear_forward_diagnostics(linear_diag)
             )
@@ -2284,6 +2425,8 @@ def run_text_generation(
                 record.failure["vulkan_model_parameter_summary"] = (
                     vulkan_parameter_summary
                 )
+            if linear_prepack.get("attempted", False):
+                record.failure["linear_module_prepack"] = linear_prepack
             if linear_plan_log_path is not None:
                 record.failure["linear_plan_log"] = summarize_linear_plan_log(
                     linear_plan_log_path
