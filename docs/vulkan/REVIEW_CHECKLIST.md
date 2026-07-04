@@ -39,6 +39,11 @@ Use this checklist for Vulkan backend changes.
   `test/vulkan_contract_specs/contract_spec_utils.py --contract-coverage-census`
   so the change is framed against existing ShapeEnvelope/generated-helper
   coverage, live contracts without JSON specs, and temporary-exception linkage.
+- Before adding exact rows for an op family with a dynamic program contract,
+  confirm that the dynamic family rejected with a named unsupported reason or
+  that the row is explicitly performance evidence, a regression fixture, or a
+  negative guard. Do not use exact rows as the default answer for unseen legal
+  shapes.
 
 ## Fallback And Readback
 
@@ -53,6 +58,8 @@ Use this checklist for Vulkan backend changes.
 - On-device numerics use device-generic tests where feasible.
 - Multiple input families use `@parametrize` where feasible.
 - Adjacent unsupported shapes/layouts/dtypes have negative tests.
+- Dynamic program families include randomized legal-shape parity tests that
+  generate fresh shapes per run and print or log a reproduction seed.
 - Existing model-provenance tests keep model names only as provenance, not as
   production route criteria.
 

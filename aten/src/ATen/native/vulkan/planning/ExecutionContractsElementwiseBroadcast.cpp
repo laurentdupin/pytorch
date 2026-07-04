@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionContractDiagnostics.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h>
 
 namespace at {
@@ -150,6 +151,32 @@ ElementwiseBroadcastMatch match_elementwise_broadcast_contract(
         "elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible",
         "broadcast_incompatible",
         "generated");
+    return result;
+  }
+
+  const DynamicProgramDecision decision = build_dynamic_program_runtime_plan(
+      make_elementwise_broadcast_direct_buffer_dynamic_program(
+          self_sizes,
+          other_sizes,
+          self_dtype,
+          other_dtype,
+          output_dtype,
+          self_supports_buffer_compute,
+          other_supports_buffer_compute,
+          buffer_route_selected,
+          op,
+          alpha_is_one,
+          has_output,
+          inplace,
+          &kElementwiseBroadcastMetadata,
+          /*behavior_enabled=*/true));
+  if (!decision.runtime_selection_authorized) {
+    log_contract_reject(
+        &kElementwiseBroadcastMetadata,
+        ContractAdmissionPhase::GeneratedOptions,
+        "build_dynamic_program_runtime_plan",
+        decision.status,
+        "dynamic_program_runtime");
     return result;
   }
 

@@ -40,6 +40,19 @@ struct SmallSpatialPointwiseConvMatch final {
   const ExecutionContractMetadata* metadata{nullptr};
 };
 
+enum class DynamicPointwiseConv1x1DirectBufferFamily : uint8_t {
+  None = 0u,
+  GenericDynamicHW,
+};
+
+struct DynamicPointwiseConv1x1DirectBufferMatch final {
+  bool matched{false};
+  DynamicPointwiseConv1x1DirectBufferFamily family{
+      DynamicPointwiseConv1x1DirectBufferFamily::None};
+  const char* tuple_id{nullptr};
+  const ExecutionContractMetadata* metadata{nullptr};
+};
+
 struct SmallMetadataPaddedConv2DTensorInfo final {
   bool is_vulkan{false};
   ScalarType dtype{kFloat};
@@ -132,6 +145,7 @@ struct NoOverlapConvTranspose2DOptions final {
 enum class NoOverlapConvTranspose2DFamily : uint8_t {
   None = 0u,
   Kernel2Stride2FloatBuffer,
+  DynamicKernelStrideFloatBuffer,
 };
 
 struct NoOverlapConvTranspose2DMatch final {
@@ -443,6 +457,25 @@ SmallSpatialPointwiseConvMatch match_small_spatial_pointwise_conv_contract(
     ScalarType dtype);
 
 bool matches_small_spatial_pointwise_conv_contract(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes,
+    IntArrayRef stride,
+    IntArrayRef padding,
+    IntArrayRef dilation,
+    int64_t groups,
+    ScalarType dtype);
+
+const char* dynamic_pointwise_conv1x1_direct_buffer_family_name(
+    DynamicPointwiseConv1x1DirectBufferFamily family);
+
+const char* dynamic_pointwise_conv1x1_direct_buffer_route_label(
+    DynamicPointwiseConv1x1DirectBufferFamily family);
+
+const char* dynamic_pointwise_conv1x1_direct_buffer_op_hit_label(
+    DynamicPointwiseConv1x1DirectBufferFamily family);
+
+DynamicPointwiseConv1x1DirectBufferMatch
+match_dynamic_pointwise_conv1x1_direct_buffer_contract(
     IntArrayRef input_sizes,
     IntArrayRef weight_sizes,
     IntArrayRef stride,

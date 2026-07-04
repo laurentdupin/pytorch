@@ -559,6 +559,31 @@ VulkanRouteDecision select_conv2d_route(
       log_route_decision("aten::convolution", decision);
       return decision;
     }
+    const DynamicPointwiseConv1x1DirectBufferMatch dynamic_pointwise_contract =
+        match_dynamic_pointwise_conv1x1_direct_buffer_contract(
+            input_sizes,
+            weight_sizes,
+            stride,
+            padding,
+            dilation,
+            groups,
+            dtype);
+    if (dynamic_pointwise_contract.matched) {
+      VulkanRouteDecision decision;
+      decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
+      decision.reject_reason = VulkanRouteRejectReason::None;
+      decision.runtime_policy = runtime_policy;
+      decision.lane = lane;
+      decision.kernel_family = "dynamic_pointwise_conv1x1_direct_buffer";
+      decision.telemetry_label =
+          dynamic_pointwise_conv1x1_direct_buffer_route_label(
+              dynamic_pointwise_contract.family);
+      decision.shape_summary = shape_summary;
+      decision.device_summary = describe_device_policy(device_policy);
+      decision.hard_fail = false;
+      log_route_decision("aten::convolution", decision);
+      return decision;
+    }
     return make_hard_fail_route(
         "aten::convolution",
         VulkanRouteRejectReason::KnownBadLargePointwiseConv,

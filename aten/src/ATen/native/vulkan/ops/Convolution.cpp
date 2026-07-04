@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Utils.h>
 #include <ATen/native/vulkan/impl/Packing.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
@@ -2502,7 +2503,7 @@ bool might_match_no_overlap_conv_transpose2d_contract(
   if (
       input.device().type() != c10::DeviceType::Vulkan ||
       input.scalar_type() != kFloat || input.dim() != 4 ||
-      input.size(0) != 1 || input.size(1) < 64 ||
+      input.size(0) <= 0 || input.size(1) < 64 ||
       !conv_context->transposed() || conv_context->quantized() ||
       conv_context->groups() != 1) {
     return false;
@@ -2514,7 +2515,7 @@ bool might_match_no_overlap_conv_transpose2d_contract(
   const auto& output_padding = conv_context->output_padding();
   if (
       stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
-      stride[0] != 2 || stride[1] != 2 ||
+      stride[0] <= 0 || stride[1] <= 0 ||
       padding[0] != 0 || padding[1] != 0 ||
       dilation[0] != 1 || dilation[1] != 1 ||
       !output_padding_is_zero(output_padding)) {
@@ -2533,8 +2534,8 @@ bool might_match_no_overlap_conv_transpose2d_contract(
   return logical_weight_sizes.size() == 4 &&
       get_dim<DimTConv2DKernel::InChannels>(logical_weight_sizes) ==
       input.size(1) &&
-      get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == 2 &&
-      get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == 2;
+      get_dim<DimTConv2DKernel::Height>(logical_weight_sizes) == stride[0] &&
+      get_dim<DimTConv2DKernel::Width>(logical_weight_sizes) == stride[1];
 }
 
 utils::NoOverlapConvTranspose2DTensorInfo
@@ -3493,11 +3494,35 @@ Tensor run_float_buffer_conv2d_impl(
       plan_decision.reject = VulkanConvRejectReason::None;
     }
   } else {
-    plan_decision.selected =
-        shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
-        ? VulkanConvPlanSelected::FloatBufferPointwise1x1
-        : VulkanConvPlanSelected::FloatBufferConv;
-    plan_decision.reject = VulkanConvRejectReason::None;
+    const utils::DynamicPointwiseConv1x1DirectBufferMatch
+        dynamic_pointwise_contract =
+            utils::match_dynamic_pointwise_conv1x1_direct_buffer_contract(
+                input.sizes(),
+                packed_weight.logical_weight_sizes(),
+                stride,
+                padding,
+                dilation,
+                groups,
+                input.scalar_type());
+    if (dynamic_pointwise_contract.matched) {
+      plan_decision.contract_name =
+          dynamic_pointwise_contract.metadata->contract_name;
+      plan_decision.contract_family =
+          dynamic_pointwise_contract.metadata->family_name;
+      plan_decision.contract_tuple_id = dynamic_pointwise_contract.tuple_id;
+      utils::log_vulkan_op_hit(
+          utils::dynamic_pointwise_conv1x1_direct_buffer_op_hit_label(
+              dynamic_pointwise_contract.family));
+      plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
+      plan_decision.reject = VulkanConvRejectReason::None;
+      plan_decision.old_generic_retained = false;
+    } else {
+      plan_decision.selected =
+          shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
+          ? VulkanConvPlanSelected::FloatBufferPointwise1x1
+          : VulkanConvPlanSelected::FloatBufferConv;
+      plan_decision.reject = VulkanConvRejectReason::None;
+    }
   }
   record_conv_plan_decision(plan_decision, "aten::convolution");
 

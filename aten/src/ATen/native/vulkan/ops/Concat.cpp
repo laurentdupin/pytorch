@@ -9,6 +9,7 @@
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <c10/util/irange.h>
 #include <limits>
@@ -106,6 +107,48 @@ utils::KVCacheAppendMatch match_kv_cache_initial_cat_contract(
       left.is_vulkan(),
       right.is_vulkan(),
       normalized_right_dim);
+}
+
+bool has_direct_sequence_cat_buffer_layout(const Tensor& tensor) {
+  if (!tensor.is_vulkan()) {
+    return false;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  return v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.has_direct_buffer_layout() &&
+      utils::supports_buffer_elementwise_compute(v_tensor);
+}
+
+utils::KVCacheAppendMatch match_dynamic_sequence_cat_direct_buffer(
+    const MaterializedITensorListRef& tensors,
+    const int64_t dim) {
+  if (tensors.size() != 2) {
+    return {};
+  }
+  const Tensor& left = tensors[0];
+  const Tensor& right = tensors[1];
+  const utils::DynamicProgramAdmission admission = utils::admit_dynamic_program(
+      utils::make_sequence_cat_direct_buffer_dynamic_program(
+          left.sizes(),
+          right.sizes(),
+          left.scalar_type(),
+          right.scalar_type(),
+          left.scalar_type(),
+          has_direct_sequence_cat_buffer_layout(left),
+          has_direct_sequence_cat_buffer_layout(right),
+          true,
+          dim,
+          nullptr,
+          false));
+  if (!admission.accepted) {
+    return {};
+  }
+  utils::KVCacheAppendMatch result;
+  result.matched = true;
+  result.family = utils::KVCacheAppendFamily::SequenceAppend;
+  result.tuple_id = "dynamic_sequence_cat_direct_buffer";
+  result.sequence_length = left.size(2);
+  return result;
 }
 
 utils::ChannelCatTensorInfo make_channel_cat_tensor_info(
@@ -1145,6 +1188,12 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
   if (append_kv_cache_contract.matched) {
     return cat_kv_cache_append_dim2_buffer(
         materialized, result_size, append_kv_cache_contract);
+  }
+  const utils::KVCacheAppendMatch dynamic_sequence_cat =
+      match_dynamic_sequence_cat_direct_buffer(materialized, dim);
+  if (dynamic_sequence_cat.matched) {
+    return cat_kv_cache_append_dim2_buffer(
+        materialized, result_size, dynamic_sequence_cat);
   }
   if (can_use_buffer_cat_fast_path(materialized, dim)) {
     return cat_buffer_direct(materialized, dim, result_size);

@@ -171,6 +171,15 @@ Current MVP status:
   channel/spatial cross-products remain out of scope. Route-policy hard-fail
   rescue, shader-family decisions, family op-hit labels, and match-result
   construction remain handwritten.
+- `DynamicPointwiseConv1x1DirectBufferContract` is the first runtime-adaptive
+  pointwise example. It validates semantic legality for
+  fp32 direct-buffer 1x1 conv, then reuses the existing dynamic-shape
+  1x1 buffer shader for unseen H/W instead of requiring an exact sparse row.
+  The first slice is correctness-first and deliberately does not select the
+  as-linear optimized plan.
+- `ElementwiseBroadcastDirectBuffer` records the same dynamic-program pattern
+  for fp32 rank-1 through rank-4 Vulkan buffer add/mul/sub with mathematically
+  legal broadcasting. Exact shapes are not admission gates for this family.
 - `KVCacheAppendContract` `SequenceAppend` and `InitialCache` now use the
   generic ShapeEnvelope C++ simple-bounds generator path:
   `ExecutionContractsKVCacheAppendSpec.h` and
@@ -328,6 +337,40 @@ Choose the next task by trigger, not by a stale fixed family name:
   blockers, not backend regression budgets. Current Lotus telemetry requires a
   real distributed/DTensor-capable source-tree build or compatible runtime; do
   not fake compiled `torch._C` DTensor APIs in the benchmark harness.
+
+## Phase 3.5: Dynamic Program Runtime
+
+Goal: make unknown legal shapes run through semantic dynamic families instead
+of requiring exact sparse rows.
+
+The source-of-truth design is `docs/vulkan/DYNAMIC_PROGRAM_RUNTIME.md`.
+
+The migration order is:
+
+- Add a semantic validator for the family.
+- Add a generic runtime-shape program or generated-program authorization.
+- Add randomized legal-shape parity tests with logged seeds.
+- Keep exact rows as optimization evidence, regression fixtures, or named
+  unsupported-reason exceptions.
+
+The first implemented slice is
+`DynamicPointwiseConv1x1DirectBufferContract`, which admits legal fp32
+direct-buffer 1x1 convolutions with unseen batch/H/W under semantic
+1x1/direct-buffer guards and routes them through the existing dynamic-shape
+1x1 buffer shader.
+`ElementwiseBroadcastDirectBuffer` covers fp32 Vulkan buffer add/mul/sub under
+rank/layout/broadcast semantics.
+`SequenceCatDirectBuffer` covers fp32 rank-4 direct-buffer dim-2 sequence append
+under batch/head/head-dim equality semantics.
+`LinearOrMatmulDirectBuffer` covers fp32 rank-2/rank-3 direct-buffer linear
+execution under semantic M/K/N compatibility. `DynamicNoOverlapConvTranspose2D`
+covers the clean packed-buffer no-overlap transposed-conv family by
+kernel/stride/layout semantics. `BatchNormInferenceContract` already follows
+the semantic-family model for fp32 4D eval mode and now has randomized legal
+shape parity coverage. `Conv2DDirectBuffer` is present
+as the generic conv2d target family; the next step is a generated/direct route
+implementation because randomized parity showed that the existing packed-weight
+generic route cannot be broadly authorized as-is.
 
 ## Phase 4: Region And Layout Contracts
 

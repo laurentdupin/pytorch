@@ -1,13 +1,36 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-03 at local PaddleOCR/HY-MT cleanup head:
-HY-MT KV-cache append broadening, device-policy packed-weight transient
-residency, generic large-linear execution checkpoints, PaddleOCR OCR
-projection cross-adapter fixes, generic transfer cleanup, buffer Float->Byte
-cast, buffer float flip, OCR recognizer pointwise sparse-row coverage, and
-two-input rank-4 channel-cat buffer dispatch coverage. Non-conservative
-adapters now admit bounded large sliding-window conv packed weights into the
-existing identity-checked persistent cache.
+Last refreshed: 2026-07-04 at local dynamic program runtime expansion:
+`DynamicPointwiseConv1x1DirectBufferContract` is the first adaptive pointwise
+example, admitting legal fp32 direct-buffer 1x1 conv with unseen batch/H/W
+under semantic 1x1/direct-buffer guards and routing it through the existing
+dynamic-shape `conv2d_buffer_float_1x1` shader. `ElementwiseBroadcastDirectBuffer`
+also now records fp32 rank-1 through rank-4 Vulkan buffer add/mul/sub as a
+dynamic semantic family when broadcasting is mathematically legal.
+`SequenceCatDirectBuffer` now admits fp32 rank-4 direct-buffer dim-2 sequence
+append under batch/head/head-dim equality semantics and fresh random sequence
+length coverage.
+`LinearOrMatmulDirectBuffer` now gates generic fp32 rank-2/rank-3 direct-buffer
+linear execution by semantic M/K/N compatibility instead of exact tiled-plan
+evidence. `DynamicNoOverlapConvTranspose2DContract` now admits no-overlap
+fp32 direct-buffer transposed convs by kernel/stride/layout semantics with
+random batch/channel/spatial coverage in the clean packed-buffer envelope.
+Low-channel no-overlap transposed conv remains a named small-metadata
+materialization blocker rather than an exact-row target. `Conv2DDirectBuffer`
+is documented as the next semantic target, but
+random legal-shape parity found that the existing packed-weight generic conv
+route is not yet complete enough to route-authorize the family broadly.
+`BatchNormInferenceContract` was already semantic rather than exact-row gated
+for fp32 4D eval mode and now has fresh random legal-shape parity coverage.
+HY-MT
+KV-cache append broadening, device-policy packed-weight transient residency,
+generic
+large-linear execution checkpoints, PaddleOCR OCR projection cross-adapter
+fixes, generic transfer cleanup, buffer Float->Byte cast, buffer float flip,
+OCR recognizer pointwise sparse-row coverage, and two-input rank-4
+channel-cat buffer dispatch coverage remain as previously recorded.
+Non-conservative adapters now admit bounded large sliding-window conv packed
+weights into the existing identity-checked persistent cache.
 Packed-weight residency snapshots now also include per-shape aggregate
 hit/miss/store/skip rows for PaddleOCR/HY-MT attribution. CPU-to-Vulkan upload
 provenance now threads through generic `aten::copy_` CPU upload and linear
@@ -2394,6 +2417,18 @@ These files are diagnostic inputs. Production code must not depend on
   `depth_projection_384_18x10_384` rows are exact sparse rows for the vits
   decoder projection pair and do not promote `18x10` into the factorized
   spatial set.
+  `DynamicPointwiseConv1x1DirectBufferContract` is the first adaptive
+  counterexample to the exact-row operating model: it admits legal fp32,
+  rank-4, direct-buffer 1x1 pointwise convolutions with runtime batch/H/W
+  under semantic 1x1/direct-buffer guards, then
+  runs the existing dynamic-shape `conv2d_buffer_float_1x1` shader instead of
+  requiring a sparse `(input_c, input_h, input_w, output_c)` row. The current
+  slice is correctness-first and does not select the as-linear fast path.
+  Sparse pointwise rows remain evidence and optimized-plan seeds, not the
+  required admission mechanism for every unseen legal H/W.
+  `ElementwiseBroadcastDirectBuffer` applies the same operating model to
+  fp32 Vulkan buffer add/mul/sub: rank, dtype, layout, attributes, and
+  broadcast compatibility are semantic requirements, but exact shapes are not.
   OCR projection rows now have an OCR-only dynamic crop batch policy
   (`N=1..8`) while depth-vision and diffusion projection rows remain batch-1.
   The newest OCR sparse row is `ocr_projection_512_6x80_192`, admitted after

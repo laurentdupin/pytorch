@@ -8,6 +8,7 @@
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
@@ -1520,7 +1521,13 @@ bool can_run_float_buffer_linear(
     }
   }
 
-  return true;
+  return utils::admit_dynamic_program(
+             utils::make_linear_or_matmul_direct_buffer_program_request(
+                 input.sizes(),
+                 weight.sizes(),
+                 bias && bias->defined(),
+                 input.scalar_type()))
+      .accepted;
 }
 
 bool can_run_widened_half_buffer_linear(

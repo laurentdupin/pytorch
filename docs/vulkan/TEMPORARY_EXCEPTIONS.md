@@ -43,7 +43,10 @@ condition and migration target.
   `aten/src/ATen/native/vulkan/ops/Concat.cpp`
 - Status: temporary, contract-named
 - Reason: finite Transformer KV-cache append rows are proven by existing cat
-  tests, but broader sequence/head/layout behavior is not proven yet.
+  tests and now act as evidence/regression fixtures for the dynamic sequence
+  append family. `SequenceCatDirectBuffer` covers fp32 rank-4 direct-buffer
+  dim-2 appends by semantic batch/head/head-dim equality and positive sequence
+  lengths instead of exact observed sequence rows.
 - Generated spec coverage: `test/vulkan_contract_specs/kv_cache_append_contract.json`
   covers the `SequenceAppend` slice for source sequence `S=1..115`, and
   `test/vulkan_contract_specs/kv_cache_append_initial_contract.json` covers the
@@ -56,10 +59,11 @@ condition and migration target.
   sequence lower bounds, InitialCache cross-input handling, and match-result
   assembly remain handwritten. InitialCache positives log
   `aten::cat.kv_cache_initial_dim2_buffer`.
-- Expiry: broader KV-cache append and cat-axis parity plus adjacent negative
-  coverage are available.
-- Migration target: generated `KVCacheAppendContract` and `CatAxisContract`
-  tables with positive and negative tests.
+- Expiry: remaining InitialCache and broader cat-axis behavior have dynamic
+  semantic parity plus adjacent negative coverage.
+- Migration target: `SequenceCatDirectBuffer` plus generated
+  `KVCacheAppendContract` and `CatAxisContract` tables with positive and
+  negative tests.
 
 ### Large Linear Execution Checkpoint
 
@@ -197,9 +201,12 @@ condition and migration target.
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/BinaryOp.cpp`
 - Status: temporary, contract-named
-- Reason: the float32 tensor/tensor buffer-broadcast route is proven for a
-  narrow `add`/`mul`/`sub` canary envelope, but broader binary-op,
-  dtype-promotion, `out=`, inplace, and scalar behavior is not proven yet.
+- Reason: the float32 tensor/tensor buffer-broadcast route is proven for
+  `add`/`mul`/`sub` through `ElementwiseBroadcastDirectBuffer`, which admits
+  fresh rank-1 through rank-4 broadcast-compatible runtime shapes by semantic
+  dtype/layout/op rules. Exact rows remain evidence/regression fixtures around
+  the dynamic family; dtype-promotion, `out=`, inplace, and scalar behavior are
+  still separate unsupported semantics.
 - Generated spec coverage: `test/vulkan_contract_specs/elementwise_broadcast_contract.json`
   covers the `FloatTensorTensorBufferBroadcast` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases, including the
@@ -208,11 +215,10 @@ condition and migration target.
   metadata in tensor provenance. The slice also has generated C++ metadata,
   simple-bound, op-attribute, and `broadcast_compatible` helper coverage in
   `generated/ExecutionContractsElementwiseBroadcastSpec.h`.
-- Expiry: broader elementwise broadcast parity plus adjacent negative coverage
-  are available for tensor/tensor, scalar, `out=`, inplace, and promotion
-  families.
-- Migration target: broader generated `ElementwiseBroadcastContract` tables
-  with positive and negative tests.
+- Expiry: scalar, `out=`, inplace, and promotion families have dynamic semantic
+  parity plus adjacent negative coverage.
+- Migration target: `ElementwiseBroadcastDirectBuffer` plus broader generated
+  `ElementwiseBroadcastContract` tables with positive and negative tests.
 
 ### Transformer GQA SDPA Exact Tuples
 
@@ -431,7 +437,7 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: finite 1x1 pointwise projection rows and one bounded factorized
   depth-vision projection group are proven for current projection envelopes,
-  but broader pointwise shape/layout behavior is not proven yet.
+  but broader optimized-plan row evidence is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/small_spatial_pointwise_conv_contract.json`
   covers the `SparseProjectionRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
@@ -457,16 +463,27 @@ condition and migration target.
   OCR projection rows additionally allow a bounded dynamic crop batch
   `N=1..8`, with checked-in positive coverage for the observed batch-6 and
   batch-3 rows; depth-vision and diffusion projection rows remain batch-1.
-  This does not widen the OCR spatial/channel envelope. Naive min/max
-  envelopes, independent H/W cross-products, and wider channel/spatial
-  cross-products remain rejected by `KnownBadLargePointwiseConv`.
+  This does not widen the OCR spatial/channel envelope.
+  `DynamicPointwiseConv1x1DirectBufferContract` now provides the first
+  adaptive fallback for legal fp32 direct-buffer 1x1 pointwise
+  convolutions with unseen batch/H/W under semantic 1x1/direct-buffer guards.
+  It uses the existing dynamic-shape 1x1 buffer shader
+  and does not require exact H/W observation for correctness. New exact
+  pointwise rows should be added only when this dynamic family rejects with a
+  named unsupported reason or when a row is being kept as optimized-plan
+  evidence.
+  Naive min/max envelopes and independent H/W cross-products for optimized
+  evidence rows remain rejected by
+  `KnownBadLargePointwiseConv`.
   Route-policy hard-fail rescue, shader-family decisions, family op-hit labels,
   and match-result assembly remain handwritten.
-- Expiry: broader pointwise conv parity plus adjacent negative coverage are
-  available across layout, storage, channel-pair, spatial-pair, and
-  output-channel families.
-- Migration target: generated `SmallSpatialPointwiseConvContract` or broader
-  pointwise `KernelFamilyContract` tables with positive and negative tests.
+- Expiry: exact-row optimized plan evidence is either promoted to a bounded
+  plan policy or retired as redundant evidence after dynamic pointwise parity
+  covers layout, storage, channel-pair, spatial-pair, and output-channel
+  families.
+- Migration target: `DynamicPointwiseConv1x1DirectBufferContract` plus broader
+  generated pointwise `KernelFamilyContract` tables with positive and negative
+  tests.
   For OCR, the next promotion should be an OCR recognizer finite-rowset or
   bounded correlation-group proof, not independent channel/spatial
   cross-products.
@@ -511,9 +528,14 @@ condition and migration target.
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
 - Status: temporary, contract-named
-- Reason: the float-buffer 2x2 stride-2 no-overlap transposed-conv envelope is
-  proven for bounded current topologies, but broader transposed-conv
-  shape/options behavior is not proven yet.
+- Reason: the float-buffer 2x2 stride-2 no-overlap transposed-conv rows are
+  proven evidence fixtures, and `DynamicNoOverlapConvTranspose2DContract` now
+  covers the clean packed-buffer no-overlap family by semantic
+  `kernel == stride`, zero padding/output-padding, dilation-one, groups-one
+  rules. Batch, output channels, kernel/stride, and spatial sizes are runtime
+  descriptors in the clean envelope. Low input-channel cases still hit the
+  small-metadata/exact-rearrange materialization path and remain a named
+  layout/materialization gap.
 - Generated spec coverage: `test/vulkan_contract_specs/no_overlap_conv_transpose2d_contract.json`
   covers the `Kernel2Stride2FloatBuffer` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases plus generic
@@ -521,10 +543,11 @@ condition and migration target.
   `generated/ExecutionContractsNoOverlapConvTranspose2DSpec.h`, including
   input/weight channel equality. Output-shape arithmetic, prepack resource
   behavior, and match-result assembly remain handwritten.
-- Expiry: broader conv-transpose parity plus adjacent negative coverage are
-  available.
-- Migration target: generated `NoOverlapConvTranspose2DContract` tables with
-  positive and negative tests.
+- Expiry: low-channel materialization has a direct no-readback path, and
+  broader conv-transpose options have dynamic semantic parity plus adjacent
+  negative coverage.
+- Migration target: `DynamicNoOverlapConvTranspose2DContract` plus generated
+  `NoOverlapConvTranspose2DContract` tables with positive and negative tests.
 
 ### Diffusion SDPA Exact Tuples
 
