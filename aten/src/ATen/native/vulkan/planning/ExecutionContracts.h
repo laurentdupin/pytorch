@@ -93,6 +93,7 @@ struct SmallMetadataPaddedConv2DOptions final {
 enum class SmallMetadataPaddedConv2DFamily : uint8_t {
   None = 0u,
   MaterializedBufferInput2x2,
+  RuntimeMaterializedBufferInput2x2,
 };
 
 struct SmallMetadataPaddedConv2DMatch final {
@@ -161,6 +162,8 @@ enum class TransformerGQASDPAFamily : uint8_t {
   CausalPrefill,
   SmallNonCausalGQA,
   DecodeGQA,
+  DynamicDirectDecodeGQA,
+  DirectNonCausalMHA,
 };
 
 struct TransformerGQASDPAMatch final {
@@ -173,6 +176,7 @@ struct TransformerGQASDPAMatch final {
 enum class MaskedTinySDPAFamily : uint8_t {
   None = 0u,
   AdditiveFloatMask,
+  AdditiveFloatMaskRuntimeShape,
 };
 
 struct MaskedTinySDPAMatch final {
@@ -185,7 +189,9 @@ struct MaskedTinySDPAMatch final {
 enum class DiffusionSDPAFamily : uint8_t {
   None = 0u,
   SquareSelfAttention,
+  SquareSelfAttentionRuntimeShape,
   CrossAttention,
+  CrossAttentionRuntimeShape,
 };
 
 struct DiffusionSDPAMatch final {
@@ -198,6 +204,7 @@ struct DiffusionSDPAMatch final {
 enum class VisionSelfAttentionSDPAFamily : uint8_t {
   None = 0u,
   Rank3Head64Scale1,
+  Rank3Head64Scale1RuntimeShape,
 };
 
 struct VisionSelfAttentionSDPAMatch final {
@@ -211,8 +218,10 @@ struct VisionSelfAttentionSDPAMatch final {
 enum class SDPAExecutionPolicyFamily : uint8_t {
   None = 0u,
   DiffusionMaterializedSquare,
+  DiffusionMaterializedSquareRuntimeShape,
   DiffusionCloneOnlySquare,
   TransformerDecodeGQACloneOnly,
+  TransformerDecodeGQACloneOnlyRuntimeShape,
   VisionSelfAttentionCloneOnly,
   RecognizerNonCausalMHACloneOnly,
 };
@@ -230,7 +239,10 @@ struct SDPAExecutionPolicyMatch final {
 enum class SDPAScoreSoftmaxFamily : uint8_t {
   None = 0u,
   DiffusionSquareScores,
+  DiffusionSquareScoresRuntimeShape,
+  RectangularScoresRuntimeShape,
   VisionSelfAttentionScores,
+  VisionSelfAttentionScoresRuntimeShape,
 };
 
 struct SDPAScoreSoftmaxMatch final {
@@ -250,6 +262,7 @@ struct GQARepeatMatch final {
 enum class KVCacheAppendFamily : uint8_t {
   None = 0u,
   InitialCache,
+  InitialCacheDirectBuffer,
   SequenceAppend,
 };
 
@@ -277,6 +290,7 @@ struct ChannelCatTensorInfo final {
 enum class ChannelCatFamily : uint8_t {
   None = 0u,
   Rank4Dim1BufferView,
+  GenericRank4Dim1DirectBuffer,
 };
 
 struct ChannelCatMatch final {
@@ -291,6 +305,7 @@ struct ChannelCatMatch final {
 enum class TokenPrefixCatAddFamily : uint8_t {
   None = 0u,
   Prefix1TokenCountSetFeatureSetAdd,
+  GenericPrefix1Dim1BufferAdd,
 };
 
 struct TokenPrefixCatAddMatch final {
@@ -306,6 +321,7 @@ struct TokenPrefixCatAddMatch final {
 enum class PatchEmbedFeatureMapToTokensFamily : uint8_t {
   None = 0u,
   Kernel14Stride14ObservedFeatureMap,
+  GenericDirectBuffer,
 };
 
 struct PatchEmbedFeatureMapToTokensMatch final {
@@ -364,6 +380,7 @@ struct LinearGeluBridgeOptions final {
 enum class LinearGeluBridgeFamily : uint8_t {
   None = 0u,
   BackboneMlpHidden384To1536,
+  GenericRuntimeShape,
 };
 
 struct LinearGeluBridgeMatch final {
@@ -382,7 +399,10 @@ struct BatchNormInferenceTensorInfo final {
   bool is_vulkan{false};
   ScalarType dtype{kFloat};
   int64_t dim{0};
+  int64_t batch{0};
   int64_t channels{0};
+  int64_t height{0};
+  int64_t width{0};
   int64_t numel{0};
   bool is_contiguous{false};
   bool has_buffer_storage{false};
@@ -674,6 +694,8 @@ bool matches_gqa_repeat_contract(
 const char* kv_cache_append_family_name(KVCacheAppendFamily family);
 
 const char* kv_cache_append_op_hit_label(KVCacheAppendFamily family);
+
+const ExecutionContractMetadata* kv_cache_initial_dynamic_metadata();
 
 KVCacheAppendMatch match_kv_cache_append_contract(
     IntArrayRef left_sizes,

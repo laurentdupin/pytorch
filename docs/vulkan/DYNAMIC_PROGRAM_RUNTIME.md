@@ -41,6 +41,8 @@ ElementwiseBroadcastDirectBuffer
 ReductionDirectBuffer
 LinearOrMatmulDirectBuffer
 Conv2DDirectBuffer
+PackedBufferConv2D
+PatchEmbedFloatBufferConvRoute
 RegionCommandList
 ```
 
@@ -96,17 +98,57 @@ The initial implementation authorizes:
 ```text
 PointwiseConv1x1DirectBuffer / GenericRuntimeShape
 SequenceCatDirectBuffer / GenericRuntimeShape
+InitialSequenceCatDirectBuffer / GenericRuntimeShape
 ElementwiseBroadcastDirectBuffer / GenericRuntimeShape
 LinearOrMatmulDirectBuffer / GenericRuntimeShape
+LinearGeluBridgeContract / GenericRuntimeShape
 EmbeddingLookupDirectBuffer / ValidCpuIndices
-DynamicNoOverlapConvTranspose2DContract / KernelStrideFloatBuffer
+EmbeddingLookupDirectBuffer / ValidVulkanIndices
+FeatureMapToTokensDirectBuffer / GenericRuntimeShape
+CatAxisDirectBuffer / GenericRuntimeShape
+BatchNormInferenceDirectBuffer / GenericRuntimeShape
+DirectDecodeGQASDPADirectBuffer / GenericRuntimeShape
+DirectCausalPrefillGQASDPADirectBuffer / GenericRuntimeShape
+SmallNonCausalGQASDPADirectBuffer / GenericRuntimeShape
+DirectNonCausalMHASDPADirectBuffer / GenericRuntimeShape
+MaskedTinySDPAContract / AdditiveFloatMaskRuntimeShape
+DiffusionSDPAContract / CrossAttentionRuntimeShape
+TokenPrefixCatAddDirectBuffer / GenericRuntimeShape
+PatchEmbedFloatBufferConvRoute / GenericRuntimeShape
+NoOverlapConvTranspose2DContract / DynamicKernelStrideFloatBuffer
 ```
 
-`Conv2DDirectBuffer` is represented as a semantic target family for the existing
-descriptor-driven generic conv shader, but it is not route-authorized yet.
-Random legal-shape parity exposed that the current packed-weight route cannot
-be treated as a complete dynamic conv2d implementation without additional
-value/readback proof.
+`Conv2DDirectBuffer` is represented as a semantic target family for a future
+direct-layout generic conv shader. A focused random-shape probe showed the
+current `conv2d_buffer_float` path has value parity for generic groups-one,
+dilation-one cases, but it records metadata-packed buffer inputs and often
+metadata-packed outputs (`input_direct=0`, `output_direct=0`). Do not stamp it
+as `Conv2DDirectBuffer`; the next correct migration is a packed-buffer conv
+semantic family or a layout-transition contract that proves direct output
+ownership.
+
+`PackedBufferConv2D` is the semantic family for the existing metadata-packed
+float-buffer conv path. The v0 production stamp is intentionally limited to
+the generic `conv2d_buffer_float` branch for batch-one fp32 rank-4 buffer-backed
+convs with groups `1`, dilation `[1,1]`, positive kernel/stride/spatial/channel
+dimensions, non-negative padding, matching input/weight channels, and positive
+computed output spatial dimensions. It uses existing runtime tensor metadata.
+It does not claim batched-conv coverage, direct-buffer ownership, specialized
+3x3 shader ownership, or generated shader coverage.
+
+`LinearGeluBridgeContract` `GenericRuntimeShape` defers a Vulkan linear output
+only by semantic bridge constraints: rank-2/rank-3 input flattening must match
+the packed weight input dimension, output features must be positive, bias must
+be present, `out=` must be absent, alpha/beta must be `1`, and the downstream
+GELU approximation must be `none` or `tanh`. The old
+`BackboneMlpHidden384To1536` row remains evidence, not a runtime shape gate.
+
+`PatchEmbedFloatBufferConvRoute` is route-authorized separately from generic
+conv2d. It admits fp32 Vulkan buffer patch projections with input `[1,3,H,W]`,
+weight `[C,3,14,14]`, stride `[14,14]`, zero padding, dilation `[1,1]`, and
+groups `1` through the existing `conv2d_buffer_float` shader. Observed DAv2 rows
+remain regression evidence, but legal runtime H/W and output-channel values no
+longer need exact row admission.
 
 ### Generic Runtime Program
 
@@ -139,7 +181,7 @@ command-list generation for that family.
 
 ## First Implemented Slice
 
-`DynamicPointwiseConv1x1DirectBufferContract` admits fp32 direct-buffer
+`SmallSpatialPointwiseConvContract` `GenericDynamicHW` admits fp32 direct-buffer
 1x1 convolution under semantic guards:
 
 ```text
@@ -156,8 +198,12 @@ input channels > 0
 output channels > 0
 ```
 
-This slice is correctness-first. It deliberately routes to the existing
-dynamic-shape 1x1 buffer shader and does not select the as-linear optimized plan.
+This slice routes to the existing dynamic-shape 1x1 buffer shader. When the
+same semantic admission also proves batch-one width-packed input, weight, bias,
+and output metadata, the route may select the existing as-linear plan without
+requiring a sparse projection row. Sparse `SmallSpatialPointwiseConvContract`
+rows remain evidence and regression fixtures rather than runtime legality gates
+for unseen H/W.
 
 Exact sparse pointwise rows remain useful as:
 
@@ -182,6 +228,11 @@ unsupported op.
 batch, head count, and head dimension match and both sequence lengths are
 positive. It routes through the existing runtime-sized dim-2 buffer cat shader
 without requiring a finite KV-cache row for every sequence length.
+`InitialSequenceCatDirectBuffer` covers the matching empty-cache bootstrap case:
+`torch.cat([empty, cache], dim=2)` with a Vulkan empty left operand, a fp32
+rank-4 Vulkan buffer cache tensor, and positive runtime batch/head/sequence/head
+dim values. It uses the existing buffer copy path, so initial prompt sequence
+length and head geometry no longer need exact `InitialCache` row admission.
 
 `LinearOrMatmulDirectBuffer` admits fp32 rank-2 and rank-3 direct-buffer linear
 or matmul-style execution when the RHS is rank 2, dimensions are positive,
@@ -192,13 +243,147 @@ optimization evidence, not shape admission.
 `EmbeddingLookupDirectBuffer` admits fp32 rank-2 Vulkan weights with rank-1 or
 rank-2 CPU Long indices after the host index values are checked against the
 runtime `num_embeddings` bound and copied into the existing int32 index buffer.
-The old `num_embeddings <= 4096`, `embedding_dim <= 256`, and
-`num_indices <= 128` rows are evidence limits for this safe CPU-index path, not
-shader limits. Vulkan-resident Long indices are not broadly admitted because the
-current shader cannot raise PyTorch's out-of-range error without a separate
-valid-index proof or device-side error path.
+It also admits Vulkan-resident Long indices when their exact tensor descriptor
+carries CPU-uploaded integer min/max provenance proving every value is in
+`[0, num_embeddings)`. The old `num_embeddings <= 4096`,
+`embedding_dim <= 256`, and `num_indices <= 128` rows are evidence limits for
+these safe paths, not shader limits. Truly device-produced Long indices remain
+blocked unless they have a no-readback value proof or a device-side error path
+that preserves PyTorch's out-of-range exception.
 
-`DynamicNoOverlapConvTranspose2DContract` admits fp32 rank-4 direct-buffer
+`FeatureMapToTokensDirectBuffer` admits fp32 direct-buffer rank-4 feature maps
+when the storage is buffer-backed and supports buffer-compute metadata. The
+family is semantic for batch, channel, height, and width, but the current
+implementation still requires width-packed buffer layout and zero storage
+offset. The output shape is `[N, H * W, C]`. The finite
+`PatchEmbedFeatureMapToTokensContract` rows remain evidence and regression
+fixtures, not default H/W admission.
+
+`TokenPrefixCatAddDirectBuffer` admits fp32 rank-3 direct-buffer prefix-token
+concat plus positional add when `dim == 1`, prefix length is `1`, batch and
+feature dimensions match, token count is positive, and the output sequence is
+`1 + token_count`. Batch, token count, and feature dimension are runtime
+descriptor values. The finite `TokenPrefixCatAddContract` rows remain evidence
+for DAv2 token preparation, not production token-count or feature-dim bounds.
+
+`CatAxisDirectBuffer` admits fp32 buffer-backed rank-4 channel-axis cats when
+all inputs share batch/height/width, the cat dimension is 1, every channel
+extent is positive, and the current buffer-view implementation's channel
+multiple-of-4 layout constraint is satisfied. Input count, spatial size, batch,
+and total channel count are runtime descriptor values. The finite
+`ChannelCatContract` rows remain focused evidence and regression fixtures, not
+default H/W or input-count admission.
+
+`BatchNormInferenceDirectBuffer` admits fp32 buffer-backed rank-4 eval-mode
+batch norm when running statistics and optional affine tensors are rank-1,
+feature counts match the runtime channel count, and the existing
+`batchnorm_4d_buffer_float` shader can consume the metadata-backed descriptor.
+The finite batch-norm fixtures remain evidence, not production shape bounds.
+
+`DirectDecodeGQASDPADirectBuffer` admits fp32 rank-4 non-causal decode GQA
+with no mask, `dropout_p == 0`, batch 1, query length 1, query heads divisible
+by key/value heads, runtime positive source length, head dim within the
+existing direct-GQA shader budget, and the default/head-dim-equivalent scale.
+It routes through the existing `scaled_dot_product_scores_value_gqa_buffer_float`
+single-dispatch shader, so source length, head count, head dim, and value dim
+are runtime descriptor values rather than finite Transformer row bounds. The
+finite Transformer GQA SDPA rows remain evidence and optimized-policy fixtures.
+
+`DirectCausalPrefillGQASDPADirectBuffer` admits fp32 rank-4 causal prefill GQA
+and equal-head causal MHA with batch 1, equal query/source sequence length, no
+explicit mask, no dropout, default/head-dim-equivalent scale, and the same
+direct-GQA shader head/value-dimension budgets. GQA requires query heads to be
+divisible by key/value heads; MHA is admitted only when query heads equal
+key/value heads, which makes the existing direct-GQA shader's repeat factor `1`.
+The causal mask is applied inside
+`scaled_dot_product_scores_value_gqa_buffer_float`, so legal causal prefill
+sequence length, head count, head dim, and value dim are runtime descriptor
+values.
+
+`SmallNonCausalGQASDPADirectBuffer` admits bounded fp32 rank-4 non-causal GQA
+with no mask, `dropout_p == 0`, batch 1, query heads divisible by key/value
+heads, runtime target/source lengths up to 64, direct-GQA shader-budget head
+and value dims, and default/head-dim-equivalent scale. The exact
+`SmallNonCausalGQA` rows remain evidence and adjacent-negative fixtures, but
+bounded q>1 non-causal GQA no longer needs exact query/source rows.
+
+`DirectNonCausalMHASDPADirectBuffer` admits fp32 rank-4 equal-head non-causal
+MHA with batch 1, no mask/dropout/GQA, default/head-dim-equivalent scale, direct
+Q/K/V buffer layout, head/value dims aligned to the direct-buffer shader lane
+width, and the existing direct-GQA shader head/value-dimension budgets. It uses
+the same direct shader with repeat factor `1`, so diffusion-style square MHA
+and other legal equal-head rank-4 MHA shapes do not need finite diffusion row
+admission when their layout is already direct-buffer compatible.
+
+`VisionSelfAttentionSDPAContract` `Rank3Head64Scale1RuntimeShape` admits fp32
+rank-3 self-attention when Q/K/V shapes match, head dim is `64`, explicit scale
+is `1.0`, and mask/dropout/causal/GQA are disabled. Batch-head count and
+sequence length are runtime descriptor values. `SDPAScoreSoftmaxContract`
+`VisionSelfAttentionScoresRuntimeShape` similarly admits the resulting rank-3
+square score tensor for the buffer last-dim softmax path. The old sparse rows
+remain evidence, optimized-policy fixtures, and regression cases.
+
+`SDPAExecutionPolicyContract` now has a semantic runtime policy for small-head
+non-causal MHA. The `RecognizerNonCausalMHACloneOnly` finite row remains
+evidence for the PaddleOCR recognizer case, but fp32 rank-4 no-mask,
+no-dropout, non-causal, non-GQA MHA with matching Q/K/V heads, positive runtime
+target/source lengths, and head/value dims within the tiled-buffer shader budget
+can select the same runtime-fused direct-buffer policy without a finite row.
+`TransformerDecodeGQACloneOnlyRuntimeShape` similarly removes the old
+execution-policy source-length row as a production admission gate for fp32
+rank-4 decode GQA when batch is `1`, query length is `1`, query heads are
+divisible by key/value heads, no mask/dropout/causal mode is active, scale is
+default or head-dim equivalent, and the score tensor stays within budget. The
+old `TransformerDecodeGQACloneOnly` row remains evidence for the post-softmax
+clone policy.
+Known-bad diffusion-like head-dim and materialization policies remain row-gated
+or fail-closed.
+
+`MaskedTinySDPAContract` `AdditiveFloatMaskRuntimeShape` admits fp32 rank-3 or
+rank-4 Q/K/V tensors with fp32 additive masks that broadcast to the attention
+score shape under the existing math path. The fixed `[1,16,2,64]` plus
+`[1,1,2,2]` row remains regression evidence, but runtime target/source lengths,
+batch/head counts, rank-3/rank-4 form, and explicit finite scale no longer need
+exact row admission. Bool masks, dropout, causal mode, GQA, non-finite scales,
+and over-budget score tensors remain fail-closed.
+
+`DiffusionSDPAContract` `CrossAttentionRuntimeShape` admits the mask-free fp32
+rank-4 diffusion cross-attention slice where batch is `1`, Q/K/V heads and
+head dim match, head dim is `64`, key/value sequence length is a small runtime
+descriptor, and the score tensor stays within budget. The old `kv=2` cross
+rows remain fixtures, while unseen legal `kv` lengths such as `3` now run
+through the existing SDPA math path. `SquareSelfAttentionRuntimeShape` now
+admits the mask-free fp32 rank-4 square self-attention slice when batch is `1`,
+Q/K/V heads and head dim match, head dim is `64` or single-head `512`,
+sequence length and score elements stay within budget, scale is absent or
+head-dim equivalent, and the `512`-wide materialized-math path can prove a
+width-pack-compatible key transpose (`sequence % 4 == 0`). The existing
+`head_dim=512` rows remain evidence; non-width-pack-compatible `512` square
+sequences still fail closed until the materialized key-transpose command plan
+can produce a direct-buffer layout.
+The paired `DiffusionMaterializedSquareRuntimeShape` execution policy keeps the
+existing conservative score pre-materialization plus post-softmax clone behavior,
+and `DiffusionSquareScoresRuntimeShape` removes the old exact head/sequence
+score-softmax allowlist for runtime square score tensors.
+
+`GQARepeatDirectBuffer` now authorizes the existing runtime-sized
+`gqa_repeat_buffer_float` shader for fp32 rank-4 Vulkan buffer K/V tensors when
+the repeat factor is positive and the repeated head count is derived from
+runtime metadata. The SDPA route may use this materialization only for
+non-causal, mask-free GQA when both K and V match the repeat contract and the
+resulting rectangular rank-3 score tensor matches
+`RectangularScoresRuntimeShape`. Random unseen query/head/source/head-dim cases
+cover this path, and the shader now indexes repeated heads by output head rather
+than sequence coordinate.
+
+`SDPAScoreSoftmaxContract` now admits rectangular fp32 rank-3 score tensors
+with runtime batch-head/target/source dimensions and a bounded score-element
+budget. This keeps materialized-GQA probabilities on the buffer last-dim path
+instead of the old known-bad texture fallback. Square diffusion and vision
+score families remain separate because their probability materialization policy
+is tied to attention transition evidence.
+
+`NoOverlapConvTranspose2DContract` `DynamicKernelStrideFloatBuffer` admits fp32 rank-4 direct-buffer
 transposed convolutions in the no-overlap family when `kernel == stride`,
 padding/output-padding are zero, dilation is one, groups are one, and the
 existing no-overlap buffer shader can stay on the clean packed-buffer path.
@@ -207,14 +392,18 @@ descriptors. Low input-channel cases currently remain blocked by the older
 small-metadata/exact-rearrange materialization path and are tracked as a
 layout/materialization gap, not as observed-shape evidence.
 
-`Conv2DDirectBuffer` currently models the intended descriptor-driven generic
-fp32 conv2d family:
-rank-4 input and weight, positive batch/channels/spatial/kernel/stride/dilation,
-non-negative padding, positive groups, input channels equal to
-`weight_input_channels * groups`, and output channels divisible by groups.
-It remains scaffold-only until randomized legal-shape parity proves the route
-has correct packed-weight/layout semantics and no hidden readback for its full
-declared envelope.
+`Conv2DDirectBuffer` currently remains a direct-layout scaffold. The existing
+generic conv shader is descriptor-driven and accepts runtime batch/channels,
+kernel, stride, padding, and spatial dimensions, but the production path is not
+direct-buffer-owned for many generic cases. That makes it a layout/transition
+contract problem rather than an exact-shape row problem. Grouped, dilated,
+transposed, fused-add, `out=`, and direct-output ownership all remain outside
+this family until each has random-shape parity and explicit command/layout
+ownership.
+`PackedBufferConv2D` covers the existing metadata-packed float-buffer conv path
+for batch-one fp32 groups-one, dilation-one runtime shapes on the generic
+`conv2d_buffer_float` branch. Non-1x1 random-shape tests exercise this family
+without requiring exact observed H/W or kernel rows.
 
 ## Validation Policy
 
@@ -252,7 +441,7 @@ the row captures a negative guard or regression fixture
 The next families should follow the same structure before broad promotion:
 
 ```text
-Conv2DDirectBuffer generated/direct route implementation
+PackedBufferConv2D semantic family or Conv2DDirectBuffer layout transition
 ReductionDirectBuffer
 RegionCommandList
 ```

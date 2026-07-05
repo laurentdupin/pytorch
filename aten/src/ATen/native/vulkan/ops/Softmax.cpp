@@ -2015,10 +2015,16 @@ bool can_use_vision_score_softmax_padded_buffer_input(
   const utils::SDPAScoreSoftmaxMatch score_contract =
       utils::match_sdpa_buffer_softmax_score_contract(
           input.sizes(), input.scalar_type(), dim);
-  if (
-      !score_contract.matched ||
-      score_contract.family !=
-          utils::SDPAScoreSoftmaxFamily::VisionSelfAttentionScores) {
+  const bool is_vision_score_family =
+      score_contract.family ==
+          utils::SDPAScoreSoftmaxFamily::VisionSelfAttentionScores ||
+      score_contract.family ==
+          utils::SDPAScoreSoftmaxFamily::DiffusionSquareScoresRuntimeShape ||
+      score_contract.family ==
+          utils::SDPAScoreSoftmaxFamily::RectangularScoresRuntimeShape ||
+      score_contract.family ==
+          utils::SDPAScoreSoftmaxFamily::VisionSelfAttentionScoresRuntimeShape;
+  if (!score_contract.matched || !is_vision_score_family) {
     return false;
   }
 
@@ -2693,12 +2699,28 @@ bool can_use_direct_gqa_sdpa_buffer_path(
   if (is_causal && query.size(2) != key.size(2)) {
     return false;
   }
-  if (
-      !is_causal &&
-      (transformer_gqa_match.family !=
-           utils::TransformerGQASDPAFamily::SmallNonCausalGQA ||
-       query.size(2) != 1 || key.size(2) > 64)) {
-    return false;
+  if (!is_causal) {
+    if (
+        transformer_gqa_match.family ==
+        utils::TransformerGQASDPAFamily::DynamicDirectDecodeGQA) {
+      if (query.size(2) != 1) {
+        return false;
+      }
+    } else if (
+        transformer_gqa_match.family ==
+        utils::TransformerGQASDPAFamily::SmallNonCausalGQA) {
+      if (query.size(2) > 64 || key.size(2) > 64) {
+        return false;
+      }
+    } else if (
+        transformer_gqa_match.family ==
+        utils::TransformerGQASDPAFamily::DirectNonCausalMHA) {
+      if (query.size(1) != key.size(1)) {
+        return false;
+      }
+    } else {
+      return false;
+    }
   }
   if (
       is_causal &&
@@ -3758,6 +3780,34 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
           enable_gqa);
   const bool materialized_diffusion_input =
       sdpa_execution_policy.requires_materialized_math_path;
+  const auto maybe_direct_gqa_buffer_path =
+      [&]() -> std::optional<std::tuple<Tensor, Tensor>> {
+    if (!can_use_direct_gqa_sdpa_buffer_path(
+            query, key, value, attn_mask, is_causal, transformer_gqa_match)) {
+      return std::nullopt;
+    }
+    const int64_t head_dim = query.size(3);
+    const double sdpa_scale =
+        scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
+    Tensor output = scaled_dot_product_attention_direct_gqa_4d_buffer_vulkan(
+        query, key, value, sdpa_scale, is_causal);
+    Tensor output_4d =
+        output.reshape({query.size(0), query.size(1), query.size(2), value.size(3)});
+    Tensor materialized_output = utils::ensure_buffer_storage(
+        output_4d, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+    return std::make_tuple(
+        utils::mark_tensor_execution(
+            materialized_output, api::ExecutionLayout::BUFFER_DIRECT),
+        Tensor());
+  };
+
+  if (
+      transformer_gqa_match.family ==
+      utils::TransformerGQASDPAFamily::DirectNonCausalMHA) {
+    if (const auto direct_output = maybe_direct_gqa_buffer_path()) {
+      return *direct_output;
+    }
+  }
 
   if (!materialized_diffusion_input) {
     if (const auto fast_output = try_scaled_dot_product_attention_tiled_fast_path(
@@ -3787,6 +3837,10 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
       scale,
       enable_gqa);
 
+  if (const auto direct_output = maybe_direct_gqa_buffer_path()) {
+    return *direct_output;
+  }
+
   if (enable_gqa) {
     TORCH_CHECK(
         query.dim() == 4 && key.dim() == 4 && value.dim() == 4,
@@ -3795,22 +3849,6 @@ std::tuple<Tensor, Tensor> scaled_dot_product_attention_math_vulkan_impl(
         key.size(1) == value.size(1) &&
             query.size(1) % key.size(1) == 0,
         "Vulkan SDPA GQA expects query heads to be divisible by key/value heads");
-    if (can_use_direct_gqa_sdpa_buffer_path(
-            query, key, value, attn_mask, is_causal, transformer_gqa_match)) {
-      const int64_t head_dim = query.size(3);
-      const double sdpa_scale =
-          scale.value_or(1.0 / std::sqrt(static_cast<double>(head_dim)));
-      Tensor output = scaled_dot_product_attention_direct_gqa_4d_buffer_vulkan(
-          query, key, value, sdpa_scale, is_causal);
-      Tensor output_4d =
-          output.reshape({query.size(0), query.size(1), query.size(2), value.size(3)});
-      Tensor materialized_output = utils::ensure_buffer_storage(
-          output_4d, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
-      return std::make_tuple(
-          utils::mark_tensor_execution(
-              materialized_output, api::ExecutionLayout::BUFFER_DIRECT),
-          Tensor());
-    }
     const int64_t repeat_factor = query.size(1) / key.size(1);
     key = repeat_attention_heads_for_gqa(key, repeat_factor);
     value = repeat_attention_heads_for_gqa(value, repeat_factor);

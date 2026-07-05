@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsGQARepeatSpec.h>
 
 namespace at {
@@ -44,6 +45,16 @@ constexpr ExecutionContractMetadata kGQARepeatMetadata =
         generated::kGQARepeatBatch1Heads4Factor4Sequence100To116Dim128Spec
             .materialization_policy);
 
+constexpr ExecutionContractMetadata kGQARepeatDirectBufferMetadata =
+    make_execution_contract_metadata(
+        "GQARepeatContract",
+        "GenericRuntimeShape",
+        "gqa_repeat_direct_buffer_runtime_shape",
+        "dynamic_gqa_repeat_random_shape_tests",
+        "gqa_repeat_semantic_guards",
+        "unsupported_semantics_hard_fail",
+        "gqa_repeat_buffer_materialization");
+
 } // namespace
 
 GQARepeatMatch match_gqa_repeat_contract(
@@ -56,7 +67,7 @@ GQARepeatMatch match_gqa_repeat_contract(
   const auto& spec =
       generated::kGQARepeatBatch1Heads4Factor4Sequence100To116Dim128Spec;
   if (
-      !generated::gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_options_match(
+      generated::gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_options_match(
           spec,
           tensor_dtype,
           static_cast<int64_t>(tensor_sizes.size()),
@@ -68,17 +79,33 @@ GQARepeatMatch match_gqa_repeat_contract(
           tensor_sizes.size() > 3 ? tensor_sizes[3] : -1,
           tensor_is_vulkan,
           tensor_has_buffer_storage,
-          spec.enable_gqa) ||
-      tensor_sizes[2] < spec.min_source_sequence ||
-      !generated::gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_in_bounds(
+          spec.enable_gqa) &&
+      tensor_sizes[2] >= spec.min_source_sequence &&
+      generated::gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_in_bounds(
           spec,
           tensor_sizes[2])) {
+    result.matched = true;
+    result.tuple_id = spec.tuple_id;
+    result.metadata = &kGQARepeatMetadata;
+    result.sequence_length = tensor_sizes[2];
+    return result;
+  }
+
+  const DynamicProgramDecision decision = build_dynamic_program_runtime_plan(
+      make_gqa_repeat_direct_buffer_dynamic_program(
+          tensor_sizes,
+          tensor_dtype,
+          tensor_is_vulkan && tensor_has_buffer_storage,
+          repeat_factor,
+          &kGQARepeatDirectBufferMetadata,
+          /*behavior_enabled=*/true));
+  if (!decision.runtime_selection_authorized) {
     return result;
   }
   result.matched = true;
-  result.tuple_id = spec.tuple_id;
-  result.metadata = &kGQARepeatMetadata;
-  result.sequence_length = tensor_sizes[2];
+  result.tuple_id = kGQARepeatDirectBufferMetadata.tuple_id;
+  result.metadata = &kGQARepeatDirectBufferMetadata;
+  result.sequence_length = tensor_sizes.size() == 4 ? tensor_sizes[2] : 0;
   return result;
 }
 

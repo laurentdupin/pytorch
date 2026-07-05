@@ -180,6 +180,11 @@ utils::BatchNormInferenceTensorInfo make_batch_norm_inference_tensor_info(
   info.is_vulkan = tensor.is_vulkan();
   info.dtype = tensor.scalar_type();
   info.dim = tensor.dim();
+  if (tensor.dim() == 4) {
+    info.batch = tensor.size(0);
+    info.height = tensor.size(2);
+    info.width = tensor.size(3);
+  }
   info.channels = tensor.dim() > 1 ? tensor.size(1) : 0;
   info.numel = tensor.numel();
   info.is_contiguous = tensor.is_contiguous();

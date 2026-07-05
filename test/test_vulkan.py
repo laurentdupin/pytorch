@@ -4,6 +4,7 @@ import os
 import glob
 import importlib.util
 import json
+import math
 import re
 import subprocess
 import sys
@@ -763,6 +764,15 @@ class TestVulkanGovernance(TestCase):
             "planning",
             "DynamicProgramRuntime.cpp",
         )
+        convolution_source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "ops",
+            "Convolution.cpp",
+        )
         for expected in (
             "DynamicProgramSemanticFamily",
             "DynamicProgramKey",
@@ -775,14 +785,55 @@ class TestVulkanGovernance(TestCase):
             self.assertIn(expected, header)
         self.assertIn("PointwiseConv1x1DirectBuffer", header)
         self.assertIn("Conv2DDirectBuffer", header)
+        self.assertIn("PackedBufferConv2D", header)
+        self.assertIn("PatchEmbedFloatBufferConvRoute", header)
         self.assertIn("SequenceCatDirectBuffer", header)
+        self.assertIn("InitialSequenceCatDirectBuffer", header)
         self.assertIn("ElementwiseBroadcastDirectBuffer", header)
         self.assertIn("LinearOrMatmulDirectBuffer", header)
         self.assertIn("EmbeddingLookupDirectBuffer", header)
+        self.assertIn("FeatureMapToTokensDirectBuffer", header)
+        self.assertIn("CatAxisDirectBuffer", header)
+        self.assertIn("BatchNormInferenceDirectBuffer", header)
+        self.assertIn("GQARepeatDirectBuffer", header)
+        self.assertIn("DirectDecodeGQASDPADirectBuffer", header)
+        self.assertIn("SmallNonCausalGQASDPADirectBuffer", header)
+        self.assertIn("DirectNonCausalMHASDPADirectBuffer", header)
+        self.assertIn("DirectCausalPrefillGQASDPADirectBuffer", header)
+        self.assertIn("TokenPrefixCatAddDirectBuffer", header)
         self.assertIn("make_conv2d_direct_buffer_dynamic_program", header)
+        self.assertIn(
+            "make_patch_embed_float_buffer_conv_route_dynamic_program",
+            header)
         self.assertIn("make_sequence_cat_direct_buffer_dynamic_program", header)
+        self.assertIn(
+            "make_initial_sequence_cat_direct_buffer_dynamic_program",
+            header)
         self.assertIn("make_linear_or_matmul_direct_buffer_program_request", header)
         self.assertIn("make_embedding_lookup_direct_buffer_dynamic_program", header)
+        self.assertIn(
+            "make_feature_map_to_tokens_direct_buffer_dynamic_program",
+            header)
+        self.assertIn("make_cat_axis_direct_buffer_dynamic_program", header)
+        self.assertIn(
+            "make_batch_norm_inference_direct_buffer_dynamic_program",
+            header)
+        self.assertIn("make_gqa_repeat_direct_buffer_dynamic_program", header)
+        self.assertIn(
+            "make_direct_decode_gqa_sdpa_direct_buffer_dynamic_program",
+            header)
+        self.assertIn(
+            "make_small_non_causal_gqa_sdpa_direct_buffer_dynamic_program",
+            header)
+        self.assertIn(
+            "make_direct_non_causal_mha_sdpa_direct_buffer_dynamic_program",
+            header)
+        self.assertIn(
+            "make_direct_causal_prefill_gqa_sdpa_direct_buffer_dynamic_program",
+            header)
+        self.assertIn(
+            "make_token_prefix_cat_add_direct_buffer_dynamic_program",
+            header)
         self.assertIn("RuntimeSpecializedShader", header)
         self.assertIn("RuntimeGeneratedShader", header)
         self.assertIn("CustomCommandList", header)
@@ -793,8 +844,22 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("runtime_selection_authorized = false", source)
         self.assertIn("conv2d_buffer_float_1x1", source)
         self.assertIn("conv2d_buffer_float", source)
+        self.assertIn("packed_buffer_conv2d_single_dispatch", source)
+        self.assertIn("is_packed_buffer_conv2d_semantics", source)
+        self.assertIn("shape.batch == 1", source)
+        self.assertIn(
+            "shader_kind == FloatBufferConv2dShaderKind::Generic",
+            convolution_source)
+        self.assertIn("patch_embed_float_buffer_conv_single_dispatch", source)
+        self.assertIn(
+            "is_patch_embed_float_buffer_conv_route_semantics",
+            source)
         self.assertIn("cat_dim2_4d_buffer_float", source)
         self.assertIn("sequence_cat_dim2_4d_single_dispatch", source)
+        self.assertIn("initial_sequence_cat_direct_buffer_copy", source)
+        self.assertIn(
+            "is_initial_sequence_cat_direct_buffer_semantics",
+            source)
         self.assertIn("binary_op_buffer_float", source)
         self.assertIn("mm_buffer_float", source)
         self.assertIn("linear_or_matmul_single_dispatch", source)
@@ -803,10 +868,69 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("embedding_lookup_direct_buffer_single_dispatch", source)
         self.assertIn("is_embedding_lookup_semantics", source)
         self.assertIn("MissingIndexBoundsProof", source)
+        self.assertIn("feature_map_to_tokens_buffer", source)
+        self.assertIn("feature_map_to_tokens_single_dispatch", source)
+        self.assertIn("is_feature_map_to_tokens_semantics", source)
+        self.assertIn("buffer_to_buffer", source)
+        self.assertIn("cat_axis_direct_buffer_multi_dispatch", source)
+        self.assertIn("is_cat_axis_direct_buffer_semantics", source)
+        self.assertIn("batchnorm_4d_buffer_float", source)
+        self.assertIn(
+            "batch_norm_inference_direct_buffer_single_dispatch",
+            source)
+        self.assertIn("is_batch_norm_inference_direct_buffer_semantics", source)
+        self.assertIn("gqa_repeat_buffer_float", source)
+        self.assertIn("gqa_repeat_direct_buffer_single_dispatch", source)
+        self.assertIn("is_gqa_repeat_direct_buffer_semantics", source)
+        self.assertIn("scaled_dot_product_scores_value_gqa_buffer_float", source)
+        self.assertIn("direct_decode_gqa_sdpa_single_dispatch", source)
+        self.assertIn(
+            "is_direct_decode_gqa_sdpa_direct_buffer_semantics",
+            source)
+        self.assertIn(
+            "is_small_non_causal_gqa_sdpa_direct_buffer_semantics",
+            source)
+        self.assertIn(
+            "is_direct_non_causal_mha_sdpa_direct_buffer_semantics",
+            source)
+        self.assertIn(
+            "is_direct_causal_prefill_gqa_sdpa_direct_buffer_semantics",
+            source)
+        self.assertIn("token_prefix_cat_add_two_add_dispatches", source)
+        self.assertIn(
+            "is_token_prefix_cat_add_direct_buffer_semantics",
+            source)
         self.assertNotIn("dynamic_program_runtime_rejected_budget_exceeded", source)
         self.assertIn("request.rank != 2 && request.rank != 3", source)
         self.assertIn("shape.k == shape.rhs_k", source)
         self.assertIn("index_bounds_proven", source)
+
+    def test_sdpa_execution_policy_transformer_decode_gqa_runtime_family_declared(self):
+        header = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContracts.h",
+        )
+        source = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "planning",
+            "ExecutionContractsSDPAExecutionPolicy.cpp",
+        )
+        self.assertIn("TransformerDecodeGQACloneOnlyRuntimeShape", header)
+        self.assertIn("TransformerDecodeGQACloneOnlyRuntimeShape", source)
+        self.assertIn("transformer_decode_gqa_clone_only_runtime_shape", source)
+        self.assertIn("kRuntimeTransformerDecodeMaxScoreElements", source)
+        self.assertIn("query_heads % key_value_heads == 0", source)
+        self.assertIn("query_sequence == 1", source)
+        self.assertIn("scale_matches_head_dim(scale, head_dim)", source)
 
     def test_tensor_provenance_can_record_contract_admission_metadata(self):
         header = self._repo_text(
@@ -1350,7 +1474,7 @@ class TestVulkanGovernance(TestCase):
             "validated 24 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=171", result.stdout)
+        self.assertIn("generated_cases=164", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:13",
             result.stdout,
@@ -1361,15 +1485,15 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn("channel_cat_contract.json:7", result.stdout)
-        self.assertIn("diffusion_sdpa_contract.json:6", result.stdout)
-        self.assertIn("sdpa_execution_policy_contract.json:7", result.stdout)
+        self.assertIn("diffusion_sdpa_contract.json:5", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json:5", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("gqa_repeat_contract.json:2", result.stdout)
         self.assertIn("kv_cache_append_contract.json:5", result.stdout)
-        self.assertIn("kv_cache_append_initial_contract.json:5", result.stdout)
+        self.assertIn("kv_cache_append_initial_contract.json:1", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json:11", result.stdout)
-        self.assertIn("masked_tiny_sdpa_contract.json:7", result.stdout)
+        self.assertIn("masked_tiny_sdpa_contract.json:4", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:5",
             result.stdout,
@@ -1386,7 +1510,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_contract.json:3", result.stdout)
         self.assertIn("sdpa_score_softmax_contract.json:3", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:7", result.stdout)
-        self.assertIn("small_spatial_pointwise_conv_contract.json:34", result.stdout)
+        self.assertIn("small_spatial_pointwise_conv_contract.json:38", result.stdout)
         self.assertIn("token_prefix_cat_add_contract.json:6", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:8", result.stdout)
         self.assertIn("vision_self_attention_sdpa_contract.json:8", result.stdout)
@@ -1414,7 +1538,7 @@ class TestVulkanGovernance(TestCase):
             "validated 24 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=366", result.stdout)
+        self.assertIn("generated_cases=381", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:16",
             result.stdout,
@@ -1426,12 +1550,12 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:11", result.stdout)
-        self.assertIn("sdpa_execution_policy_contract.json:7", result.stdout)
+        self.assertIn("sdpa_execution_policy_contract.json:9", result.stdout)
         self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:4", result.stdout)
         self.assertIn("gqa_repeat_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_contract.json:3", result.stdout)
-        self.assertIn("kv_cache_append_initial_contract.json:3", result.stdout)
+        self.assertIn("kv_cache_append_initial_contract.json:2", result.stdout)
         self.assertIn("linear_gelu_bridge_contract.json:2", result.stdout)
         self.assertIn("masked_tiny_sdpa_contract.json:2", result.stdout)
         self.assertIn(
@@ -1450,7 +1574,7 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("safe_view_reshape_contract.json:2", result.stdout)
         self.assertIn("sdpa_score_softmax_contract.json:4", result.stdout)
         self.assertIn("small_metadata_padded_conv2d_contract.json:1", result.stdout)
-        self.assertIn("small_spatial_pointwise_conv_contract.json:199", result.stdout)
+        self.assertIn("small_spatial_pointwise_conv_contract.json:212", result.stdout)
         self.assertIn("token_prefix_cat_add_contract.json:30", result.stdout)
         self.assertIn("transformer_gqa_sdpa_contract.json:4", result.stdout)
         self.assertIn("vision_self_attention_sdpa_contract.json:6", result.stdout)
@@ -1479,7 +1603,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn("legal_assignments=48", result.stdout)
-        self.assertIn("adjacent_negative_assignments=150", result.stdout)
+        self.assertIn("adjacent_negative_assignments=143", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "adjacent=13",
@@ -1498,11 +1622,11 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "diffusion_sdpa_contract.json:legal=2:adjacent=6",
+            "diffusion_sdpa_contract.json:legal=2:adjacent=5",
             result.stdout,
         )
         self.assertIn(
-            "sdpa_execution_policy_contract.json:legal=2:adjacent=6",
+            "sdpa_execution_policy_contract.json:legal=2:adjacent=5",
             result.stdout,
         )
         self.assertIn(
@@ -1522,7 +1646,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "kv_cache_append_initial_contract.json:legal=2:adjacent=5",
+            "kv_cache_append_initial_contract.json:legal=2:adjacent=1",
             result.stdout,
         )
         self.assertIn(
@@ -1530,7 +1654,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "masked_tiny_sdpa_contract.json:legal=2:adjacent=7",
+            "masked_tiny_sdpa_contract.json:legal=2:adjacent=4",
             result.stdout,
         )
         self.assertIn(
@@ -1554,7 +1678,7 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "small_spatial_pointwise_conv_contract.json:legal=2:adjacent=15",
+            "small_spatial_pointwise_conv_contract.json:legal=2:adjacent=17",
             result.stdout,
         )
         self.assertIn(
@@ -1604,9 +1728,9 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn("legal_assignments=48", result.stdout)
-        self.assertIn("adjacent_negative_axes=149", result.stdout)
-        self.assertIn("runtime_legal_cases=366", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=171", result.stdout)
+        self.assertIn("adjacent_negative_axes=142", result.stdout)
+        self.assertIn("runtime_legal_cases=381", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=164", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=13",
@@ -1629,12 +1753,12 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "diffusion_sdpa_contract.json:legal=2:status=covered:paths=23/23:"
-            "adjacent_axes=6",
+            "adjacent_axes=5",
             result.stdout,
         )
         self.assertIn(
             "sdpa_execution_policy_contract.json:legal=2:status=covered:"
-            "paths=23/23:adjacent_axes=6",
+            "paths=23/23:adjacent_axes=5",
             result.stdout,
         )
         self.assertIn(
@@ -1659,7 +1783,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "kv_cache_append_initial_contract.json:legal=2:status=covered:"
-            "paths=9/9:adjacent_axes=5",
+            "paths=9/9:adjacent_axes=1",
             result.stdout,
         )
         self.assertIn(
@@ -1669,7 +1793,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "masked_tiny_sdpa_contract.json:legal=2:status=covered:"
-            "paths=29/29:adjacent_axes=7",
+            "paths=29/29:adjacent_axes=4",
             result.stdout,
         )
         self.assertIn(
@@ -1699,7 +1823,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "small_spatial_pointwise_conv_contract.json:legal=2:"
-            "status=covered:paths=22/22:adjacent_axes=15",
+            "status=covered:paths=22/22:adjacent_axes=17",
             result.stdout,
         )
         self.assertIn(
@@ -1734,15 +1858,15 @@ class TestVulkanGovernance(TestCase):
             "batch_norm_inference_contract.json": (4, 3),
             "batch_norm_inference_materialized_contract.json": (1, 3),
             "channel_cat_contract.json": (5, 7),
-            "diffusion_sdpa_contract.json": (11, 6),
-            "sdpa_execution_policy_contract.json": (7, 7),
+            "diffusion_sdpa_contract.json": (11, 5),
+            "sdpa_execution_policy_contract.json": (9, 5),
             "embedding_lookup_contract.json": (4, 4),
             "elementwise_broadcast_contract.json": (4, 3),
             "gqa_repeat_contract.json": (3, 2),
             "kv_cache_append_contract.json": (3, 5),
-            "kv_cache_append_initial_contract.json": (3, 5),
+            "kv_cache_append_initial_contract.json": (2, 1),
             "linear_gelu_bridge_contract.json": (2, 11),
-            "masked_tiny_sdpa_contract.json": (2, 7),
+            "masked_tiny_sdpa_contract.json": (2, 4),
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
             "patch_embed_feature_map_to_tokens_contract.json": (24, 7),
             "patch_embed_float_buffer_conv_route_contract.json": (27, 9),
@@ -1750,7 +1874,7 @@ class TestVulkanGovernance(TestCase):
             "safe_view_reshape_contract.json": (2, 3),
             "sdpa_score_softmax_contract.json": (4, 3),
             "small_metadata_padded_conv2d_contract.json": (1, 7),
-            "small_spatial_pointwise_conv_contract.json": (199, 34),
+            "small_spatial_pointwise_conv_contract.json": (212, 38),
             "token_prefix_cat_add_contract.json": (30, 6),
             "transformer_gqa_sdpa_contract.json": (4, 8),
             "vision_self_attention_sdpa_contract.json": (6, 8),
@@ -4051,19 +4175,29 @@ class TestVulkanGovernance(TestCase):
         for expected in (
             '"SDPAScoreSoftmaxContract"',
             '"DiffusionSquareScores"',
+            '"DiffusionSquareScoresRuntimeShape"',
             '"VisionSelfAttentionScores"',
             '"heads1_or5_sequence504_or640_float_rank3_square"',
+            '"diffusion_square_score_runtime_shape"',
             '"vision_self_attention_rank3_score_rows"',
             '"sdpa_score_softmax_focused_tests"',
+            '"diffusion_square_sdpa_dynamic_random_shape_tests"',
+            '"materialized_gqa_repeat_dynamic_random_shape_tests"',
             '"dav2_vision_sdpa_prob_materialization_task296"',
             '"sdpa_score_softmax_adjacent_guards"',
+            '"diffusion_square_sdpa_dynamic_semantic_guards"',
+            '"sdpa_rectangular_score_dynamic_semantic_guards"',
             '"vision_self_attention_sdpa_adjacent_guards"',
             '"unsupported_shapes_hard_fail_or_do_not_match"',
             '"none"',
             '"fresh_buffer_probability_materialization_before_value_bmm"',
             "result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScores",
+            "result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScoresRuntimeShape",
+            "result.family = SDPAScoreSoftmaxFamily::RectangularScoresRuntimeShape",
             "result.family = SDPAScoreSoftmaxFamily::VisionSelfAttentionScores",
             "result.metadata = &kSDPAScoreSoftmaxDiffusionSquareScoresMetadata",
+            "result.metadata = &kSDPAScoreSoftmaxDiffusionRuntimeSquareScoresMetadata",
+            "result.metadata = &kSDPAScoreSoftmaxRectangularRuntimeScoresMetadata",
             "result.metadata = &kSDPAScoreSoftmaxVisionSelfAttentionScoresMetadata",
         ):
             self.assertIn(expected, source)
@@ -4152,16 +4286,19 @@ class TestVulkanGovernance(TestCase):
                 (
                     "violates",
                     "expected_native_route",
-                    "expected_guard_route_label",
                     "expected_cpu_fallback",
                 ),
                 "SDPAScoreSoftmaxContract negative case",
             )
             self.assertFalse(case["expected_native_route"])
-            self.assertEqual(
-                case["expected_guard_route_label"],
-                "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
-            )
+            self.assertTrue(
+                "expected_guard_route_label" in case or
+                "expected_dynamic_route_label" in case)
+            if "expected_guard_route_label" in case:
+                self.assertEqual(
+                    case["expected_guard_route_label"],
+                    "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+                )
             self.assertFalse(case["expected_cpu_fallback"])
 
     def test_masked_tiny_sdpa_contract_metadata(self):
@@ -4195,6 +4332,11 @@ class TestVulkanGovernance(TestCase):
             "masked_tiny_sdpa_additive_float_mask_options_match",
             "result.family = MaskedTinySDPAFamily::AdditiveFloatMask",
             "result.metadata = &kMaskedTinySDPAAdditiveFloatMaskMetadata",
+            '"AdditiveFloatMaskRuntimeShape"',
+            '"masked_tiny_additive_float_mask_runtime_shape"',
+            '"masked_tiny_sdpa_dynamic_random_shape_tests"',
+            "result.family = MaskedTinySDPAFamily::AdditiveFloatMaskRuntimeShape",
+            "result.metadata = &kMaskedTinySDPARuntimeMetadata",
         ):
             self.assertIn(expected, source)
 
@@ -4722,13 +4864,25 @@ class TestVulkanGovernance(TestCase):
                 (
                     "violates",
                     "expected_native_route",
-                    "expected_runtime_error",
                     "expected_cpu_fallback",
                 ),
                 "TransformerGQASDPAContract negative case",
             )
+            self.assertTrue(
+                case.get("expected_runtime_error") or
+                "expected_dynamic_route_label" in case)
             self.assertFalse(case["expected_native_route"])
-            self.assertEqual(case["expected_runtime_error"], "KnownBadSdpaMaskOrCausal")
+            if case.get("expected_runtime_error"):
+                self.assertEqual(
+                    case["expected_runtime_error"], "KnownBadSdpaMaskOrCausal")
+            if "expected_dynamic_route_label" in case:
+                self.assertIn(
+                    case["expected_dynamic_route_label"],
+                    (
+                        "SelectedDynamicDirectDecodeGQASDPA",
+                        "SelectedTransformerGQASDPACausalPrefill",
+                        "SelectedTransformerGQASDPASmallNonCausalGQA",
+                    ))
             self.assertFalse(case["expected_cpu_fallback"])
 
     def test_vulkan_sdpa_execution_policy_contract_spec_shape(self):
@@ -7021,7 +7175,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 and "selected=FloatBufferPointwise1x1AsLinear" in row
                 and "kernel=conv2d_buffer_float_1x1_as_linear" in row
                 and "contract=SmallSpatialPointwiseConvContract" in row
-                and "contract_family=DepthVisionProjection" in row
+                and "contract_family=GenericDynamicHW" in row
                 and "candidate_count=2" in row
                 and "local=[16,4,1]" in row
                 and "has_cooperative_matrix=" in row
@@ -11081,7 +11235,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
                 self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
-    def test_embedding_buffer_float_long_adjacent_num_indices_falls_back(self):
+    def test_embedding_buffer_float_long_vulkan_indices_dynamic_num_indices(self):
         torch.manual_seed(0)
         weight_cpu = torch.randn(4096, 256)
         weight_vulkan = weight_cpu.to("vulkan")
@@ -11097,7 +11251,17 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 actual,
                 atol=1e-4,
                 rtol=1e-4)
-            self.assertGreater(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+            self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_embedding_buffer_float_long_invalid_vulkan_indices_raise(self):
+        torch.manual_seed(0)
+        weight_vulkan = torch.randn(32, 8).to("vulkan")
+        indices_vulkan = torch.tensor([[0, 7, 32]], dtype=torch.long).to("vulkan")
+
+        with torch.inference_mode():
+            with self.assertRaisesRegex(IndexError, "index out of range"):
+                F.embedding(indices_vulkan, weight_vulkan)
 
     def test_embedding_lookup_contract_generated_small_bounded_spec(self):
         spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
@@ -12655,27 +12819,71 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertEqual(actual, expected)
                     self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_float_channel_cat_multi_buffer_view_adjacent_guards_fall_back(self):
+    def test_channel_cat_dynamic_direct_buffer_random_shapes(self):
+        import random
+
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        seed = int.from_bytes(os.urandom(8), "little")
+        print(f"dynamic_channel_cat_random_seed={seed}")
+        rng = random.Random(seed)
+        cases = [
+            [(1, 12, 129, 5) for _ in range(9)],
+            [(2, 16, 6, 137), (2, 20, 6, 137), (2, 24, 6, 137)],
+            [(1, 1028, 3, 5), (1, 2052, 3, 5), (1, 1024, 3, 5)],
+        ]
+        for _ in range(5):
+            n = rng.randint(1, 3)
+            h = rng.choice((2, 7, 31, 129, 151))
+            w = rng.choice((3, 11, 37, 133))
+            input_count = rng.randint(3, 6)
+            shapes = []
+            for _input_index in range(input_count):
+                c = rng.choice((4, 8, 12, 16, 20, 36))
+                shapes.append((n, c, h, w))
+            cases.append(shapes)
+
         with torch.inference_mode():
-            cases = [
-                ("too_many_inputs", [torch.randn(1, 16, 5, 7) for _ in range(9)]),
-                ("unaligned_channels", [torch.randn(1, 6, 5, 7) for _ in range(3)]),
-                (
-                    "per_input_too_large",
-                    [torch.randn(1, 1028, 5, 7) for _ in range(3)],
-                ),
-                (
-                    "total_channels_too_large",
-                    [torch.randn(1, 1024, 2, 2) for _ in range(5)],
-                ),
-            ]
+            for shapes in cases:
+                with self.subTest(shapes=shapes):
+                    tensors = [
+                        torch.randn(*shape, dtype=torch.float32)
+                        for shape in shapes
+                    ]
+                    vulkan_tensors = tuple(
+                        make_nchw_buffer_view(tensor) for tensor in tensors
+                    )
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                    expected = torch.cat(tensors, dim=1)
+                    actual = torch.cat(vulkan_tensors, dim=1).cpu()
+
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_float_channel_cat_multi_buffer_view_adjacent_guards_fall_back(self):
+        def make_nchw_buffer_view(tensor):
+            n, c, h, w = tensor.shape
+            nhwc_flat = tensor.permute(0, 2, 3, 1).reshape(n, h * w, c)
+            return nhwc_flat.to("vulkan").view(n, h, w, c).permute(0, 3, 1, 2)
+
+        with torch.inference_mode():
+            cases = [(
+                "unaligned_channels",
+                [torch.randn(1, 6, 5, 7) for _ in range(3)],
+            )]
             for name, tensors in cases:
                 with self.subTest(name=name):
                     torch.ops.vulkan_prepack.reset_fallback_counters()
 
                     expected = torch.cat(tensors, dim=1)
                     actual = torch.cat(
-                        tuple(tensor.to("vulkan") for tensor in tensors),
+                        tuple(make_nchw_buffer_view(tensor) for tensor in tensors),
                         dim=1,
                     ).cpu()
 
@@ -12757,6 +12965,68 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertEqual(actual, expected)
                 self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_float_kv_cache_initial_dynamic_random_shapes_match_cpu(self):
+        import random
+
+        seed_env = os.environ.get("PYTORCH_VULKAN_DYNAMIC_INITIAL_CACHE_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"dynamic_initial_cache_random_seed={seed}")
+        rng = random.Random(seed)
+        cases = []
+        for _ in range(6):
+            batch = rng.choice((1, 2))
+            heads = rng.choice((1, 2, 6))
+            seq_len = rng.choice((rng.randint(1, 13), rng.randint(117, 160)))
+            head_dim = rng.choice((16, 24, 32))
+            cases.append((batch, heads, seq_len, head_dim))
+
+        route_hit = "op=aten::cat.kv_cache_initial_dim2_buffer"
+        log_name = "dynamic_initial_cache_direct_buffer_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            for batch, heads, seq_len, head_dim in cases:
+                with self.subTest(
+                        seed=seed,
+                        batch=batch,
+                        heads=heads,
+                        seq_len=seq_len,
+                        head_dim=head_dim):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    empty = torch.empty(0, dtype=torch.float32)
+                    value = torch.randn(
+                        batch,
+                        heads,
+                        seq_len,
+                        head_dim,
+                        dtype=torch.float32)
+
+                    with torch.inference_mode():
+                        expected = torch.cat((empty, value), dim=-2)
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = torch.cat(
+                            (empty.to("vulkan"), value.to("vulkan")),
+                            dim=-2).cpu()
+
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(),
+                        0)
+                    with open(log_path, "r", encoding="utf-8") as log_file:
+                        op_hits = log_file.read()
+                    self.assertIn(route_hit, op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_float_kv_cache_cat_sequence_append_repeated_deterministic(self):
         def make_value_state_view(tensor):
             return tensor.transpose(1, 2)
@@ -12790,7 +13060,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             heads = rng.choice((1, 2, 4, 6))
             left_seq = rng.randint(118, 150)
             right_seq = rng.randint(1, 5)
-            head_dim = rng.choice((16, 32, 64))
+            head_dim = rng.choice((16, 24, 32))
             cases.append((batch, heads, left_seq, right_seq, head_dim))
 
         route_hit = "op=aten::cat.kv_cache_append_dim2_buffer"
@@ -16663,6 +16933,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             (50, 77),
         )
         as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
+        dynamic_hit = (
+            "aten::convolution.buffer_float_1x1.dynamic_pointwise_direct"
+        )
+        sparse_contract_hit = (
+            "aten::convolution.buffer_float_1x1_skip."
+            "small_spatial_pointwise"
+        )
         log_name = "large_pointwise_factorized_depth_vision_op_hit_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
         previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
@@ -16711,10 +16988,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             0)
                         with open(log_path, "r", encoding="utf-8") as log_file:
                             op_hits = log_file.read()
-                        self.assertIn(
-                            "aten::convolution.buffer_float_1x1_skip."
-                            "small_spatial_pointwise.depth_vision_projection",
-                            op_hits)
+                        self.assertIn(dynamic_hit, op_hits)
+                        self.assertNotIn(sparse_contract_hit, op_hits)
+                        self.assertIn("contract_family=GenericDynamicHW", op_hits)
                         self.assertIn(as_linear_hit, op_hits)
         finally:
             if previous_op_hit_log is None:
@@ -16746,9 +17022,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ((1, 1024, 40, 62), 512),
             ((1, 1024, 40, 62), 1024),
         )
-        contract_hit = (
+        dynamic_hit = (
+            "aten::convolution.buffer_float_1x1.dynamic_pointwise_direct"
+        )
+        sparse_contract_hit = (
             "aten::convolution.buffer_float_1x1_skip."
-            "small_spatial_pointwise.depth_vision_projection"
+            "small_spatial_pointwise"
         )
         log_name = "large_pointwise_exact_midres_depth_vision_op_hit_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
@@ -16789,9 +17068,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         0)
                     with open(log_path, "r", encoding="utf-8") as log_file:
                         op_hits = log_file.read()
-                    self.assertIn(contract_hit, op_hits)
+                    self.assertIn(dynamic_hit, op_hits)
+                    self.assertNotIn(sparse_contract_hit, op_hits)
+                    self.assertIn("contract_family=GenericDynamicHW", op_hits)
                     self.assertIn(
-                        "selected_plan=FloatBufferPointwise1x1",
+                        "selected_plan=FloatBufferPointwise1x1AsLinear",
                         op_hits)
         finally:
             if previous_op_hit_log is None:
@@ -16826,9 +17107,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             (1024, 1024, 40, 62),
         )
         as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
-        contract_hit = (
+        sparse_contract_hit = (
             "aten::convolution.buffer_float_1x1_skip."
-            "small_spatial_pointwise.depth_vision_projection"
+            "small_spatial_pointwise"
+        )
+        dynamic_hit = (
+            "aten::convolution.buffer_float_1x1.dynamic_pointwise_direct"
         )
         log_name = "large_pointwise_token_slice_layout_op_hit_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
@@ -16886,13 +17170,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         0)
                     with open(log_path, "r", encoding="utf-8") as log_file:
                         op_hits = log_file.read()
-                    self.assertIn(contract_hit, op_hits)
+                    self.assertIn(dynamic_hit, op_hits)
+                    self.assertNotIn(sparse_contract_hit, op_hits)
                     self.assertNotIn(as_linear_hit, op_hits)
-                    self.assertIn(
-                        "pointwise_route selected=generic "
-                        "selected_plan=FloatBufferPointwise1x1",
-                        op_hits)
-                    self.assertIn("old_generic_retained=1", op_hits)
+                    self.assertIn("selected_plan=FloatBufferPointwise1x1", op_hits)
+                    self.assertIn("contract_family=GenericDynamicHW", op_hits)
                     self.assertIn(
                         f"input=[1,{input_channels},{height},{width}]",
                         op_hits)
@@ -17047,7 +17329,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertIn(dynamic_hit, op_hits)
                     self.assertNotIn(sparse_contract_hit, op_hits)
                     self.assertIn(
-                        "contract=DynamicPointwiseConv1x1DirectBufferContract",
+                        "contract=SmallSpatialPointwiseConvContract",
                         op_hits)
                     self.assertIn("contract_family=GenericDynamicHW", op_hits)
                     self.assertIn(
@@ -17159,8 +17441,159 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertIn(dynamic_hit, op_hits)
                     self.assertNotIn(sparse_contract_hit, op_hits)
                     self.assertIn(
-                        "contract=DynamicPointwiseConv1x1DirectBufferContract",
+                        "contract=SmallSpatialPointwiseConvContract",
                         op_hits)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_packed_buffer_conv2d_dynamic_random_shapes_match_cpu(self):
+        import random
+
+        seed_env = os.environ.get("PYTORCH_VULKAN_DYNAMIC_SHAPE_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"dynamic_packed_buffer_conv2d_random_seed={seed}")
+        rng = random.Random(seed)
+        cases = []
+        while len(cases) < 5:
+            batch = 1
+            in_channels = rng.randint(20, 48)
+            out_channels = rng.randint(8, 32)
+            height = rng.randint(8, 24)
+            width = rng.randint(8, 24)
+            kernel_h, kernel_w = rng.choice(((2, 2), (2, 3), (3, 2), (4, 2)))
+            stride_h = rng.choice((1, 2))
+            stride_w = rng.choice((1, 2))
+            padding_h = rng.choice((0, 1))
+            padding_w = rng.choice((0, 1))
+            out_h = (height + 2 * padding_h - kernel_h) // stride_h + 1
+            out_w = (width + 2 * padding_w - kernel_w) // stride_w + 1
+            if out_h <= 0 or out_w <= 0:
+                continue
+            cases.append(
+                (
+                    batch,
+                    in_channels,
+                    out_channels,
+                    height,
+                    width,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                )
+            )
+
+        log_name = "packed_buffer_conv2d_dynamic_op_hit_test.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            torch.manual_seed(seed & 0xFFFF)
+            metadata_x_cpu = torch.randn(1, 24, 18, 22) * 0.05
+            metadata_weight_cpu = torch.randn(12, 24, 2, 3) * 0.05
+            metadata_bias_cpu = torch.randn(12) * 0.05
+            with torch.inference_mode():
+                expected_metadata = F.conv2d(
+                    metadata_x_cpu,
+                    metadata_weight_cpu,
+                    metadata_bias_cpu)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                actual_metadata = F.conv2d(
+                    metadata_x_cpu.to("vulkan"),
+                    metadata_weight_cpu.to("vulkan"),
+                    metadata_bias_cpu.to("vulkan")).cpu()
+            self._assert_outputs_close(
+                expected_metadata,
+                actual_metadata,
+                atol=1e-4,
+                rtol=1e-4)
+            self.assertEqual(
+                torch.ops.vulkan_prepack.cpu_fallback_count(),
+                0)
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                metadata_op_hits = log_file.read()
+            self.assertIn(
+                "aten::convolution.packed_buffer_conv2d_runtime_shape",
+                metadata_op_hits)
+            self.assertIn("input_direct=0", metadata_op_hits)
+
+            for case in cases:
+                (
+                    batch,
+                    in_channels,
+                    out_channels,
+                    height,
+                    width,
+                    kernel_h,
+                    kernel_w,
+                    stride_h,
+                    stride_w,
+                    padding_h,
+                    padding_w,
+                ) = case
+                with self.subTest(seed=seed, case=case):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    torch.manual_seed(seed + len(cases) + sum(case))
+                    x_cpu = torch.randn(
+                        batch, in_channels, height, width) * 0.05
+                    module_cpu = torch.nn.Conv2d(
+                        in_channels,
+                        out_channels,
+                        kernel_size=(kernel_h, kernel_w),
+                        stride=(stride_h, stride_w),
+                        padding=(padding_h, padding_w),
+                        dilation=1,
+                        groups=1,
+                        bias=True).eval()
+                    module_vulkan = torch.nn.Conv2d(
+                        in_channels,
+                        out_channels,
+                        kernel_size=(kernel_h, kernel_w),
+                        stride=(stride_h, stride_w),
+                        padding=(padding_h, padding_w),
+                        dilation=1,
+                        groups=1,
+                        bias=True).eval()
+                    module_vulkan.load_state_dict(module_cpu.state_dict())
+                    module_vulkan = module_vulkan.to("vulkan")
+
+                    with torch.inference_mode():
+                        expected = module_cpu(x_cpu)
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = module_vulkan(x_cpu.to("vulkan")).cpu()
+
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(),
+                        0)
+                    with open(log_path, "r", encoding="utf-8") as log_file:
+                        op_hits = log_file.read()
+                    self.assertIn(
+                        "aten::convolution.packed_buffer_conv2d_runtime_shape",
+                        op_hits)
+                    self.assertIn(
+                        "contract=PackedBufferConv2DContract",
+                        op_hits)
+                    self.assertIn(
+                        "contract_family=GenericRuntimeShape",
+                        op_hits)
+                    self.assertNotIn("dynamic_pointwise_direct", op_hits)
         finally:
             if previous_op_hit_log is None:
                 os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
@@ -17171,10 +17604,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
     def test_large_pointwise_conv2d_factorized_depth_vision_adjacent_guards(self):
         torch.manual_seed(2731)
-        contract_hit = (
+        sparse_contract_hit = (
             "aten::convolution.buffer_float_1x1_skip."
-            "small_spatial_pointwise.depth_vision_projection"
+            "small_spatial_pointwise"
         )
+        dynamic_hit = (
+            "aten::convolution.buffer_float_1x1.dynamic_pointwise_direct"
+        )
+        as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
         log_name = "large_pointwise_factorized_depth_vision_negative_op_hit.log"
         log_path = os.path.join(REPO_ROOT, log_name)
         previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
@@ -17189,6 +17626,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             padding=0,
             dilation=1,
             groups=1,
+            expect_dynamic=False,
         ):
             if os.path.exists(log_path):
                 os.remove(log_path)
@@ -17221,7 +17659,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
             if os.path.exists(log_path):
                 with open(log_path, "r", encoding="utf-8") as log_file:
-                    self.assertNotIn(contract_hit, log_file.read())
+                    op_hits = log_file.read()
+                self.assertNotIn(sparse_contract_hit, op_hits)
+                if expect_dynamic:
+                    self.assertIn(dynamic_hit, op_hits)
+                    if shape[0] != 1:
+                        self.assertNotIn(as_linear_hit, op_hits)
 
         try:
             for kwargs in (
@@ -17249,7 +17692,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 ((9, 512, 3, 80), 512),
             ):
                 with self.subTest(shape=shape, out_channels=out_channels):
-                    run_case(shape, out_channels)
+                    run_case(shape, out_channels, expect_dynamic=True)
 
         finally:
             if previous_op_hit_log is None:
@@ -17280,9 +17723,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ((1, 3328, 7, 7), 1024, False),
         )
         as_linear_hit = "aten::convolution.buffer_float_1x1_as_linear"
-        contract_hit = (
+        dynamic_hit = (
+            "aten::convolution.buffer_float_1x1.dynamic_pointwise_direct"
+        )
+        sparse_contract_hit = (
             "aten::convolution.buffer_float_1x1_skip."
-            "small_spatial_pointwise.ocr_projection"
+            "small_spatial_pointwise"
         )
         log_name = "large_pointwise_paddleocr_op_hit_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
@@ -17331,12 +17777,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         rtol=1e-4)
                     with open(log_path, "r", encoding="utf-8") as log_file:
                         op_hits = log_file.read()
-                    self.assertIn(contract_hit, op_hits)
+                    self.assertIn(dynamic_hit, op_hits)
+                    self.assertNotIn(sparse_contract_hit, op_hits)
+                    self.assertIn("contract_family=GenericDynamicHW", op_hits)
                     if shape[0] == 1:
                         self.assertIn(as_linear_hit, op_hits)
                     else:
-                        self.assertIn("selected=generic", op_hits)
+                        self.assertIn("selected=specialized_1x1", op_hits)
                         self.assertIn("selected_plan=FloatBufferPointwise1x1", op_hits)
+                        self.assertNotIn(as_linear_hit, op_hits)
         finally:
             if previous_op_hit_log is None:
                 os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
@@ -17537,7 +17986,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_small_metadata_padded_conv2d_adjacent_shape_keeps_guard(self):
+    def test_small_metadata_padded_conv2d_dynamic_adjacent_shape_materializes_input(self):
         log_name = "small_metadata_padded_conv2d_adjacent_guard_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(repo_root, log_name)
@@ -17580,12 +18029,86 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
             self.assertIn(
-                "op=aten::convolution.buffer_float_skip.small_metadata_input",
-                log_text)
-            self.assertNotIn(
                 "op=aten::convolution.small_metadata_padded_conv2d.materialize_input",
                 log_text)
+            self.assertNotIn(
+                "op=aten::convolution.buffer_float_skip.small_metadata_input",
+                log_text)
         finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_small_metadata_padded_conv2d_dynamic_random_shapes_match_cpu(self):
+        import random
+
+        seed_env = os.environ.get("PYTORCH_VULKAN_DYNAMIC_SHAPE_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"dynamic_small_metadata_padded_conv2d_seed={seed}")
+        rng = random.Random(seed)
+        cases = []
+        while len(cases) < 5:
+            channels = rng.randint(2, 19)
+            out_channels = rng.randint(2, 32)
+            height = rng.randint(17, 64)
+            width = rng.randrange(18, 64, 2)
+            cases.append((channels, out_channels, height, width))
+
+        log_name = "small_metadata_padded_conv2d_dynamic_random_op_hit.log"
+        log_path = os.path.join(REPO_ROOT, log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+        try:
+            for channels, out_channels, height, width in cases:
+                with self.subTest(
+                        seed=seed,
+                        channels=channels,
+                        out_channels=out_channels,
+                        height=height,
+                        width=width):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    torch.manual_seed(seed + channels + out_channels + height + width)
+                    x_cpu = torch.randn(1, channels, height, width) * 0.05
+                    weight_cpu = torch.randn(out_channels, channels, 2, 2) * 0.05
+                    bias_cpu = torch.randn(out_channels) * 0.05
+                    with torch.inference_mode():
+                        expected = F.conv2d(
+                            F.pad(x_cpu, (0, 1, 0, 1)),
+                            weight_cpu,
+                            bias_cpu)
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.conv2d(
+                            F.pad(x_cpu.to("vulkan"), (0, 1, 0, 1)),
+                            weight_cpu.to("vulkan"),
+                            bias_cpu.to("vulkan")).cpu()
+
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=1e-4,
+                        rtol=1e-4)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(),
+                        0)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.sync_readback_count(),
+                        0)
+                    with open(log_path, "r", encoding="utf-8") as log_file:
+                        log_text = log_file.read()
+                    self.assertIn(
+                        "op=aten::convolution.small_metadata_padded_conv2d.materialize_input",
+                        log_text)
+                    self.assertIn("op=aten::convolution.buffer_float", log_text)
+                    self.assertNotIn(
+                        "op=aten::convolution.buffer_float_skip.small_metadata_input",
+                        log_text)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
             if os.path.exists(log_path):
                 os.remove(log_path)
 
@@ -17752,6 +18275,134 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             if os.path.exists(path):
                                 os.remove(path)
 
+    def test_patch_embed_float_buffer_conv_route_dynamic_random_shapes(self):
+        import random
+
+        seed = int.from_bytes(os.urandom(8), "little")
+        print(f"dynamic_patch_embed_float_buffer_conv_random_seed={seed}")
+        rng = random.Random(seed)
+
+        def make_case(case_index):
+            height = rng.randint(15, 95)
+            width = rng.randint(15, 131)
+            out_channels = rng.randrange(32, 257, 4)
+            return height, width, out_channels, case_index
+
+        cases = [
+            (43, 59, 64, "fixed_unseen_hw"),
+            (71, 127, 512, "fixed_unseen_out_channels"),
+        ]
+        cases.extend(make_case(case_index) for case_index in range(8))
+
+        for height, width, out_channels, label in cases:
+            with self.subTest(label=label, height=height, width=width,
+                              out_channels=out_channels):
+                log_name = (
+                    "patch_embed_float_buffer_conv_dynamic_route_"
+                    f"{height}_{width}_{out_channels}.log"
+                )
+                op_hit_log_name = (
+                    "patch_embed_float_buffer_conv_dynamic_op_hit_"
+                    f"{height}_{width}_{out_channels}.log"
+                )
+                log_path = os.path.join(REPO_ROOT, log_name)
+                op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+                for path in (log_path, op_hit_log_path):
+                    if os.path.exists(path):
+                        os.remove(path)
+                script = f"""
+                    import json
+
+                    import torch
+                    import torch.nn.functional as F
+
+                    torch.manual_seed({9100 + height + width + out_channels})
+                    image = torch.randint(
+                        0,
+                        256,
+                        ({height}, {width}, 3),
+                        dtype=torch.uint8)
+                    mean = torch.tensor(
+                        [0.485, 0.456, 0.406],
+                        dtype=torch.float32)
+                    std = torch.tensor(
+                        [0.229, 0.224, 0.225],
+                        dtype=torch.float32)
+                    input_cpu = (
+                        (image.float() / 255.0 - mean) / std
+                    ).permute((2, 0, 1)).unsqueeze(0)
+                    input_vulkan = (
+                        (
+                            image.to("vulkan").float() / 255.0
+                            - mean.to("vulkan")
+                        )
+                        / std.to("vulkan")
+                    ).permute((2, 0, 1)).unsqueeze(0)
+                    weight_cpu = torch.randn({out_channels}, 3, 14, 14)
+                    bias_cpu = torch.randn({out_channels})
+                    expected = F.conv2d(
+                        input_cpu,
+                        weight_cpu,
+                        bias_cpu,
+                        stride=(14, 14),
+                    )
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    with torch.inference_mode():
+                        actual_vulkan = F.conv2d(
+                            input_vulkan,
+                            weight_cpu.to("vulkan"),
+                            bias_cpu.to("vulkan"),
+                            stride=(14, 14),
+                        )
+                        fallback_before_cpu = (
+                            torch.ops.vulkan_prepack.cpu_fallback_count()
+                        )
+                        sync_before_cpu = (
+                            torch.ops.vulkan_prepack.sync_readback_count()
+                        )
+                        actual = actual_vulkan.cpu()
+
+                    torch.testing.assert_close(
+                        actual, expected, atol=2e-3, rtol=2e-3)
+                    print(json.dumps({{
+                        "cpu_fallback": int(fallback_before_cpu),
+                        "max_abs": float((actual - expected).abs().max().item()),
+                        "sync_readback": int(sync_before_cpu),
+                    }}, sort_keys=True))
+                """
+                try:
+                    _, result = self._run_repo_python_subprocess(
+                        script,
+                        extra_env={
+                            "PYTORCH_VULKAN_CONV_CACHE_LOG": log_name,
+                            "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
+                        },
+                        timeout=180,
+                        error_prefix=(
+                            "Vulkan dynamic patch-embed float-buffer route "
+                            "subprocess failed."
+                        ),
+                    )
+                    summary = json.loads(result.stdout.strip().splitlines()[-1])
+                    self.assertLessEqual(summary["max_abs"], 2e-3, summary)
+                    self.assertEqual(summary["cpu_fallback"], 0, summary)
+                    self.assertEqual(summary["sync_readback"], 0, summary)
+                    with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                        op_hit_log = log_file.read()
+                    self.assertIn(
+                        "op=aten::convolution.buffer_float_patch_embed_route",
+                        op_hit_log,
+                    )
+                    if os.path.exists(log_path):
+                        with open(log_path, "r", encoding="utf-8") as log_file:
+                            conv_pack_log = log_file.read()
+                        self.assertIn("vulkan_pack_weights=0", conv_pack_log)
+                        self.assertIn("vulkan_to_cpu_copies=0", conv_pack_log)
+                finally:
+                    for path in (log_path, op_hit_log_path):
+                        if os.path.exists(path):
+                            os.remove(path)
+
     def test_patch_embed_float_buffer_conv_route_adjacent_guards(self):
         def make_normalized_image(height, width, channels=3):
             image = torch.randint(
@@ -17768,10 +18419,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         torch.manual_seed(6701)
         cases = (
-            ("bad_height_width", (140, 224, 3), (384, 3, 14, 14),
-             (14, 14), 0, 1, 1),
-            ("bad_output_channels", (140, 210, 3), (512, 3, 14, 14),
-             (14, 14), 0, 1, 1),
             ("bad_kernel", (140, 210, 3), (384, 3, 13, 14),
              (14, 14), 0, 1, 1),
             ("bad_stride", (140, 210, 3), (384, 3, 14, 14),
@@ -19289,6 +19936,110 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     self.assertEqual(actual_cpu, expected, rtol=1e-4, atol=1e-4)
                     self.assertEqual(repeat_cpu, actual_cpu, rtol=1e-5, atol=1e-5)
 
+    def test_scaled_dot_product_attention_gqa_repeat_dynamic_random_shapes_match_cpu(self):
+        import random
+
+        seed_env = os.environ.get("PYTORCH_VULKAN_DYNAMIC_SHAPE_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else 62031
+        print(f"dynamic_gqa_repeat_random_seed={seed}")
+        rng = random.Random(seed)
+        op_hit_log_path = os.path.join(
+            REPO_ROOT, "agent_space", "dynamic_gqa_repeat_op_hits.log")
+        os.makedirs(os.path.dirname(op_hit_log_path), exist_ok=True)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+
+        def read_op_hits():
+            if not os.path.exists(op_hit_log_path):
+                return []
+            with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                return [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+            with torch.inference_mode():
+                for idx in range(8):
+                    key_heads = rng.choice((1, 2, 3, 4))
+                    repeat_factor = rng.choice((2, 3, 4))
+                    query_heads = key_heads * repeat_factor
+                    query_len = rng.randint(65, 96)
+                    source_len = rng.randint(8, 80)
+                    head_dim = rng.choice((32, 64, 96, 128))
+                    with self.subTest(
+                            idx=idx,
+                            key_heads=key_heads,
+                            repeat_factor=repeat_factor,
+                            query_len=query_len,
+                            source_len=source_len,
+                            head_dim=head_dim):
+                        if os.path.exists(op_hit_log_path):
+                            os.remove(op_hit_log_path)
+                        query = torch.randn(1, query_heads, query_len, head_dim)
+                        key = torch.randn(1, key_heads, source_len, head_dim)
+                        value = torch.randn(1, key_heads, source_len, head_dim)
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            dropout_p=0.0,
+                            is_causal=False,
+                            scale=None,
+                            enable_gqa=True,
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=False,
+                            scale=None,
+                            enable_gqa=True,
+                        ).cpu()
+                        self.assertEqual(
+                            torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                        op_hits = read_op_hits()
+                        self.assertIn(
+                            "aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize",
+                            op_hits,
+                        )
+                        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+
+                query = torch.randn(1, 4, 65, 32)
+                key = torch.randn(1, 2, 64, 32)
+                value = torch.randn(1, 2, 64, 32)
+                expected = F.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=None,
+                    enable_gqa=True,
+                )
+                actual = F.scaled_dot_product_attention(
+                    query.to("vulkan"),
+                    key.to("vulkan"),
+                    value.to("vulkan"),
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=None,
+                    enable_gqa=True,
+                ).cpu()
+                self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
     def test_gqa_repeat_contract_generated_spec(self):
         spec = _load_vulkan_contract_spec("gqa_repeat_contract.json")
         op_hit_log_name = contract_spec_utils.contract_log_name(
@@ -19338,10 +20089,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     query_vulkan = query.to("vulkan")
                     key_vulkan = key.to("vulkan")
                     value_vulkan = value.to("vulkan")
+                    dynamic_semantic_match = case.get("violates") in (
+                        "attention_rows.small_query_sequence",
+                        "attention_rows.small_source_sequence",
+                    )
 
                     with torch.inference_mode():
                         torch.ops.vulkan_prepack.reset_fallback_counters()
-                        if "expected_runtime_error" in case:
+                        dynamic_semantic_match = case.get("violates") in (
+                            "attention_rows.causal_sequence",
+                        )
+                        if (
+                                case.get("expected_runtime_error")
+                                and not dynamic_semantic_match):
                             with self.assertRaisesRegex(
                                 RuntimeError,
                                 case["expected_runtime_error"],
@@ -19448,10 +20208,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     query_vulkan = query.to("vulkan")
                     key_vulkan = key.to("vulkan")
                     value_vulkan = value.to("vulkan")
+                    dynamic_semantic_match = case.get("violates") in (
+                        "attention_rows.causal_sequence",
+                        "attention_rows.small_query_sequence",
+                    )
 
                     with torch.inference_mode():
                         torch.ops.vulkan_prepack.reset_fallback_counters()
-                        if "expected_runtime_error" in case:
+                        if (
+                                case.get("expected_runtime_error")
+                                and not dynamic_semantic_match):
                             with self.assertRaisesRegex(
                                 RuntimeError,
                                 case["expected_runtime_error"],
@@ -19488,7 +20254,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                     fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
                     op_hits = read_op_hits()
-                    if expect_native_route:
+                    if expect_native_route or dynamic_semantic_match:
                         if case["expected_cpu_fallback"]:
                             self.assertGreater(fallback_count, 0)
                         else:
@@ -19562,7 +20328,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                     with torch.inference_mode():
                         torch.ops.vulkan_prepack.reset_fallback_counters()
-                        if "expected_runtime_error" in case:
+                        dynamic_semantic_match = case.get("violates") in (
+                            "attention_rows.batch_heads",
+                            "attention_rows.sequence",
+                        )
+                        if case.get("expected_runtime_error") and not dynamic_semantic_match:
                             with self.assertRaisesRegex(
                                 RuntimeError,
                                 case["expected_runtime_error"],
@@ -19599,9 +20369,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                     fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
                     route_log = read_route_log()
-                    if expect_native_route:
+                    if expect_native_route or dynamic_semantic_match:
                         self.assertEqual(fallback_count, 0)
-                        self.assertIn(case["expected_route_label"], route_log)
+                        self.assertIn("SelectedVisionSelfAttentionSDPA", route_log)
                     else:
                         self.assertNotIn(spec["route_label"], route_log)
                         if "expected_cpu_fallback" in case:
@@ -19609,6 +20379,61 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                                 fallback_count,
                                 1 if case["expected_cpu_fallback"] else 0,
                             )
+        finally:
+            if previous_route_log is None:
+                os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
+            if os.path.exists(route_log_path):
+                os.remove(route_log_path)
+
+    def test_vision_self_attention_sdpa_dynamic_random_shapes(self):
+        seed = torch.seed()
+        print(f"dynamic_vision_self_attention_sdpa_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        route_log_path = os.path.join(
+            REPO_ROOT, "dynamic_vision_self_attention_sdpa_route_test.log")
+        previous_route_log = os.environ.get("PYTORCH_VULKAN_ROUTE_LOG")
+
+        cases = [(5, 97), (8, 152)]
+        for _ in range(4):
+            batch_heads = int(torch.randint(2, 18, (1,), generator=generator))
+            sequence = int(torch.randint(33, 180, (1,), generator=generator))
+            if batch_heads in (6, 12, 16) and sequence in (151, 261):
+                sequence += 1
+            cases.append((batch_heads, sequence))
+
+        try:
+            os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = route_log_path
+            for batch_heads, sequence in cases:
+                with self.subTest(batch_heads=batch_heads, sequence=sequence):
+                    if os.path.exists(route_log_path):
+                        os.remove(route_log_path)
+                    query = torch.randn(batch_heads, sequence, 64)
+                    key = torch.randn(batch_heads, sequence, 64)
+                    value = torch.randn(batch_heads, sequence, 64)
+                    expected = F.scaled_dot_product_attention(
+                        query, key, value, dropout_p=0.0, scale=1.0)
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual_vulkan = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            scale=1.0,
+                        )
+                        fallback_before_cpu = (
+                            torch.ops.vulkan_prepack.cpu_fallback_count())
+                        sync_before_cpu = (
+                            torch.ops.vulkan_prepack.sync_readback_count())
+                        actual = actual_vulkan.cpu()
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(fallback_before_cpu, 0)
+                    self.assertEqual(sync_before_cpu, 0)
+                    with open(route_log_path, "r", encoding="utf-8") as log_file:
+                        route_log = log_file.read()
+                    self.assertIn("SelectedVisionSelfAttentionSDPA", route_log)
         finally:
             if previous_route_log is None:
                 os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
@@ -19631,10 +20456,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             (12, 261, 261),
             (16, 151, 151),
             (16, 261, 261),
-        )
-        negatives = (
             (5, 151, 151),
             (6, 152, 152),
+            (9, 173, 173),
+        )
+        negatives = (
             (6, 151, 152),
         )
 
@@ -19793,23 +20619,576 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_scaled_dot_product_attention_hymt_decode_gqa_shape_guard(self):
-        torch.manual_seed(0)
-        scale = 0.0883883
-        query = torch.randn(1, 16, 1, 128)
-        key = torch.randn(1, 4, 117, 128)
-        value = torch.randn(1, 4, 117, 128)
+    def test_scaled_dot_product_attention_dynamic_decode_gqa_random_shapes(self):
+        seed = torch.seed()
+        print(f"dynamic_direct_decode_gqa_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        head_dim_choices = (16, 32, 48, 64, 80, 96, 128)
+        value_dim_choices = (16, 24, 32, 64, 96, 128)
+        route_log_path = os.path.join(
+            REPO_ROOT, "dynamic_direct_decode_gqa_route_test.log")
+        if os.path.exists(route_log_path):
+            os.remove(route_log_path)
+        previous_route_log = os.environ.get("PYTORCH_VULKAN_ROUTE_LOG")
+
+        def pick(values):
+            index = int(torch.randint(
+                0, len(values), (1,), generator=generator).item())
+            return values[index]
+
+        def read_route_log():
+            if not os.path.exists(route_log_path):
+                return ""
+            with open(route_log_path, "r", encoding="utf-8") as log_file:
+                return log_file.read()
+
+        try:
+            os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = route_log_path
+            with torch.inference_mode():
+                for case_index in range(10):
+                    key_value_heads = pick((1, 2, 3, 4))
+                    repeat_factor = pick((2, 3, 4))
+                    query_heads = key_value_heads * repeat_factor
+                    source_len = int(torch.randint(
+                        65, 181, (1,), generator=generator).item())
+                    head_dim = pick(head_dim_choices)
+                    value_dim = pick(value_dim_choices)
+                    if (
+                        query_heads == 16 and key_value_heads == 4 and
+                        head_dim == 128 and source_len <= 116):
+                        source_len = 117
+                    with self.subTest(
+                            case_index=case_index,
+                            query_heads=query_heads,
+                            key_value_heads=key_value_heads,
+                            source_len=source_len,
+                            head_dim=head_dim,
+                            value_dim=value_dim):
+                        if os.path.exists(route_log_path):
+                            os.remove(route_log_path)
+                        query = torch.randn(
+                            1, query_heads, 1, head_dim, generator=generator)
+                        key = torch.randn(
+                            1,
+                            key_value_heads,
+                            source_len,
+                            head_dim,
+                            generator=generator)
+                        value = torch.randn(
+                            1,
+                            key_value_heads,
+                            source_len,
+                            value_dim,
+                            generator=generator)
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            dropout_p=0.0,
+                            is_causal=False,
+                            enable_gqa=True,
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=False,
+                            enable_gqa=True,
+                        ).cpu()
+                        self.assertEqual(actual, expected, rtol=2e-4, atol=2e-4)
+                        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                        self.assertIn(
+                            "telemetry=SelectedDynamicDirectDecodeGQASDPA",
+                            read_route_log())
+        finally:
+            if previous_route_log is None:
+                os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
+            if os.path.exists(route_log_path):
+                os.remove(route_log_path)
+
+    def test_scaled_dot_product_attention_dynamic_causal_prefill_random_shapes(self):
+        seed = torch.seed()
+        print(f"dynamic_direct_causal_prefill_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        head_dim_choices = (16, 32, 64, 96, 128)
+        value_dim_choices = (16, 32, 64, 96, 128)
+        route_log_path = os.path.join(
+            REPO_ROOT, "dynamic_direct_causal_prefill_route_test.log")
+        if os.path.exists(route_log_path):
+            os.remove(route_log_path)
+        previous_route_log = os.environ.get("PYTORCH_VULKAN_ROUTE_LOG")
+
+        def pick(values):
+            index = int(torch.randint(
+                0, len(values), (1,), generator=generator).item())
+            return values[index]
+
+        def read_route_log():
+            if not os.path.exists(route_log_path):
+                return ""
+            with open(route_log_path, "r", encoding="utf-8") as log_file:
+                return log_file.read()
+
+        try:
+            os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = route_log_path
+            with torch.inference_mode():
+                for case_index in range(10):
+                    use_equal_head_mha = case_index % 2 == 0
+                    if use_equal_head_mha:
+                        key_value_heads = pick((1, 2, 4, 8, 16))
+                        query_heads = key_value_heads
+                    else:
+                        key_value_heads = pick((1, 2, 3, 4, 5))
+                        repeat_factor = pick((2, 3, 4))
+                        query_heads = key_value_heads * repeat_factor
+                    sequence = int(torch.randint(
+                        17, 161, (1,), generator=generator).item())
+                    head_dim = pick(head_dim_choices)
+                    value_dim = pick(value_dim_choices)
+                    if (
+                            query_heads == 16
+                            and key_value_heads in (4, 16)
+                            and head_dim == 128
+                            and value_dim == 128
+                            and sequence <= 128):
+                        sequence = 129
+                    enable_gqa = query_heads != key_value_heads
+                    with self.subTest(
+                            case_index=case_index,
+                            query_heads=query_heads,
+                            key_value_heads=key_value_heads,
+                            sequence=sequence,
+                            head_dim=head_dim,
+                            value_dim=value_dim,
+                            enable_gqa=enable_gqa):
+                        if os.path.exists(route_log_path):
+                            os.remove(route_log_path)
+                        query = torch.randn(
+                            1,
+                            query_heads,
+                            sequence,
+                            head_dim,
+                            generator=generator) * 0.1
+                        key = torch.randn(
+                            1,
+                            key_value_heads,
+                            sequence,
+                            head_dim,
+                            generator=generator) * 0.1
+                        value = torch.randn(
+                            1,
+                            key_value_heads,
+                            sequence,
+                            value_dim,
+                            generator=generator) * 0.1
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            dropout_p=0.0,
+                            is_causal=True,
+                            enable_gqa=enable_gqa,
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=True,
+                            enable_gqa=enable_gqa,
+                        ).cpu()
+                        self.assertEqual(actual, expected, rtol=5e-4, atol=5e-4)
+                        self.assertEqual(
+                            torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                        self.assertIn(
+                            "telemetry=SelectedTransformerGQASDPACausalPrefill",
+                            read_route_log())
+        finally:
+            if previous_route_log is None:
+                os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
+            if os.path.exists(route_log_path):
+                os.remove(route_log_path)
+
+    def test_scaled_dot_product_attention_dynamic_decode_gqa_semantic_negatives(self):
+        legal_query = torch.randn(1, 4, 1, 64)
+        legal_key = torch.randn(1, 2, 37, 64)
+        legal_value = torch.randn(1, 2, 37, 64)
+        cases = (
+            (
+                "non_divisible_heads",
+                torch.randn(1, 5, 1, 64),
+                legal_key,
+                legal_value,
+                None,
+                0.0,
+                False,
+                True,
+            ),
+            (
+                "head_dim_over_budget",
+                torch.randn(1, 4, 1, 129),
+                torch.randn(1, 2, 37, 129),
+                torch.randn(1, 2, 37, 64),
+                None,
+                0.0,
+                False,
+                True,
+            ),
+            (
+                "mask",
+                legal_query,
+                legal_key,
+                legal_value,
+                torch.zeros(1, 37),
+                0.0,
+                False,
+                True,
+            ),
+            (
+                "dropout",
+                legal_query,
+                legal_key,
+                legal_value,
+                None,
+                0.1,
+                False,
+                True,
+            ),
+            (
+                "causal_decode_mismatch",
+                legal_query,
+                legal_key,
+                legal_value,
+                None,
+                0.0,
+                True,
+                True,
+            ),
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                    scale=scale,
-                    enable_gqa=True,
-                )
+            for (
+                name,
+                query,
+                key,
+                value,
+                mask,
+                dropout,
+                is_causal,
+                enable_gqa,
+            ) in cases:
+                with self.subTest(name=name):
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    with self.assertRaisesRegex(
+                            RuntimeError, "KnownBadSdpaMaskOrCausal"):
+                        F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            attn_mask=None if mask is None else mask.to("vulkan"),
+                            dropout_p=dropout,
+                            is_causal=is_causal,
+                            enable_gqa=enable_gqa,
+                        )
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_scaled_dot_product_attention_dynamic_causal_prefill_semantic_negatives(self):
+        legal_query = torch.randn(1, 4, 37, 64)
+        legal_key = torch.randn(1, 2, 37, 64)
+        legal_value = torch.randn(1, 2, 37, 64)
+        cases = (
+            (
+                "non_equal_sequence",
+                legal_query,
+                torch.randn(1, 2, 38, 64),
+                torch.randn(1, 2, 38, 64),
+                None,
+                0.0,
+                True,
+                True,
+                None,
+            ),
+            (
+                "head_dim_over_budget",
+                torch.randn(1, 4, 37, 129),
+                torch.randn(1, 2, 37, 129),
+                torch.randn(1, 2, 37, 64),
+                None,
+                0.0,
+                True,
+                True,
+                None,
+            ),
+            (
+                "mask",
+                legal_query,
+                legal_key,
+                legal_value,
+                torch.zeros(37, 37),
+                0.0,
+                True,
+                True,
+                None,
+            ),
+            (
+                "dropout",
+                legal_query,
+                legal_key,
+                legal_value,
+                None,
+                0.1,
+                True,
+                True,
+                None,
+            ),
+            (
+                "scale_mismatch",
+                legal_query,
+                legal_key,
+                legal_value,
+                None,
+                0.0,
+                True,
+                True,
+                1.0,
+            ),
+            (
+                "mha_unequal_heads_without_gqa",
+                torch.randn(1, 4, 37, 64),
+                legal_key,
+                legal_value,
+                None,
+                0.0,
+                True,
+                False,
+                None,
+            ),
+        )
+
+        with torch.inference_mode():
+            for (
+                name,
+                query,
+                key,
+                value,
+                mask,
+                dropout,
+                is_causal,
+                enable_gqa,
+                scale,
+            ) in cases:
+                with self.subTest(name=name):
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    kwargs = {
+                        "attn_mask": None if mask is None else mask.to("vulkan"),
+                        "dropout_p": dropout,
+                        "is_causal": is_causal,
+                        "enable_gqa": enable_gqa,
+                    }
+                    if scale is not None:
+                        kwargs["scale"] = scale
+                    with self.assertRaisesRegex(
+                            RuntimeError, "KnownBadSdpaMaskOrCausal"):
+                        F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            **kwargs,
+                        )
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_scaled_dot_product_attention_small_non_causal_gqa_random_shapes_match_cpu(self):
+        seed = torch.seed()
+        print(f"small_non_causal_gqa_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        head_dim_choices = (16, 32, 48, 64, 96, 128)
+        value_dim_choices = (16, 32, 48, 64, 96, 128)
+        route_log_path = os.path.join(
+            REPO_ROOT, "small_non_causal_gqa_route_test.log")
+        if os.path.exists(route_log_path):
+            os.remove(route_log_path)
+        previous_route_log = os.environ.get("PYTORCH_VULKAN_ROUTE_LOG")
+
+        def pick(values):
+            index = int(torch.randint(
+                0, len(values), (1,), generator=generator).item())
+            return values[index]
+
+        def read_route_log():
+            if not os.path.exists(route_log_path):
+                return ""
+            with open(route_log_path, "r", encoding="utf-8") as log_file:
+                return log_file.read()
+
+        try:
+            os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = route_log_path
+            with torch.inference_mode():
+                for case_index in range(8):
+                    key_value_heads = pick((1, 2, 3, 4))
+                    repeat_factor = pick((2, 3, 4))
+                    query_heads = key_value_heads * repeat_factor
+                    query_len = int(torch.randint(
+                        2, 65, (1,), generator=generator).item())
+                    source_len = int(torch.randint(
+                        2, 65, (1,), generator=generator).item())
+                    head_dim = pick(head_dim_choices)
+                    value_dim = pick(value_dim_choices)
+                    with self.subTest(
+                            case_index=case_index,
+                            query_heads=query_heads,
+                            key_value_heads=key_value_heads,
+                            query_len=query_len,
+                            source_len=source_len,
+                            head_dim=head_dim,
+                            value_dim=value_dim):
+                        if os.path.exists(route_log_path):
+                            os.remove(route_log_path)
+                        query = torch.randn(
+                            1,
+                            query_heads,
+                            query_len,
+                            head_dim,
+                            generator=generator) * 0.1
+                        key = torch.randn(
+                            1,
+                            key_value_heads,
+                            source_len,
+                            head_dim,
+                            generator=generator) * 0.1
+                        value = torch.randn(
+                            1,
+                            key_value_heads,
+                            source_len,
+                            value_dim,
+                            generator=generator) * 0.1
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            dropout_p=0.0,
+                            is_causal=False,
+                            enable_gqa=True,
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=False,
+                            enable_gqa=True,
+                        ).cpu()
+                        self.assertEqual(actual, expected, rtol=5e-4, atol=5e-4)
+                        self.assertEqual(
+                            torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                        self.assertIn(
+                            "telemetry=SelectedTransformerGQASDPASmallNonCausalGQA",
+                            read_route_log())
+        finally:
+            if previous_route_log is None:
+                os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
+            if os.path.exists(route_log_path):
+                os.remove(route_log_path)
+
+    def test_scaled_dot_product_attention_direct_non_causal_mha_random_shapes_match_cpu(self):
+        seed = torch.seed()
+        print(f"direct_non_causal_mha_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        head_dim_choices = (16, 32, 64, 96, 128)
+        value_dim_choices = (16, 32, 64, 96, 128)
+        route_log_path = os.path.join(
+            REPO_ROOT, "direct_non_causal_mha_route_test.log")
+        if os.path.exists(route_log_path):
+            os.remove(route_log_path)
+        previous_route_log = os.environ.get("PYTORCH_VULKAN_ROUTE_LOG")
+
+        def pick(values):
+            index = int(torch.randint(
+                0, len(values), (1,), generator=generator).item())
+            return values[index]
+
+        def read_route_log():
+            if not os.path.exists(route_log_path):
+                return ""
+            with open(route_log_path, "r", encoding="utf-8") as log_file:
+                return log_file.read()
+
+        try:
+            os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = route_log_path
+            with torch.inference_mode():
+                for case_index in range(6):
+                    heads = pick((1, 2, 3, 5, 8))
+                    target_len = int(torch.randint(
+                        17, 193, (1,), generator=generator).item())
+                    source_len = int(torch.randint(
+                        17, 193, (1,), generator=generator).item())
+                    head_dim = pick(head_dim_choices)
+                    value_dim = pick(value_dim_choices)
+                    with self.subTest(
+                            case_index=case_index,
+                            heads=heads,
+                            target_len=target_len,
+                            source_len=source_len,
+                            head_dim=head_dim,
+                            value_dim=value_dim):
+                        if os.path.exists(route_log_path):
+                            os.remove(route_log_path)
+                        query = torch.randn(
+                            1,
+                            heads,
+                            target_len,
+                            head_dim,
+                            generator=generator) * 0.1
+                        key = torch.randn(
+                            1,
+                            heads,
+                            source_len,
+                            head_dim,
+                            generator=generator) * 0.1
+                        value = torch.randn(
+                            1,
+                            heads,
+                            source_len,
+                            value_dim,
+                            generator=generator) * 0.1
+                        expected = F.scaled_dot_product_attention(
+                            query,
+                            key,
+                            value,
+                            dropout_p=0.0,
+                            is_causal=False,
+                            enable_gqa=False,
+                        )
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = F.scaled_dot_product_attention(
+                            query.to("vulkan"),
+                            key.to("vulkan"),
+                            value.to("vulkan"),
+                            dropout_p=0.0,
+                            is_causal=False,
+                            enable_gqa=False,
+                        ).cpu()
+                        self.assertEqual(actual, expected, rtol=5e-4, atol=5e-4)
+                        self.assertEqual(
+                            torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                        self.assertIn(
+                            "telemetry=SelectedTransformerGQASDPADirectNonCausalMHA",
+                            read_route_log())
+        finally:
+            if previous_route_log is None:
+                os.environ.pop("PYTORCH_VULKAN_ROUTE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_ROUTE_LOG"] = previous_route_log
+            if os.path.exists(route_log_path):
+                os.remove(route_log_path)
 
     def test_scaled_dot_product_attention_hymt_direct_gqa_avoids_fallback(self):
         torch.manual_seed(0)
@@ -19924,7 +21303,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                 with torch.inference_mode():
                     torch.ops.vulkan_prepack.reset_fallback_counters()
-                    if "expected_runtime_error" in case:
+                    if case.get("expected_runtime_error"):
                         with self.assertRaisesRegex(
                             RuntimeError,
                             case["expected_runtime_error"],
@@ -19997,10 +21376,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 query_vulkan = query.to("vulkan")
                 key_vulkan = key.to("vulkan")
                 value_vulkan = value.to("vulkan")
+                dynamic_causal_prefill_match = (
+                    case.get("violates") == "is_causal"
+                    and len(case["query_shape"]) == 4
+                    and case["query_shape"] == case["key_shape"]
+                    and case["key_shape"][:3] == case["value_shape"][:3]
+                    and case["query_shape"][3] <= 128
+                    and case["value_shape"][3] <= 512
+                    and not case["enable_gqa"]
+                    and case["dropout_p"] == 0.0
+                    and case["scale"] is None
+                )
+                dynamic_direct_mha_match = (
+                    not case["is_causal"]
+                    and not case["enable_gqa"]
+                    and not case.get("has_attn_mask", False)
+                    and case["dropout_p"] == 0.0
+                    and case["scale"] is None
+                    and len(case["query_shape"]) == 4
+                    and case["query_shape"][0] == 1
+                    and case["key_shape"][0] == 1
+                    and case["value_shape"][0] == 1
+                    and case["query_shape"][1] == case["key_shape"][1]
+                    and case["key_shape"][1] == case["value_shape"][1]
+                    and case["query_shape"][3] == case["key_shape"][3]
+                    and case["key_shape"][2] == case["value_shape"][2]
+                    and case["query_shape"][3] % 16 == 0
+                    and case["value_shape"][3] % 16 == 0
+                    and case["query_shape"][3] <= 128
+                    and case["value_shape"][3] <= 512
+                )
 
                 with torch.inference_mode():
                     torch.ops.vulkan_prepack.reset_fallback_counters()
-                    if "expected_runtime_error" in case:
+                    if (
+                            case.get("expected_runtime_error")
+                            and not dynamic_causal_prefill_match
+                            and not dynamic_direct_mha_match):
                         with self.assertRaisesRegex(
                             RuntimeError,
                             case["expected_runtime_error"],
@@ -20038,6 +21450,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
                 if expect_native_route:
                     self.assertFalse(case["expected_cpu_fallback"])
+                    self.assertEqual(fallback_count, 0)
+                elif dynamic_causal_prefill_match or dynamic_direct_mha_match:
                     self.assertEqual(fallback_count, 0)
                 else:
                     self.assertFalse(case["expected_native_route"])
@@ -20154,10 +21568,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 query_vulkan = query.to("vulkan")
                 key_vulkan = key.to("vulkan")
                 value_vulkan = value.to("vulkan")
+                dynamic_causal_prefill_match = (
+                    case.get("violates") == "is_causal"
+                    and len(case["query_shape"]) == 4
+                    and case["query_shape"] == case["key_shape"]
+                    and case["key_shape"][:3] == case["value_shape"][:3]
+                    and case["query_shape"][3] <= 128
+                    and case["value_shape"][3] <= 512
+                    and not case["enable_gqa"]
+                    and case["dropout_p"] == 0.0
+                    and case["scale"] is None
+                )
+                dynamic_direct_mha_match = (
+                    not case["is_causal"]
+                    and not case["enable_gqa"]
+                    and not case.get("has_attn_mask", False)
+                    and case["dropout_p"] == 0.0
+                    and case["scale"] is None
+                    and len(case["query_shape"]) == 4
+                    and case["query_shape"][0] == 1
+                    and case["key_shape"][0] == 1
+                    and case["value_shape"][0] == 1
+                    and case["query_shape"][1] == case["key_shape"][1]
+                    and case["key_shape"][1] == case["value_shape"][1]
+                    and case["query_shape"][3] == case["key_shape"][3]
+                    and case["key_shape"][2] == case["value_shape"][2]
+                    and case["query_shape"][3] % 16 == 0
+                    and case["value_shape"][3] % 16 == 0
+                    and case["query_shape"][3] <= 128
+                    and case["value_shape"][3] <= 512
+                )
 
                 with torch.inference_mode():
                     torch.ops.vulkan_prepack.reset_fallback_counters()
-                    if "expected_runtime_error" in case:
+                    if (
+                            case.get("expected_runtime_error")
+                            and not dynamic_causal_prefill_match
+                            and not dynamic_direct_mha_match):
                         with self.assertRaisesRegex(
                             RuntimeError,
                             case["expected_runtime_error"],
@@ -20196,12 +21643,87 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 if expect_native_route:
                     self.assertFalse(case["expected_cpu_fallback"])
                     self.assertEqual(fallback_count, 0)
+                elif dynamic_causal_prefill_match or dynamic_direct_mha_match:
+                    self.assertEqual(fallback_count, 0)
                 else:
                     self.assertFalse(case["expected_native_route"])
                     self.assertEqual(
                         fallback_count,
                         1 if case["expected_cpu_fallback"] else 0,
                     )
+
+    def test_sdpa_execution_policy_recognizer_dynamic_random_shapes(self):
+        import random
+
+        seed_env = os.environ.get(
+            "PYTORCH_VULKAN_DYNAMIC_RECOGNIZER_SDPA_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"dynamic_recognizer_sdpa_random_seed={seed}")
+        rng = random.Random(seed)
+        cases = []
+        for _ in range(4):
+            batch = rng.choice((1, 2))
+            heads = rng.choice((2, 4, 6))
+            target_len = rng.randint(64, 96)
+            source_len = rng.randint(64, 96)
+            head_dim = rng.choice((16, 24, 32))
+            cases.append((batch, heads, target_len, source_len, head_dim))
+
+        with torch.inference_mode():
+            for batch, heads, target_len, source_len, head_dim in cases:
+                with self.subTest(
+                        seed=seed,
+                        batch=batch,
+                        heads=heads,
+                        target_len=target_len,
+                        source_len=source_len,
+                        head_dim=head_dim):
+                    query = torch.randn(
+                        batch,
+                        heads,
+                        target_len,
+                        head_dim,
+                        dtype=torch.float32)
+                    key = torch.randn(
+                        batch,
+                        heads,
+                        source_len,
+                        head_dim,
+                        dtype=torch.float32)
+                    value = torch.randn(
+                        batch,
+                        heads,
+                        source_len,
+                        head_dim,
+                        dtype=torch.float32)
+
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=None,
+                        enable_gqa=False)
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=None,
+                        enable_gqa=False).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(),
+                        0)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.sync_readback_count(),
+                        0)
 
     def test_scaled_dot_product_attention_tiny_float_mask_matches_cpu(self):
         torch.manual_seed(0)
@@ -20247,6 +21769,79 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_scaled_dot_product_attention_tiny_float_mask_dynamic_random_shapes(self):
+        seed = torch.seed()
+        print(f"masked_tiny_sdpa_dynamic_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        dims = (8, 16, 32, 64)
+
+        for case_index in range(6):
+            with self.subTest(case_index=case_index):
+                rank4 = case_index % 2 == 0
+                if rank4:
+                    batch = int(torch.randint(1, 3, (), generator=generator).item())
+                    heads = int(torch.randint(1, 5, (), generator=generator).item())
+                    target_len = int(torch.randint(3, 9, (), generator=generator).item())
+                    source_len = int(torch.randint(3, 10, (), generator=generator).item())
+                    head_dim = dims[int(torch.randint(0, len(dims), (), generator=generator).item())]
+                    query = torch.randn(
+                        batch, heads, target_len, head_dim, generator=generator)
+                    key = torch.randn(
+                        batch, heads, source_len, head_dim, generator=generator)
+                    value = torch.randn(
+                        batch, heads, source_len, head_dim, generator=generator)
+                    if case_index % 4 == 0:
+                        mask = torch.randn(target_len, source_len, generator=generator) * 0.25
+                    else:
+                        mask_batch = 1 if case_index % 3 == 0 else batch
+                        mask_heads = 1 if case_index % 5 == 0 else heads
+                        mask = torch.randn(
+                            mask_batch,
+                            mask_heads,
+                            target_len,
+                            source_len,
+                            generator=generator) * 0.25
+                else:
+                    batch = int(torch.randint(1, 4, (), generator=generator).item())
+                    target_len = int(torch.randint(3, 9, (), generator=generator).item())
+                    source_len = int(torch.randint(3, 10, (), generator=generator).item())
+                    head_dim = dims[int(torch.randint(0, len(dims), (), generator=generator).item())]
+                    query = torch.randn(batch, target_len, head_dim, generator=generator)
+                    key = torch.randn(batch, source_len, head_dim, generator=generator)
+                    value = torch.randn(batch, source_len, head_dim, generator=generator)
+                    if case_index % 3 == 1:
+                        mask = torch.randn(target_len, source_len, generator=generator) * 0.25
+                    else:
+                        mask_batch = 1 if case_index % 5 == 1 else batch
+                        mask = torch.randn(
+                            mask_batch, target_len, source_len, generator=generator) * 0.25
+
+                scale = None if case_index % 3 == 0 else 0.25
+                expected = F.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    attn_mask=mask,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=scale,
+                )
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        attn_mask=mask.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                    ).cpu()
+
+                self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
     def test_scaled_dot_product_attention_tiny_bool_mask_still_rejected(self):
         query = torch.randn(1, 16, 2, 64)
         key = torch.randn(1, 16, 2, 64)
@@ -20276,6 +21871,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 key.to("vulkan"),
                 value.to("vulkan"),
                 attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            )
+
+    def test_scaled_dot_product_attention_tiny_cpu_float_mask_still_rejected(self):
+        query = torch.randn(1, 16, 2, 64)
+        key = torch.randn(1, 16, 2, 64)
+        value = torch.randn(1, 16, 2, 64)
+        mask = torch.zeros(1, 1, 2, 2)
+
+        with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
+            F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask,
                 dropout_p=0.0,
                 is_causal=False,
                 scale=0.125,
@@ -20364,20 +21976,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_multi_head_diffusion_shape_guard(self):
+    def test_scaled_dot_product_attention_multi_head_diffusion_641_matches_cpu(self):
         query = torch.randn(1, 5, 641, 64)
         key = torch.randn(1, 5, 641, 64)
         value = torch.randn(1, 5, 641, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
     def test_scaled_dot_product_attention_single_head_504_diffusion_matches_cpu(self):
         torch.manual_seed(0)
@@ -20447,6 +22070,59 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_scaled_dot_product_attention_diffusion_square_dynamic_random_shapes(self):
+        seed = torch.seed()
+        print(f"dynamic_diffusion_square_sdpa_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        case_options = (
+            (1, 512),
+            (2, 64),
+            (3, 64),
+            (4, 64),
+            (6, 64),
+        )
+
+        for case_index in range(5):
+            with self.subTest(case_index=case_index):
+                heads, head_dim = case_options[
+                    int(torch.randint(0, len(case_options), (), generator=generator).item())
+                ]
+                sequence = int(
+                    torch.randint(16, 97, (), generator=generator).item())
+                if head_dim == 512:
+                    sequence = 4 * max(4, sequence // 4)
+                query = torch.randn(
+                    1, heads, sequence, head_dim, generator=generator)
+                key = torch.randn(
+                    1, heads, sequence, head_dim, generator=generator)
+                value = torch.randn(
+                    1, heads, sequence, head_dim, generator=generator)
+                scale = None if case_index % 2 == 0 else (
+                    0.125 if head_dim == 64 else 0.04419417382415922)
+
+                expected = F.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=scale,
+                )
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                    ).cpu()
+
+                self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
     def test_scaled_dot_product_attention_diffusion_cross_504x2_matches_cpu(self):
         torch.manual_seed(0)
         query = torch.randn(1, 5, 504, 64)
@@ -20481,20 +22157,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_diffusion_cross_shape_guard(self):
+    def test_scaled_dot_product_attention_diffusion_cross_kv3_matches_cpu(self):
+        torch.manual_seed(0)
         query = torch.randn(1, 5, 504, 64)
         key = torch.randn(1, 5, 3, 64)
         value = torch.randn(1, 5, 3, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_scaled_dot_product_attention_diffusion_cross_126x2_matches_cpu(self):
         torch.manual_seed(0)
@@ -20530,20 +22217,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_diffusion_cross_126x2_shape_guard(self):
+    def test_scaled_dot_product_attention_diffusion_cross_126x3_matches_cpu(self):
+        torch.manual_seed(0)
         query = torch.randn(1, 10, 126, 64)
         key = torch.randn(1, 10, 3, 64)
         value = torch.randn(1, 10, 3, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_scaled_dot_product_attention_diffusion_cross_20h35x2_matches_cpu(self):
         torch.manual_seed(0)
@@ -20579,20 +22277,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_diffusion_cross_20h35x2_shape_guard(self):
+    def test_scaled_dot_product_attention_diffusion_cross_20h35x3_matches_cpu(self):
+        torch.manual_seed(0)
         query = torch.randn(1, 20, 35, 64)
         key = torch.randn(1, 20, 3, 64)
         value = torch.randn(1, 20, 3, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_scaled_dot_product_attention_diffusion_cross_20h12x2_matches_cpu(self):
         torch.manual_seed(0)
@@ -20628,20 +22337,79 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_diffusion_cross_20h12x2_shape_guard(self):
+    def test_scaled_dot_product_attention_diffusion_cross_20h12x3_matches_cpu(self):
+        torch.manual_seed(0)
         query = torch.randn(1, 20, 12, 64)
         key = torch.randn(1, 20, 3, 64)
         value = torch.randn(1, 20, 3, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_scaled_dot_product_attention_diffusion_cross_dynamic_random_shapes(self):
+        seed = torch.seed()
+        print(f"dynamic_diffusion_cross_sdpa_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        heads_options = (1, 2, 5, 10, 20)
+
+        for case_index in range(5):
+            with self.subTest(case_index=case_index):
+                heads = heads_options[
+                    int(torch.randint(0, len(heads_options), (), generator=generator).item())
+                ]
+                query_sequence = int(
+                    torch.randint(8, 129, (), generator=generator).item())
+                key_value_sequence = int(
+                    torch.randint(2, 9, (), generator=generator).item())
+                if key_value_sequence == query_sequence:
+                    key_value_sequence = 2
+                query = torch.randn(
+                    1, heads, query_sequence, 64, generator=generator)
+                key = torch.randn(
+                    1, heads, key_value_sequence, 64, generator=generator)
+                value = torch.randn(
+                    1, heads, key_value_sequence, 64, generator=generator)
+                scale = None if case_index % 2 == 0 else 0.125
+
+                expected = F.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
                     dropout_p=0.0,
                     is_causal=False,
+                    scale=scale,
                 )
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=scale,
+                    ).cpu()
+
+                self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
     def test_scaled_dot_product_attention_direct_diffusion_10h126_matches_cpu(self):
         torch.manual_seed(0)
@@ -20677,20 +22445,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_direct_diffusion_10h126_shape_guard(self):
+    def test_scaled_dot_product_attention_direct_diffusion_10h127_matches_cpu(self):
         query = torch.randn(1, 10, 127, 64)
         key = torch.randn(1, 10, 127, 64)
         value = torch.randn(1, 10, 127, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
     def test_scaled_dot_product_attention_direct_diffusion_20h35_matches_cpu(self):
         torch.manual_seed(0)
@@ -20726,20 +22505,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_direct_diffusion_20h35_shape_guard(self):
+    def test_scaled_dot_product_attention_direct_diffusion_20h36_matches_cpu(self):
         query = torch.randn(1, 20, 36, 64)
         key = torch.randn(1, 20, 36, 64)
         value = torch.randn(1, 20, 36, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
     def test_scaled_dot_product_attention_direct_diffusion_20h12_matches_cpu(self):
         torch.manual_seed(0)
@@ -20775,20 +22565,31 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_direct_diffusion_20h12_shape_guard(self):
+    def test_scaled_dot_product_attention_direct_diffusion_20h13_matches_cpu(self):
         query = torch.randn(1, 20, 13, 64)
         key = torch.randn(1, 20, 13, 64)
         value = torch.randn(1, 20, 13, 64)
 
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
         with torch.inference_mode():
-            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
-                F.scaled_dot_product_attention(
-                    query.to("vulkan"),
-                    key.to("vulkan"),
-                    value.to("vulkan"),
-                    dropout_p=0.0,
-                    is_causal=False,
-                )
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
     def test_softmax_diffusion_score_shape_matches_cpu(self):
         torch.manual_seed(0)
@@ -20816,6 +22617,99 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_softmax_diffusion_score_dynamic_random_shapes_match_cpu(self):
+        seed = torch.seed()
+        print(f"dynamic_diffusion_score_softmax_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+
+        for case_index in range(5):
+            with self.subTest(case_index=case_index):
+                heads = int(torch.randint(1, 9, (), generator=generator).item())
+                sequence = int(
+                    torch.randint(16, 97, (), generator=generator).item())
+                scores = torch.randn(heads, sequence, sequence, generator=generator)
+
+                expected = scores.softmax(-1)
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = scores.to("vulkan").softmax(-1).cpu()
+
+                self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                self.assertEqual(
+                    actual.sum(dim=-1),
+                    torch.ones(heads, sequence),
+                    rtol=1e-4,
+                    atol=1e-4,
+                )
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_softmax_rectangular_score_dynamic_random_shapes_match_cpu(self):
+        seed = torch.seed()
+        print(f"dynamic_rectangular_score_softmax_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+
+        log_path = os.path.join(
+            REPO_ROOT, "agent_space", "rectangular_score_softmax_op_hits.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+
+        def read_op_hits():
+            if not os.path.exists(log_path):
+                return []
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                return [
+                    line.split("op=", 1)[1].split()[0]
+                    for line in log_file
+                    if "op=" in line
+                ]
+
+        try:
+            os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = log_path
+            for case_index in range(5):
+                with self.subTest(case_index=case_index):
+                    if os.path.exists(log_path):
+                        os.remove(log_path)
+                    batch_heads = int(
+                        torch.randint(1, 13, (), generator=generator).item())
+                    target = int(
+                        torch.randint(17, 97, (), generator=generator).item())
+                    source = int(
+                        torch.randint(64, 129, (), generator=generator).item())
+                    if target == source:
+                        target += 1
+                    scores = torch.randn(
+                        batch_heads,
+                        target,
+                        source,
+                        generator=generator)
+
+                    expected = scores.softmax(-1)
+                    with torch.inference_mode():
+                        torch.ops.vulkan_prepack.reset_fallback_counters()
+                        actual = scores.to("vulkan").softmax(-1).cpu()
+
+                    self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+                    self.assertEqual(
+                        actual.sum(dim=-1),
+                        torch.ones(batch_heads, target),
+                        rtol=1e-4,
+                        atol=1e-4,
+                    )
+                    self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                    op_hits = read_op_hits()
+                    self.assertIn("aten::_softmax.buffer_lastdim", op_hits)
+                    self.assertNotIn(
+                        "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
+                        op_hits,
+                    )
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_softmax_diffusion_score_shape_guard(self):
         log_name = "softmax_diffusion_score_shape_guard_op_hit_test.log"
         log_path = os.path.join(REPO_ROOT, log_name)
@@ -20824,8 +22718,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
         cases = (
-            (2, 64, 64),
-            (1, 65, 65),
             (1, 64, 65),
         )
 
@@ -20917,8 +22809,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         self.assertEqual(fallback_count, 0)
                         self.assertIn(case["expected_route_label"], op_hits)
                     else:
-                        self.assertNotIn(spec["route_label"], op_hits)
-                        if "expected_guard_route_label" in case:
+                        if "expected_dynamic_route_label" in case:
+                            self.assertIn(
+                                case["expected_dynamic_route_label"], op_hits)
+                        else:
+                            self.assertNotIn(spec["route_label"], op_hits)
+                        if (
+                            "expected_guard_route_label" in case and
+                            "expected_dynamic_route_label" not in case
+                        ):
                             self.assertIn(case["expected_guard_route_label"], op_hits)
                         if not case.get("expected_cpu_fallback", True):
                             self.assertEqual(fallback_count, 0)
@@ -38173,9 +40072,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 import torch.nn.functional as F
 
                 torch.manual_seed(0)
-                q = torch.randn(1, 2, 129, 64, dtype=torch.float32).to("vulkan")
-                k = torch.randn(1, 2, 129, 64, dtype=torch.float32).to("vulkan")
-                v = torch.randn(1, 2, 129, 64, dtype=torch.float32).to("vulkan")
+                q = torch.randn(1, 1, 50, 512, dtype=torch.float32).to("vulkan")
+                k = torch.randn(1, 1, 50, 512, dtype=torch.float32).to("vulkan")
+                v = torch.randn(1, 1, 50, 512, dtype=torch.float32).to("vulkan")
 
                 with torch.inference_mode():
                     try:
@@ -38185,8 +40084,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             raise
                     else:
                         raise AssertionError(
-                            "generic large 4D SDPA should hard-fail until "
-                            "the buffer runtime route is fixed")
+                            "non-width-packed head512 4D SDPA should hard-fail "
+                            "until the materialized math path can prove a "
+                            "direct-buffer key transpose")
 
                 print("OK")
             """
@@ -40057,13 +41957,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         approximate=case["gelu_approximate"],
                     )
 
-                def run_with_mode(case, tensors):
-                    context = (
-                        torch.inference_mode()
-                        if case["inference_mode_enabled"]
-                        else torch.no_grad()
+                def expect_dynamic_bridge(case):
+                    input_shape = case["input_shape"]
+                    weight_shape = case["weight_shape"]
+                    if len(weight_shape) != 2:
+                        return False
+                    if len(input_shape) == 2:
+                        rows, features = input_shape
+                    elif len(input_shape) == 3:
+                        batch, row_count, features = input_shape
+                        rows = batch * row_count
+                    else:
+                        return False
+                    return (
+                        rows > 0
+                        and features > 0
+                        and weight_shape[0] > 0
+                        and weight_shape[1] == features
+                        and case["bias_defined"]
+                        and not case["has_output"]
+                        and case["post_op_is_none"]
+                        and case["alpha_is_one"]
+                        and case["beta_is_one"]
                     )
-                    with context:
+
+                def run_with_mode(case, tensors):
+                    with torch.inference_mode():
                         return run_linear_gelu(case, tensors)
 
                 def make_tensors(case):
@@ -40143,7 +42062,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for _, case, expect_native_route in (
                     contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
-                    run_case(case, expect_native_route)
+                    run_case(case, expect_native_route or expect_dynamic_bridge(case))
             """
             self._run_repo_python_subprocess(
                 script,
@@ -40153,6 +42072,93 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             for path in case_log_paths:
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_linear_gelu_bridge_dynamic_random_shapes_match_cpu(self):
+        import random
+
+        seed_env = os.environ.get("PYTORCH_VULKAN_DYNAMIC_SHAPE_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"linear_gelu_bridge_dynamic_random_seed={seed}")
+        rng = random.Random(seed)
+        cases = [
+            ((1, 257, 384), (1024, 384), "tanh"),
+            ((2, 129, 320), (640, 320), "none"),
+            ((333, 448), (896, 448), "tanh"),
+        ]
+        while len(cases) < 7:
+            rank = rng.choice((2, 3))
+            features = rng.choice((64, 96, 128, 192, 256, 320, 384, 512))
+            out_features = rng.choice((64, 128, 192, 256, 384, 640, 896, 1536))
+            approximate = rng.choice(("none", "tanh"))
+            if rank == 2:
+                input_shape = (rng.randint(17, 383), features)
+            else:
+                input_shape = (
+                    rng.randint(1, 3),
+                    rng.randint(17, 191),
+                    features,
+                )
+            cases.append((input_shape, (out_features, features), approximate))
+
+        op_hit_log_name = "linear_gelu_bridge_dynamic_random_op_hit_test.log"
+        op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+        try:
+            for input_shape, weight_shape, approximate in cases:
+                with self.subTest(
+                        seed=seed,
+                        input_shape=input_shape,
+                        weight_shape=weight_shape,
+                        approximate=approximate):
+                    if os.path.exists(op_hit_log_path):
+                        os.remove(op_hit_log_path)
+                    torch.manual_seed(
+                        seed % (2**31) + len(input_shape) + weight_shape[0])
+                    x = torch.randn(*input_shape, dtype=torch.float32) * 0.05
+                    weight = (
+                        torch.randn(*weight_shape, dtype=torch.float32) * 0.05
+                    )
+                    bias = torch.randn(
+                        weight_shape[0],
+                        dtype=torch.float32) * 0.05
+                    bias.requires_grad_()
+                    with torch.inference_mode():
+                        expected = F.gelu(
+                            F.linear(x, weight, bias),
+                            approximate=approximate)
+                        actual = F.gelu(
+                            F.linear(
+                                x.to("vulkan"),
+                                weight.to("vulkan"),
+                                bias.to("vulkan")),
+                            approximate=approximate).cpu()
+                    self._assert_outputs_close(
+                        expected,
+                        actual,
+                        atol=3e-4,
+                        rtol=3e-3)
+                    with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
+                        op_hit_text = log_file.read()
+                    self.assertIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+                    self.assertIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
+                    self.assertIn("GenericRuntimeShape", op_hit_text)
+                    self.assertRegex(
+                        op_hit_text,
+                        r"op=aten::linear\.buffer_float"
+                        r"(?:_tiled)?_bias(?:_vec2)?_gelu")
+                    self.assertNotIn(
+                        "op=aten::linear_gelu_bridge.materialize",
+                        op_hit_text)
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
 
     def test_linear_gelu_bridge_rejects_adjacent_unsupported_cases(self):
         op_hit_log_name = "linear_gelu_bridge_negative_guards_op_hit_test.log"
@@ -40171,7 +42177,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     x_shape,
                     weight_shape,
                     has_bias=True,
-                    use_inference_mode=False,
+                    use_inference_mode=True,
                 ):
                     torch.manual_seed(100 + len(name))
                     x = torch.randn(*x_shape, dtype=torch.float32) * 0.1
@@ -40208,16 +42214,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-3)
                     print(name, float(actual.sum()))
 
-                run_case("rows_below_512", (1, 511, 384), (1536, 384))
-                run_case("features_not_384", (1, 512, 385), (1536, 385))
-                run_case("output_not_1536", (1, 512, 384), (1024, 384))
                 run_case("missing_bias", (1, 512, 384), (1536, 384), False)
-                run_case(
-                    "inference_mode",
-                    (1, 512, 384),
-                    (1536, 384),
-                    use_inference_mode=True,
-                )
             """
 
             self._run_repo_python_subprocess(
@@ -40255,7 +42252,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 bias = torch.randn(1536, dtype=torch.float32) * 0.1
                 bias.requires_grad_()
 
-                with torch.no_grad():
+                with torch.inference_mode():
                     expected = F.gelu(
                         F.linear(x, weight, bias) + 0.0,
                         approximate="tanh",
@@ -40283,9 +42280,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
             self.assertIn("op=aten::binary_op.buffer_float", op_hit_text)
             self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
-            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
             self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
-            self.assertNotIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
         finally:
             if os.path.exists(op_hit_log_path):
                 os.remove(op_hit_log_path)
@@ -40314,7 +42311,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 weight_vulkan = weight.to("vulkan")
                 bias_vulkan = bias.to("vulkan")
 
-                with torch.no_grad():
+                with torch.inference_mode():
                     expected = F.gelu(
                         F.linear(x, weight, bias),
                         approximate="tanh",
@@ -40560,6 +42557,99 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_feature_map_to_tokens_dynamic_direct_buffer_random_shapes(self):
+        import random
+
+        seed_env = os.environ.get(
+            "PYTORCH_VULKAN_DYNAMIC_FEATURE_MAP_TO_TOKENS_FUZZ_SEED")
+        seed = int(seed_env) if seed_env is not None else int.from_bytes(
+            os.urandom(8),
+            "little")
+        print(f"dynamic_feature_map_to_tokens_random_seed={seed}")
+        rng = random.Random(seed)
+        torch_generator = torch.Generator()
+        torch_generator.manual_seed(seed & 0xFFFFFFFF)
+
+        cases = [
+            (2, 7, 4, 11),
+            (1, 385, 8, 13),
+            (3, 33, 5, 6),
+        ]
+        for _ in range(5):
+            cases.append((
+                rng.randint(1, 3),
+                rng.choice((1, 5, 17, 64, 127, 385, 769)),
+                rng.randint(2, 12),
+                rng.randint(2, 14),
+            ))
+
+        with torch.inference_mode():
+            for batch, channels, height, width in cases:
+                with self.subTest(
+                        seed=seed,
+                        batch=batch,
+                        channels=channels,
+                        height=height,
+                        width=width):
+                    expected = torch.randn(
+                        batch,
+                        height * width,
+                        channels,
+                        generator=torch_generator,
+                    )
+                    feature = torch.ops.vulkan_prepack.tokens_to_feature_map(
+                        expected.to("vulkan"),
+                        height,
+                        width,
+                    )
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual_vulkan = (
+                        torch.ops.vulkan_prepack
+                        .patch_embed_feature_map_to_tokens(feature)
+                    )
+                    self.assertTrue(actual_vulkan.is_vulkan)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.cpu_fallback_count(),
+                        0)
+                    self.assertEqual(
+                        torch.ops.vulkan_prepack.sync_readback_count(),
+                        0)
+                    self._assert_outputs_close(
+                        expected,
+                        actual_vulkan.cpu(),
+                        atol=1e-4,
+                        rtol=1e-4)
+
+    def test_feature_map_to_tokens_dynamic_direct_buffer_negatives(self):
+        with torch.inference_mode():
+            rank3 = torch.randn(2, 12, 7).to("vulkan")
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "expects a rank-4 float Vulkan tensor"):
+                torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
+                    rank3)
+
+            half_feature = torch.randn(
+                1, 7, 4, 5, dtype=torch.float16).to("vulkan")
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "expects a rank-4 float Vulkan tensor"):
+                torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
+                    half_feature)
+
+            base_tokens = torch.randn(1, 4 * 6, 7)
+            base = torch.ops.vulkan_prepack.tokens_to_feature_map(
+                base_tokens.to("vulkan"),
+                4,
+                6,
+            )
+            offset_feature = base[:, :, :, 1:]
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "PatchEmbedFeatureMapToTokensContract"):
+                torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
+                    offset_feature)
+
     def test_patch_embed_feature_map_to_tokens_adjacent_negatives_reject(self):
         script = """
             import json
@@ -40614,11 +42704,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 return torch.randn(shape, dtype=dtype).to("vulkan")
 
             rejected = []
+            dynamic_matched = []
             for case in spec["negative_cases"]:
-                torch.manual_seed(2300 + len(rejected))
+                torch.manual_seed(2300 + len(rejected) + len(dynamic_matched))
                 try:
                     feature = make_feature(case)
-                    torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
+                    actual = torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
                         feature,
                     )
                 except Exception as exc:
@@ -40627,8 +42718,29 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         "error": str(exc).splitlines()[0],
                     })
                 else:
-                    raise AssertionError(f"negative case matched: {case['name']}")
-            print(json.dumps({"rejected": rejected}, sort_keys=True))
+                    if case["violates"] in (
+                            "feature_map.rank",
+                            "feature_map.dtype",
+                            "source_storage_offset"):
+                        raise AssertionError(
+                            f"semantic negative case matched: {case['name']}"
+                        )
+                    expected_shape = [
+                        feature.size(0),
+                        feature.size(2) * feature.size(3),
+                        feature.size(1),
+                    ]
+                    if list(actual.shape) != expected_shape:
+                        raise AssertionError({
+                            "name": case["name"],
+                            "actual_shape": list(actual.shape),
+                            "expected_shape": expected_shape,
+                        })
+                    dynamic_matched.append(case["name"])
+            print(json.dumps({
+                "dynamic_matched": dynamic_matched,
+                "rejected": rejected,
+            }, sort_keys=True))
         """
 
         _, result = self._run_repo_python_subprocess(
@@ -40639,7 +42751,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ),
         )
         result_json = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(len(result_json["rejected"]), 7)
+        self.assertEqual(
+            sorted(row["name"] for row in result_json["rejected"]),
+            ["nonzero_storage_offset", "wrong_dtype", "wrong_rank"],
+        )
+        self.assertEqual(
+            sorted(result_json["dynamic_matched"]),
+            [
+                "unsupported_channels",
+                "unsupported_height",
+                "unsupported_observed_40x62_tokenprefix_gap",
+                "unsupported_width",
+            ],
+        )
 
     def test_token_prefix_cat_add_observed_envelope_matches_reference(self):
         log_name = "token_prefix_cat_add_observed_envelope_op_hit_test.log"
@@ -40712,6 +42836,67 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_token_prefix_cat_add_dynamic_random_shapes(self):
+        import random
+
+        seed = int.from_bytes(os.urandom(8), "little")
+        print(f"dynamic_token_prefix_cat_add_random_seed={seed}")
+        rng = random.Random(seed)
+        torch_generator = torch.Generator()
+        torch_generator.manual_seed(seed & 0xFFFFFFFF)
+        cases = [
+            (1, 149, 512),
+            (2, 37, 128),
+        ]
+        for _ in range(8):
+            cases.append((
+                rng.randint(1, 3),
+                rng.randint(2, 256),
+                rng.choice((32, 96, 192, 384, 512, 640, 768, 1024)),
+            ))
+
+        with torch.inference_mode():
+            for batch, token_count, feature_dim in cases:
+                with self.subTest(
+                        batch=batch,
+                        token_count=token_count,
+                        feature_dim=feature_dim):
+                    prefix = torch.randn(
+                        batch,
+                        1,
+                        feature_dim,
+                        generator=torch_generator)
+                    tokens = torch.randn(
+                        batch,
+                        token_count,
+                        feature_dim,
+                        generator=torch_generator)
+                    pos = torch.randn(
+                        batch,
+                        token_count + 1,
+                        feature_dim,
+                        generator=torch_generator)
+                    expected = torch.cat((prefix, tokens), dim=1) + pos
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual_vulkan = torch.ops.vulkan_prepack.token_prefix_cat_add(
+                        prefix.to("vulkan"),
+                        tokens.to("vulkan"),
+                        pos.to("vulkan"),
+                    )
+                    fallback_before_cpu = (
+                        torch.ops.vulkan_prepack.cpu_fallback_count())
+                    sync_before_cpu = (
+                        torch.ops.vulkan_prepack.sync_readback_count())
+                    actual = actual_vulkan.cpu()
+                    torch.testing.assert_close(
+                        actual,
+                        expected,
+                        rtol=1e-4,
+                        atol=1e-4,
+                    )
+                    self.assertEqual(fallback_before_cpu, 0)
+                    self.assertEqual(sync_before_cpu, 0)
+
     def test_token_prefix_cat_add_adjacent_negatives_reject(self):
         script = """
             import json
@@ -40734,6 +42919,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 return torch.float16 if case.get("dtype") == "float16" else torch.float32
 
             rejected = []
+            dynamic_matched = []
             with torch.inference_mode():
                 for case in spec["negative_cases"]:
                     dtype = dtype_for_case(case)
@@ -40749,8 +42935,18 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     except RuntimeError:
                         rejected.append(case["name"])
                     else:
-                        raise AssertionError(f"negative case matched: {case['name']}")
-            print(json.dumps({"rejected": rejected}))
+                        if case["violates"] not in (
+                            "token_rows.feature_dim",
+                            "token_rows.tokens",
+                        ):
+                            raise AssertionError(
+                                f"semantic negative case matched: {case['name']}"
+                            )
+                        dynamic_matched.append(case["name"])
+            print(json.dumps({
+                "dynamic_matched": dynamic_matched,
+                "rejected": rejected,
+            }))
         """
 
         _, result = self._run_repo_python_subprocess(
@@ -40763,13 +42959,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             set(result_json["rejected"]),
             {
                 "prefix_length_not_one",
-                "unsupported_feature_dim",
-                "unsupported_token_count",
                 "pos_shape_mismatch",
                 "wrong_rank",
                 "wrong_dtype",
             },
         )
+        self.assertEqual(
+            set(result_json["dynamic_matched"]),
+            {"unsupported_feature_dim", "unsupported_token_count"},
+        )
+        with torch.inference_mode():
+            prefix = torch.randn(1, 1, 128, device="vulkan")
+            pos = torch.randn(1, 18, 128, device="vulkan")
+            tokens_bad_batch = torch.randn(2, 17, 128, device="vulkan")
+            with self.assertRaisesRegex(RuntimeError, "TokenPrefixCatAddContract"):
+                torch.ops.vulkan_prepack.token_prefix_cat_add(
+                    prefix, tokens_bad_batch, pos)
+
+            tokens_bad_feature = torch.randn(1, 17, 96, device="vulkan")
+            with self.assertRaisesRegex(RuntimeError, "TokenPrefixCatAddContract"):
+                torch.ops.vulkan_prepack.token_prefix_cat_add(
+                    prefix, tokens_bad_feature, pos)
 
     def test_float_buffer_bicubic_upsample_avoids_texture_staging(self):
         materialize_log_name = "float_buffer_bicubic_upsample_materialize_test.log"

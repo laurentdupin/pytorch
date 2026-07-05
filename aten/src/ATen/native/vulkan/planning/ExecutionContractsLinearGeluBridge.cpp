@@ -1,6 +1,8 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsLinearGeluBridgeSpec.h>
 
+#include <limits>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -40,6 +42,16 @@ constexpr ExecutionContractMetadata kLinearGeluBridgeBackboneMlpMetadata =
         generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec
             .materialization_policy);
 
+constexpr ExecutionContractMetadata kLinearGeluBridgeGenericRuntimeMetadata =
+    make_execution_contract_metadata(
+        "LinearGeluBridgeContract",
+        "GenericRuntimeShape",
+        "linear_gelu_bridge_generic_runtime_shape",
+        "linear_gelu_bridge_dynamic_random_shapes",
+        "linear_gelu_bridge_semantic_guards",
+        "unsupported_semantics_do_not_match",
+        "defer_linear_until_gelu_or_materialize_plain_linear");
+
 } // namespace
 
 const char* linear_gelu_bridge_family_name(
@@ -47,6 +59,8 @@ const char* linear_gelu_bridge_family_name(
   switch (family) {
     case LinearGeluBridgeFamily::BackboneMlpHidden384To1536:
       return "LinearGeluBridgeBackboneMlpHidden384To1536";
+    case LinearGeluBridgeFamily::GenericRuntimeShape:
+      return "LinearGeluBridgeGenericRuntimeShape";
     case LinearGeluBridgeFamily::None:
       return "LinearGeluBridgeNone";
   }
@@ -58,50 +72,44 @@ LinearGeluBridgeMatch match_linear_gelu_bridge_contract(
     const LinearGeluBridgePackedInfo& packed,
     const LinearGeluBridgeOptions& options) {
   LinearGeluBridgeMatch result;
-  const auto& spec =
-      generated::kLinearGeluBridgeBackboneMlpHidden384To1536Spec;
-  const int64_t rank3_batch =
-      tensor.input_rank == 3 ? tensor.input_batch : spec.rank3_batch;
+
   if (
-      !generated::linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_options_match(
-          spec,
-          tensor.flattened_rank,
-          tensor.flattened_features,
-          packed.weight_height,
-          packed.weight_width,
-          rank3_batch,
-          tensor.input_rank,
-          packed.bias_defined,
-          packed.can_run_float_buffer_linear,
-          options.inference_mode_enabled,
-          options.has_output,
-          options.post_op_is_none,
-          options.alpha_is_one,
-          options.beta_is_one,
-          spec.may_defer,
-          spec.may_consume_gelu_none,
-          spec.may_consume_gelu_tanh) ||
-      !generated::linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_in_bounds(
-          spec,
-          tensor.flattened_rows)) {
+      tensor.flattened_rank != 2 || tensor.flattened_rows <= 0 ||
+      tensor.flattened_features <= 0 || packed.weight_height <= 0 ||
+      packed.weight_width <= 0 || tensor.flattened_features !=
+          packed.weight_height || !packed.bias_defined ||
+      !packed.can_run_float_buffer_linear || options.has_output ||
+      !options.post_op_is_none || !options.alpha_is_one ||
+      !options.beta_is_one) {
     return result;
   }
 
-  if (
-      tensor.input_rank == 3 &&
-      (tensor.input_batch != spec.rank3_batch ||
-       tensor.input_rows != tensor.flattened_rows ||
-       tensor.input_features != tensor.flattened_features)) {
+  if (tensor.input_rank == 2) {
+    if (
+        tensor.input_rows != tensor.flattened_rows ||
+        tensor.input_features != tensor.flattened_features) {
+      return result;
+    }
+  } else if (tensor.input_rank == 3) {
+    if (
+        tensor.input_batch <= 0 || tensor.input_rows <= 0 ||
+        tensor.input_features != tensor.flattened_features ||
+        tensor.input_batch > std::numeric_limits<int64_t>::max() /
+                tensor.input_rows ||
+        tensor.input_batch * tensor.input_rows != tensor.flattened_rows) {
+      return result;
+    }
+  } else {
     return result;
   }
 
   result.matched = true;
-  result.family = LinearGeluBridgeFamily::BackboneMlpHidden384To1536;
-  result.tuple_id = spec.tuple_id;
-  result.metadata = &kLinearGeluBridgeBackboneMlpMetadata;
-  result.may_defer = spec.may_defer;
-  result.may_consume_gelu_none = spec.may_consume_gelu_none;
-  result.may_consume_gelu_tanh = spec.may_consume_gelu_tanh;
+  result.family = LinearGeluBridgeFamily::GenericRuntimeShape;
+  result.tuple_id = kLinearGeluBridgeGenericRuntimeMetadata.tuple_id;
+  result.metadata = &kLinearGeluBridgeGenericRuntimeMetadata;
+  result.may_defer = true;
+  result.may_consume_gelu_none = true;
+  result.may_consume_gelu_tanh = true;
   return result;
 }
 

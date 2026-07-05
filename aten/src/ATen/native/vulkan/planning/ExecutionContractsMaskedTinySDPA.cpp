@@ -41,8 +41,98 @@ constexpr ExecutionContractMetadata kMaskedTinySDPAAdditiveFloatMaskMetadata =
         generated::kMaskedTinySDPAAdditiveFloatMaskSpec.fallback_policy,
         generated::kMaskedTinySDPAAdditiveFloatMaskSpec.materialization_policy);
 
+constexpr ExecutionContractMetadata kMaskedTinySDPARuntimeMetadata =
+    make_execution_contract_metadata(
+        "MaskedTinySDPAContract",
+        "AdditiveFloatMaskRuntimeShape",
+        "masked_tiny_additive_float_mask_runtime_shape",
+        "masked_tiny_sdpa_dynamic_random_shape_tests",
+        "masked_tiny_sdpa_dynamic_semantic_guards",
+        "fallback_on_unsupported_layout_or_semantics",
+        "runtime_math_path");
+
+constexpr int64_t kRuntimeMaskedTinyMaxBatchHeads = 64;
+constexpr int64_t kRuntimeMaskedTinyMaxSequence = 64;
+constexpr int64_t kRuntimeMaskedTinyMaxHeadDim = 128;
+constexpr int64_t kRuntimeMaskedTinyMaxValueDim = 128;
+constexpr int64_t kRuntimeMaskedTinyMaxScoreElements = 65536;
+
 int64_t dim_or_sentinel(const IntArrayRef sizes, const size_t dim) {
   return sizes.size() > dim ? sizes[dim] : -1;
+}
+
+bool mask_broadcasts_to_attention_scores(
+    const IntArrayRef mask_sizes,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  if (mask_sizes.size() == 2) {
+    return mask_sizes[0] == target_len && mask_sizes[1] == source_len;
+  }
+  if (mask_sizes.size() == 3) {
+    return (mask_sizes[0] == 1 || mask_sizes[0] == batch ||
+            mask_sizes[0] == batch * heads) &&
+        mask_sizes[1] == target_len && mask_sizes[2] == source_len;
+  }
+  if (mask_sizes.size() == 4) {
+    return (mask_sizes[0] == 1 || mask_sizes[0] == batch) &&
+        (mask_sizes[1] == 1 || mask_sizes[1] == heads) &&
+        mask_sizes[2] == target_len && mask_sizes[3] == source_len;
+  }
+  return false;
+}
+
+bool is_runtime_additive_float_mask_shape(
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const IntArrayRef value_sizes,
+    const IntArrayRef attn_mask_sizes,
+    const std::optional<double> scale) {
+  if (
+      query_sizes.size() != key_sizes.size() ||
+      query_sizes.size() != value_sizes.size() ||
+      (query_sizes.size() != 3 && query_sizes.size() != 4)) {
+    return false;
+  }
+  if (scale.has_value() && !std::isfinite(*scale)) {
+    return false;
+  }
+
+  const int64_t batch = query_sizes[0];
+  const int64_t heads = query_sizes.size() == 4 ? query_sizes[1] : 1;
+  const int64_t query_sequence =
+      query_sizes[query_sizes.size() == 4 ? 2 : 1];
+  const int64_t key_sequence = key_sizes[key_sizes.size() == 4 ? 2 : 1];
+  const int64_t value_sequence = value_sizes[value_sizes.size() == 4 ? 2 : 1];
+  const int64_t head_dim = query_sizes[query_sizes.size() == 4 ? 3 : 2];
+  const int64_t key_dim = key_sizes[key_sizes.size() == 4 ? 3 : 2];
+  const int64_t value_dim = value_sizes[value_sizes.size() == 4 ? 3 : 2];
+  if (
+      batch <= 0 || heads <= 0 || query_sequence <= 0 || key_sequence <= 0 ||
+      value_sequence <= 0 || head_dim <= 0 || key_dim <= 0 ||
+      value_dim <= 0) {
+    return false;
+  }
+  if (
+      key_sizes[0] != batch || value_sizes[0] != batch ||
+      (query_sizes.size() == 4 &&
+       (key_sizes[1] != heads || value_sizes[1] != heads)) ||
+      key_sequence != value_sequence || head_dim != key_dim) {
+    return false;
+  }
+  if (
+      batch * heads > kRuntimeMaskedTinyMaxBatchHeads ||
+      query_sequence > kRuntimeMaskedTinyMaxSequence ||
+      key_sequence > kRuntimeMaskedTinyMaxSequence ||
+      head_dim > kRuntimeMaskedTinyMaxHeadDim ||
+      value_dim > kRuntimeMaskedTinyMaxValueDim ||
+      batch * heads * query_sequence * key_sequence >
+          kRuntimeMaskedTinyMaxScoreElements) {
+    return false;
+  }
+  return mask_broadcasts_to_attention_scores(
+      attn_mask_sizes, batch, heads, query_sequence, key_sequence);
 }
 
 } // namespace
@@ -52,6 +142,8 @@ const char* masked_tiny_sdpa_route_label(
   switch (family) {
     case MaskedTinySDPAFamily::AdditiveFloatMask:
       return "SelectedMaskedTinySDPAAdditiveFloatMask";
+    case MaskedTinySDPAFamily::AdditiveFloatMaskRuntimeShape:
+      return "SelectedMaskedTinySDPAAdditiveFloatMaskRuntimeShape";
     case MaskedTinySDPAFamily::None:
       return "SelectedMaskedTinySDPANone";
   }
@@ -119,6 +211,18 @@ MaskedTinySDPAMatch match_masked_tiny_sdpa_contract(
           scale_equivalent_head_dim64,
           true,
           true)) {
+    if (
+        has_attn_mask && dropout_p == 0.0 && !is_causal && !enable_gqa &&
+        query_dtype == kFloat && key_dtype == kFloat &&
+        value_dtype == kFloat && attn_mask_dtype == kFloat &&
+        is_runtime_additive_float_mask_shape(
+            query_sizes, key_sizes, value_sizes, attn_mask_sizes, scale)) {
+      result.matched = true;
+      result.family = MaskedTinySDPAFamily::AdditiveFloatMaskRuntimeShape;
+      result.tuple_id = kMaskedTinySDPARuntimeMetadata.tuple_id;
+      result.metadata = &kMaskedTinySDPARuntimeMetadata;
+      return result;
+    }
     return result;
   }
   result.matched = true;

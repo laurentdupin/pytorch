@@ -3742,7 +3742,20 @@ Tensor run_addmm_context(
         candidate.beta = beta;
         register_deferred_linear_gelu_candidate(
             placeholder, std::move(candidate));
-        utils::log_vulkan_op_hit("aten::linear_gelu_bridge.defer");
+        std::ostringstream bridge_stream;
+        bridge_stream << "aten::linear_gelu_bridge.defer"
+                      << " contract="
+                      << (bridge_match.metadata
+                              ? bridge_match.metadata->contract_name
+                              : "none")
+                      << " contract_family="
+                      << (bridge_match.metadata
+                              ? bridge_match.metadata->family_name
+                              : "none")
+                      << " contract_tuple="
+                      << (bridge_match.tuple_id ? bridge_match.tuple_id
+                                                : "none");
+        utils::log_vulkan_op_hit(bridge_stream.str());
         return placeholder;
       }
       return run_float_buffer_linear(

@@ -48,7 +48,7 @@ constexpr ExecutionContractMetadata
 constexpr ExecutionContractMetadata
     kDynamicNoOverlapConvTranspose2DFloatBufferMetadata =
         make_execution_contract_metadata(
-            "DynamicNoOverlapConvTranspose2DContract",
+            "NoOverlapConvTranspose2DContract",
             "KernelStrideFloatBuffer",
             "dynamic_kernel_stride_float_buffer",
             "dynamic_no_overlap_conv_transpose2d_random_shapes",

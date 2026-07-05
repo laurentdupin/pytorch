@@ -572,7 +572,7 @@
       "expected_route_label": "SelectedTransformerGQASDPACausalPrefill",
       "expected_contract_family": "CausalPrefill",
       "expected_contract_tuple_id": "causal_mha_head128_len_le_128",
-      "expected_cpu_fallback": true
+      "expected_cpu_fallback": false
     },
     {
       "name": "causal_gqa_len14_explicit_scale",
@@ -759,7 +759,8 @@
       "enable_gqa": true,
       "violates": "attention_rows.decode_source_sequence",
       "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_runtime_error": "",
+      "expected_dynamic_route_label": "SelectedDynamicDirectDecodeGQASDPA",
       "expected_cpu_fallback": false
     },
     {
@@ -852,7 +853,8 @@
       "enable_gqa": true,
       "violates": "key_value_heads",
       "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
+      "expected_runtime_error": "",
+      "expected_dynamic_route_label": "SelectedDynamicDirectDecodeGQASDPA",
       "expected_cpu_fallback": false
     },
     {

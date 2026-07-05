@@ -18,6 +18,9 @@ VisionSelfAttentionSDPAFamily vision_self_attention_sdpa_family_from_name(
   if (family == "Rank3Head64Scale1") {
     return VisionSelfAttentionSDPAFamily::Rank3Head64Scale1;
   }
+  if (family == "Rank3Head64Scale1RuntimeShape") {
+    return VisionSelfAttentionSDPAFamily::Rank3Head64Scale1RuntimeShape;
+  }
   return VisionSelfAttentionSDPAFamily::None;
 }
 
@@ -41,12 +44,22 @@ find_vision_self_attention_sdpa_row(
   return nullptr;
 }
 
+constexpr ExecutionContractMetadata kVisionSelfAttentionSDPADynamicMetadata{
+    "VisionSelfAttentionSDPAContract",
+    "Rank3Head64Scale1RuntimeShape",
+    "vision_self_attention_rank3_head64_scale1_runtime_shape",
+    "dynamic_vision_self_attention_sdpa_random_shape_tests",
+    "vision_self_attention_sdpa_semantic_guards",
+    "unsupported_semantics_do_not_match",
+    "materialized_math_path_and_post_softmax_clone"};
+
 } // namespace
 
 const char* vision_self_attention_sdpa_route_label(
     const VisionSelfAttentionSDPAFamily family) {
   switch (family) {
     case VisionSelfAttentionSDPAFamily::Rank3Head64Scale1:
+    case VisionSelfAttentionSDPAFamily::Rank3Head64Scale1RuntimeShape:
       return "SelectedVisionSelfAttentionSDPA";
     case VisionSelfAttentionSDPAFamily::None:
       return "SelectedVisionSelfAttentionSDPANone";
@@ -83,10 +96,17 @@ VisionSelfAttentionSDPAMatch match_vision_self_attention_sdpa_contract(
       query_sizes[2] != key_sizes[2] || query_sizes[2] != value_sizes[2]) {
     return result;
   }
+  if (query_sizes[0] <= 0 || query_sizes[1] <= 0 || query_sizes[2] != 64) {
+    return result;
+  }
 
   const auto* const row = find_vision_self_attention_sdpa_row(
       query_sizes[0], query_sizes[1], key_sizes[1], query_sizes[2]);
   if (row == nullptr) {
+    result.matched = true;
+    result.family = VisionSelfAttentionSDPAFamily::Rank3Head64Scale1RuntimeShape;
+    result.tuple_id = kVisionSelfAttentionSDPADynamicMetadata.tuple_id;
+    result.metadata = &kVisionSelfAttentionSDPADynamicMetadata;
     return result;
   }
   result.matched = true;

@@ -13,7 +13,7 @@ namespace utils {
 namespace {
 
 constexpr ExecutionContractMetadata kDynamicPointwiseConv1x1DirectBufferMetadata{
-    "DynamicPointwiseConv1x1DirectBufferContract",
+    "SmallSpatialPointwiseConvContract",
     "GenericDynamicHW",
     "pointwise_1x1_direct_buffer_generic_dynamic_hw",
     "dynamic_pointwise_conv1x1_unseen_hw_tests",

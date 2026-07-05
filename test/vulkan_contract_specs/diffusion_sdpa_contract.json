@@ -313,10 +313,6 @@
         "adjacent": "wrong_value"
       },
       {
-        "violates": "attention_rows.key_value_sequence",
-        "adjacent": "wrong_value"
-      },
-      {
         "violates": "scale_policy",
         "adjacent": "wrong_value",
         "value": "mismatched_scale"
@@ -478,17 +474,6 @@
               "query_sequence": 641,
               "key_value_sequence": 641,
               "head_dim": 512
-            }
-          },
-          {
-            "violates": "attention_rows.key_value_sequence",
-            "kind": "adjacent_field",
-            "fields": {
-              "family": "CrossAttention",
-              "heads": 5,
-              "query_sequence": 504,
-              "key_value_sequence": 3,
-              "head_dim": 64
             }
           }
         ],
@@ -963,37 +948,6 @@
       "scale": null,
       "enable_gqa": false,
       "violates": "attention_rows.query_sequence",
-      "expected_native_route": false,
-      "expected_cpu_fallback": false,
-      "expected_runtime_error": "KnownBadDiffusion4dSdpa"
-    },
-    {
-      "name": "cross_key_value_sequence_adjacent",
-      "query_shape": [
-        1,
-        5,
-        504,
-        64
-      ],
-      "key_shape": [
-        1,
-        5,
-        3,
-        64
-      ],
-      "value_shape": [
-        1,
-        5,
-        3,
-        64
-      ],
-      "dtype": "float32",
-      "has_attn_mask": false,
-      "dropout_p": 0.0,
-      "is_causal": false,
-      "scale": null,
-      "enable_gqa": false,
-      "violates": "attention_rows.key_value_sequence",
       "expected_native_route": false,
       "expected_cpu_fallback": false,
       "expected_runtime_error": "KnownBadDiffusion4dSdpa"

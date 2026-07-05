@@ -291,16 +291,6 @@
     },
     "negative_axes": [
       {
-        "violates": "query_sequence",
-        "adjacent": "wrong_value",
-        "value": 3
-      },
-      {
-        "violates": "mask_key_sequence",
-        "adjacent": "wrong_value",
-        "value": 3
-      },
-      {
         "violates": "attn_mask_dtype",
         "adjacent": "wrong_value",
         "value": "bool"
@@ -319,11 +309,6 @@
         "violates": "enable_gqa",
         "adjacent": "wrong_value",
         "value": true
-      },
-      {
-        "violates": "scale_equivalent_head_dim64",
-        "adjacent": "wrong_value",
-        "value": false
       }
     ],
     "fuzz_hints": {
@@ -448,82 +433,6 @@
     }
   ],
   "negative_cases": [
-    {
-      "name": "query_sequence_3",
-      "query_shape": [
-        1,
-        16,
-        3,
-        64
-      ],
-      "key_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "value_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "attn_mask_shape": [
-        1,
-        1,
-        2,
-        2
-      ],
-      "dtype": "float32",
-      "attn_mask_dtype": "float32",
-      "has_attn_mask": true,
-      "dropout_p": 0.0,
-      "is_causal": false,
-      "scale": 0.125,
-      "enable_gqa": false,
-      "violates": "query_sequence",
-      "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
-      "expected_cpu_fallback": false
-    },
-    {
-      "name": "mask_key_sequence_3",
-      "query_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "key_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "value_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "attn_mask_shape": [
-        1,
-        1,
-        2,
-        3
-      ],
-      "dtype": "float32",
-      "attn_mask_dtype": "float32",
-      "has_attn_mask": true,
-      "dropout_p": 0.0,
-      "is_causal": false,
-      "scale": 0.125,
-      "enable_gqa": false,
-      "violates": "mask_key_sequence",
-      "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
-      "expected_cpu_fallback": false
-    },
     {
       "name": "bool_mask",
       "query_shape": [
@@ -672,44 +581,6 @@
       "scale": 0.125,
       "enable_gqa": true,
       "violates": "enable_gqa",
-      "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
-      "expected_cpu_fallback": false
-    },
-    {
-      "name": "scale_wrong",
-      "query_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "key_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "value_shape": [
-        1,
-        16,
-        2,
-        64
-      ],
-      "attn_mask_shape": [
-        1,
-        1,
-        2,
-        2
-      ],
-      "dtype": "float32",
-      "attn_mask_dtype": "float32",
-      "has_attn_mask": true,
-      "dropout_p": 0.0,
-      "is_causal": false,
-      "scale": 0.25,
-      "enable_gqa": false,
-      "violates": "scale_equivalent_head_dim64",
       "expected_native_route": false,
       "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
       "expected_cpu_fallback": false

@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionContractDiagnostics.h>
+#include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceMaterializedSpec.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsBatchNormInferenceSpec.h>
 
@@ -251,6 +252,26 @@ BatchNormInferenceMatch match_batch_norm_inference_contract(
         "bias_effective_affine_storage_mismatch",
         "handwritten");
   } else {
+    const DynamicProgramDecision decision = build_dynamic_program_runtime_plan(
+        make_batch_norm_inference_direct_buffer_dynamic_program(
+            input,
+            weight,
+            bias,
+            running_mean,
+            running_var,
+            training,
+            /*output_direct_buffer=*/true,
+            &kBatchNormInferenceBufferFloat4DMetadata,
+            /*behavior_enabled=*/true));
+    if (!decision.runtime_selection_authorized) {
+      log_contract_reject(
+          &kBatchNormInferenceBufferFloat4DMetadata,
+          ContractAdmissionPhase::GeneratedOptions,
+          "build_dynamic_program_runtime_plan",
+          decision.status,
+          "dynamic_program_runtime");
+      return result;
+    }
     result.matched = true;
     result.family = BatchNormInferenceFamily::BufferFloat4D;
     result.tuple_id = buffer_spec.tuple_id;

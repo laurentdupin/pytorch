@@ -46,9 +46,20 @@ constexpr utils::ExecutionContractMetadata
     "dynamic_embedding_lookup_cpu_index_bounds_guard",
     "unsupported_semantics_do_not_match",
     "embedding_lookup_buffer_kernel"};
+constexpr utils::ExecutionContractMetadata
+    kDynamicEmbeddingLookupValidVulkanIndicesMetadata{
+    "DynamicEmbeddingLookupDirectBufferContract",
+    "ValidVulkanIndices",
+    "embedding_lookup_direct_buffer_valid_vulkan_indices",
+    "dynamic_embedding_lookup_vulkan_index_value_proof_tests",
+    "dynamic_embedding_lookup_vulkan_index_bounds_proof_guard",
+    "unsupported_semantics_do_not_match",
+    "embedding_lookup_buffer_kernel"};
 
 constexpr const char* kDynamicEmbeddingLookupValidCpuIndicesRouteLabel =
     "buffer_float_index.dynamic_valid_cpu_indices";
+constexpr const char* kDynamicEmbeddingLookupValidVulkanIndicesRouteLabel =
+    "buffer_float_long.dynamic_valid_vulkan_indices";
 
 bool fits_embedding_dispatch_limits(
     const int64_t num_embeddings,
@@ -441,6 +452,75 @@ bool can_embedding_index_buffer_layout(const vTensor& v_indices) {
   return v_indices.sizes().size() == 2 && v_indices.sizes().at(0) == 1;
 }
 
+Tensor run_embedding_2d_buffer_float_long(
+    const Tensor& weight,
+    const Tensor& indices,
+    vTensor& v_weight,
+    vTensor& v_indices,
+    const char* route_label,
+    const TensorContractProvenance* contract_provenance) {
+  api::Context* const context = api::context();
+  std::vector<int64_t> output_sizes = indices.sizes().vec();
+  output_sizes.push_back(weight.size(1));
+
+  vTensor v_output{
+      context,
+      output_sizes,
+      convert_dtype(weight.scalar_type()),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const int64_t embedding_dim = weight.size(1);
+  const int64_t num_embeddings = weight.size(0);
+  const int64_t num_indices = indices.numel();
+  const int64_t output_row_stride =
+      v_output.gpu_strides().at(v_output.gpu_strides().size() - 2);
+  const int64_t weight_row_stride = v_weight.gpu_strides().at(0);
+  const int64_t index_word_stride = 2;
+  const struct Block final {
+    ivec4 info;
+    ivec4 strides;
+  } block{
+      {safe_downcast<int32_t>(embedding_dim),
+       safe_downcast<int32_t>(num_indices),
+       safe_downcast<int32_t>(num_embeddings),
+       safe_downcast<int32_t>(index_word_stride)},
+      {safe_downcast<int32_t>(output_row_stride),
+       safe_downcast<int32_t>(weight_row_stride),
+       0,
+       0},
+  };
+
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(embedding_dim),
+      safe_downcast<uint32_t>(num_indices),
+      1u};
+
+  context->submit_compute_job(
+      VK_KERNEL(embedding_2d_buffer_float_long),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      v_weight.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      v_indices.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::embedding",
+      route_label,
+      {weight, indices},
+      contract_provenance);
+}
+
 Tensor embedding_2d_buffer_float_long(
     const Tensor& weight,
     const Tensor& indices,
@@ -450,6 +530,94 @@ Tensor embedding_2d_buffer_float_long(
   const utils::EmbeddingLookupMatch embedding_contract =
       match_embedding_2d_buffer_float_long_contract(
           weight, indices, padding_idx, scale_grad_by_freq, sparse);
+  const bool dynamic_vulkan_indices_candidate =
+      weight.is_vulkan() && indices.is_vulkan() &&
+      weight.scalar_type() == kFloat && indices.scalar_type() == kLong &&
+      weight.dim() == 2 && (indices.dim() == 1 || indices.dim() == 2) &&
+      padding_idx.has_hint() && !scale_grad_by_freq && !sparse &&
+      fits_embedding_dispatch_limits(
+          weight.size(0), weight.size(1), indices.numel());
+  if (dynamic_vulkan_indices_candidate) {
+    if (!tensor_integer_values_in_range(indices, 0, weight.size(0))) {
+      return embedding_cpu_fallback(
+          weight,
+          indices,
+          padding_idx,
+          scale_grad_by_freq,
+          sparse,
+          "vulkan_index_bounds_proof_missing");
+    }
+
+    vTensor v_weight = convert(weight);
+    vTensor v_indices = convert(indices);
+
+    if (
+        v_weight.storage_type() != api::StorageType::BUFFER ||
+        !v_weight.has_direct_buffer_layout() ||
+        v_weight.gpu_memory_layout() !=
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+      v_weight = utils::materialize_to_contiguous_buffer(
+          v_weight, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+    }
+
+    if (!can_embedding_index_buffer_layout(v_indices)) {
+      if (utils::supports_buffer_view_fast_path(v_indices)) {
+        v_indices = utils::materialize_to_contiguous_buffer(
+            v_indices, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+      }
+    }
+
+    if (!can_embedding_index_buffer_layout(v_indices)) {
+      return embedding_cpu_fallback(
+          weight,
+          indices,
+          padding_idx,
+          scale_grad_by_freq,
+          sparse,
+          "unsupported_index_layout");
+    }
+
+    const utils::DynamicProgramDecision dynamic_decision =
+        utils::build_dynamic_program_runtime_plan(
+            utils::make_embedding_lookup_direct_buffer_dynamic_program(
+                weight.sizes(),
+                indices.sizes(),
+                weight.scalar_type(),
+                indices.scalar_type(),
+                /*weight_direct_buffer=*/true,
+                /*indices_direct_buffer=*/true,
+                /*output_direct_buffer=*/true,
+                /*index_bounds_proven=*/true,
+                padding_idx.has_hint(),
+                scale_grad_by_freq,
+                sparse,
+                &kDynamicEmbeddingLookupValidVulkanIndicesMetadata,
+                /*behavior_enabled=*/true));
+    if (dynamic_decision.runtime_selection_authorized) {
+      utils::log_vulkan_op_hit(
+          std::string("aten::embedding.") +
+          kDynamicEmbeddingLookupValidVulkanIndicesRouteLabel +
+          " contract=" +
+          kDynamicEmbeddingLookupValidVulkanIndicesMetadata.contract_name);
+      TensorContractProvenance provenance;
+      provenance.contract_name =
+          kDynamicEmbeddingLookupValidVulkanIndicesMetadata.contract_name;
+      provenance.contract_family =
+          kDynamicEmbeddingLookupValidVulkanIndicesMetadata.family_name;
+      provenance.contract_tuple_id =
+          kDynamicEmbeddingLookupValidVulkanIndicesMetadata.tuple_id;
+      provenance.contract_materialization_policy =
+          kDynamicEmbeddingLookupValidVulkanIndicesMetadata
+              .materialization_policy;
+      return run_embedding_2d_buffer_float_long(
+          weight,
+          indices,
+          v_weight,
+          v_indices,
+          kDynamicEmbeddingLookupValidVulkanIndicesRouteLabel,
+          &provenance);
+    }
+  }
   if (!embedding_contract.matched) {
     if (
         weight.is_vulkan() && !indices.is_vulkan() &&

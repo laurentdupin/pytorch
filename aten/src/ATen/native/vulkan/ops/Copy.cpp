@@ -74,6 +74,41 @@ struct VulkanBufferCopyDecision final {
   std::string consumer_role;
 };
 
+struct IntegerValueBounds final {
+  bool defined{false};
+  int64_t min_value{0};
+  int64_t max_value{0};
+};
+
+IntegerValueBounds integer_value_bounds(const Tensor& tensor) {
+  IntegerValueBounds bounds;
+  if (!tensor.defined() || tensor.numel() <= 0) {
+    return bounds;
+  }
+  if (tensor.scalar_type() == kLong) {
+    const Tensor contiguous = tensor.contiguous();
+    const int64_t* const data = contiguous.const_data_ptr<int64_t>();
+    bounds.min_value = data[0];
+    bounds.max_value = data[0];
+    for (const auto i : c10::irange(contiguous.numel())) {
+      bounds.min_value = std::min(bounds.min_value, data[i]);
+      bounds.max_value = std::max(bounds.max_value, data[i]);
+    }
+    bounds.defined = true;
+  } else if (tensor.scalar_type() == kInt) {
+    const Tensor contiguous = tensor.contiguous();
+    const int32_t* const data = contiguous.const_data_ptr<int32_t>();
+    bounds.min_value = data[0];
+    bounds.max_value = data[0];
+    for (const auto i : c10::irange(contiguous.numel())) {
+      bounds.min_value = std::min<int64_t>(bounds.min_value, data[i]);
+      bounds.max_value = std::max<int64_t>(bounds.max_value, data[i]);
+    }
+    bounds.defined = true;
+  }
+  return bounds;
+}
+
 struct VulkanBufferCopyAggregateValue final {
   uint64_t count = 0u;
   uint64_t bytes = 0u;
@@ -2369,8 +2404,17 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
       if (cpu_src.scalar_type() != dst.scalar_type()) {
         cpu_src = cpu_src.to(dst.scalar_type());
       }
+      const IntegerValueBounds uploaded_integer_bounds =
+          integer_value_bounds(cpu_src);
       pack_cpu_to_vulkan(cpu_src, v_self);
       record_tensor_write(dst, "aten::copy_", "cpu_to_vulkan", {cpu_src});
+      if (uploaded_integer_bounds.defined) {
+        record_tensor_integer_value_bounds(
+            dst,
+            uploaded_integer_bounds.min_value,
+            uploaded_integer_bounds.max_value,
+            "cpu_to_vulkan_upload");
+      }
     }
   }
   // Vulkan -> X

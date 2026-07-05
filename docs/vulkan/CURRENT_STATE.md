@@ -1,31 +1,130 @@
 # Vulkan Current State
 
 Last refreshed: 2026-07-04 at local dynamic program runtime expansion:
-`DynamicPointwiseConv1x1DirectBufferContract` is the first adaptive pointwise
+`SmallSpatialPointwiseConvContract` `GenericDynamicHW` is the first adaptive pointwise
 example, admitting legal fp32 direct-buffer 1x1 conv with unseen batch/H/W
 under semantic 1x1/direct-buffer guards and routing it through the existing
-dynamic-shape `conv2d_buffer_float_1x1` shader. `ElementwiseBroadcastDirectBuffer`
+dynamic-shape `conv2d_buffer_float_1x1` shader. Runtime pointwise legality now
+uses this semantic dynamic family before sparse projection rows; the old rows
+remain evidence and regression fixtures. Batch-one width-packed cases may still
+select the existing as-linear plan from dynamic admission.
+`ElementwiseBroadcastDirectBuffer`
 also now records fp32 rank-1 through rank-4 Vulkan buffer add/mul/sub as a
 dynamic semantic family when broadcasting is mathematically legal.
 `SequenceCatDirectBuffer` now admits fp32 rank-4 direct-buffer dim-2 sequence
 append under batch/head/head-dim equality semantics and fresh random sequence
-length coverage.
+length coverage. `InitialSequenceCatDirectBuffer` now admits the matching
+empty-cache bootstrap case by requiring a Vulkan empty left operand, a fp32
+rank-4 Vulkan buffer cache tensor, dim-2 semantics, and positive runtime
+batch/head/sequence/head-dim values instead of the old exact `InitialCache`
+sequence/head geometry row.
 `LinearOrMatmulDirectBuffer` now gates generic fp32 rank-2/rank-3 direct-buffer
 linear execution by semantic M/K/N compatibility instead of exact tiled-plan
 evidence. `EmbeddingLookupDirectBuffer` now removes the old small-row bounds
 for fp32 2D Vulkan weights when Long indices are CPU-resident and host-checked
-for valid range before dispatch; Vulkan-resident indices remain on the finite
-contract/fallback path until a no-readback index-bounds proof or device error
-path exists. `DynamicNoOverlapConvTranspose2DContract` now admits no-overlap
+for valid range before dispatch, and for Vulkan-resident Long indices that
+carry CPU-uploaded integer min/max provenance proving the runtime vocab bound.
+Truly device-produced Vulkan indices remain on fallback until a no-readback
+index-bounds proof or device error path exists. `PatchEmbedFloatBufferConvRoute`
+now admits legal fp32 Vulkan
+buffer RGB patch projections with `[1,3,H,W]` input, `[C,3,14,14]` weight,
+stride `[14,14]`, zero padding, dilation `[1,1]`, and groups `1` through a
+generic runtime tuple instead of exact H/W row admission. The old observed
+patch-embed conv rows remain evidence and regression fixtures around the
+dynamic family. `FeatureMapToTokensDirectBuffer` now admits legal fp32
+direct-buffer rank-4 feature maps by `[N,C,H,W] -> [N,H*W,C]` semantics
+instead of exact patch-embed H/W rows while still requiring the current
+width-packed zero-offset buffer layout. The old patch-embed feature-map rows
+remain evidence and regression fixtures around the dynamic family.
+`TokenPrefixCatAddDirectBuffer` now admits legal fp32 rank-3 prefix-token
+concat plus positional add by prefix length, batch, token-count, and feature
+semantics instead of the old DAv2 token-count/feature rowset. The finite
+`TokenPrefixCatAddContract` rows remain evidence and regression fixtures.
+`CatAxisDirectBuffer` now admits legal fp32 buffer-backed rank-4 dim-1 cats
+by batch/height/width equality, positive channel extents, and the current
+channel multiple-of-4 layout constraint instead of the old input-count,
+spatial, and total-channel row bounds. The old `ChannelCatContract` rows remain
+evidence and regression fixtures around the dynamic family.
+`NoOverlapConvTranspose2DContract` `DynamicKernelStrideFloatBuffer` now admits no-overlap
 fp32 direct-buffer transposed convs by kernel/stride/layout semantics with
 random batch/channel/spatial coverage in the clean packed-buffer envelope.
 Low-channel no-overlap transposed conv remains a named small-metadata
-materialization blocker rather than an exact-row target. `Conv2DDirectBuffer`
-is documented as the next semantic target, but
-random legal-shape parity found that the existing packed-weight generic conv
-route is not yet complete enough to route-authorize the family broadly.
-`BatchNormInferenceContract` was already semantic rather than exact-row gated
-for fp32 4D eval mode and now has fresh random legal-shape parity coverage.
+materialization blocker rather than an exact-row target. `PackedBufferConv2D`
+now stamps the existing metadata-packed generic `conv2d_buffer_float` path as a
+semantic dynamic family for batch-one fp32 rank-4 groups-one, dilation-one
+runtime shapes with positive computed output dimensions. `Conv2DDirectBuffer`
+remains a direct-layout scaffold because direct output ownership is not proven
+for the generic conv path; the remaining migration is explicit
+layout-transition, batched-conv ownership, or direct-output ownership, not
+another exact conv row.
+`BatchNormInferenceDirectBuffer` now routes fp32 4D eval-mode buffer batch norm
+through the dynamic program runtime under runtime N/C/H/W and feature-count
+semantics; the existing random legal-shape parity coverage remains the
+regression surface. `GQARepeatDirectBuffer` now behavior-authorizes the
+runtime-sized repeat materialization shader for fp32 rank-4 Vulkan buffer K/V
+tensors. SDPA route admission may use that materialized-GQA family only for
+non-causal, mask-free GQA when both K and V match and the downstream rectangular
+score tensor matches `RectangularScoresRuntimeShape`. Random unseen
+materialized-GQA coverage also fixed the repeat shader to divide the output
+head coordinate, not the sequence coordinate, by the repeat factor.
+`SDPAScoreSoftmaxContract` now also admits rectangular fp32 rank-3 score tensors
+by runtime batch-head/target/source dimensions and score-element budget, keeping
+materialized-GQA probabilities on the buffer last-dim path instead of the old
+known-bad texture fallback. Broader non-causal decode GQA still prefers
+`DirectDecodeGQASDPADirectBuffer` when legal. That active semantic SDPA family
+admits fp32 rank-4 direct-buffer
+decode GQA with batch 1, query length 1, no mask/dropout, divisible
+query/key-value heads, default/head-dim-equivalent scale, and direct-GQA
+shader-budget dimensions without exact source-length rows.
+`DirectCausalPrefillGQASDPADirectBuffer` now also admits fp32 rank-4 direct-buffer
+causal prefill GQA and equal-head causal MHA with batch 1, equal query/source
+sequence length, no explicit mask/dropout, default/head-dim-equivalent scale,
+and direct-GQA shader-budget dimensions. GQA requires divisible
+query/key-value heads; MHA is admitted only when the head counts are equal, so
+the existing direct-GQA shader runs with repeat factor `1`. The causal mask is
+applied in the existing direct-GQA shader, so legal causal prefill shapes no
+longer need exact sequence/head rows.
+`SmallNonCausalGQASDPADirectBuffer` now admits bounded fp32 rank-4 direct-buffer
+non-causal GQA with batch 1, no mask/dropout, divisible query/key-value heads,
+target/source lengths up to 64, default/head-dim-equivalent scale, and
+direct-GQA shader-budget dimensions. The old exact small non-causal rows remain
+evidence and negative-guard fixtures rather than production admission bounds.
+`DirectNonCausalMHASDPADirectBuffer` now admits fp32 rank-4 direct-buffer
+equal-head non-causal MHA with batch 1, no mask/dropout/GQA,
+default/head-dim-equivalent scale, direct-buffer lane-aligned head/value dims,
+and direct-GQA shader-budget dimensions. This converts diffusion-style square
+MHA rows that satisfy the direct-buffer layout contract from finite diffusion
+admission into semantic runtime-shape execution.
+`VisionSelfAttentionSDPAContract` now also admits fp32 rank-3 self-attention
+by semantic Q/K/V equality, head dim `64`, explicit scale `1.0`, and disabled
+mask/dropout/causal/GQA; batch-head count and sequence length are runtime
+values rather than the old six-row DAv2 low-resolution set.
+`SDPAScoreSoftmaxContract` mirrors that runtime-shape policy for rank-3 square
+vision score tensors while the probability materialization/no-clone policy
+remains separately governed by transition evidence. `SDPAExecutionPolicyContract`
+now admits small-head fp32 rank-4 non-causal MHA policy by runtime Q/K/V
+semantics for the recognizer-style direct-buffer fused path; diffusion
+materialization policy rows remain finite because they encode known-bad
+materialization behavior, not just legal SDPA geometry.
+`TransformerDecodeGQACloneOnlyRuntimeShape` also admits the decode-GQA
+post-softmax clone policy by runtime batch/head/source/head-dim semantics and
+score-element budget, so the old transformer decode source-length row remains
+policy evidence rather than a production source-length gate.
+`MaskedTinySDPAContract` now admits additive fp32 mask SDPA by semantic
+rank-3/rank-4 Q/K/V compatibility, PyTorch-style mask broadcast compatibility,
+finite scale, and bounded score-tensor budget. The old exact 2x2 additive-mask
+tuple remains a regression fixture, while random legal target/source lengths,
+batch/head counts, and mask broadcast ranks no longer need exact row admission.
+`DiffusionSDPAContract` now also has a semantic runtime cross-attention slice
+for mask-free fp32 rank-4 diffusion-style cross attention with batch 1,
+matching heads/head dim, head dim 64, small runtime key/value length, and a
+bounded score tensor. The old `kv=2` cross rows are fixtures; square diffusion
+self-attention now also has runtime semantic admission for `head_dim=64` and
+single-head `head_dim=512` when the score budget holds and the `512` materialized
+math path can prove a width-pack-compatible key transpose (`sequence % 4 == 0`).
+Non-width-pack-compatible `512` square sequences still fail closed on the
+direct-buffer materialization guard, so the remaining square blocker is a layout
+command-plan issue rather than an exact-row admission issue.
 HY-MT
 KV-cache append broadening, device-policy packed-weight transient residency,
 generic
@@ -63,12 +162,14 @@ this fix recorded requested device metadata but could still run on the current
 default Vulkan device; new benchmark records include `current_index` so device
 selection mismatches are visible.
 
-HY-MT now has generic compatibility fixes for Vulkan decode. The existing
-`KVCacheAppendContract` admits the observed short sequence-append rows
-(`S=1..115`) and initial empty-cache rows (`S=14..116`) under the existing
-float32 rank-4 `batch=1`, `heads=4`, `head_dim=128`, `dim=2` guards, so
-Transformers KV-cache `aten::cat` updates avoid the old CPU fallback/readback
-path for those legal rows. Separately, linear buffer packed weights are marked
+HY-MT now has generic compatibility fixes for Vulkan decode.
+`SequenceCatDirectBuffer` and `InitialSequenceCatDirectBuffer` now own fp32
+rank-4 dim-2 KV-cache append/bootstrap by runtime batch/head/head-dim equality
+and positive sequence semantics. The old `KVCacheAppendContract` rows
+(`S=1..115` and `S=14..116`) remain evidence/regression fixtures rather than
+production source-length gates, so Transformers KV-cache `aten::cat` updates
+avoid the old CPU fallback/readback path for legal dynamic shapes. Separately,
+linear buffer packed weights are marked
 transient when the active adapter policy requests avoiding large persistent
 weight caches, and retired packed-weight handles are released after the existing
 synchronize/fence wait points instead of being quarantined indefinitely. This
@@ -90,10 +191,11 @@ now completes one-repeat smokes on RX 9070, GTX 1080, and RX 6700 XT with
 `cpu_fallback_count=0`. The GTX path uses transient
 float-buffer conv packed-weight residency for large packed weights instead of
 skipping the cache and repeatedly uploading through the previous
-`conv_prepack_upload` device-lost path. The OCR projection contract also admits
-the observed dynamic crop/recognition batch rows under an OCR-only batch policy
-so the formerly failing `[6,512,3,80] -> 512` and `[3,512,6,80] -> 192` 1x1
-projection rows stay on Vulkan. Current smoke timings remain single-repeat
+`conv_prepack_upload` device-lost path. The `OCRProjection` contract-family
+rowset also admits the proven crop/recognition batch rows under a bounded
+`N=1..8` batch policy, not a PaddleOCR model-name route, so the formerly failing
+`[6,512,3,80] -> 512` and `[3,512,6,80] -> 192` 1x1 projection rows stay on
+Vulkan. Current smoke timings remain single-repeat
 diagnostics: PaddleOCR was about 0.81s on RX 9070, 0.65s on RX 6700 XT, and
 1.14s on GTX 1080 in the post-checkpoint artifact; HY-MT one-token decode was
 about 2.68s on RX 9070, 3.42s on RX 6700 XT, and 8.42s on GTX 1080.
@@ -245,8 +347,8 @@ host uploads, retire/copy traffic, and larger multi-input channel-cat
 materialization.
 The follow-up channel-cat attribution confirms that the largest remaining
 PaddleOCR cat-copy cluster is not a missing shape row: the pair route already
-hits for the 224x224 case, and multi-input `ChannelCatContract` rows still
-materialize a concatenated output through per-input `buffer_to_buffer`
+hits for the 224x224 case, and the dynamic `CatAxisDirectBuffer` family still
+materializes a concatenated output through per-input `buffer_to_buffer`
 dispatches. Do not broaden channel-cat rows as a performance fix unless the
 implementation reduces real movement. The next performance-bearing direction
 is a private `ChannelCatToConvInputContract`-style consumer handoff/fusion
@@ -2345,14 +2447,16 @@ model gate and they do not imply model-specific production routes.
   high in fallback/readback attribution. Task179 reported `cpu_fallback=423`,
   `sync_readback=83`, `tensor_cpu_readback=5827`, and model-core tensor-op
   fallback/readback `0/0`.
-- HY-MT small decode GQA now uses the direct GQA buffer SDPA plan for already
-  admitted `TransformerGQASDPAContract` `SmallNonCausalGQA` rows. A focused
-  RX 9070 16-token sanity run reduced device-resident generate from the earlier
-  52.6 s class to 29.7 s, `cpu_fallback` from 1927 to 967, and tensor CPU
-  readback submits from 8355 to 6435. KV-cache append small-sequence broadening
-  remains blocked: a scratch `S=1..115` sequence-append candidate reduced
-  readback pressure but changed generation-token behavior, so it was not
-  promoted.
+- HY-MT small decode GQA first used the direct GQA buffer SDPA plan for admitted
+  `TransformerGQASDPAContract` `SmallNonCausalGQA` rows; the newer
+  `DirectDecodeGQASDPADirectBuffer` path removes the finite source-length and
+  head-dim row gate for legal non-causal decode GQA shapes. A focused RX 9070
+  16-token sanity run before the dynamic expansion reduced device-resident
+  generate from the earlier 52.6 s class to 29.7 s, `cpu_fallback` from 1927 to
+  967, and tensor CPU readback submits from 8355 to 6435. KV-cache append
+  small-sequence broadening remains blocked: a scratch `S=1..115`
+  sequence-append candidate reduced readback pressure but changed
+  generation-token behavior, so it was not promoted.
 - PaddleOCR RX 9070 screenshot: stable in the Task179 single row. It reported
   `cpu_fallback=1`, `sync_readback=1`, `tensor_cpu_readback=1824`, and
   `conv_prepack_upload=140`; the earlier first-attempt DeviceLost did not
@@ -2421,25 +2525,23 @@ These files are diagnostic inputs. Production code must not depend on
   `depth_projection_384_18x10_384` rows are exact sparse rows for the vits
   decoder projection pair and do not promote `18x10` into the factorized
   spatial set.
-  `DynamicPointwiseConv1x1DirectBufferContract` is the first adaptive
+  `SmallSpatialPointwiseConvContract` `GenericDynamicHW` is the first adaptive
   counterexample to the exact-row operating model: it admits legal fp32,
   rank-4, direct-buffer 1x1 pointwise convolutions with runtime batch/H/W
   under semantic 1x1/direct-buffer guards, then
   runs the existing dynamic-shape `conv2d_buffer_float_1x1` shader instead of
-  requiring a sparse `(input_c, input_h, input_w, output_c)` row. The current
-  slice is correctness-first and does not select the as-linear fast path.
-  Sparse pointwise rows remain evidence and optimized-plan seeds, not the
-  required admission mechanism for every unseen legal H/W.
+  requiring a sparse `(input_c, input_h, input_w, output_c)` row. Batch-one
+  width-packed cases may select the existing as-linear plan from this dynamic
+  admission. Sparse pointwise rows remain evidence and regression fixtures, not
+  the required admission mechanism for every unseen legal H/W.
   `ElementwiseBroadcastDirectBuffer` applies the same operating model to
   fp32 Vulkan buffer add/mul/sub: rank, dtype, layout, attributes, and
   broadcast compatibility are semantic requirements, but exact shapes are not.
-  OCR projection rows now have an OCR-only dynamic crop batch policy
-  (`N=1..8`) while depth-vision and diffusion projection rows remain batch-1.
-  The newest OCR sparse row is `ocr_projection_512_6x80_192`, admitted after
-  PaddleOCR hit `KnownBadLargePointwiseConv` at `[3,512,6,80] -> 192`; the
-  existing `ocr_projection_512_3x80_512` row also has a checked-in batch-6
-  positive case. These are exact OCR rows plus a bounded OCR batch policy, not
-  a broader spatial/channel envelope expansion.
+  `OCRProjection` sparse rows are retained as finite evidence fixtures around
+  the dynamic pointwise family, including the observed batch-3 and batch-6 OCR
+  cases. They are no longer production admission gates for legal fp32
+  direct-buffer 1x1 runtime shapes.
+  This does not add a model-name route.
 - `NoOverlapConvTranspose2DContract`: bounded float-buffer 2x2 stride-2
   no-overlap transposed-conv envelope. The `Kernel2Stride2FloatBuffer` slice
   has a JSON contract spec backed by `ShapeEnvelope` v1 with checked-in
@@ -2469,9 +2571,17 @@ These files are diagnostic inputs. Production code must not depend on
   checks while scale tolerance, route-policy hard-fail ordering, tensor
   extraction/early dtype-rank guards, SDPA execution, and match-result assembly
   remain handwritten. The direct GQA buffer execution plan is now permitted for
-  matched causal prefill rows and matched `SmallNonCausalGQA` decode rows with
-  `query_len == 1` and `source_len <= 64`; broader non-causal/direct decode
-  behavior remains rejected.
+  matched causal prefill rows, matched `SmallNonCausalGQA` decode rows, the
+  semantic `DirectDecodeGQASDPADirectBuffer` family for legal non-causal decode
+  GQA runtime shapes, and the semantic
+  `DirectCausalPrefillGQASDPADirectBuffer` family for legal causal prefill GQA
+  and equal-head MHA runtime shapes. q>1 non-causal GQA, unequal-head MHA
+  within bounded target/source lengths uses the semantic
+  `SmallNonCausalGQASDPADirectBuffer` family, while equal-head non-causal MHA
+  with direct-buffer-compatible lane-aligned head/value dims uses
+  `DirectNonCausalMHASDPADirectBuffer`. Unequal-head MHA without `enable_gqa`,
+  masked, dropout, over-budget, and
+  materialized/repeat execution policies remain rejected.
 - `VisionSelfAttentionSDPAContract`: bounded rank-3 float vision
   self-attention SDPA legality for the six proven low-resolution rows
   `[BH,T,64]` where `BH in {6,12,16}`, `T in {151,261}`, q/k/v share shape,
@@ -2499,8 +2609,18 @@ These files are diagnostic inputs. Production code must not depend on
   handwritten. Keep the exact tuple until broader mask-family behavior is
   proven.
 - `DiffusionSDPAContract` and `DiffusionCrossAttentionContract`: finite
-  explicit tuple contracts, now split into a family-specific source; keep exact
-  rows until broader materialization behavior is proven.
+  explicit tuple contracts are now evidence for the original diffusion rows,
+  while `CrossAttentionRuntimeShape` and
+  `SquareSelfAttentionRuntimeShape` admit legal mask-free fp32 rank-4 runtime
+  diffusion attention by semantic head/sequence/head-dim/score-budget guards.
+  Runtime square admission is `head_dim=64` plus single-head `head_dim=512`
+  when the square sequence is width-pack compatible for the materialized key
+  transpose. The existing `head_dim=512` rows remain evidence, not production
+  allowlist gates; non-compatible `512` sequences still require a broader
+  direct-buffer materialization command plan.
+  Square runtime admission is paired with
+  `DiffusionMaterializedSquareRuntimeShape`, which preserves score
+  pre-materialization and post-softmax clone behavior.
 - `SDPAExecutionPolicyContract`: finite execution materialization, softmax
   score, post-softmax clone, and repeat policy contract, now split into a
   family-specific source. The `SparsePolicyRows` slice has a JSON contract
@@ -2511,14 +2631,18 @@ These files are diagnostic inputs. Production code must not depend on
   row-match bounds, and materialization policy flags while calls to
   `DiffusionSDPAContract`, tuple-id cross-checks, route hard-fail ordering,
   score materialization, post-softmax clone behavior, and match-result assembly
-  remain handwritten. Keep exact rows until broader layout-transition behavior
-  is proven.
+  remain handwritten. `RecognizerNonCausalMHARuntimeShape` and
+  `TransformerDecodeGQACloneOnlyRuntimeShape` now cover their runtime semantic
+  slices without exact row admission; keep remaining exact rows until broader
+  layout-transition and materialization behavior is proven.
 - `SDPAScoreSoftmaxContract`: finite float rank-3 square score-softmax
-  contract. The `DiffusionSquareScores` slice covers heads `{1, 5}` and
-  sequence `{504, 640}` with a JSON contract spec backed by `ShapeEnvelope` v1,
-  checked-in positive/adjacent-negative runtime cases, and generic
-  ShapeEnvelope C++ simple-bound helper output in
-  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. The
+  evidence plus runtime square score admission. The `DiffusionSquareScores`
+  slice covers heads `{1, 5}` and sequence `{504, 640}` with a JSON contract
+  spec backed by `ShapeEnvelope` v1, checked-in positive/adjacent-negative
+  runtime cases, and generic ShapeEnvelope C++ simple-bound helper output in
+  `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`.
+  `DiffusionSquareScoresRuntimeShape` admits runtime square fp32 score tensors
+  within head/sequence/score-element budgets. The
   `VisionSelfAttentionScores` slice is a bounded production materialization
   edge for the six existing VisionSelfAttention score rows `[BH,T,T]` where
   `BH in {6,12,16}` and `T in {151,261}`; it consumes the generated
@@ -2527,6 +2651,13 @@ These files are diagnostic inputs. Production code must not depend on
   fallback labels, buffer softmax policy, and match-result assembly remain
   handwritten. Keep the temporary exception until broader score-softmax/layout
   behavior is proven.
+- `SmallMetadataPaddedConv2DContract`: the original exact PaddleOCR
+  `MaterializedBufferInput2x2` row is now evidence only for a semantic
+  `RuntimeMaterializedBufferInput2x2` matcher. Production admission is based on
+  batch-one fp32 width-packed non-direct small-channel 2x2 layout/materialization
+  guards with random-shape coverage, not exact input height/width/output-channel
+  rows. Batched inputs, other kernels, grouped convs, and direct-output
+  ownership remain outside the family.
 - `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
   lookup contract; the small-bounded lookup slice has a JSON contract spec with
   generated positive and adjacent negative runtime coverage. The
@@ -2534,15 +2665,14 @@ These files are diagnostic inputs. Production code must not depend on
   path for generated metadata, bounds, matcher helper predicates, and the
   derived indices product helper while the token-batch row remains
   handwritten. Keep remaining exact rows until broader legality is proven.
-- `CatAxisContract`: umbrella for bounded last-dim, channel-dim, and rank-3
-  cat patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
-  contract spec with generated positive and adjacent negative runtime coverage
-  and a `ShapeEnvelope` v1 source for symbolic dims, relationships, aggregate
-  bounds, layout/capability requirements, and policies. Its contract identity,
-  route label, metadata, simple bounds, typed spec row, and scalar/per-input
-  helper predicates are emitted by the generic ShapeEnvelope C++ generator into
-  a generated C++ header while the cross-input loop and match result
-  construction remain handwritten.
+- `CatAxisContract`: umbrella for last-dim, channel-dim, and rank-3 cat
+  patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
+  contract spec with generated positive and adjacent negative runtime coverage,
+  but production admission for fp32 buffer-backed rank-4 dim-1 cats now flows
+  through `CatAxisDirectBuffer` semantic runtime validation. Input count,
+  spatial size, batch, and total channels are runtime descriptor values. The
+  old generated rowset remains review evidence while the current implementation
+  keeps the channel multiple-of-4 layout constraint.
 - `KVCacheAppendContract`: bounded Transformer sequence append and initial
   empty-cache cat rows. Both `SequenceAppend` and `InitialCache` slices have
   JSON contract specs backed by `ShapeEnvelope` v1 with checked-in positive
@@ -2556,17 +2686,19 @@ These files are diagnostic inputs. Production code must not depend on
   while unrelated direct-buffer cat paths keep their generic labels.
 - `UNetChannelConcatContract`: mostly generic already; keep model provenance in
   tests/docs.
-- `GQARepeatContract`: finite bounded K/V head repeat contract, now split into
-  a family-specific source. The
-  `Batch1Heads4Factor4Sequence100To116Dim128` slice has a JSON contract spec
-  backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
-  runtime cases plus generic ShapeEnvelope C++ simple-bound helper output in
-  `generated/ExecutionContractsGQARepeatSpec.h`. The generated helper provides
-  contract identity, metadata, dtype/rank/source tensor bounds, repeat-factor
-  policy constants, and target-head/target-sequence metadata while Vulkan
-  tensor/storage extraction, SDPA admission, materialization allocation/kernel
-  dispatch, op-hit labels, and match-result assembly remain handwritten. Keep
-  exact rows until broader legality is proven.
+- `GQARepeatContract`: the old
+  `Batch1Heads4Factor4Sequence100To116Dim128` slice is now evidence for the
+  materialization route, while `GenericRuntimeShape` admits fp32 rank-4
+  Vulkan buffer K/V tensors by runtime batch/head/source/head-dim and repeat
+  factor semantics. SDPA may select the materialized repeat route only for
+  non-causal, mask-free GQA with both K and V matched and a downstream
+  rectangular rank-3 score tensor accepted by
+  `RectangularScoresRuntimeShape`. Random unseen-shape tests force query
+  lengths above the direct-GQA small-shape limit and require the
+  `aten::scaled_dot_product_attention.bounded_gqa_repeat_materialize` op hit.
+  The generated helper still provides exact-row metadata for regression
+  fixtures, but exact source-length rows are no longer production admission for
+  the materialization shader.
 - `BatchNormInferenceContract`: float32 4D inference batch norm. The
   `BufferFloat4D` and `MaterializedBufferFloat4D` slices both have JSON
   contract specs backed by `ShapeEnvelope` v1 with checked-in
@@ -2594,16 +2726,16 @@ These files are diagnostic inputs. Production code must not depend on
   dense/contiguous-stride checking and match result assembly remain
   handwritten. Keep broader view/layout,
   storage-offset, and provenance rules documented separately.
-- `LinearGeluBridgeContract`: pure legality for the deferred linear/GELU
-  bridge. The `BackboneMlpHidden384To1536` slice now has a JSON contract spec
-  backed by `ShapeEnvelope` v1 with checked-in positive/adjacent-negative
-  runtime cases and generic ShapeEnvelope C++ simple-bound helper output. The
-  generated helper provides contract identity, metadata, rank/shape/packed
-  weight/options predicates, minimum flattened rows, and result-policy
-  constants while tensor-info extraction, rank-3 equality, deferred candidate
-  registry ownership, alias retargeting, materialization on non-GELU
-  consumers, fused-GELU execution, op-hit labels, and match-result assembly
-  remain handwritten.
+- `LinearGeluBridgeContract`: semantic optimized bridge for deferred
+  linear->GELU fusion. Generic linear and matmul execution is still owned by
+  `LinearOrMatmulDirectBuffer`; the bridge now uses `GenericRuntimeShape`
+  admission for legal rank-2/rank-3 fp32 Vulkan linear shapes when input
+  flattening matches the packed weight input dimension, output features are
+  positive, bias is present, `out=` is absent, alpha/beta are `1`, and GELU
+  approximation is `none` or `tanh`. The old
+  `BackboneMlpHidden384To1536` ShapeEnvelope slice remains checked-in evidence
+  and regression coverage, not a runtime shape gate. Non-GELU consumers still
+  materialize the deferred linear output before proceeding.
 - `ElementwiseBroadcastContract`: production metadata/provenance canary for the
   existing float32 tensor/tensor buffer-broadcast route. The
   `FloatTensorTensorBufferBroadcast` slice records the route shape in JSON and

@@ -44,9 +44,12 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: finite Transformer KV-cache append rows are proven by existing cat
   tests and now act as evidence/regression fixtures for the dynamic sequence
-  append family. `SequenceCatDirectBuffer` covers fp32 rank-4 direct-buffer
-  dim-2 appends by semantic batch/head/head-dim equality and positive sequence
-  lengths instead of exact observed sequence rows.
+  append and initial-cache families. `SequenceCatDirectBuffer` covers fp32
+  rank-4 direct-buffer dim-2 appends by semantic batch/head/head-dim equality
+  and positive sequence lengths instead of exact observed sequence rows.
+  `InitialSequenceCatDirectBuffer` covers the empty-cache bootstrap by requiring
+  a Vulkan empty left operand, a fp32 rank-4 Vulkan buffer cache tensor,
+  dim-2 semantics, and positive runtime batch/head/sequence/head-dim values.
 - Generated spec coverage: `test/vulkan_contract_specs/kv_cache_append_contract.json`
   covers the `SequenceAppend` slice for source sequence `S=1..115`, and
   `test/vulkan_contract_specs/kv_cache_append_initial_contract.json` covers the
@@ -56,11 +59,12 @@ condition and migration target.
   `generated/ExecutionContractsKVCacheAppendSpec.h` and
   `generated/ExecutionContractsKVCacheAppendInitialSpec.h`. SequenceAppend
   batch/heads/head-dim equality is generated while initial-empty handling,
-  sequence lower bounds, InitialCache cross-input handling, and match-result
-  assembly remain handwritten. InitialCache positives log
+  sequence lower bounds, and match-result assembly remain handwritten. The
+  InitialCache rows are now regression fixtures around
+  `InitialSequenceCatDirectBuffer`; positives and random dynamic cases log
   `aten::cat.kv_cache_initial_dim2_buffer`.
-- Expiry: remaining InitialCache and broader cat-axis behavior have dynamic
-  semantic parity plus adjacent negative coverage.
+- Expiry: broader cat-axis behavior has dynamic semantic parity plus adjacent
+  negative coverage.
 - Migration target: `SequenceCatDirectBuffer` plus generated
   `KVCacheAppendContract` and `CatAxisContract` tables with positive and
   negative tests.
@@ -97,8 +101,10 @@ condition and migration target.
   evidence/regression fixtures. The dynamic program runtime now owns fp32
   rank-2 Vulkan weights with CPU-resident Long rank-1/rank-2 indices
   after host index-bounds checking, so vocab size, embedding dim, and index
-  count are no longer production admission limits for that safe path.
-  Vulkan-resident indices outside the old finite rows still need a no-readback
+  count are no longer production admission limits for that safe path. It also
+  owns CPU-uploaded Vulkan Long index tensors whose exact descriptor carries
+  integer min/max provenance proving values are within the runtime vocab bound.
+  Truly device-produced Vulkan-resident indices still need a no-readback
   value-bounds proof or device-side error path before they can be broadly
   admitted without weakening PyTorch's out-of-range semantics.
 - Generated spec coverage: `test/vulkan_contract_specs/embedding_lookup_contract.json`
@@ -107,9 +113,9 @@ condition and migration target.
   including the derived indices product helper.
   Other embedding rows still need broader generated coverage before the
   exception can expire.
-- Expiry: Vulkan-resident index tensors have a value-bounds/error contract, or
-  the dynamic embedding family records a real proof source that preserves
-  PyTorch out-of-range behavior without per-shape allowlists.
+- Expiry: device-produced Vulkan-resident index tensors have a value-bounds or
+  error contract that preserves PyTorch out-of-range behavior without
+  per-shape allowlists.
 - Migration target: `EmbeddingLookupDirectBuffer` semantic admission plus
   generated value-bounds and layout tests; finite rows remain only as
   performance evidence or regression fixtures.
@@ -118,9 +124,15 @@ condition and migration target.
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Concat.cpp`
-- Status: temporary, contract-named
+- Status: partially migrated, contract-named
 - Reason: bounded cat rows are proven for current last-dim, channel-dim, and
   rank-3 patterns, but broader axis/layout behavior is not proven yet.
+  Rank-4 dim-1 fp32 buffer-backed cat now has semantic admission through
+  `CatAxisDirectBuffer`; input count, spatial size, batch, and total channels
+  are runtime descriptor values rather than production row bounds. The current
+  multi-input buffer-view path still requires channel extents and total channel
+  count to be multiples of 4 because that is an implementation/layout
+  constraint in the existing buffer-view copy path.
 - Generated spec coverage: `test/vulkan_contract_specs/channel_cat_contract.json`
   covers the rank-4 dim-1 channel-cat buffer slice with generated positive and
   adjacent negative runtime tests and generic ShapeEnvelope C++ metadata/helper
@@ -128,22 +140,29 @@ condition and migration target.
   `aten::cat.buffer_channel_pair` is covered by focused parity/op-hit tests,
   including odd-channel pairs under bounded `N=1`, total `C <= 4096`, and
   spatial `224x224` guards, and remains handwritten until the generated
-  `ChannelCatContract` admits the pair case directly. Other cat-axis rows still
-  need fixtures or documented follow-up before this exception can expire.
-- Expiry: broader cat-axis parity plus adjacent negative coverage are
-  available.
-- Migration target: generated `CatAxisContract` and `ChannelCatContract`
-  tables with positive and negative tests.
+  `ChannelCatContract` admits the pair case directly. The generated finite
+  multi-input rows remain evidence/regression fixtures for
+  `CatAxisDirectBuffer`, not default H/W or input-count admission. Other
+  cat-axis rows still need fixtures or documented follow-up before this
+  exception can expire.
+- Expiry: rank-3 and remaining axis variants either have semantic dynamic
+  families or are documented as unsupported with specific layout/semantic
+  reasons, and the rank-4 dim-1 channel-alignment constraint has either been
+  lifted by implementation work or recorded as a permanent layout contract.
+- Migration target: `CatAxisDirectBuffer` plus generated `CatAxisContract` and
+  `ChannelCatContract` evidence tables with positive and negative tests.
 
 ### Token Prefix Cat/Add Exact Rowset
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
   `aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp`, and
   `scripts/benchmarks/benchmark_depth_anything.py`
-- Status: temporary, contract-named
-- Reason: the fused prefix-token concat plus position-add route is proven for
-  the observed rank-3 float token-preparation envelope, but arbitrary cat+add
-  fusion and split-token consumer regions are not proven.
+- Status: migrated to semantic dynamic admission, contract-named evidence kept
+- Reason: the fused prefix-token concat plus position-add route is now semantic
+  for fp32 rank-3 direct-buffer inputs with prefix length `1`, dim `1`, matching
+  batch/feature dimensions, positive token count, and output sequence
+  `1 + token_count`. Arbitrary cat+add fusion and split-token consumer regions
+  are not proven.
 - Generated spec coverage:
   `test/vulkan_contract_specs/token_prefix_cat_add_contract.json` covers
   `prefix=[1,1,C]`, `tokens=[1,N,C]`, `pos/out=[1,N+1,C]`,
@@ -151,19 +170,29 @@ condition and migration target.
   `N in {150,260,600,620,1350,1380,2400,2440,3750,3850}` with generated C++
   sparse-rowset helper output in
   `generated/ExecutionContractsTokenPrefixCatAddSpec.h`.
-- Expiry: broader token-prefix concat/add and downstream region-fusion parity
-  plus adjacent negative coverage are available.
-- Migration target: generated `TokenPrefixCatAddContract` or token-preparation
-  `RegionContract` tables with positive and negative tests.
+- Expiry: the finite rowset can be removed from production admission once
+  `TokenPrefixCatAddDirectBuffer` random-shape parity and adjacent negatives
+  remain stable as the only token-prefix admission path.
+- Migration target: keep generated rows as regression fixtures while
+  `TokenPrefixCatAddDirectBuffer` owns runtime-shape admission; broader
+  token-preparation region fusion needs a separate `RegionContract`.
 
-### GQA Repeat Exact Tuples
+### GQA Repeat Rectangular Score Budget
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
-- Status: temporary, contract-named
-- Reason: bounded repeat `[1,4,S,128]` to `[1,16,S,128]` is proven for the
-  current Transformer decode envelope, but broader GQA materialization behavior
-  is not proven yet.
+- Status: migrated to semantic dynamic admission inside the rectangular score
+  budget, contract-named evidence kept
+- Reason: `GQARepeatDirectBuffer` now behavior-authorizes the runtime-sized
+  repeat shader for fp32 rank-4 Vulkan buffer K/V tensors, and SDPA can use it
+  for non-causal, mask-free materialized GQA when both K and V match and the
+  resulting rectangular rank-3 score tensor matches
+  `RectangularScoresRuntimeShape`. Random unseen-shape coverage found and fixed
+  a repeat shader indexing bug where the sequence coordinate was divided by the
+  repeat factor instead of the head coordinate. Materialized-GQA source lengths
+  are no longer production-gated by exact repeat rows or by a fixed
+  `source_len < 64` cap; downstream score-softmax admission is owned by runtime
+  rectangular-score semantics and score-element budget.
 - Generated spec coverage: `test/vulkan_contract_specs/gqa_repeat_contract.json`
   covers the `Batch1Heads4Factor4Sequence100To116Dim128` slice with
   ShapeEnvelope-backed checked-in positive and adjacent negative runtime cases
@@ -172,19 +201,25 @@ condition and migration target.
   extraction, SDPA admission, materialization allocation and dispatch, op-hit
   labels, sequence lower-bound preservation, and match-result assembly remain
   handwritten.
-- Expiry: broader GQA repeat parity plus adjacent negative coverage are
-  available.
-- Migration target: broader generated `GQARepeatContract` tables with positive
-  and negative tests.
+- Expiry: the generated spec and runtime tests cover the rectangular score
+  budget as first-class dynamic evidence, and over-budget or unsupported
+  rectangular score shapes produce named semantic rejects rather than exact-row
+  misses.
+- Migration target: `SDPAScoreSoftmaxContract` runtime-family coverage for
+  rectangular materialized-GQA scores, with `GQARepeatContract` rows retained as
+  regression fixtures rather than production source-length admission.
 
 ### BatchNorm Inference Exact Envelopes
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Batchnorm.cpp`
-- Status: temporary, contract-named
+- Status: partially migrated, contract-named
 - Reason: float32 4D inference batch norm is proven for current buffer and
-  materialized-buffer paths, but broader dtype/rank/layout/training behavior is
-  not proven yet.
+  materialized-buffer paths. The buffer path now admits through
+  `BatchNormInferenceDirectBuffer` dynamic semantic validation, so runtime
+  N/C/H/W are not finite production bounds. Broader dtype/rank/layout/training
+  behavior and the materialized-buffer layout-transition path are not proven
+  broadly yet.
 - Generated spec coverage: `test/vulkan_contract_specs/batch_norm_inference_contract.json`
   covers the `BufferFloat4D` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
@@ -198,10 +233,12 @@ condition and migration target.
   Optional-aware feature-count equality is generated while parameter checks,
   provenance, storage/materialization policy, and match-result assembly remain
   handwritten.
-- Expiry: broader batch-norm inference parity plus adjacent negative coverage
-  are available for buffer and materialized-buffer families.
-- Migration target: broader generated `BatchNormInferenceContract` tables with
-  positive and negative tests.
+- Expiry: materialized-buffer layout-transition behavior also has dynamic
+  semantic parity, and unsupported dtype/rank/training cases are documented as
+  permanent semantic rejects or implemented.
+- Migration target: `BatchNormInferenceDirectBuffer` plus generated
+  `BatchNormInferenceContract` evidence tables with positive and negative
+  tests.
 
 ### Elementwise Broadcast Exact Envelope
 
@@ -235,10 +272,34 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: bounded Transformer causal/prefill and decode GQA SDPA rows are
   proven for the current envelope, but broader Transformer attention shapes,
-  masks, scale policy, and broader direct decode GQA behavior are not proven
-  yet. Direct GQA buffer execution is currently proven only for matched causal
-  prefill rows and matched `SmallNonCausalGQA` decode rows with
-  `query_len == 1` and `source_len <= 64`.
+  masks, causal MHA dynamic behavior, and materialized execution policy are not
+  proven yet. Non-causal decode GQA now has a semantic
+  `DirectDecodeGQASDPADirectBuffer` path for fp32 4D direct-buffer tensors with
+  batch 1, query length 1, no mask/dropout, divisible query/key-value heads,
+  default/head-dim-equivalent scale, and direct-GQA shader-budget dimensions.
+  Causal prefill GQA and equal-head MHA now use the semantic
+  `DirectCausalPrefillGQASDPADirectBuffer` path for fp32 4D direct-buffer
+  tensors with batch 1, equal query/source sequence length, no explicit
+  mask/dropout, default/head-dim-equivalent scale, and direct-GQA
+  shader-budget dimensions. GQA requires divisible query/key-value heads; MHA
+  requires equal heads so the direct-GQA shader repeat factor is `1`. The finite
+  rows remain evidence for exact decode policy and adjacent negative guard
+  coverage. Bounded q>1 non-causal GQA now uses
+  `SmallNonCausalGQASDPADirectBuffer` when target/source lengths are at most
+  64 and direct-GQA shader budgets hold, so the exact small non-causal rows are
+  evidence and guard fixtures rather than runtime admission bounds.
+  Equal-head non-causal MHA now uses
+  `DirectNonCausalMHASDPADirectBuffer` when direct-buffer layout,
+  lane-aligned head/value dims, and direct-GQA shader budgets hold, so
+  diffusion-style square rows matching those constraints are semantic runtime
+  shapes rather than finite diffusion admission rows.
+  `SDPAExecutionPolicyContract` now has
+  `TransformerDecodeGQACloneOnlyRuntimeShape` for the decode-GQA
+  post-softmax clone policy, using runtime batch/head/source/head-dim
+  semantics and score-element budget instead of the old finite source-length
+  execution-policy row.
+  Unequal-head causal MHA without `enable_gqa` remains semantically rejected
+  rather than materialized or repeated implicitly.
 - Generated spec coverage: `test/vulkan_contract_specs/transformer_gqa_sdpa_contract.json`
   covers the `SparseAttentionRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
@@ -251,42 +312,44 @@ condition and migration target.
   extraction/early dtype-rank guards, SDPA execution, materialization policy,
   and match-result assembly remain handwritten.
 - Expiry: broader Transformer SDPA/GQA parity plus adjacent negative coverage
-  are available without direct decode GQA broadening.
+  are available for causal MHA, masked, materialized, and repeat-materialized
+  execution policies without relying on exact row bounds.
 - Migration target: broader generated `TransformerGQASDPAContract` tables with
   positive, adjacent negative, and materialization-policy coverage.
 
-### Vision Self-Attention SDPA Exact Rows
+### Vision Self-Attention SDPA Runtime Family
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
   `aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp`, and
   `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
-- Status: temporary, contract-named
-- Reason: six low-resolution rank-3 float vision self-attention rows
-  `[BH,T,64]` are proven with `BH in {6,12,16}`, `T in {151,261}`, q/k/v equal
-  shape, no mask, non-causal, dropout 0, GQA off, and explicit scale 1.0.
-  Broader vision SDPA sequence/head layouts, implicit-scale policy, masks,
-  causal attention, and direct softmax-to-value-BMM behavior are not proven
-  yet.
+- Status: migrated to semantic dynamic admission, contract-named evidence kept
+- Reason: rank-3 float vision self-attention is now semantic for `[BH,T,64]`
+  when Q/K/V shapes match, no mask is present, attention is non-causal,
+  dropout is `0`, GQA is off, and explicit scale is `1.0`. Runtime `BH` and
+  `T` are not production row bounds. Broader head dims, implicit-scale policy,
+  masks, causal attention, and direct softmax-to-value-BMM behavior are not
+  proven yet.
 - Generated spec coverage:
   `test/vulkan_contract_specs/vision_self_attention_sdpa_contract.json` covers
   the `SparseAttentionRows` slice with ShapeEnvelope sparse-rowset rows,
   checked-in positive and adjacent negative runtime cases, and generic
   ShapeEnvelope C++ metadata/row helpers in
   `generated/ExecutionContractsVisionSelfAttentionSDPASpec.h`. The generated
-  helper owns row metadata and row-match bounds. Scale tolerance,
+  helper owns row metadata and row-match bounds for evidence rows. Scale tolerance,
   route-policy hard-fail ordering, tensor extraction/early dtype-rank guards,
   materialized math-path selection, post-softmax clone behavior, and
-  match-result assembly remain handwritten. The score-softmax probability
-  materialization edge is bounded to the same generated rowset via
-  `SDPAScoreSoftmaxContract` `VisionSelfAttentionScores`; it writes
-  probabilities into a fresh direct buffer and does not enable the previously
-  failing direct softmax-probability-to-value-BMM path.
-- Expiry: broader vision self-attention SDPA parity and adjacent negative
-  coverage are available across head-batch, sequence, scale, mask/causal, and
-  probability materialization behavior without regressing existing SDPA rows.
-- Migration target: broader generated `VisionSelfAttentionSDPAContract` tables
-  and/or a reviewed attention probability materialization policy that can
-  replace the exact rowset with a parameterized, zero-fallback policy.
+  match-result assembly remain handwritten. The score-softmax route now mirrors
+  the same runtime `BH/T` policy via `SDPAScoreSoftmaxContract`
+  `VisionSelfAttentionScoresRuntimeShape`; it writes probabilities into a fresh
+  direct buffer and does not enable the previously failing direct
+  softmax-probability-to-value-BMM path.
+- Expiry: broader vision self-attention parity and adjacent negative coverage
+  are available across head dim, scale, mask/causal, and probability
+  materialization behavior without regressing existing SDPA rows.
+- Migration target: keep exact rows as regression fixtures while semantic
+  `VisionSelfAttentionSDPAContract` admission owns runtime `BH/T`; a reviewed
+  attention probability materialization policy must separately replace the
+  no-clone/materialization rowset.
 
 ### SDPA Execution Policy Exact Tuples
 
@@ -295,7 +358,9 @@ condition and migration target.
 - Status: temporary, contract-named
 - Reason: materialization, repeat, and post-softmax clone decisions are proven
   for finite SDPA execution envelopes, but broader layout-transition behavior is
-  not proven yet.
+  not proven yet. The recognizer-style small-head non-causal MHA direct-buffer
+  policy has migrated to semantic runtime admission; finite recognizer rows now
+  act as evidence/regression fixtures rather than production shape gates.
 - Generated spec coverage: `test/vulkan_contract_specs/sdpa_execution_policy_contract.json`
   covers the `SparsePolicyRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
@@ -304,9 +369,12 @@ condition and migration target.
   helper owns row-match bounds for the correlated policy rows while diffusion
   contract admission, tuple-id cross-checks, scale tolerance, score
   pre-materialization, materialized math path, post-softmax clone behavior, and
-  match-result assembly remain handwritten.
+  match-result assembly remain handwritten. Randomized
+  `RecognizerNonCausalMHA` runtime-shape tests cover legal small-head
+  direct-buffer MHA outside the finite rowset.
 - Expiry: broader SDPA execution/layout parity plus adjacent negative coverage
-  are available.
+  are available for diffusion materialization, transformer clone-only, and
+  masked policy decisions.
 - Migration target: broader generated `SDPAExecutionPolicyContract` tables
   with positive and negative tests.
 
@@ -346,19 +414,27 @@ condition and migration target.
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
   `aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp`, and
   `aten/src/ATen/native/vulkan/ops/Softmax.cpp`
-- Status: temporary, contract-named
-- Reason: finite SDPA score-softmax shapes guard route hard-fail and native
-  buffer softmax eligibility, but broader score-softmax/layout behavior is not
-  proven yet.
+- Status: partially migrated to semantic dynamic admission
+- Reason: diffusion score-softmax exact rows are retained as evidence, but
+  runtime square fp32 rank-3 score tensors now admit through
+  `DiffusionSquareScoresRuntimeShape` when head/sequence budgets hold. The
+  paired diffusion SDPA square runtime family covers `head_dim=64`; existing
+  `head_dim=512` rows remain exact evidence until unseen 512-dim sequences have
+  direct-buffer materialization proof. Vision
+  self-attention rank-3 square scores also admit runtime positive `BH/T` values
+  through `VisionSelfAttentionScoresRuntimeShape`. Broader score-softmax/layout
+  behavior outside the rank-3 square fp32 buffer family is not proven yet.
 - Generated spec coverage: `test/vulkan_contract_specs/sdpa_score_softmax_contract.json`
   covers the `DiffusionSquareScores` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases plus generic
   ShapeEnvelope C++ simple-bound helper output in
   `generated/ExecutionContractsSDPAScoreSoftmaxSpec.h`. The
-  `VisionSelfAttentionScores` slice is production-wired but reuses
-  `generated/ExecutionContractsVisionSelfAttentionSDPASpec.h` as its row
-  source of truth until a dedicated multi-family score-softmax fixture is
-  justified. Softmax route ordering, `can_run_buffer_softmax` policy, guard
+  `DiffusionSquareScoresRuntimeShape` owns runtime square diffusion-like score
+  admission; the `VisionSelfAttentionScores` evidence slice reuses
+  `generated/ExecutionContractsVisionSelfAttentionSDPASpec.h`; production
+  runtime-shape admission is handled by
+  `VisionSelfAttentionScoresRuntimeShape`. Softmax route ordering,
+  `can_run_buffer_softmax` policy, guard
   op-hit logging for `aten::_softmax.buffer_lastdim_known_bad_texture_fallback`,
   fallback visibility, and match-result assembly remain handwritten.
 - Expiry: broader SDPA score-softmax/layout parity plus adjacent negative
@@ -391,15 +467,15 @@ condition and migration target.
 - Migration target: generated `SafeViewReshapeContract` tables with positive
   and negative tests.
 
-### Linear GELU Bridge Exact Envelope
+### Linear GELU Bridge Evidence Envelope
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Mm.cpp`
 - Status: temporary, contract-named
-- Reason: the deferred linear/GELU bridge is proven for the current
-  `BackboneMlpHidden384To1536` legality envelope, but broader hidden sizes,
-  output sizes, rank behavior, `out=`, alpha/beta, post-op, inference-mode,
-  and GELU-consumption behavior are not proven yet.
+- Reason: the deferred linear/GELU bridge now admits legal runtime shapes by
+  semantic `GenericRuntimeShape` guards. The finite
+  `BackboneMlpHidden384To1536` envelope remains as evidence for the original
+  Backbone MLP hidden projection shape and adjacent negative coverage.
 - Generated spec coverage: `test/vulkan_contract_specs/linear_gelu_bridge_contract.json`
   covers the `BackboneMlpHidden384To1536` slice with ShapeEnvelope-backed
   checked-in positive and adjacent negative runtime cases plus generic
@@ -408,34 +484,34 @@ condition and migration target.
   extraction, rank-3 equality, deferred candidate registry ownership, alias
   retargeting, materialization on non-GELU consumers, fused-GELU execution,
   op-hit labels, and match-result assembly remain handwritten.
-- Expiry: broader linear/GELU bridge parity plus adjacent negative coverage
-  are available across hidden/output sizes, rank behavior, option handling, and
-  GELU approximation consumption.
-- Migration target: generated `LinearGeluBridgeContract` tables with positive
-  and negative tests plus a reviewed side-effect boundary for deferred
-  registry and materialization behavior.
+- Expiry: once the generic runtime bridge has enough random-shape and
+  region-level coverage, retire the finite row as redundant evidence or keep it
+  only as a performance regression fixture.
+- Migration target: generated `LinearGeluBridgeContract` semantic family tables
+  with positive and negative tests plus a reviewed side-effect boundary for
+  deferred registry and materialization behavior.
 
 ### Small Metadata Padded Conv2D Exact Tuple
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
 - Status: temporary, contract-named
-- Reason: the padded low-channel buffer materialization is proven for one
-  finite 2x2 conv2d tuple, but broader small-metadata padded conv behavior is
-  not proven yet.
+- Reason: the padded low-channel buffer materialization is now admitted by
+  semantic layout guards for batch-one fp32 width-packed non-direct
+  small-channel 2x2 convs, but the implementation is still handwritten and does
+  not cover batched inputs, other kernels, grouped convs, or direct-output
+  ownership.
 - Generated spec coverage: `test/vulkan_contract_specs/small_metadata_padded_conv2d_contract.json`
-  covers the `MaterializedBufferInput2x2` slice with ShapeEnvelope-backed
-  checked-in positive and adjacent negative runtime cases plus generic
-  ShapeEnvelope C++ exact simple-bound helper output in
-  `generated/ExecutionContractsSmallMetadataPaddedConv2DSpec.h`, including
-  input/weight channel equality. Tensor-info extraction, input materialization,
-  op-hit logging, fallback to
+  covers the original `MaterializedBufferInput2x2` tuple as review evidence.
+  Runtime random-shape coverage now exercises the semantic
+  `RuntimeMaterializedBufferInput2x2` family. Tensor-info extraction, input
+  materialization, op-hit logging, fallback to
   `aten::convolution.buffer_float_skip.small_metadata_input`, and match-result
   assembly remain handwritten.
-- Expiry: broader padded-conv layout parity plus adjacent negative coverage are
-  available.
+- Expiry: the semantic family is represented in generated contract metadata or
+  migrated into a `LayoutTransitionContract` with positive and negative tests.
 - Migration target: generated `SmallMetadataPaddedConv2DContract` or
-  `LayoutTransitionContract` tables with positive and negative tests.
+  `LayoutTransitionContract` tables for the runtime materialization policy.
 
 ### Small Spatial Pointwise Conv Bounded Rows
 
@@ -471,14 +547,15 @@ condition and migration target.
   `N=1..8`, with checked-in positive coverage for the observed batch-6 and
   batch-3 rows; depth-vision and diffusion projection rows remain batch-1.
   This does not widen the OCR spatial/channel envelope.
-  `DynamicPointwiseConv1x1DirectBufferContract` now provides the first
-  adaptive fallback for legal fp32 direct-buffer 1x1 pointwise
+  `SmallSpatialPointwiseConvContract` now has a `GenericDynamicHW`
+  adaptive family for legal fp32 direct-buffer 1x1 pointwise
   convolutions with unseen batch/H/W under semantic 1x1/direct-buffer guards.
   It uses the existing dynamic-shape 1x1 buffer shader
-  and does not require exact H/W observation for correctness. New exact
-  pointwise rows should be added only when this dynamic family rejects with a
-  named unsupported reason or when a row is being kept as optimized-plan
-  evidence.
+  and does not require exact H/W observation for correctness. Batch-one
+  width-packed cases may select the existing as-linear plan from dynamic
+  admission. New exact pointwise rows should be added only as evidence fixtures
+  or when this dynamic family rejects with a named unsupported semantic or
+  layout reason.
   Naive min/max envelopes and independent H/W cross-products for optimized
   evidence rows remain rejected by
   `KnownBadLargePointwiseConv`.
@@ -488,9 +565,9 @@ condition and migration target.
   plan policy or retired as redundant evidence after dynamic pointwise parity
   covers layout, storage, channel-pair, spatial-pair, and output-channel
   families.
-- Migration target: `DynamicPointwiseConv1x1DirectBufferContract` plus broader
-  generated pointwise `KernelFamilyContract` tables with positive and negative
-  tests.
+- Migration target: `SmallSpatialPointwiseConvContract` dynamic families plus
+  broader generated pointwise `KernelFamilyContract` tables with positive and
+  negative tests.
   For OCR, the next promotion should be an OCR recognizer finite-rowset or
   bounded correlation-group proof, not independent channel/spatial
   cross-products.
@@ -506,29 +583,34 @@ condition and migration target.
   `test/vulkan_contract_specs/patch_embed_float_buffer_conv_route_contract.json`
   and generated sparse-rowset helper output in
   `generated/ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h`. The
-  route predicate is limited to float Vulkan tensors with input `[1,3,H,W]`,
-  `(H,W)` in
-  `{(140,210),(182,280),(280,420),(280,434),(420,630),(420,644),(560,840),(560,868)}`,
-  weight `[C,3,14,14]`, `C in {384,768,1024}`, stride `[14,14]`, zero
-  padding, dilation `[1,1]`, and groups `1`. The proven descriptor-view input
+  observed-row predicate records float Vulkan tensors with input `[1,3,H,W]`,
+  DAv2 evidence-row `(H,W)` pairs, weight `[C,3,14,14]`,
+  `C in {384,768,1024}`, stride `[14,14]`, zero padding, dilation `[1,1]`,
+  and groups `1`. Production admission now falls through to the semantic
+  `GenericKernel14Stride14FloatBuffer` family under the same
+  `PatchEmbedFloatBufferConvRoute` contract when the op is still a legal fp32
+  RGB patch projection but H/W or output channels were not previously observed.
+  The proven descriptor-view input
   leg requires zero storage offset, width-packed buffer storage, and metadata
-  strides compatible with `conv2d_buffer_float`. Adjacent negatives remain on
+  strides compatible with `conv2d_buffer_float`. Semantic negatives remain on
   the legacy path. The downstream `PatchEmbedFeatureMapToTokensContract`
   layout-transition slice has generated spec coverage in
   `test/vulkan_contract_specs/patch_embed_feature_map_to_tokens_contract.json`
   and generated sparse-rowset helper output in
-  `generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h`; it covers
-  only `[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial
-  pairs `(10,15)`, `(13,20)`, `(20,30)`, `(20,31)`, `(30,45)`, `(30,46)`, and
-  `(40,60)`.
-  The observed `(40,62)` feature-map case remains guarded until token-prefix
-  count `2480` has a separate proof.
-- Expiry: broader patch-embed conv execution-plan or transition-contract
-  coverage exists with positive and adjacent negative tests, including input
-  layout/materialization accounting.
+  `generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h`; those
+  finite rows now serve as evidence/regression fixtures. Production admission
+  for fp32 direct-buffer rank-4 feature maps is handled by
+  `FeatureMapToTokensDirectBuffer`, which validates `[N,C,H,W] -> [N,H*W,C]`
+  semantics from runtime batch/channel/H/W metadata without exact H/W row
+  matching. The current implementation still requires width-packed buffer
+  storage and zero storage offset.
+- Expiry: the patch-embed conv leg also has a semantic dynamic execution-plan
+  family, and finite feature-map-to-token rows are no longer needed as
+  migration guardrails.
 - Migration target: generated `PatchEmbedFloatBufferConvRoute` execution-plan
   metadata or a `ConvWeightDeviceRepackTransitionContract` if the legacy packed
-  layout is migrated to device-side repack.
+  layout is migrated to device-side repack; feature-map-to-token conversion is
+  covered by `FeatureMapToTokensDirectBuffer`.
 
 ### No-Overlap ConvTranspose2D Exact Envelope
 
@@ -536,8 +618,9 @@ condition and migration target.
   `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
 - Status: temporary, contract-named
 - Reason: the float-buffer 2x2 stride-2 no-overlap transposed-conv rows are
-  proven evidence fixtures, and `DynamicNoOverlapConvTranspose2DContract` now
-  covers the clean packed-buffer no-overlap family by semantic
+  proven evidence fixtures, and `NoOverlapConvTranspose2DContract` now has a
+  `DynamicKernelStrideFloatBuffer` family covering the clean packed-buffer
+  no-overlap family by semantic
   `kernel == stride`, zero padding/output-padding, dilation-one, groups-one
   rules. Batch, output channels, kernel/stride, and spatial sizes are runtime
   descriptors in the clean envelope. Low input-channel cases still hit the
@@ -553,16 +636,24 @@ condition and migration target.
 - Expiry: low-channel materialization has a direct no-readback path, and
   broader conv-transpose options have dynamic semantic parity plus adjacent
   negative coverage.
-- Migration target: `DynamicNoOverlapConvTranspose2DContract` plus generated
-  `NoOverlapConvTranspose2DContract` tables with positive and negative tests.
+- Migration target: `NoOverlapConvTranspose2DContract` dynamic families plus
+  generated positive and negative tests.
 
 ### Diffusion SDPA Exact Tuples
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
   Lotus diffusion contract drafts
-- Status: temporary, contract-named
-- Reason: materialization requirements differ by tuple, so enabling by formula
-  is not justified yet.
+- Status: partially migrated, contract-named
+- Reason: materialization requirements differ by square self-attention tuple,
+  so enabling that slice by formula is not justified yet. Cross-attention now
+  has `CrossAttentionRuntimeShape` admission for mask-free fp32 rank-4 batch-1
+  tensors with matching heads/head dim, head dim `64`, small runtime key/value
+  sequence length, and a bounded score tensor. Square self-attention now has
+  `SquareSelfAttentionRuntimeShape` admission for `head_dim=64` and single-head
+  `head_dim=512` when the score budget holds and the `512` materialized math
+  path can prove a width-pack-compatible key transpose (`sequence % 4 == 0`).
+  Non-compatible `512` sequences remain a layout/materialization exception, not
+  an exact-row admission target.
 - Generated spec coverage: `test/vulkan_contract_specs/diffusion_sdpa_contract.json`
   covers the `SparseAttentionRows` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope
@@ -572,29 +663,41 @@ condition and migration target.
   `(heads, query_sequence, key_value_sequence, head_dim)` lookup, and row-match
   equality for those fields. Route-policy hard-fail ordering, scale tolerance,
   SDPA execution, materialization policy, and match-result assembly remain
-  handwritten.
-- Expiry: broader parity and materialization census covers adjacent diffusion
-  self-attention and cross-attention shapes.
+  handwritten. Cross-attention random-shape tests now cover unseen legal
+  key/value lengths around the old `kv=2` fixtures.
+- Expiry: broader parity and materialization census covers non-width-pack
+  compatible `head_dim=512` diffusion self-attention shapes, and cross-attention
+  runtime admission has generated semantic positive/negative coverage rather
+  than handwritten-only guards.
 - Migration target: broader generated `DiffusionSDPAContract` and
   `DiffusionCrossAttentionContract` tables with positive, adjacent negative,
-  and materialization-policy coverage.
+  materialization-policy coverage, and a square q/k/v direct-buffer layout
+  command plan for non-width-pack-compatible `head_dim=512` key transposes.
 
 ### Tiny Mask SDPA Tuple
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`
-- Status: temporary, contract-named
-- Reason: a tiny additive-mask shape is proven, but mask-family behavior is not
-  broad enough to merge into diffusion SDPA.
+- Status: partially migrated, contract-named
+- Reason: the original tiny additive-mask shape is proven and remains a
+  regression fixture. Runtime additive-float-mask admission now uses
+  `AdditiveFloatMaskRuntimeShape`, which checks fp32 rank-3/rank-4 Q/K/V
+  compatibility, PyTorch-style mask broadcast compatibility, finite scale, and
+  a bounded score-tensor budget instead of exact target/source length rows.
+  Bool masks, causal mode, GQA, dropout, non-finite scale, and over-budget
+  score tensors remain unsupported.
 - Generated spec coverage: `test/vulkan_contract_specs/masked_tiny_sdpa_contract.json`
   covers the `AdditiveFloatMask` slice with ShapeEnvelope-backed checked-in
   positive and adjacent negative runtime cases plus generic ShapeEnvelope C++
   simple-bound helper output in
-  `generated/ExecutionContractsMaskedTinySDPASpec.h`. Route hard-fail
-  ordering, scale tolerance, SDPA execution, and match-result assembly remain
-  handwritten.
-- Expiry: mask-family parity and negative tests are available.
-- Migration target: `MaskedTinySDPAContract` or a reviewed mask field in an
-  SDPA contract.
+  `generated/ExecutionContractsMaskedTinySDPASpec.h`. Runtime random-shape
+  tests cover unseen legal mask broadcasts through the handwritten semantic
+  matcher. Route hard-fail ordering, SDPA execution, and match-result assembly
+  remain handwritten.
+- Expiry: bool-mask, causal-mask, and GQA mask semantics either have Vulkan
+  device-resident implementations or are recorded as permanent unsupported
+  semantics with transition/fallback budgets.
+- Migration target: `MaskedTinySDPAContract` runtime mask families or a
+  reviewed mask field in a broader SDPA contract.
 
 ## Rules For New Exceptions
 

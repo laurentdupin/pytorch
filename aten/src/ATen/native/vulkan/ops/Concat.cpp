@@ -109,6 +109,45 @@ utils::KVCacheAppendMatch match_kv_cache_initial_cat_contract(
       normalized_right_dim);
 }
 
+utils::KVCacheAppendMatch match_dynamic_initial_sequence_cat_direct_buffer(
+    const MaterializedITensorListRef& tensors,
+    const int64_t in_dim) {
+  if (tensors.size() != 2) {
+    return {};
+  }
+  const Tensor& left = tensors[0];
+  const Tensor& right = tensors[1];
+  if (!right.is_vulkan()) {
+    return {};
+  }
+  const vTensor& v_right = convert(right);
+  const int64_t normalized_right_dim = normalize_dim(in_dim, right.dim());
+  const utils::DynamicProgramAdmission admission = utils::admit_dynamic_program(
+      utils::make_initial_sequence_cat_direct_buffer_dynamic_program(
+          left.sizes(),
+          right.sizes(),
+          left.scalar_type(),
+          right.scalar_type(),
+          right.scalar_type(),
+          left.is_vulkan(),
+          v_right.storage_type() == api::StorageType::BUFFER &&
+              utils::supports_buffer_elementwise_compute(v_right),
+          true,
+          normalized_right_dim,
+          utils::kv_cache_initial_dynamic_metadata(),
+          true));
+  if (!admission.accepted) {
+    return {};
+  }
+  utils::KVCacheAppendMatch result;
+  result.matched = true;
+  result.family = utils::KVCacheAppendFamily::InitialCacheDirectBuffer;
+  result.tuple_id = "dynamic_initial_cache_direct_buffer";
+  result.metadata = utils::kv_cache_initial_dynamic_metadata();
+  result.sequence_length = right.size(2);
+  return result;
+}
+
 bool has_direct_sequence_cat_buffer_layout(const Tensor& tensor) {
   if (!tensor.is_vulkan()) {
     return false;
@@ -1132,6 +1171,28 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
         normalize_dim(in_dim, right.dim()),
         output,
         utils::kv_cache_append_op_hit_label(initial_kv_cache_contract.family));
+    if (success) {
+      return output;
+    }
+    return cat_cpu_fallback(materialized, in_dim);
+  }
+  const utils::KVCacheAppendMatch dynamic_initial_sequence_cat =
+      match_dynamic_initial_sequence_cat_direct_buffer(materialized, in_dim);
+  if (
+      dynamic_initial_sequence_cat.matched &&
+      dynamic_initial_sequence_cat.family ==
+          utils::KVCacheAppendFamily::InitialCacheDirectBuffer) {
+    const Tensor& right = materialized[1];
+    std::vector<Tensor> non_empty{right};
+    Tensor output = utils::create_buffer_tensor(
+        right.sizes(),
+        right.scalar_type(),
+        /*persistent=*/false);
+    const bool success = cat_buffer_direct_out_impl(
+        non_empty,
+        normalize_dim(in_dim, right.dim()),
+        output,
+        utils::kv_cache_append_op_hit_label(dynamic_initial_sequence_cat.family));
     if (success) {
       return output;
     }

@@ -43,6 +43,28 @@ constexpr ExecutionContractMetadata
                 .materialization_policy);
 
 constexpr ExecutionContractMetadata
+    kSDPAScoreSoftmaxDiffusionRuntimeSquareScoresMetadata =
+        make_execution_contract_metadata(
+            "SDPAScoreSoftmaxContract",
+            "DiffusionSquareScoresRuntimeShape",
+            "diffusion_square_score_runtime_shape",
+            "diffusion_square_sdpa_dynamic_random_shape_tests",
+            "diffusion_square_sdpa_dynamic_semantic_guards",
+            "unsupported_semantics_do_not_match",
+            "score_pre_materialization_and_post_softmax_clone");
+
+constexpr ExecutionContractMetadata
+    kSDPAScoreSoftmaxRectangularRuntimeScoresMetadata =
+        make_execution_contract_metadata(
+            "SDPAScoreSoftmaxContract",
+            "RectangularScoresRuntimeShape",
+            "sdpa_rectangular_score_runtime_shape",
+            "materialized_gqa_repeat_dynamic_random_shape_tests",
+            "sdpa_rectangular_score_dynamic_semantic_guards",
+            "unsupported_semantics_do_not_match",
+            "fresh_buffer_probability_materialization_before_value_bmm");
+
+constexpr ExecutionContractMetadata
     kSDPAScoreSoftmaxVisionSelfAttentionScoresMetadata =
         make_execution_contract_metadata(
             "SDPAScoreSoftmaxContract",
@@ -52,6 +74,46 @@ constexpr ExecutionContractMetadata
             "vision_self_attention_sdpa_adjacent_guards",
             "unsupported_shapes_hard_fail_or_do_not_match",
             "fresh_buffer_probability_materialization_before_value_bmm");
+
+constexpr ExecutionContractMetadata
+    kSDPAScoreSoftmaxVisionSelfAttentionRuntimeScoresMetadata =
+        make_execution_contract_metadata(
+            "SDPAScoreSoftmaxContract",
+            "VisionSelfAttentionScoresRuntimeShape",
+            "vision_self_attention_rank3_score_runtime_shape",
+            "dynamic_vision_self_attention_sdpa_random_shape_tests",
+            "vision_self_attention_sdpa_semantic_guards",
+            "unsupported_semantics_do_not_match",
+            "fresh_buffer_probability_materialization_before_value_bmm");
+
+bool is_runtime_diffusion_square_score_shape(
+    const IntArrayRef input_sizes,
+    const ScalarType input_dtype,
+    const int64_t dim) {
+  if (input_sizes.size() != 3 || input_dtype != kFloat || dim != 2) {
+    return false;
+  }
+  const int64_t heads = input_sizes[0];
+  const int64_t sequence = input_sizes[1];
+  return heads > 0 && heads <= 32 && sequence > 0 && sequence <= 640 &&
+      input_sizes[2] == sequence &&
+      heads * sequence * sequence <= 2097152;
+}
+
+bool is_runtime_rectangular_score_shape(
+    const IntArrayRef input_sizes,
+    const ScalarType input_dtype,
+    const int64_t dim) {
+  if (input_sizes.size() != 3 || input_dtype != kFloat || dim != 2) {
+    return false;
+  }
+  const int64_t batch_heads = input_sizes[0];
+  const int64_t target_sequence = input_sizes[1];
+  const int64_t source_sequence = input_sizes[2];
+  return batch_heads > 0 && target_sequence > 0 && source_sequence >= 64 &&
+      target_sequence != source_sequence &&
+      batch_heads * target_sequence * source_sequence <= 2097152;
+}
 
 } // namespace
 
@@ -85,7 +147,6 @@ SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
     result.metadata = &kSDPAScoreSoftmaxDiffusionSquareScoresMetadata;
     return result;
   }
-
   if (input_sizes.size() == 3 && input_dtype == kFloat && dim == 2 &&
       input_sizes[1] == input_sizes[2]) {
     const auto* const row =
@@ -102,6 +163,31 @@ SDPAScoreSoftmaxMatch match_sdpa_buffer_softmax_score_contract(
       result.metadata = &kSDPAScoreSoftmaxVisionSelfAttentionScoresMetadata;
       return result;
     }
+    if (is_runtime_diffusion_square_score_shape(input_sizes, input_dtype, dim)) {
+      result.matched = true;
+      result.family = SDPAScoreSoftmaxFamily::DiffusionSquareScoresRuntimeShape;
+      result.tuple_id =
+          kSDPAScoreSoftmaxDiffusionRuntimeSquareScoresMetadata.tuple_id;
+      result.metadata = &kSDPAScoreSoftmaxDiffusionRuntimeSquareScoresMetadata;
+      return result;
+    }
+    if (input_sizes[0] > 0 && input_sizes[1] > 0) {
+      result.matched = true;
+      result.family =
+          SDPAScoreSoftmaxFamily::VisionSelfAttentionScoresRuntimeShape;
+      result.tuple_id =
+          kSDPAScoreSoftmaxVisionSelfAttentionRuntimeScoresMetadata.tuple_id;
+      result.metadata = &kSDPAScoreSoftmaxVisionSelfAttentionRuntimeScoresMetadata;
+      return result;
+    }
+  }
+  if (is_runtime_rectangular_score_shape(input_sizes, input_dtype, dim)) {
+    result.matched = true;
+    result.family = SDPAScoreSoftmaxFamily::RectangularScoresRuntimeShape;
+    result.tuple_id =
+        kSDPAScoreSoftmaxRectangularRuntimeScoresMetadata.tuple_id;
+    result.metadata = &kSDPAScoreSoftmaxRectangularRuntimeScoresMetadata;
+    return result;
   }
 
   return result;

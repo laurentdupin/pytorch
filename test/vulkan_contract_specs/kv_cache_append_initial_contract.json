@@ -123,26 +123,6 @@
     },
     "negative_axes": [
       {
-        "violates": "sequence.min",
-        "adjacent": "below_min",
-        "value": 13
-      },
-      {
-        "violates": "sequence.max",
-        "adjacent": "above_max",
-        "value": 117
-      },
-      {
-        "violates": "heads",
-        "adjacent": "wrong_value",
-        "value": 5
-      },
-      {
-        "violates": "head_dim",
-        "adjacent": "wrong_value",
-        "value": 64
-      },
-      {
         "violates": "empty_shape",
         "adjacent": "wrong_rank",
         "value": 4
@@ -192,50 +172,6 @@
     }
   ],
   "negative_cases": [
-    {
-      "name": "sequence_13",
-      "empty_shape": [0],
-      "value_shape": [1, 4, 13, 128],
-      "dim": 2,
-      "dtype": "float32",
-      "force_buffer_view": true,
-      "violates": "sequence.min",
-      "expected_native_route": false,
-      "expected_cpu_fallback": true
-    },
-    {
-      "name": "sequence_117",
-      "empty_shape": [0],
-      "value_shape": [1, 4, 117, 128],
-      "dim": 2,
-      "dtype": "float32",
-      "force_buffer_view": true,
-      "violates": "sequence.max",
-      "expected_native_route": false,
-      "expected_cpu_fallback": true
-    },
-    {
-      "name": "heads_5",
-      "empty_shape": [0],
-      "value_shape": [1, 5, 99, 128],
-      "dim": 2,
-      "dtype": "float32",
-      "force_buffer_view": true,
-      "violates": "heads",
-      "expected_native_route": false,
-      "expected_cpu_fallback": true
-    },
-    {
-      "name": "head_dim_64",
-      "empty_shape": [0],
-      "value_shape": [1, 4, 99, 64],
-      "dim": 2,
-      "dtype": "float32",
-      "force_buffer_view": true,
-      "violates": "head_dim",
-      "expected_native_route": false,
-      "expected_cpu_fallback": true
-    },
     {
       "name": "rank4_empty_cache",
       "empty_shape": [1, 4, 0, 128],

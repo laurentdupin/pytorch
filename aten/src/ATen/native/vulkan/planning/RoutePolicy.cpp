@@ -287,6 +287,8 @@ VulkanRouteDecision select_sdpa_route(
       has_attn_mask ? attn_mask->sizes() : IntArrayRef{};
   const ScalarType attn_mask_dtype =
       has_attn_mask ? attn_mask->scalar_type() : ScalarType::Undefined;
+  const bool attn_mask_storage_supported =
+      !has_attn_mask || attn_mask->is_vulkan();
   const TransformerGQASDPAMatch transformer_gqa_sdpa_match =
       match_transformer_gqa_sdpa_contract(
           query.sizes(),
@@ -317,7 +319,8 @@ VulkanRouteDecision select_sdpa_route(
           is_causal,
           scale,
           enable_gqa);
-  const bool allow_masked_tiny_sdpa = masked_tiny_sdpa_match.matched;
+  const bool allow_masked_tiny_sdpa =
+      masked_tiny_sdpa_match.matched && attn_mask_storage_supported;
   const DiffusionSDPAMatch diffusion_sdpa_match =
       match_diffusion_sdpa_contract(
           query.sizes(),
@@ -362,10 +365,52 @@ VulkanRouteDecision select_sdpa_route(
           enable_gqa);
   const bool allow_sdpa_execution_policy =
       sdpa_execution_policy_match.matched;
+  const bool can_check_gqa_repeat_materialization =
+      enable_gqa && !has_attn_mask && !is_causal && dropout_p == 0.0 &&
+      query.dim() == 4 && key.dim() == 4 && value.dim() == 4 &&
+      query.scalar_type() == key.scalar_type() &&
+      key.scalar_type() == value.scalar_type() &&
+      query.size(0) == key.size(0) && key.size(0) == value.size(0) &&
+      key.size(1) == value.size(1) && key.size(1) > 0 &&
+      query.size(1) % key.size(1) == 0 && query.size(3) == key.size(3) &&
+      key.size(3) == value.size(3) && key.size(2) == value.size(2);
+  const int64_t gqa_repeat_factor = can_check_gqa_repeat_materialization
+      ? query.size(1) / key.size(1)
+      : 0;
+  const bool key_has_buffer_storage =
+      key.is_vulkan() &&
+      convert(key).storage_type() == api::StorageType::BUFFER;
+  const bool value_has_buffer_storage =
+      value.is_vulkan() &&
+      convert(value).storage_type() == api::StorageType::BUFFER;
+  const GQARepeatMatch key_gqa_repeat_match =
+      can_check_gqa_repeat_materialization
+      ? match_gqa_repeat_contract(
+            key.sizes(),
+            key.scalar_type(),
+            key.is_vulkan(),
+            key_has_buffer_storage,
+            gqa_repeat_factor)
+      : GQARepeatMatch{};
+  const GQARepeatMatch value_gqa_repeat_match =
+      can_check_gqa_repeat_materialization
+      ? match_gqa_repeat_contract(
+            value.sizes(),
+            value.scalar_type(),
+            value.is_vulkan(),
+            value_has_buffer_storage,
+            gqa_repeat_factor)
+      : GQARepeatMatch{};
+  const bool allow_gqa_repeat_materialization =
+      key_gqa_repeat_match.matched && value_gqa_repeat_match.matched;
+  const bool gqa_repeat_materialization_semantics_matched =
+      key_gqa_repeat_match.matched && value_gqa_repeat_match.matched;
 
   if (
       (has_attn_mask || is_causal || enable_gqa) &&
-      !allow_transformer_gqa_sdpa && !allow_masked_tiny_sdpa) {
+      !allow_transformer_gqa_sdpa && !allow_masked_tiny_sdpa &&
+      !allow_sdpa_execution_policy &&
+      !gqa_repeat_materialization_semantics_matched) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaMaskOrCausal,
@@ -386,7 +431,8 @@ VulkanRouteDecision select_sdpa_route(
   if (
       scale.has_value() && std::abs(*scale - 1.0) > 1.0e-9 &&
       !allow_transformer_gqa_sdpa && !allow_masked_tiny_sdpa &&
-      !allow_diffusion_sdpa && !allow_sdpa_execution_policy) {
+      !allow_diffusion_sdpa && !allow_sdpa_execution_policy &&
+      !gqa_repeat_materialization_semantics_matched) {
     return make_hard_fail_route(
         "aten::scaled_dot_product_attention",
         VulkanRouteRejectReason::KnownBadSdpaExplicitScale,
@@ -403,6 +449,7 @@ VulkanRouteDecision select_sdpa_route(
       !allow_diffusion_sdpa &&
       !allow_vision_self_attention_sdpa &&
       !allow_sdpa_execution_policy &&
+      !allow_gqa_repeat_materialization &&
       (query.dim() == 3 || query.dim() == 4)) {
     const int64_t target_len = query.size(query.dim() - 2);
     const int64_t source_len = key.size(key.dim() - 2);
@@ -448,6 +495,9 @@ VulkanRouteDecision select_sdpa_route(
     decision.kernel_family = "sdpa_execution_policy";
     decision.telemetry_label =
         sdpa_execution_policy_family_name(sdpa_execution_policy_match.family);
+  } else if (allow_gqa_repeat_materialization) {
+    decision.kernel_family = "gqa_repeat_materialized_sdpa";
+    decision.telemetry_label = "SelectedGQARepeatMaterializedRuntimeShape";
   } else {
     decision.kernel_family = "sdpa";
     decision.telemetry_label = "SelectedSdpa";
@@ -534,31 +584,6 @@ VulkanRouteDecision select_conv2d_route(
       input_sizes[1] >= 384 &&
       weight_sizes[0] >= 192 &&
       (input_sizes[3] % 4 != 0 || input_sizes[2] * input_sizes[3] < 512)) {
-    const SmallSpatialPointwiseConvMatch pointwise_contract =
-        match_small_spatial_pointwise_conv_contract(
-            input_sizes,
-            weight_sizes,
-            stride,
-            padding,
-            dilation,
-            groups,
-            dtype);
-    if (pointwise_contract.matched) {
-      VulkanRouteDecision decision;
-      decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
-      decision.reject_reason =
-          VulkanRouteRejectReason::KnownBadLargePointwiseConv;
-      decision.runtime_policy = runtime_policy;
-      decision.lane = lane;
-      decision.kernel_family = "buffer_float_conv2d_generic";
-      decision.telemetry_label =
-          small_spatial_pointwise_conv_route_label(pointwise_contract.family);
-      decision.shape_summary = shape_summary;
-      decision.device_summary = describe_device_policy(device_policy);
-      decision.hard_fail = false;
-      log_route_decision("aten::convolution", decision);
-      return decision;
-    }
     const DynamicPointwiseConv1x1DirectBufferMatch dynamic_pointwise_contract =
         match_dynamic_pointwise_conv1x1_direct_buffer_contract(
             input_sizes,

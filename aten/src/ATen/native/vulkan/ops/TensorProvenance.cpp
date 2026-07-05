@@ -93,6 +93,12 @@ void append_contract_provenance(
     stream << " contract_materialization_policy="
            << record.contract_materialization_policy;
   }
+  if (record.has_integer_value_bounds) {
+    stream << " integer_value_min=" << record.integer_value_min
+           << " integer_value_max=" << record.integer_value_max
+           << " integer_value_bounds_source="
+           << record.integer_value_bounds_source;
+  }
 }
 
 std::string describe_known_writer_locked(
@@ -298,6 +304,73 @@ Tensor record_tensor_alias_and_return(
     const char* route_name) {
   record_tensor_alias(output, base, op_name, route_name);
   return output;
+}
+
+void record_tensor_integer_value_bounds(
+    const Tensor& tensor,
+    const int64_t min_value,
+    const int64_t max_value,
+    const char* proof_source) {
+  if (!tensor.defined()) {
+    return;
+  }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  if (state.storage_id == 0u) {
+    return;
+  }
+  ProvenanceRegistry& registry = provenance_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+
+  auto it = registry.by_storage.find(provenance_key(state));
+  if (it == registry.by_storage.end()) {
+    VulkanTensorProvenanceRecord record;
+    record.sequence = registry.next_sequence++;
+    record.storage_id = state.storage_id;
+    record.view_id = state.view_id;
+    record.generation = state.generation;
+    record.logical_desc_hash = state.logical_desc_hash;
+    record.writer_op = "aten::copy_";
+    record.route = "cpu_to_vulkan";
+    it = registry.by_storage.emplace(provenance_key(state), std::move(record))
+             .first;
+  }
+  VulkanTensorProvenanceRecord& record = it->second;
+  if (
+      record.generation != state.generation ||
+      record.logical_desc_hash != state.logical_desc_hash) {
+    return;
+  }
+  record.has_integer_value_bounds = true;
+  record.integer_value_min = min_value;
+  record.integer_value_max = max_value;
+  record.integer_value_bounds_source =
+      proof_source && proof_source[0] != '\0' ? proof_source : "unknown";
+}
+
+bool tensor_integer_values_in_range(
+    const Tensor& tensor,
+    const int64_t min_inclusive,
+    const int64_t max_exclusive) {
+  if (!tensor.defined()) {
+    return false;
+  }
+  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
+  if (state.storage_id == 0u) {
+    return false;
+  }
+  ProvenanceRegistry& registry = provenance_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+
+  const auto it = registry.by_storage.find(provenance_key(state));
+  if (it == registry.by_storage.end()) {
+    return false;
+  }
+  const VulkanTensorProvenanceRecord& record = it->second;
+  return record.has_integer_value_bounds &&
+      record.generation == state.generation &&
+      record.logical_desc_hash == state.logical_desc_hash &&
+      record.integer_value_min >= min_inclusive &&
+      record.integer_value_max < max_exclusive;
 }
 
 std::string describe_tensor_provenance(const Tensor& tensor) {

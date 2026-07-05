@@ -1,6 +1,7 @@
 #include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace at {
 namespace native {
@@ -47,7 +48,7 @@ bool is_pointwise_conv1x1_semantics(
 
 bool is_conv2d_direct_buffer_semantics(const DynamicProgramRequest& request) {
   const auto& shape = request.shape;
-  return request.dtype == kFloat && request.rank == 4 &&
+  if (!(request.dtype == kFloat && request.rank == 4 &&
       request.input_direct_buffer && request.weight_direct_buffer &&
       request.output_direct_buffer && positive(shape.batch) &&
       positive(shape.input_channels) &&
@@ -56,10 +57,68 @@ bool is_conv2d_direct_buffer_semantics(const DynamicProgramRequest& request) {
       positive(shape.width) && positive(shape.kernel_h) &&
       positive(shape.kernel_w) && positive(shape.stride_h) &&
       positive(shape.stride_w) && shape.padding_h >= 0 &&
-      shape.padding_w >= 0 && positive(shape.dilation_h) &&
-      positive(shape.dilation_w) && positive(shape.groups) &&
+      shape.padding_w >= 0 && shape.dilation_h == 1 &&
+      shape.dilation_w == 1 && shape.groups == 1 &&
       shape.input_channels == shape.weight_input_channels * shape.groups &&
-      shape.output_channels % shape.groups == 0;
+      shape.output_channels % shape.groups == 0)) {
+    return false;
+  }
+  const int64_t output_h =
+      (shape.height + 2 * shape.padding_h - shape.kernel_h) / shape.stride_h +
+      1;
+  const int64_t output_w =
+      (shape.width + 2 * shape.padding_w - shape.kernel_w) / shape.stride_w +
+      1;
+  return positive(output_h) && positive(output_w);
+}
+
+bool is_packed_buffer_conv2d_semantics(const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  if (!(request.dtype == kFloat && request.rank == 4 &&
+      request.input_buffer_storage && request.weight_buffer_storage &&
+      request.output_buffer_storage && shape.batch == 1 &&
+      positive(shape.input_channels) &&
+      positive(shape.weight_input_channels) &&
+      positive(shape.output_channels) && positive(shape.height) &&
+      positive(shape.width) && positive(shape.kernel_h) &&
+      positive(shape.kernel_w) && positive(shape.stride_h) &&
+      positive(shape.stride_w) && shape.padding_h >= 0 &&
+      shape.padding_w >= 0 && shape.dilation_h == 1 &&
+      shape.dilation_w == 1 && shape.groups == 1 &&
+      shape.input_channels == shape.weight_input_channels * shape.groups &&
+      shape.output_channels % shape.groups == 0)) {
+    return false;
+  }
+  const int64_t output_h =
+      (shape.height + 2 * shape.padding_h - shape.kernel_h) / shape.stride_h +
+      1;
+  const int64_t output_w =
+      (shape.width + 2 * shape.padding_w - shape.kernel_w) / shape.stride_w +
+      1;
+  return positive(output_h) && positive(output_w);
+}
+
+bool is_patch_embed_float_buffer_conv_route_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  if (
+      request.dtype != kFloat || request.rank != 4 ||
+      !request.input_direct_buffer || !request.weight_direct_buffer ||
+      !request.output_direct_buffer || shape.batch != 1 ||
+      shape.input_channels != 3 || shape.weight_input_channels != 3 ||
+      !positive(shape.output_channels) || shape.kernel_h != 14 ||
+      shape.kernel_w != 14 || shape.stride_h != 14 ||
+      shape.stride_w != 14 || shape.padding_h != 0 ||
+      shape.padding_w != 0 || shape.dilation_h != 1 ||
+      shape.dilation_w != 1 || shape.groups != 1 ||
+      shape.height < 14 || shape.width < 14) {
+    return false;
+  }
+  const int64_t output_h =
+      (shape.height - shape.kernel_h) / shape.stride_h + 1;
+  const int64_t output_w =
+      (shape.width - shape.kernel_w) / shape.stride_w + 1;
+  return positive(output_h) && positive(output_w);
 }
 
 int64_t numel_or_zero(const IntArrayRef sizes) {
@@ -145,6 +204,20 @@ bool is_sequence_cat_direct_buffer_semantics(
       positive(shape.head_dim);
 }
 
+bool is_initial_sequence_cat_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.other_dtype == kFloat &&
+      request.output_dtype == kFloat && request.rank == 4 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && shape.self_rank == 1 &&
+      shape.other_rank == 4 && shape.output_rank == 4 && shape.cat_dim == 2 &&
+      shape.self_numel == 0 && positive(shape.batch) &&
+      positive(shape.heads) && positive(shape.right_sequence) &&
+      shape.output_sequence == shape.right_sequence &&
+      positive(shape.head_dim);
+}
+
 bool is_linear_or_matmul_semantics(const DynamicProgramRequest& request) {
   const auto& shape = request.shape;
   return request.dtype == kFloat && (request.rank == 2 || request.rank == 3) &&
@@ -166,6 +239,147 @@ bool is_embedding_lookup_semantics(const DynamicProgramRequest& request) {
       !request.sparse && shape.index_rank >= 1 && shape.index_rank <= 2 &&
       positive(shape.num_embeddings) && positive(shape.embedding_dim) &&
       positive(shape.num_indices);
+}
+
+bool is_feature_map_to_tokens_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.output_dtype == kFloat &&
+      request.rank == 4 && request.input_direct_buffer &&
+      request.output_direct_buffer && positive(shape.batch) &&
+      positive(shape.input_channels) && positive(shape.height) &&
+      positive(shape.width) &&
+      shape.output_sequence == shape.height * shape.width;
+}
+
+bool is_cat_axis_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.output_dtype == kFloat &&
+      request.rank == 4 && shape.self_rank == 4 && shape.output_rank == 4 &&
+      request.input_direct_buffer && request.output_direct_buffer &&
+      shape.cat_dim == 1 && positive(shape.batch) &&
+      positive(shape.height) && positive(shape.width) &&
+      positive(shape.input_count) && positive(shape.total_cat_dim) &&
+      shape.total_cat_dim == shape.output_channels;
+}
+
+bool is_batch_norm_inference_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.output_dtype == kFloat &&
+      request.rank == 4 && request.input_direct_buffer &&
+      request.weight_direct_buffer && request.output_direct_buffer &&
+      !request.training && positive(shape.batch) &&
+      positive(shape.input_channels) && positive(shape.height) &&
+      positive(shape.width) && shape.output_channels == shape.input_channels;
+}
+
+bool is_gqa_repeat_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.output_dtype == kFloat &&
+      request.rank == 4 && request.input_direct_buffer &&
+      request.output_direct_buffer && positive(shape.batch) &&
+      positive(shape.heads) && positive(shape.left_sequence) &&
+      positive(shape.head_dim) && shape.repeat_factor > 1 &&
+      shape.output_channels == shape.heads * shape.repeat_factor;
+}
+
+bool is_direct_decode_gqa_sdpa_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  constexpr int64_t kDirectGQAMaxHeadDim = 128;
+  constexpr int64_t kDirectGQAMaxValueDim = 512;
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.other_dtype == kFloat &&
+      request.output_dtype == kFloat && request.rank == 4 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && !request.has_attn_mask &&
+      request.dropout_is_zero && !request.is_causal && request.enable_gqa &&
+      request.scale_is_default_or_head_dim && shape.batch == 1 &&
+      positive(shape.query_heads) && positive(shape.key_value_heads) &&
+      shape.query_heads % shape.key_value_heads == 0 &&
+      shape.query_sequence == 1 && positive(shape.key_value_sequence) &&
+      positive(shape.head_dim) && positive(shape.value_dim) &&
+      shape.head_dim <= kDirectGQAMaxHeadDim &&
+      shape.value_dim <= kDirectGQAMaxValueDim;
+}
+
+bool is_small_non_causal_gqa_sdpa_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  constexpr int64_t kDirectGQAMaxHeadDim = 128;
+  constexpr int64_t kDirectGQAMaxValueDim = 512;
+  constexpr int64_t kSmallGQAMaxSequence = 64;
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.other_dtype == kFloat &&
+      request.output_dtype == kFloat && request.rank == 4 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && !request.has_attn_mask &&
+      request.dropout_is_zero && !request.is_causal && request.enable_gqa &&
+      request.scale_is_default_or_head_dim && shape.batch == 1 &&
+      positive(shape.query_heads) && positive(shape.key_value_heads) &&
+      shape.query_heads % shape.key_value_heads == 0 &&
+      positive(shape.query_sequence) &&
+      shape.query_sequence <= kSmallGQAMaxSequence &&
+      positive(shape.key_value_sequence) &&
+      shape.key_value_sequence <= kSmallGQAMaxSequence &&
+      positive(shape.head_dim) && positive(shape.value_dim) &&
+      shape.head_dim <= kDirectGQAMaxHeadDim &&
+      shape.value_dim <= kDirectGQAMaxValueDim;
+}
+
+bool is_direct_non_causal_mha_sdpa_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  constexpr int64_t kDirectGQAMaxHeadDim = 128;
+  constexpr int64_t kDirectGQAMaxValueDim = 512;
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.other_dtype == kFloat &&
+      request.output_dtype == kFloat && request.rank == 4 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && !request.has_attn_mask &&
+      request.dropout_is_zero && !request.is_causal && !request.enable_gqa &&
+      request.scale_is_default_or_head_dim && shape.batch == 1 &&
+      positive(shape.query_heads) &&
+      shape.query_heads == shape.key_value_heads &&
+      positive(shape.query_sequence) && positive(shape.key_value_sequence) &&
+      positive(shape.head_dim) && positive(shape.value_dim) &&
+      shape.head_dim % 16 == 0 && shape.value_dim % 16 == 0 &&
+      shape.head_dim <= kDirectGQAMaxHeadDim &&
+      shape.value_dim <= kDirectGQAMaxValueDim;
+}
+
+bool is_direct_causal_prefill_gqa_sdpa_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  constexpr int64_t kDirectGQAMaxHeadDim = 128;
+  constexpr int64_t kDirectGQAMaxValueDim = 512;
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.other_dtype == kFloat &&
+      request.output_dtype == kFloat && request.rank == 4 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && !request.has_attn_mask &&
+      request.dropout_is_zero && request.is_causal &&
+      (request.enable_gqa || shape.query_heads == shape.key_value_heads) &&
+      request.scale_is_default_or_head_dim && shape.batch == 1 &&
+      positive(shape.query_heads) && positive(shape.key_value_heads) &&
+      shape.query_heads % shape.key_value_heads == 0 &&
+      positive(shape.query_sequence) &&
+      shape.query_sequence == shape.key_value_sequence &&
+      positive(shape.head_dim) && positive(shape.value_dim) &&
+      shape.head_dim <= kDirectGQAMaxHeadDim &&
+      shape.value_dim <= kDirectGQAMaxValueDim;
+}
+
+bool is_token_prefix_cat_add_direct_buffer_semantics(
+    const DynamicProgramRequest& request) {
+  const auto& shape = request.shape;
+  return request.dtype == kFloat && request.other_dtype == kFloat &&
+      request.output_dtype == kFloat && request.rank == 3 &&
+      request.input_direct_buffer && request.weight_direct_buffer &&
+      request.output_direct_buffer && !request.inplace && !request.has_output &&
+      shape.cat_dim == 1 && positive(shape.batch) &&
+      shape.left_sequence == 1 && positive(shape.right_sequence) &&
+      shape.output_sequence == shape.left_sequence + shape.right_sequence &&
+      positive(shape.input_channels);
 }
 
 DynamicProgramCommandPlan pointwise_conv1x1_static_shader_plan() {
@@ -192,6 +406,18 @@ DynamicProgramCommandPlan conv2d_direct_buffer_static_shader_plan() {
   return plan;
 }
 
+DynamicProgramCommandPlan patch_embed_float_buffer_conv_route_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "conv2d_buffer_float";
+  plan.command_list_label = "patch_embed_float_buffer_conv_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
 DynamicProgramCommandPlan sequence_cat_direct_buffer_static_shader_plan() {
   DynamicProgramCommandPlan plan;
   plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
@@ -199,6 +425,18 @@ DynamicProgramCommandPlan sequence_cat_direct_buffer_static_shader_plan() {
   plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
   plan.shader_family = "cat_dim2_4d_buffer_float";
   plan.command_list_label = "sequence_cat_dim2_4d_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan initial_sequence_cat_direct_buffer_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::MultiDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "buffer_to_buffer";
+  plan.command_list_label = "initial_sequence_cat_direct_buffer_copy";
   plan.requires_runtime_shader_compile = false;
   plan.requires_custom_command_list = false;
   return plan;
@@ -236,6 +474,90 @@ DynamicProgramCommandPlan embedding_lookup_static_shader_plan() {
   plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
   plan.shader_family = "embedding_2d_buffer_float_long";
   plan.command_list_label = "embedding_lookup_direct_buffer_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan feature_map_to_tokens_static_shader_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "feature_map_to_tokens_buffer";
+  plan.command_list_label = "feature_map_to_tokens_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan cat_axis_direct_buffer_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::MultiDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "buffer_to_buffer";
+  plan.command_list_label = "cat_axis_direct_buffer_multi_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan batch_norm_inference_direct_buffer_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "batchnorm_4d_buffer_float";
+  plan.command_list_label = "batch_norm_inference_direct_buffer_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan gqa_repeat_direct_buffer_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "gqa_repeat_buffer_float";
+  plan.command_list_label = "gqa_repeat_direct_buffer_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan packed_buffer_conv2d_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "conv2d_buffer_float";
+  plan.command_list_label = "packed_buffer_conv2d_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan direct_decode_gqa_sdpa_direct_buffer_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "scaled_dot_product_scores_value_gqa_buffer_float";
+  plan.command_list_label = "direct_decode_gqa_sdpa_single_dispatch";
+  plan.requires_runtime_shader_compile = false;
+  plan.requires_custom_command_list = false;
+  return plan;
+}
+
+DynamicProgramCommandPlan token_prefix_cat_add_direct_buffer_plan() {
+  DynamicProgramCommandPlan plan;
+  plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
+  plan.command_plan = DynamicProgramCommandPlanKind::MultiDispatch;
+  plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
+  plan.shader_family = "binary_op_buffer_float";
+  plan.command_list_label = "token_prefix_cat_add_two_add_dispatches";
   plan.requires_runtime_shader_compile = false;
   plan.requires_custom_command_list = false;
   return plan;
@@ -282,14 +604,38 @@ const char* dynamic_program_semantic_family_name(
       return "PointwiseConv1x1DirectBuffer";
     case DynamicProgramSemanticFamily::Conv2DDirectBuffer:
       return "Conv2DDirectBuffer";
+    case DynamicProgramSemanticFamily::PackedBufferConv2D:
+      return "PackedBufferConv2D";
+    case DynamicProgramSemanticFamily::PatchEmbedFloatBufferConvRoute:
+      return "PatchEmbedFloatBufferConvRoute";
     case DynamicProgramSemanticFamily::SequenceCatDirectBuffer:
       return "SequenceCatDirectBuffer";
+    case DynamicProgramSemanticFamily::InitialSequenceCatDirectBuffer:
+      return "InitialSequenceCatDirectBuffer";
     case DynamicProgramSemanticFamily::ElementwiseBroadcastDirectBuffer:
       return "ElementwiseBroadcastDirectBuffer";
     case DynamicProgramSemanticFamily::LinearOrMatmulDirectBuffer:
       return "LinearOrMatmulDirectBuffer";
     case DynamicProgramSemanticFamily::EmbeddingLookupDirectBuffer:
       return "EmbeddingLookupDirectBuffer";
+    case DynamicProgramSemanticFamily::FeatureMapToTokensDirectBuffer:
+      return "FeatureMapToTokensDirectBuffer";
+    case DynamicProgramSemanticFamily::CatAxisDirectBuffer:
+      return "CatAxisDirectBuffer";
+    case DynamicProgramSemanticFamily::BatchNormInferenceDirectBuffer:
+      return "BatchNormInferenceDirectBuffer";
+    case DynamicProgramSemanticFamily::GQARepeatDirectBuffer:
+      return "GQARepeatDirectBuffer";
+    case DynamicProgramSemanticFamily::DirectDecodeGQASDPADirectBuffer:
+      return "DirectDecodeGQASDPADirectBuffer";
+    case DynamicProgramSemanticFamily::SmallNonCausalGQASDPADirectBuffer:
+      return "SmallNonCausalGQASDPADirectBuffer";
+    case DynamicProgramSemanticFamily::DirectNonCausalMHASDPADirectBuffer:
+      return "DirectNonCausalMHASDPADirectBuffer";
+    case DynamicProgramSemanticFamily::DirectCausalPrefillGQASDPADirectBuffer:
+      return "DirectCausalPrefillGQASDPADirectBuffer";
+    case DynamicProgramSemanticFamily::TokenPrefixCatAddDirectBuffer:
+      return "TokenPrefixCatAddDirectBuffer";
     case DynamicProgramSemanticFamily::StackRegionCommandReplay:
       return "StackRegionCommandReplay";
     case DynamicProgramSemanticFamily::None:
@@ -426,6 +772,36 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
         return decision;
       }
       break;
+    case DynamicProgramSemanticFamily::PackedBufferConv2D:
+      if (!is_packed_buffer_conv2d_semantics(request)) {
+        decision.reject_reason =
+            request.dtype != kFloat
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_buffer_storage && request.weight_buffer_storage &&
+                request.output_buffer_storage)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::PatchEmbedFloatBufferConvRoute:
+      if (!is_patch_embed_float_buffer_conv_route_semantics(request)) {
+        decision.reject_reason =
+            request.dtype != kFloat
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
     case DynamicProgramSemanticFamily::SequenceCatDirectBuffer:
       if (!is_sequence_cat_direct_buffer_semantics(request)) {
         decision.reject_reason =
@@ -434,6 +810,24 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
             ? DynamicProgramRejectReason::UnsupportedDType
             : (request.rank != 4 || request.shape.self_rank != 4 ||
                request.shape.other_rank != 4 || request.shape.output_rank != 4)
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::InitialSequenceCatDirectBuffer:
+      if (!is_initial_sequence_cat_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kFloat ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4 || request.shape.self_rank != 1 ||
+                    request.shape.other_rank != 4 ||
+                    request.shape.output_rank != 4
             ? DynamicProgramRejectReason::UnsupportedRank
             : !(request.input_direct_buffer && request.weight_direct_buffer &&
                 request.output_direct_buffer)
@@ -495,6 +889,143 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
         return decision;
       }
       break;
+    case DynamicProgramSemanticFamily::FeatureMapToTokensDirectBuffer:
+      if (!is_feature_map_to_tokens_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::CatAxisDirectBuffer:
+      if (!is_cat_axis_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::BatchNormInferenceDirectBuffer:
+      if (!is_batch_norm_inference_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::GQARepeatDirectBuffer:
+      if (!is_gqa_repeat_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::DirectDecodeGQASDPADirectBuffer:
+      if (!is_direct_decode_gqa_sdpa_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kFloat ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::SmallNonCausalGQASDPADirectBuffer:
+      if (!is_small_non_causal_gqa_sdpa_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kFloat ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::DirectNonCausalMHASDPADirectBuffer:
+      if (!is_direct_non_causal_mha_sdpa_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kFloat ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::DirectCausalPrefillGQASDPADirectBuffer:
+      if (!is_direct_causal_prefill_gqa_sdpa_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kFloat ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 4
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
+    case DynamicProgramSemanticFamily::TokenPrefixCatAddDirectBuffer:
+      if (!is_token_prefix_cat_add_direct_buffer_semantics(request)) {
+        decision.reject_reason =
+            (request.dtype != kFloat || request.other_dtype != kFloat ||
+             request.output_dtype != kFloat)
+            ? DynamicProgramRejectReason::UnsupportedDType
+            : request.rank != 3
+            ? DynamicProgramRejectReason::UnsupportedRank
+            : !(request.input_direct_buffer && request.weight_direct_buffer &&
+                request.output_direct_buffer)
+            ? DynamicProgramRejectReason::UnsupportedLayout
+            : DynamicProgramRejectReason::UnsupportedKernelSemantics;
+        decision.status = status_for_reject(decision.reject_reason);
+        return decision;
+      }
+      break;
     case DynamicProgramSemanticFamily::StackRegionCommandReplay:
     case DynamicProgramSemanticFamily::None:
       decision.reject_reason =
@@ -512,14 +1043,51 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
               DynamicProgramSemanticFamily::SequenceCatDirectBuffer
       ? sequence_cat_direct_buffer_static_shader_plan()
       : request.semantic_family ==
+              DynamicProgramSemanticFamily::InitialSequenceCatDirectBuffer
+      ? initial_sequence_cat_direct_buffer_plan()
+      : request.semantic_family ==
               DynamicProgramSemanticFamily::Conv2DDirectBuffer
       ? conv2d_direct_buffer_static_shader_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::PackedBufferConv2D
+      ? packed_buffer_conv2d_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::PatchEmbedFloatBufferConvRoute
+      ? patch_embed_float_buffer_conv_route_plan()
       : request.semantic_family ==
               DynamicProgramSemanticFamily::LinearOrMatmulDirectBuffer
       ? linear_or_matmul_static_shader_plan(request.has_bias)
       : request.semantic_family ==
               DynamicProgramSemanticFamily::EmbeddingLookupDirectBuffer
       ? embedding_lookup_static_shader_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::FeatureMapToTokensDirectBuffer
+      ? feature_map_to_tokens_static_shader_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::CatAxisDirectBuffer
+      ? cat_axis_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::BatchNormInferenceDirectBuffer
+      ? batch_norm_inference_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::GQARepeatDirectBuffer
+      ? gqa_repeat_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::DirectDecodeGQASDPADirectBuffer
+      ? direct_decode_gqa_sdpa_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::SmallNonCausalGQASDPADirectBuffer
+      ? direct_decode_gqa_sdpa_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::DirectNonCausalMHASDPADirectBuffer
+      ? direct_decode_gqa_sdpa_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::
+                  DirectCausalPrefillGQASDPADirectBuffer
+      ? direct_decode_gqa_sdpa_direct_buffer_plan()
+      : request.semantic_family ==
+              DynamicProgramSemanticFamily::TokenPrefixCatAddDirectBuffer
+      ? token_prefix_cat_add_direct_buffer_plan()
       : pointwise_conv1x1_static_shader_plan();
   decision.command_plan_available = true;
 
@@ -676,6 +1244,95 @@ DynamicProgramRequest make_conv2d_direct_buffer_dynamic_program(
   request.input_direct_buffer = input_direct_buffer;
   request.weight_direct_buffer = weight_direct_buffer;
   request.output_direct_buffer = output_direct_buffer;
+  request.input_buffer_storage = input_direct_buffer;
+  request.weight_buffer_storage = weight_direct_buffer;
+  request.output_buffer_storage = output_direct_buffer;
+  request.has_bias = has_bias;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_packed_buffer_conv2d_dynamic_program(
+    const IntArrayRef input_sizes,
+    const IntArrayRef weight_sizes,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const ScalarType dtype,
+    const bool input_buffer_storage,
+    const bool weight_buffer_storage,
+    const bool output_buffer_storage,
+    const bool has_bias,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request =
+      make_conv2d_direct_buffer_dynamic_program(
+          input_sizes,
+          weight_sizes,
+          stride,
+          padding,
+          dilation,
+          groups,
+          dtype,
+          /*input_direct_buffer=*/false,
+          /*weight_direct_buffer=*/false,
+          /*output_direct_buffer=*/false,
+          has_bias,
+          contract_metadata,
+          behavior_enabled);
+  request.semantic_family = DynamicProgramSemanticFamily::PackedBufferConv2D;
+  request.input_buffer_storage = input_buffer_storage;
+  request.weight_buffer_storage = weight_buffer_storage;
+  request.output_buffer_storage = output_buffer_storage;
+  return request;
+}
+
+DynamicProgramRequest make_patch_embed_float_buffer_conv_route_dynamic_program(
+    const IntArrayRef input_sizes,
+    const IntArrayRef weight_sizes,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const ScalarType dtype,
+    const bool input_buffer_storage,
+    const bool weight_buffer_storage,
+    const bool output_buffer_storage,
+    const bool has_bias,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::PatchEmbedFloatBufferConvRoute;
+  request.dtype = dtype;
+  request.other_dtype = dtype;
+  request.output_dtype = dtype;
+  request.rank = static_cast<int64_t>(input_sizes.size());
+  if (
+      input_sizes.size() == 4 && weight_sizes.size() == 4 &&
+      stride.size() == 2 && padding.size() == 2 && dilation.size() == 2) {
+    request.shape.batch = input_sizes[0];
+    request.shape.input_channels = input_sizes[1];
+    request.shape.weight_input_channels = weight_sizes[1];
+    request.shape.height = input_sizes[2];
+    request.shape.width = input_sizes[3];
+    request.shape.output_channels = weight_sizes[0];
+    request.shape.kernel_h = weight_sizes[2];
+    request.shape.kernel_w = weight_sizes[3];
+    request.shape.stride_h = stride[0];
+    request.shape.stride_w = stride[1];
+    request.shape.padding_h = padding[0];
+    request.shape.padding_w = padding[1];
+    request.shape.dilation_h = dilation[0];
+    request.shape.dilation_w = dilation[1];
+    request.shape.groups = groups;
+  }
+  request.capabilities.has_pipeline_cache = true;
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = input_buffer_storage;
+  request.weight_direct_buffer = weight_buffer_storage;
+  request.output_direct_buffer = output_buffer_storage;
   request.has_bias = has_bias;
   request.behavior_enabled = behavior_enabled;
   return request;
@@ -759,6 +1416,47 @@ DynamicProgramRequest make_sequence_cat_direct_buffer_dynamic_program(
   request.contract_metadata = contract_metadata;
   request.input_direct_buffer = left_direct_buffer;
   request.weight_direct_buffer = right_direct_buffer;
+  request.output_direct_buffer = output_direct_buffer;
+  request.has_output = false;
+  request.inplace = false;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_initial_sequence_cat_direct_buffer_dynamic_program(
+    const IntArrayRef left_sizes,
+    const IntArrayRef right_sizes,
+    const ScalarType left_dtype,
+    const ScalarType right_dtype,
+    const ScalarType output_dtype,
+    const bool left_is_vulkan,
+    const bool right_buffer_storage,
+    const bool output_direct_buffer,
+    const int64_t dim,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::InitialSequenceCatDirectBuffer;
+  request.dtype = left_dtype;
+  request.other_dtype = right_dtype;
+  request.output_dtype = output_dtype;
+  request.rank = 4;
+  request.shape.self_rank = static_cast<int64_t>(left_sizes.size());
+  request.shape.other_rank = static_cast<int64_t>(right_sizes.size());
+  request.shape.output_rank = 4;
+  request.shape.cat_dim = dim;
+  request.shape.self_numel = numel_or_zero(left_sizes);
+  if (left_sizes.size() == 1 && right_sizes.size() == 4) {
+    request.shape.batch = right_sizes[0];
+    request.shape.heads = right_sizes[1];
+    request.shape.right_sequence = right_sizes[2];
+    request.shape.output_sequence = right_sizes[2];
+    request.shape.head_dim = right_sizes[3];
+  }
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = left_is_vulkan;
+  request.weight_direct_buffer = right_buffer_storage;
   request.output_direct_buffer = output_direct_buffer;
   request.has_output = false;
   request.inplace = false;
@@ -851,6 +1549,395 @@ DynamicProgramRequest make_embedding_lookup_direct_buffer_dynamic_program(
   request.padding_idx_has_hint = padding_idx_has_hint;
   request.scale_grad_by_freq = scale_grad_by_freq;
   request.sparse = sparse;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_feature_map_to_tokens_direct_buffer_dynamic_program(
+    const IntArrayRef input_sizes,
+    const ScalarType dtype,
+    const bool input_direct_buffer,
+    const bool output_direct_buffer,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::FeatureMapToTokensDirectBuffer;
+  request.dtype = dtype;
+  request.other_dtype = dtype;
+  request.output_dtype = dtype;
+  request.rank = static_cast<int64_t>(input_sizes.size());
+  if (input_sizes.size() == 4) {
+    request.shape.batch = input_sizes[0];
+    request.shape.input_channels = input_sizes[1];
+    request.shape.height = input_sizes[2];
+    request.shape.width = input_sizes[3];
+    request.shape.output_sequence = input_sizes[2] * input_sizes[3];
+    request.shape.output_rank = 3;
+    request.shape.output_numel =
+        input_sizes[0] * input_sizes[1] * input_sizes[2] * input_sizes[3];
+  }
+  request.capabilities.has_pipeline_cache = true;
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = input_direct_buffer;
+  request.output_direct_buffer = output_direct_buffer;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_cat_axis_direct_buffer_dynamic_program(
+    const ArrayRef<ChannelCatTensorInfo> tensors,
+    const int64_t dim,
+    const ScalarType output_dtype,
+    const bool output_direct_buffer,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family = DynamicProgramSemanticFamily::CatAxisDirectBuffer;
+  request.output_dtype = output_dtype;
+  request.rank = tensors.empty() ? 0 : tensors[0].rank;
+  request.dtype = tensors.empty() ? output_dtype : tensors[0].dtype;
+  request.other_dtype = request.dtype;
+  request.shape.self_rank = request.rank;
+  request.shape.output_rank = request.rank;
+  request.shape.cat_dim = dim;
+  request.shape.input_count = static_cast<int64_t>(tensors.size());
+  request.input_direct_buffer = !tensors.empty();
+  for (const ChannelCatTensorInfo& tensor : tensors) {
+    request.input_direct_buffer = request.input_direct_buffer &&
+        tensor.is_vulkan && tensor.has_buffer_storage &&
+        tensor.supports_buffer_compute && tensor.dtype == request.dtype;
+  }
+
+  if (!tensors.empty() && tensors[0].rank == 4 && dim == 1) {
+    const ChannelCatTensorInfo& reference = tensors[0];
+    request.shape.batch = reference.batch;
+    request.shape.height = reference.height;
+    request.shape.width = reference.width;
+    bool same_non_cat_dims = true;
+    int64_t total_channels = 0;
+    for (const ChannelCatTensorInfo& tensor : tensors) {
+      same_non_cat_dims = same_non_cat_dims && tensor.rank == 4 &&
+          tensor.batch == reference.batch && tensor.height == reference.height &&
+          tensor.width == reference.width;
+      total_channels += tensor.channels;
+    }
+    if (same_non_cat_dims) {
+      request.shape.total_cat_dim = total_channels;
+      request.shape.output_channels = total_channels;
+      request.shape.output_numel =
+          reference.batch * total_channels * reference.height *
+          reference.width;
+    }
+  }
+
+  request.capabilities.has_pipeline_cache = true;
+  request.contract_metadata = contract_metadata;
+  request.output_direct_buffer = output_direct_buffer;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_batch_norm_inference_direct_buffer_dynamic_program(
+    const BatchNormInferenceTensorInfo& input,
+    const BatchNormInferenceTensorInfo& weight,
+    const BatchNormInferenceTensorInfo& bias,
+    const BatchNormInferenceTensorInfo& running_mean,
+    const BatchNormInferenceTensorInfo& running_var,
+    const bool training,
+    const bool output_direct_buffer,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::BatchNormInferenceDirectBuffer;
+  request.dtype = input.dtype;
+  request.output_dtype = input.dtype;
+  request.rank = input.dim;
+  request.shape.self_rank = input.dim;
+  request.shape.output_rank = input.dim;
+  request.shape.batch = input.batch;
+  request.shape.input_channels = input.channels;
+  request.shape.output_channels =
+      input.channels > 0 && running_mean.numel == input.channels &&
+          running_var.numel == input.channels &&
+          (!weight.has_value || weight.numel == input.channels) &&
+          (!bias.has_value || bias.numel == input.channels)
+      ? input.channels
+      : 0;
+  request.shape.height = input.height;
+  request.shape.width = input.width;
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer =
+      input.is_vulkan && input.has_buffer_storage &&
+      input.supports_buffer_compute;
+  request.weight_direct_buffer =
+      running_mean.has_value && running_mean.defined &&
+      running_mean.has_buffer_storage && running_var.has_value &&
+      running_var.defined && running_var.has_buffer_storage &&
+      (!weight.has_value || weight.has_buffer_storage) &&
+      (!bias.has_value || bias.has_buffer_storage);
+  request.output_direct_buffer = output_direct_buffer;
+  request.training = training;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_gqa_repeat_direct_buffer_dynamic_program(
+    const IntArrayRef tensor_sizes,
+    const ScalarType dtype,
+    const bool input_direct_buffer,
+    const int64_t repeat_factor,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family = DynamicProgramSemanticFamily::GQARepeatDirectBuffer;
+  request.dtype = dtype;
+  request.output_dtype = dtype;
+  request.rank = static_cast<int64_t>(tensor_sizes.size());
+  if (tensor_sizes.size() == 4) {
+    request.shape.batch = tensor_sizes[0];
+    request.shape.heads = tensor_sizes[1];
+    request.shape.left_sequence = tensor_sizes[2];
+    request.shape.head_dim = tensor_sizes[3];
+    request.shape.repeat_factor = repeat_factor;
+    request.shape.output_channels = tensor_sizes[1] * repeat_factor;
+    request.shape.output_sequence = tensor_sizes[2];
+    request.shape.output_numel =
+        tensor_sizes[0] * tensor_sizes[1] * repeat_factor *
+        tensor_sizes[2] * tensor_sizes[3];
+  }
+  request.capabilities.has_pipeline_cache = true;
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = input_direct_buffer;
+  request.output_direct_buffer = true;
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest make_direct_decode_gqa_sdpa_direct_buffer_dynamic_program(
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const IntArrayRef value_sizes,
+    const ScalarType query_dtype,
+    const ScalarType key_dtype,
+    const ScalarType value_dtype,
+    const bool query_direct_buffer,
+    const bool key_direct_buffer,
+    const bool value_direct_buffer,
+    const bool has_attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::DirectDecodeGQASDPADirectBuffer;
+  request.dtype = query_dtype;
+  request.other_dtype = key_dtype;
+  request.output_dtype = value_dtype;
+  request.rank = static_cast<int64_t>(query_sizes.size());
+  if (
+      query_sizes.size() == 4 && key_sizes.size() == 4 &&
+      value_sizes.size() == 4) {
+    request.shape.batch = query_sizes[0];
+    request.shape.query_heads = query_sizes[1];
+    request.shape.key_value_heads = key_sizes[1];
+    request.shape.query_sequence = query_sizes[2];
+    request.shape.key_value_sequence = key_sizes[2];
+    request.shape.head_dim = query_sizes[3];
+    request.shape.value_dim = value_sizes[3];
+  }
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = query_direct_buffer;
+  request.weight_direct_buffer = key_direct_buffer;
+  request.output_direct_buffer = value_direct_buffer;
+  request.has_attn_mask = has_attn_mask;
+  request.dropout_is_zero = dropout_p == 0.0;
+  request.is_causal = is_causal;
+  request.enable_gqa = enable_gqa;
+  request.scale_is_default_or_head_dim =
+      !scale.has_value() ||
+      (query_sizes.size() == 4 && query_sizes[3] > 0 &&
+       std::abs(
+           *scale -
+           (1.0 / std::sqrt(static_cast<double>(query_sizes[3])))) <= 1.0e-6);
+  request.behavior_enabled = behavior_enabled;
+  return request;
+}
+
+DynamicProgramRequest
+make_direct_causal_prefill_gqa_sdpa_direct_buffer_dynamic_program(
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const IntArrayRef value_sizes,
+    const ScalarType query_dtype,
+    const ScalarType key_dtype,
+    const ScalarType value_dtype,
+    const bool query_direct_buffer,
+    const bool key_direct_buffer,
+    const bool value_direct_buffer,
+    const bool has_attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request =
+      make_direct_decode_gqa_sdpa_direct_buffer_dynamic_program(
+          query_sizes,
+          key_sizes,
+          value_sizes,
+          query_dtype,
+          key_dtype,
+          value_dtype,
+          query_direct_buffer,
+          key_direct_buffer,
+          value_direct_buffer,
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa,
+          contract_metadata,
+          behavior_enabled);
+  request.semantic_family =
+      DynamicProgramSemanticFamily::DirectCausalPrefillGQASDPADirectBuffer;
+  return request;
+}
+
+DynamicProgramRequest
+make_small_non_causal_gqa_sdpa_direct_buffer_dynamic_program(
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const IntArrayRef value_sizes,
+    const ScalarType query_dtype,
+    const ScalarType key_dtype,
+    const ScalarType value_dtype,
+    const bool query_direct_buffer,
+    const bool key_direct_buffer,
+    const bool value_direct_buffer,
+    const bool has_attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request =
+      make_direct_decode_gqa_sdpa_direct_buffer_dynamic_program(
+          query_sizes,
+          key_sizes,
+          value_sizes,
+          query_dtype,
+          key_dtype,
+          value_dtype,
+          query_direct_buffer,
+          key_direct_buffer,
+          value_direct_buffer,
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa,
+          contract_metadata,
+          behavior_enabled);
+  request.semantic_family =
+      DynamicProgramSemanticFamily::SmallNonCausalGQASDPADirectBuffer;
+  return request;
+}
+
+DynamicProgramRequest
+make_direct_non_causal_mha_sdpa_direct_buffer_dynamic_program(
+    const IntArrayRef query_sizes,
+    const IntArrayRef key_sizes,
+    const IntArrayRef value_sizes,
+    const ScalarType query_dtype,
+    const ScalarType key_dtype,
+    const ScalarType value_dtype,
+    const bool query_direct_buffer,
+    const bool key_direct_buffer,
+    const bool value_direct_buffer,
+    const bool has_attn_mask,
+    const double dropout_p,
+    const bool is_causal,
+    const std::optional<double> scale,
+    const bool enable_gqa,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request =
+      make_direct_decode_gqa_sdpa_direct_buffer_dynamic_program(
+          query_sizes,
+          key_sizes,
+          value_sizes,
+          query_dtype,
+          key_dtype,
+          value_dtype,
+          query_direct_buffer,
+          key_direct_buffer,
+          value_direct_buffer,
+          has_attn_mask,
+          dropout_p,
+          is_causal,
+          scale,
+          enable_gqa,
+          contract_metadata,
+          behavior_enabled);
+  request.semantic_family =
+      DynamicProgramSemanticFamily::DirectNonCausalMHASDPADirectBuffer;
+  return request;
+}
+
+DynamicProgramRequest make_token_prefix_cat_add_direct_buffer_dynamic_program(
+    const IntArrayRef prefix_sizes,
+    const IntArrayRef token_sizes,
+    const IntArrayRef pos_sizes,
+    const ScalarType prefix_dtype,
+    const ScalarType token_dtype,
+    const ScalarType pos_dtype,
+    const bool prefix_buffer_storage,
+    const bool token_buffer_storage,
+    const bool pos_buffer_storage,
+    const int64_t dim,
+    const bool inplace,
+    const bool alias_output,
+    const ExecutionContractMetadata* const contract_metadata,
+    const bool behavior_enabled) {
+  DynamicProgramRequest request;
+  request.semantic_family =
+      DynamicProgramSemanticFamily::TokenPrefixCatAddDirectBuffer;
+  request.dtype = prefix_dtype;
+  request.other_dtype = token_dtype;
+  request.output_dtype = pos_dtype;
+  request.rank = static_cast<int64_t>(prefix_sizes.size());
+  request.shape.self_rank = static_cast<int64_t>(prefix_sizes.size());
+  request.shape.other_rank = static_cast<int64_t>(token_sizes.size());
+  request.shape.output_rank = static_cast<int64_t>(pos_sizes.size());
+  request.shape.cat_dim = dim;
+  if (
+      prefix_sizes.size() == 3 && token_sizes.size() == 3 &&
+      pos_sizes.size() == 3) {
+    request.shape.batch =
+        prefix_sizes[0] == token_sizes[0] && prefix_sizes[0] == pos_sizes[0]
+        ? prefix_sizes[0]
+        : 0;
+    request.shape.left_sequence = prefix_sizes[1];
+    request.shape.right_sequence = token_sizes[1];
+    request.shape.output_sequence = pos_sizes[1];
+    request.shape.input_channels =
+        prefix_sizes[2] == token_sizes[2] && prefix_sizes[2] == pos_sizes[2]
+        ? prefix_sizes[2]
+        : 0;
+  }
+  request.contract_metadata = contract_metadata;
+  request.input_direct_buffer = prefix_buffer_storage;
+  request.weight_direct_buffer = token_buffer_storage;
+  request.output_direct_buffer = pos_buffer_storage;
+  request.inplace = inplace;
+  request.has_output = alias_output;
   request.behavior_enabled = behavior_enabled;
   return request;
 }

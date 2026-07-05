@@ -1940,22 +1940,40 @@ bool should_force_image_conv_for_small_metadata_input(const Tensor& input) {
 constexpr const char* kPatchEmbedFloatBufferConvRouteFamily =
     "ObservedPatchEmbedKernel14Stride14";
 
-const char* patch_embed_float_buffer_conv_route_tuple_id(
+constexpr utils::ExecutionContractMetadata
+    kPatchEmbedFloatBufferConvRouteDynamicMetadata{
+    "PatchEmbedFloatBufferConvRoute",
+    "GenericKernel14Stride14FloatBuffer",
+    "patch_embed_float_buffer_conv_route_generic_runtime_shape",
+    "dynamic_patch_embed_float_buffer_conv_random_shape_tests",
+    "patch_embed_float_buffer_conv_semantic_guards",
+    "unsupported_semantics_keep_legacy_conv_path",
+    "float_buffer_conv_route_no_weight_cpu_repack"};
+
+constexpr utils::ExecutionContractMetadata kPackedBufferConv2DDynamicMetadata{
+    "PackedBufferConv2DContract",
+    "GenericRuntimeShape",
+    "packed_buffer_conv2d_generic_runtime_shape",
+    "packed_buffer_conv2d_dynamic_random_shape_tests",
+    "packed_buffer_conv2d_semantic_guards",
+    "unsupported_semantics_keep_legacy_conv_path",
+    "metadata_packed_buffer_conv_single_dispatch"};
+
+const utils::generated::PatchEmbedFloatBufferConvRouteInputRowsRow*
+patch_embed_float_buffer_conv_route_row(
     const IntArrayRef input_sizes,
     const IntArrayRef weight_sizes) {
   if (input_sizes.size() != 4 || weight_sizes.size() != 4) {
     return nullptr;
   }
-  const auto* const row =
-      utils::generated::patch_embed_float_buffer_conv_route_input_rows_find(
-          kPatchEmbedFloatBufferConvRouteFamily,
-          weight_sizes[0],
-          input_sizes[2],
-          input_sizes[3]);
-  return row == nullptr ? nullptr : row->tuple_id;
+  return utils::generated::patch_embed_float_buffer_conv_route_input_rows_find(
+      kPatchEmbedFloatBufferConvRouteFamily,
+      weight_sizes[0],
+      input_sizes[2],
+      input_sizes[3]);
 }
 
-bool is_patch_embed_float_buffer_conv_shape(
+const utils::ExecutionContractMetadata* patch_embed_float_buffer_conv_route_metadata(
     const IntArrayRef input_sizes,
     const IntArrayRef weight_sizes,
     const IntArrayRef stride,
@@ -1971,21 +1989,104 @@ bool is_patch_embed_float_buffer_conv_shape(
       transposed || quantized || !output_padding_is_zero(output_padding) ||
       stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
       groups != 1) {
-    return false;
+    return nullptr;
   }
 
   if (
       input_sizes[0] != 1 || input_sizes[1] != 3 ||
       weight_sizes[1] != 3 || weight_sizes[2] != 14 ||
       weight_sizes[3] != 14) {
-    return false;
+    return nullptr;
   }
 
-  return patch_embed_float_buffer_conv_route_tuple_id(
-             input_sizes, weight_sizes) != nullptr &&
-      stride[0] == 14 &&
-      stride[1] == 14 && padding[0] == 0 && padding[1] == 0 &&
-      dilation[0] == 1 && dilation[1] == 1;
+  if (
+      stride[0] != 14 || stride[1] != 14 || padding[0] != 0 ||
+      padding[1] != 0 || dilation[0] != 1 || dilation[1] != 1) {
+    return nullptr;
+  }
+
+  const auto* const row =
+      patch_embed_float_buffer_conv_route_row(input_sizes, weight_sizes);
+  if (row != nullptr) {
+    return &row->metadata;
+  }
+
+  const utils::DynamicProgramDecision decision =
+      utils::build_dynamic_program_runtime_plan(
+          utils::make_patch_embed_float_buffer_conv_route_dynamic_program(
+              input_sizes,
+              weight_sizes,
+              stride,
+              padding,
+              dilation,
+              groups,
+              dtype,
+              /*input_buffer_storage=*/true,
+              /*weight_buffer_storage=*/true,
+              /*output_buffer_storage=*/true,
+              /*has_bias=*/true,
+              &kPatchEmbedFloatBufferConvRouteDynamicMetadata,
+              /*behavior_enabled=*/true));
+  return decision.runtime_selection_authorized
+      ? &kPatchEmbedFloatBufferConvRouteDynamicMetadata
+      : nullptr;
+}
+
+utils::DynamicProgramDecision packed_buffer_conv2d_dynamic_decision(
+    const vTensor& input,
+    const vTensor& weight,
+    const IntArrayRef logical_weight_sizes,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const int64_t groups,
+    const ScalarType dtype,
+    const bool has_bias) {
+  const bool input_buffer_storage =
+      input.storage_type() == api::StorageType::BUFFER &&
+      input.gpu_memory_layout() == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      utils::supports_buffer_elementwise_compute(input);
+  const bool weight_buffer_storage =
+      weight.storage_type() == api::StorageType::BUFFER;
+  return utils::build_dynamic_program_runtime_plan(
+      utils::make_packed_buffer_conv2d_dynamic_program(
+          input.sizes(),
+          logical_weight_sizes,
+          stride,
+          padding,
+          dilation,
+          groups,
+          dtype,
+          input_buffer_storage,
+          weight_buffer_storage,
+          /*output_buffer_storage=*/true,
+          has_bias,
+          &kPackedBufferConv2DDynamicMetadata,
+          /*behavior_enabled=*/true));
+}
+
+bool is_patch_embed_float_buffer_conv_shape(
+    const IntArrayRef input_sizes,
+    const IntArrayRef weight_sizes,
+    const IntArrayRef stride,
+    const IntArrayRef padding,
+    const IntArrayRef dilation,
+    const bool transposed,
+    const bool quantized,
+    const IntArrayRef output_padding,
+    const int64_t groups,
+    const ScalarType dtype) {
+  return patch_embed_float_buffer_conv_route_metadata(
+             input_sizes,
+             weight_sizes,
+             stride,
+             padding,
+             dilation,
+             transposed,
+             quantized,
+             output_padding,
+             groups,
+             dtype) != nullptr;
 }
 
 bool can_use_patch_embed_float_buffer_conv_route(
@@ -2958,15 +3059,14 @@ bool can_select_pointwise_conv_as_linear_plan(
     const float output_min,
     const float output_max,
     const Tensor* output_arg,
-    const utils::SmallSpatialPointwiseConvMatch& pointwise_contract) {
+    const utils::DynamicPointwiseConv1x1DirectBufferMatch&
+        pointwise_contract) {
   if (!pointwise_contract.matched) {
     return false;
   }
   if (
       pointwise_contract.family !=
-          utils::SmallSpatialPointwiseConvFamily::DepthVisionProjection &&
-      pointwise_contract.family !=
-          utils::SmallSpatialPointwiseConvFamily::OCRProjection) {
+      utils::DynamicPointwiseConv1x1DirectBufferFamily::GenericDynamicHW) {
     return false;
   }
   if (output_arg != nullptr || input.requires_grad()) {
@@ -3402,8 +3502,8 @@ Tensor run_float_buffer_conv2d_impl(
   plan_decision.pointwise = plan_decision.kh == 1 && plan_decision.kw == 1;
   plan_decision.large =
       plan_decision.cin >= 384 && plan_decision.cout >= 192;
-  if (
-      is_patch_embed_float_buffer_conv_shape(
+  if (const utils::ExecutionContractMetadata* const patch_embed_metadata =
+          patch_embed_float_buffer_conv_route_metadata(
           v_input.sizes(),
           packed_weight.logical_weight_sizes(),
           stride,
@@ -3414,11 +3514,9 @@ Tensor run_float_buffer_conv2d_impl(
           /*output_padding=*/{},
           groups,
           input.scalar_type())) {
-    plan_decision.contract_name = "PatchEmbedFloatBufferConvRoute";
-    plan_decision.contract_family = "ObservedPatchEmbedKernel14Stride14";
-    plan_decision.contract_tuple_id =
-        patch_embed_float_buffer_conv_route_tuple_id(
-            v_input.sizes(), packed_weight.logical_weight_sizes());
+    plan_decision.contract_name = patch_embed_metadata->contract_name;
+    plan_decision.contract_family = patch_embed_metadata->family_name;
+    plan_decision.contract_tuple_id = patch_embed_metadata->tuple_id;
   }
   if (route_decision.hard_fail) {
     plan_decision.selected = VulkanConvPlanSelected::HardFailKnownBad;
@@ -3431,8 +3529,9 @@ Tensor run_float_buffer_conv2d_impl(
     context->flush();
     utils::fail_hard_fail("aten::convolution", route_decision);
   }
-  const utils::SmallSpatialPointwiseConvMatch pointwise_contract =
-      utils::match_small_spatial_pointwise_conv_contract(
+  const utils::DynamicPointwiseConv1x1DirectBufferMatch
+      dynamic_pointwise_contract =
+          utils::match_dynamic_pointwise_conv1x1_direct_buffer_contract(
           input.sizes(),
           packed_weight.logical_weight_sizes(),
           stride,
@@ -3440,87 +3539,80 @@ Tensor run_float_buffer_conv2d_impl(
           dilation,
           groups,
           input.scalar_type());
-  if (pointwise_contract.matched) {
-    plan_decision.contract_name = "SmallSpatialPointwiseConvContract";
+  if (dynamic_pointwise_contract.matched) {
+    plan_decision.contract_name =
+        dynamic_pointwise_contract.metadata->contract_name;
     plan_decision.contract_family =
-        utils::small_spatial_pointwise_conv_family_name(
-            pointwise_contract.family);
-    plan_decision.contract_tuple_id = pointwise_contract.tuple_id;
-    if (
-        pointwise_contract.family ==
-            utils::SmallSpatialPointwiseConvFamily::DepthVisionProjection ||
-        pointwise_contract.family ==
-            utils::SmallSpatialPointwiseConvFamily::OCRProjection) {
-      utils::log_vulkan_op_hit(
-          utils::small_spatial_pointwise_conv_op_hit_label(
-              pointwise_contract.family));
-      plan_decision.reject = VulkanConvRejectReason::KnownBadLargePointwiseConv;
-      plan_decision.fallback_selected = VulkanConvPlanSelected::FloatBufferConv;
-      if (can_select_pointwise_conv_as_linear_plan(
-              input,
-              packed_weight,
-              v_input,
-              v_weight,
-              v_bias,
-              stride,
-              padding,
-              dilation,
-              groups,
-              output_min,
-              output_max,
-              output_arg,
-              pointwise_contract)) {
-        plan_decision.selected =
-            VulkanConvPlanSelected::FloatBufferPointwise1x1AsLinear;
-        plan_decision.old_generic_retained = false;
-        return run_float_buffer_pointwise_conv2d_as_linear_impl(
+        dynamic_pointwise_contract.metadata->family_name;
+    plan_decision.contract_tuple_id = dynamic_pointwise_contract.tuple_id;
+    utils::log_vulkan_op_hit(
+        utils::dynamic_pointwise_conv1x1_direct_buffer_op_hit_label(
+            dynamic_pointwise_contract.family));
+    plan_decision.reject = VulkanConvRejectReason::None;
+    plan_decision.fallback_selected = VulkanConvPlanSelected::FloatBufferConv;
+    if (can_select_pointwise_conv_as_linear_plan(
             input,
             packed_weight,
+            v_input,
+            v_weight,
+            v_bias,
             stride,
             padding,
             dilation,
             groups,
-            output_size,
-            plan_decision);
-      }
-      shader_kind = FloatBufferConv2dShaderKind::Generic;
-      plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
-      plan_decision.old_generic_retained = true;
-    } else {
+            output_min,
+            output_max,
+            output_arg,
+            dynamic_pointwise_contract)) {
       plan_decision.selected =
-          shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
-          ? VulkanConvPlanSelected::FloatBufferPointwise1x1
-          : VulkanConvPlanSelected::FloatBufferConv;
-      plan_decision.reject = VulkanConvRejectReason::None;
-    }
-  } else {
-    const utils::DynamicPointwiseConv1x1DirectBufferMatch
-        dynamic_pointwise_contract =
-            utils::match_dynamic_pointwise_conv1x1_direct_buffer_contract(
-                input.sizes(),
-                packed_weight.logical_weight_sizes(),
-                stride,
-                padding,
-                dilation,
-                groups,
-                input.scalar_type());
-    if (dynamic_pointwise_contract.matched) {
-      plan_decision.contract_name =
-          dynamic_pointwise_contract.metadata->contract_name;
-      plan_decision.contract_family =
-          dynamic_pointwise_contract.metadata->family_name;
-      plan_decision.contract_tuple_id = dynamic_pointwise_contract.tuple_id;
-      utils::log_vulkan_op_hit(
-          utils::dynamic_pointwise_conv1x1_direct_buffer_op_hit_label(
-              dynamic_pointwise_contract.family));
-      plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
-      plan_decision.reject = VulkanConvRejectReason::None;
+          VulkanConvPlanSelected::FloatBufferPointwise1x1AsLinear;
       plan_decision.old_generic_retained = false;
-    } else {
+      return run_float_buffer_pointwise_conv2d_as_linear_impl(
+          input,
+          packed_weight,
+          stride,
+          padding,
+          dilation,
+          groups,
+          output_size,
+          plan_decision);
+    }
+    plan_decision.selected = VulkanConvPlanSelected::FloatBufferPointwise1x1;
+    plan_decision.old_generic_retained = false;
+  } else {
+    if (shader_kind == FloatBufferConv2dShaderKind::Generic) {
+      const utils::DynamicProgramDecision packed_conv_decision =
+          packed_buffer_conv2d_dynamic_decision(
+              v_input,
+              v_weight,
+              packed_weight.logical_weight_sizes(),
+              stride,
+              padding,
+              dilation,
+              groups,
+              input.scalar_type(),
+              packed_weight.has_bias());
+      if (packed_conv_decision.runtime_selection_authorized) {
+        plan_decision.contract_name =
+            packed_conv_decision.key.contract_name;
+        plan_decision.contract_family =
+            packed_conv_decision.key.contract_family;
+        plan_decision.contract_tuple_id =
+            packed_conv_decision.key.contract_tuple_id;
+        utils::log_vulkan_op_hit(
+            "aten::convolution.packed_buffer_conv2d_runtime_shape "
+            "contract=PackedBufferConv2DContract "
+            "contract_family=GenericRuntimeShape "
+            "contract_tuple=packed_buffer_conv2d_generic_runtime_shape");
+        plan_decision.old_generic_retained = false;
+      }
       plan_decision.selected =
           shader_kind == FloatBufferConv2dShaderKind::Pointwise1x1
           ? VulkanConvPlanSelected::FloatBufferPointwise1x1
           : VulkanConvPlanSelected::FloatBufferConv;
+      plan_decision.reject = VulkanConvRejectReason::None;
+    } else {
+      plan_decision.selected = VulkanConvPlanSelected::FloatBufferConv;
       plan_decision.reject = VulkanConvRejectReason::None;
     }
   }

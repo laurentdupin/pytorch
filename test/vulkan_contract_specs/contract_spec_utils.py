@@ -3825,8 +3825,8 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
         context,
     )
     rows = rowset["rows"]
-    if len(rows) != 65:
-        raise AssertionError(f"{context} expected 65 sparse rows")
+    if len(rows) != 67:
+        raise AssertionError(f"{context} expected 67 sparse rows")
     family_counts = {}
     row_keys = set()
     tuple_ids = set()
@@ -3854,14 +3854,14 @@ def _validate_small_spatial_pointwise_conv_shape_envelope(
     _require_equal(
         family_counts,
         {
-            "DepthVisionProjection": 26,
+            "DepthVisionProjection": 28,
             "OCRProjection": 23,
             "DiffusionProjection": 16,
         },
         f"{context} family counts",
     )
-    _require_equal(len(tuple_ids), 65, f"{context} tuple ids")
-    _require_equal(len(lookup_keys), 65, f"{context} lookup keys")
+    _require_equal(len(tuple_ids), 67, f"{context} tuple ids")
+    _require_equal(len(lookup_keys), 67, f"{context} lookup keys")
 
     factorized_keys = _small_spatial_pointwise_conv_factorized_keys(
         factorized_groups,

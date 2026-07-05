@@ -210,7 +210,8 @@
       "dtype": "float32",
       "violates": "source_sequence.min",
       "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal"
+      "expected_runtime_error": "",
+      "expected_cpu_fallback": false
     },
     {
       "name": "source_sequence117",
@@ -224,7 +225,8 @@
       "dtype": "float32",
       "violates": "source_sequence.max",
       "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal"
+      "expected_runtime_error": "",
+      "expected_cpu_fallback": false
     }
   ]
 }

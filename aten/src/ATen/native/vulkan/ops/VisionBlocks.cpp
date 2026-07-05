@@ -13282,6 +13282,7 @@ Tensor patch_embed_feature_map_to_tokens(const Tensor& input_arg) {
   TORCH_CHECK(
       match.matched,
       "vulkan_prepack::patch_embed_feature_map_to_tokens input is outside "
+      "PatchEmbedFeatureMapToTokensContract and "
       "PatchEmbedFeatureMapToTokensContract");
 
   Tensor output = utils::create_buffer_tensor(

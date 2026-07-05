@@ -44,6 +44,16 @@ constexpr ExecutionContractMetadata
                 .fallback_policy,
             generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec
                 .materialization_policy);
+constexpr ExecutionContractMetadata
+    kSmallMetadataPaddedConv2DRuntimeMaterializedBufferInput2x2Metadata =
+        make_execution_contract_metadata(
+            "SmallMetadataPaddedConv2DContract",
+            "RuntimeMaterializedBufferInput2x2",
+            "small_metadata_padded_conv2d_runtime_materialized_2x2",
+            "small_metadata_padded_conv2d_dynamic_random_shape_tests",
+            "small_metadata_padded_conv2d_semantic_layout_guards",
+            "unsupported_semantics_keep_legacy_image_pack",
+            "materialize_small_metadata_input_then_conv2d_buffer_float");
 
 } // namespace
 
@@ -52,6 +62,8 @@ const char* small_metadata_padded_conv2d_family_name(
   switch (family) {
     case SmallMetadataPaddedConv2DFamily::MaterializedBufferInput2x2:
       return "SmallMetadataPaddedConv2DMaterializedBufferInput2x2";
+    case SmallMetadataPaddedConv2DFamily::RuntimeMaterializedBufferInput2x2:
+      return "SmallMetadataPaddedConv2DRuntimeMaterializedBufferInput2x2";
     case SmallMetadataPaddedConv2DFamily::None:
       return "SmallMetadataPaddedConv2DNone";
   }
@@ -63,51 +75,36 @@ SmallMetadataPaddedConv2DMatch match_small_metadata_padded_conv2d_contract(
     const SmallMetadataPaddedConv2DWeightInfo& weight,
     const SmallMetadataPaddedConv2DOptions& options) {
   SmallMetadataPaddedConv2DMatch result;
-  const auto& spec =
-      generated::kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec;
   if (
-      !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match(
-          spec,
-          input.dtype,
-          weight.dtype,
-          input.rank,
-          weight.rank,
-          input.batch,
-          input.channels,
-          input.height,
-          input.width,
-          weight.output_channels,
-          options.groups,
-          weight.kernel_h,
-          weight.kernel_w,
-          options.stride_h,
-          options.stride_w,
-          options.padding_h,
-          options.padding_w,
-          options.dilation_h,
-          options.dilation_w,
-          options.transposed,
-          options.quantized,
-          options.output_padding_is_zero,
-          input.is_vulkan,
-          input.has_buffer_storage,
-          input.is_width_packed,
-          input.has_direct_buffer_layout,
-          input.supports_buffer_compute,
-          weight.defined) ||
-      !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds(
-          spec) ||
-      !generated::small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_input_weight_channels_equal(
-          input.channels, weight.input_channels)) {
+      input.dtype != kFloat || weight.dtype != kFloat || input.rank != 4 ||
+      weight.rank != 4 || input.batch != 1 || input.channels <= 1 ||
+      input.channels >= 20 || input.height <= 0 || input.width <= 0 ||
+      weight.output_channels <= 0 || weight.input_channels != input.channels ||
+      weight.kernel_h != 2 || weight.kernel_w != 2 || options.groups != 1 ||
+      options.stride_h != 1 || options.stride_w != 1 ||
+      options.padding_h != 0 || options.padding_w != 0 ||
+      options.dilation_h != 1 || options.dilation_w != 1 ||
+      options.transposed || options.quantized ||
+      !options.output_padding_is_zero || !input.is_vulkan ||
+      !input.has_buffer_storage || !input.is_width_packed ||
+      input.has_direct_buffer_layout || !input.supports_buffer_compute ||
+      !weight.defined) {
+    return result;
+  }
+  const int64_t output_h = input.height - weight.kernel_h + 1;
+  const int64_t output_w = input.width - weight.kernel_w + 1;
+  if (output_h <= 0 || output_w <= 0) {
     return result;
   }
 
   result.matched = true;
   result.family =
-      SmallMetadataPaddedConv2DFamily::MaterializedBufferInput2x2;
-  result.tuple_id = spec.tuple_id;
+      SmallMetadataPaddedConv2DFamily::RuntimeMaterializedBufferInput2x2;
+  result.tuple_id =
+      kSmallMetadataPaddedConv2DRuntimeMaterializedBufferInput2x2Metadata
+          .tuple_id;
   result.metadata =
-      &kSmallMetadataPaddedConv2DMaterializedBufferInput2x2Metadata;
+      &kSmallMetadataPaddedConv2DRuntimeMaterializedBufferInput2x2Metadata;
   result.requires_input_materialization = true;
   return result;
 }

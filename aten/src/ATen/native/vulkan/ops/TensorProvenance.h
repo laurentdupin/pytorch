@@ -37,7 +37,22 @@ struct VulkanTensorProvenanceRecord final {
   std::vector<std::string> input_states;
   std::vector<std::string> input_writers;
   std::vector<uint64_t> input_state_keys;
+  bool has_integer_value_bounds{false};
+  int64_t integer_value_min{0};
+  int64_t integer_value_max{0};
+  std::string integer_value_bounds_source;
 };
+
+void record_tensor_integer_value_bounds(
+    const Tensor& tensor,
+    int64_t min_value,
+    int64_t max_value,
+    const char* proof_source);
+
+bool tensor_integer_values_in_range(
+    const Tensor& tensor,
+    int64_t min_inclusive,
+    int64_t max_exclusive);
 
 void record_tensor_write(
     const Tensor& output,

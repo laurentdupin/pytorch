@@ -14,12 +14,40 @@ namespace {
 
 constexpr double kHeadDim64Scale = 0.125;
 constexpr double kHeadDim512Scale = 0.04419417382415922;
+constexpr int64_t kRuntimeDiffusionSquareMaxHeads = 32;
+constexpr int64_t kRuntimeDiffusionSquareMaxSequence = 640;
+constexpr int64_t kRuntimeDiffusionSquareMaxScoreElements = 2097152;
+constexpr int64_t kRuntimeDiffusionCrossMaxHeads = 32;
+constexpr int64_t kRuntimeDiffusionCrossMaxQuerySequence = 512;
+constexpr int64_t kRuntimeDiffusionCrossMaxKeyValueSequence = 8;
+constexpr int64_t kRuntimeDiffusionCrossMaxScoreElements = 65536;
+
+constexpr ExecutionContractMetadata kDiffusionSquareRuntimeMetadata{
+    "DiffusionSDPAContract",
+    "SquareSelfAttentionRuntimeShape",
+    "diffusion_square_self_attention_runtime_shape",
+    "diffusion_square_sdpa_dynamic_random_shape_tests",
+    "diffusion_square_sdpa_dynamic_semantic_guards",
+    "fallback_on_unsupported_layout_or_semantics",
+    "delegated_to_sdpa_execution_policy"};
+
+constexpr ExecutionContractMetadata kDiffusionCrossRuntimeMetadata{
+    "DiffusionSDPAContract",
+    "CrossAttentionRuntimeShape",
+    "diffusion_cross_attention_runtime_shape",
+    "diffusion_cross_attention_dynamic_random_shape_tests",
+    "diffusion_cross_attention_dynamic_semantic_guards",
+    "fallback_on_unsupported_layout_or_semantics",
+    "delegated_to_sdpa_execution_policy"};
 
 DiffusionSDPAFamily diffusion_sdpa_family_from_name(
     const char* const family_name) {
   const std::string_view family{family_name};
   if (family == "SquareSelfAttention") {
     return DiffusionSDPAFamily::SquareSelfAttention;
+  }
+  if (family == "SquareSelfAttentionRuntimeShape") {
+    return DiffusionSDPAFamily::SquareSelfAttentionRuntimeShape;
   }
   if (family == "CrossAttention") {
     return DiffusionSDPAFamily::CrossAttention;
@@ -41,14 +69,64 @@ const generated::DiffusionSDPAAttentionRowsRow* find_diffusion_sdpa_row(
   return nullptr;
 }
 
+bool scale_matches_head_dim(
+    const std::optional<double> scale,
+    const int64_t head_dim) {
+  if (!scale.has_value()) {
+    return true;
+  }
+  const double expected_scale =
+      head_dim == 512 ? kHeadDim512Scale : kHeadDim64Scale;
+  return std::abs(*scale - expected_scale) <= 1.0e-6;
+}
+
+bool is_runtime_cross_attention_shape(
+    const int64_t heads,
+    const int64_t query_sequence,
+    const int64_t key_value_sequence,
+    const int64_t head_dim,
+    const std::optional<double> scale) {
+  return heads > 0 && heads <= kRuntimeDiffusionCrossMaxHeads &&
+      query_sequence > 0 &&
+      query_sequence <= kRuntimeDiffusionCrossMaxQuerySequence &&
+      key_value_sequence > 0 &&
+      key_value_sequence <= kRuntimeDiffusionCrossMaxKeyValueSequence &&
+      query_sequence != key_value_sequence && head_dim == 64 &&
+      heads * query_sequence * key_value_sequence <=
+          kRuntimeDiffusionCrossMaxScoreElements &&
+      scale_matches_head_dim(scale, head_dim);
+}
+
+bool is_runtime_square_attention_shape(
+    const int64_t heads,
+    const int64_t query_sequence,
+    const int64_t key_value_sequence,
+    const int64_t head_dim,
+    const std::optional<double> scale) {
+  const bool supported_head_dim =
+      head_dim == 64 ||
+      (heads == 1 && head_dim == 512 && query_sequence % 4 == 0);
+  return heads > 0 && heads <= kRuntimeDiffusionSquareMaxHeads &&
+      query_sequence > 0 &&
+      query_sequence <= kRuntimeDiffusionSquareMaxSequence &&
+      query_sequence == key_value_sequence && supported_head_dim &&
+      heads * query_sequence * key_value_sequence <=
+          kRuntimeDiffusionSquareMaxScoreElements &&
+      scale_matches_head_dim(scale, head_dim);
+}
+
 } // namespace
 
 const char* diffusion_sdpa_route_label(const DiffusionSDPAFamily family) {
   switch (family) {
     case DiffusionSDPAFamily::SquareSelfAttention:
       return "SelectedDiffusionSDPASquareSelfAttention";
+    case DiffusionSDPAFamily::SquareSelfAttentionRuntimeShape:
+      return "SelectedDiffusionSDPASquareSelfAttentionRuntimeShape";
     case DiffusionSDPAFamily::CrossAttention:
       return "SelectedDiffusionSDPACrossAttention";
+    case DiffusionSDPAFamily::CrossAttentionRuntimeShape:
+      return "SelectedDiffusionSDPACrossAttentionRuntimeShape";
     case DiffusionSDPAFamily::None:
       return "SelectedDiffusionSDPANone";
   }
@@ -90,17 +168,29 @@ DiffusionSDPAMatch match_diffusion_sdpa_contract(
   const auto* const row = find_diffusion_sdpa_row(
       heads, query_sequence, key_value_sequence, head_dim);
   if (row != nullptr) {
-    if (scale.has_value()) {
-      const double expected_scale =
-          head_dim == 512 ? kHeadDim512Scale : kHeadDim64Scale;
-      if (std::abs(*scale - expected_scale) > 1.0e-6) {
-        return result;
-      }
+    if (!scale_matches_head_dim(scale, head_dim)) {
+      return result;
     }
     result.matched = true;
     result.family = diffusion_sdpa_family_from_name(row->family);
     result.tuple_id = row->tuple_id;
     result.metadata = &row->metadata;
+    return result;
+  }
+  if (is_runtime_square_attention_shape(
+          heads, query_sequence, key_value_sequence, head_dim, scale)) {
+    result.matched = true;
+    result.family = DiffusionSDPAFamily::SquareSelfAttentionRuntimeShape;
+    result.tuple_id = kDiffusionSquareRuntimeMetadata.tuple_id;
+    result.metadata = &kDiffusionSquareRuntimeMetadata;
+    return result;
+  }
+  if (is_runtime_cross_attention_shape(
+          heads, query_sequence, key_value_sequence, head_dim, scale)) {
+    result.matched = true;
+    result.family = DiffusionSDPAFamily::CrossAttentionRuntimeShape;
+    result.tuple_id = kDiffusionCrossRuntimeMetadata.tuple_id;
+    result.metadata = &kDiffusionCrossRuntimeMetadata;
     return result;
   }
   return result;

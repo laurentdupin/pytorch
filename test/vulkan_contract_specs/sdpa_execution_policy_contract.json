@@ -385,11 +385,6 @@
         "value": 127
       },
       {
-        "violates": "policy_rows.transformer_source_sequence",
-        "adjacent": "wrong_value",
-        "value": 117
-      },
-      {
         "violates": "scale_policy",
         "adjacent": "wrong_value",
         "value": "mismatched_scale"
@@ -603,23 +598,6 @@
               "key_value_sequence_max": 504,
               "head_dim": 64,
               "enable_gqa": false
-            }
-          },
-          {
-            "violates": "policy_rows.transformer_source_sequence",
-            "kind": "adjacent_field",
-            "fields": {
-              "family": "TransformerDecodeGQACloneOnly",
-              "batch_min": 1,
-              "batch_max": 1,
-              "query_heads": 16,
-              "key_value_heads": 16,
-              "query_sequence_min": 1,
-              "query_sequence_max": 1,
-              "key_value_sequence_min": 117,
-              "key_value_sequence_max": 117,
-              "head_dim": 128,
-              "enable_gqa": true
             }
           }
         ],
@@ -1199,37 +1177,6 @@
       "violates": "policy_rows.diffusion_clone_sequence",
       "expected_native_route": false,
       "expected_runtime_error": "KnownBadDiffusion4dSdpa",
-      "expected_cpu_fallback": false
-    },
-    {
-      "name": "transformer_decode_source117",
-      "query_shape": [
-        1,
-        16,
-        1,
-        128
-      ],
-      "key_shape": [
-        1,
-        16,
-        117,
-        128
-      ],
-      "value_shape": [
-        1,
-        16,
-        117,
-        128
-      ],
-      "dtype": "float32",
-      "has_attn_mask": false,
-      "dropout_p": 0.0,
-      "is_causal": false,
-      "scale": 0.0883883,
-      "enable_gqa": true,
-      "violates": "policy_rows.transformer_source_sequence",
-      "expected_native_route": false,
-      "expected_runtime_error": "KnownBadSdpaMaskOrCausal",
       "expected_cpu_fallback": false
     },
     {

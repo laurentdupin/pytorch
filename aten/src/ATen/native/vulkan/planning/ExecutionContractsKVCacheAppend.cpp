@@ -37,6 +37,15 @@ constexpr ExecutionContractMetadata kKVCacheAppendInitialMetadata =
         generated::kKVCacheAppendInitialCacheSpec.guard_id,
         generated::kKVCacheAppendInitialCacheSpec.fallback_policy,
         generated::kKVCacheAppendInitialCacheSpec.materialization_policy);
+constexpr ExecutionContractMetadata kKVCacheAppendInitialDynamicMetadata =
+    make_execution_contract_metadata(
+        "KVCacheAppendContract",
+        "InitialCacheDirectBuffer",
+        "dynamic_initial_cache_direct_buffer",
+        "kv_cache_initial_dynamic_random_shape_tests",
+        "kv_cache_initial_dynamic_semantic_guards",
+        "fallback_on_unsupported_layout_or_semantics",
+        "kv_cache_initial_buffer_copy");
 constexpr ExecutionContractMetadata kKVCacheAppendSequenceMetadata =
     make_execution_contract_metadata(
         generated::kKVCacheAppendSequenceAppendSpec.contract_name,
@@ -60,6 +69,8 @@ const char* kv_cache_append_family_name(const KVCacheAppendFamily family) {
   switch (family) {
     case KVCacheAppendFamily::InitialCache:
       return "KVCacheAppendInitialCache";
+    case KVCacheAppendFamily::InitialCacheDirectBuffer:
+      return "KVCacheAppendInitialCacheDirectBuffer";
     case KVCacheAppendFamily::SequenceAppend:
       return "KVCacheAppendSequenceAppend";
     case KVCacheAppendFamily::None:
@@ -71,6 +82,7 @@ const char* kv_cache_append_family_name(const KVCacheAppendFamily family) {
 const char* kv_cache_append_op_hit_label(const KVCacheAppendFamily family) {
   switch (family) {
     case KVCacheAppendFamily::InitialCache:
+    case KVCacheAppendFamily::InitialCacheDirectBuffer:
       return generated::kKVCacheAppendInitialCacheSpec.route_label;
     case KVCacheAppendFamily::SequenceAppend:
       return generated::kKVCacheAppendSequenceAppendSpec.route_label;
@@ -78,6 +90,10 @@ const char* kv_cache_append_op_hit_label(const KVCacheAppendFamily family) {
       return "aten::cat.kv_cache_append.none";
   }
   return "aten::cat.kv_cache_append.none";
+}
+
+const ExecutionContractMetadata* kv_cache_initial_dynamic_metadata() {
+  return &kKVCacheAppendInitialDynamicMetadata;
 }
 
 KVCacheAppendMatch match_kv_cache_append_contract(

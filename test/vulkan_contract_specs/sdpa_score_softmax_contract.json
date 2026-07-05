@@ -200,6 +200,7 @@
       "dtype": "float32",
       "violates": "heads",
       "expected_native_route": false,
+      "expected_dynamic_route_label": "aten::_softmax.buffer_lastdim",
       "expected_guard_route_label": "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
       "expected_cpu_fallback": false
     },
@@ -210,6 +211,7 @@
       "dtype": "float32",
       "violates": "sequence",
       "expected_native_route": false,
+      "expected_dynamic_route_label": "aten::_softmax.buffer_lastdim",
       "expected_guard_route_label": "aten::_softmax.buffer_lastdim_known_bad_texture_fallback",
       "expected_cpu_fallback": false
     },

@@ -7,6 +7,7 @@
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 
 #include <cstdint>
+#include <optional>
 
 namespace at {
 namespace native {
@@ -18,10 +19,22 @@ enum class DynamicProgramSemanticFamily : uint8_t {
   None = 0u,
   PointwiseConv1x1DirectBuffer,
   Conv2DDirectBuffer,
+  PackedBufferConv2D,
+  PatchEmbedFloatBufferConvRoute,
   SequenceCatDirectBuffer,
+  InitialSequenceCatDirectBuffer,
   ElementwiseBroadcastDirectBuffer,
   LinearOrMatmulDirectBuffer,
   EmbeddingLookupDirectBuffer,
+  FeatureMapToTokensDirectBuffer,
+  CatAxisDirectBuffer,
+  BatchNormInferenceDirectBuffer,
+  GQARepeatDirectBuffer,
+  DirectDecodeGQASDPADirectBuffer,
+  SmallNonCausalGQASDPADirectBuffer,
+  DirectNonCausalMHASDPADirectBuffer,
+  DirectCausalPrefillGQASDPADirectBuffer,
+  TokenPrefixCatAddDirectBuffer,
   StackRegionCommandReplay,
 };
 
@@ -103,6 +116,14 @@ struct DynamicProgramShapeDesc final {
   int64_t embedding_dim{0};
   int64_t num_indices{0};
   int64_t index_rank{0};
+  int64_t input_count{0};
+  int64_t total_cat_dim{0};
+  int64_t repeat_factor{0};
+  int64_t query_heads{0};
+  int64_t key_value_heads{0};
+  int64_t query_sequence{0};
+  int64_t key_value_sequence{0};
+  int64_t value_dim{0};
 };
 
 struct DynamicProgramCapabilityDesc final {
@@ -124,6 +145,9 @@ struct DynamicProgramRequest final {
   bool input_direct_buffer{false};
   bool weight_direct_buffer{false};
   bool output_direct_buffer{false};
+  bool input_buffer_storage{false};
+  bool weight_buffer_storage{false};
+  bool output_buffer_storage{false};
   bool has_bias{false};
   ElementwiseBroadcastOp elementwise_op{ElementwiseBroadcastOp::Unsupported};
   bool alpha_is_one{false};
@@ -135,6 +159,12 @@ struct DynamicProgramRequest final {
   bool padding_idx_has_hint{false};
   bool scale_grad_by_freq{false};
   bool sparse{false};
+  bool training{false};
+  bool has_attn_mask{false};
+  bool is_causal{false};
+  bool enable_gqa{false};
+  bool dropout_is_zero{true};
+  bool scale_is_default_or_head_dim{false};
   bool behavior_enabled{false};
 };
 
@@ -236,6 +266,36 @@ DynamicProgramRequest make_conv2d_direct_buffer_dynamic_program(
     const ExecutionContractMetadata* contract_metadata,
     bool behavior_enabled = false);
 
+DynamicProgramRequest make_packed_buffer_conv2d_dynamic_program(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes,
+    IntArrayRef stride,
+    IntArrayRef padding,
+    IntArrayRef dilation,
+    int64_t groups,
+    ScalarType dtype,
+    bool input_buffer_storage,
+    bool weight_buffer_storage,
+    bool output_buffer_storage,
+    bool has_bias,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_patch_embed_float_buffer_conv_route_dynamic_program(
+    IntArrayRef input_sizes,
+    IntArrayRef weight_sizes,
+    IntArrayRef stride,
+    IntArrayRef padding,
+    IntArrayRef dilation,
+    int64_t groups,
+    ScalarType dtype,
+    bool input_buffer_storage,
+    bool weight_buffer_storage,
+    bool output_buffer_storage,
+    bool has_bias,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
 DynamicProgramRequest make_elementwise_broadcast_direct_buffer_dynamic_program(
     IntArrayRef self_sizes,
     IntArrayRef other_sizes,
@@ -260,6 +320,19 @@ DynamicProgramRequest make_sequence_cat_direct_buffer_dynamic_program(
     ScalarType output_dtype,
     bool left_direct_buffer,
     bool right_direct_buffer,
+    bool output_direct_buffer,
+    int64_t dim,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_initial_sequence_cat_direct_buffer_dynamic_program(
+    IntArrayRef left_sizes,
+    IntArrayRef right_sizes,
+    ScalarType left_dtype,
+    ScalarType right_dtype,
+    ScalarType output_dtype,
+    bool left_is_vulkan,
+    bool right_buffer_storage,
     bool output_direct_buffer,
     int64_t dim,
     const ExecutionContractMetadata* contract_metadata,
@@ -291,6 +364,129 @@ DynamicProgramRequest make_embedding_lookup_direct_buffer_dynamic_program(
     bool padding_idx_has_hint,
     bool scale_grad_by_freq,
     bool sparse,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_feature_map_to_tokens_direct_buffer_dynamic_program(
+    IntArrayRef input_sizes,
+    ScalarType dtype,
+    bool input_direct_buffer,
+    bool output_direct_buffer,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_cat_axis_direct_buffer_dynamic_program(
+    ArrayRef<ChannelCatTensorInfo> tensors,
+    int64_t dim,
+    ScalarType output_dtype,
+    bool output_direct_buffer,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_batch_norm_inference_direct_buffer_dynamic_program(
+    const BatchNormInferenceTensorInfo& input,
+    const BatchNormInferenceTensorInfo& weight,
+    const BatchNormInferenceTensorInfo& bias,
+    const BatchNormInferenceTensorInfo& running_mean,
+    const BatchNormInferenceTensorInfo& running_var,
+    bool training,
+    bool output_direct_buffer,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_gqa_repeat_direct_buffer_dynamic_program(
+    IntArrayRef tensor_sizes,
+    ScalarType dtype,
+    bool input_direct_buffer,
+    int64_t repeat_factor,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_direct_decode_gqa_sdpa_direct_buffer_dynamic_program(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool query_direct_buffer,
+    bool key_direct_buffer,
+    bool value_direct_buffer,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_small_non_causal_gqa_sdpa_direct_buffer_dynamic_program(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool query_direct_buffer,
+    bool key_direct_buffer,
+    bool value_direct_buffer,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_direct_non_causal_mha_sdpa_direct_buffer_dynamic_program(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool query_direct_buffer,
+    bool key_direct_buffer,
+    bool value_direct_buffer,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_direct_causal_prefill_gqa_sdpa_direct_buffer_dynamic_program(
+    IntArrayRef query_sizes,
+    IntArrayRef key_sizes,
+    IntArrayRef value_sizes,
+    ScalarType query_dtype,
+    ScalarType key_dtype,
+    ScalarType value_dtype,
+    bool query_direct_buffer,
+    bool key_direct_buffer,
+    bool value_direct_buffer,
+    bool has_attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale,
+    bool enable_gqa,
+    const ExecutionContractMetadata* contract_metadata,
+    bool behavior_enabled = false);
+
+DynamicProgramRequest make_token_prefix_cat_add_direct_buffer_dynamic_program(
+    IntArrayRef prefix_sizes,
+    IntArrayRef token_sizes,
+    IntArrayRef pos_sizes,
+    ScalarType prefix_dtype,
+    ScalarType token_dtype,
+    ScalarType pos_dtype,
+    bool prefix_buffer_storage,
+    bool token_buffer_storage,
+    bool pos_buffer_storage,
+    int64_t dim,
+    bool inplace,
+    bool alias_output,
     const ExecutionContractMetadata* contract_metadata,
     bool behavior_enabled = false);
 
