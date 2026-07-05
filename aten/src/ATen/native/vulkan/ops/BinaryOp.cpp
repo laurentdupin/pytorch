@@ -1774,6 +1774,8 @@ struct RuntimeElementwiseDeferredCandidate final {
   RuntimeElementwiseMixedChain chain;
   Tensor output;
   size_t sequence{0};
+  bool stack_planned_candidate{false};
+  bool stack_planned_recording_active_at_register{false};
 };
 
 struct RuntimeElementwiseDeferredState final {
@@ -1801,9 +1803,7 @@ std::string runtime_elementwise_defer_log_path() {
 
 void log_runtime_elementwise_deferred_event(
     const char* event,
-    const RuntimeElementwiseMixedChain& chain,
-    const Tensor& output,
-    const size_t sequence,
+    const RuntimeElementwiseDeferredCandidate& candidate,
     const char* status,
     const std::string& detail = std::string()) {
   const std::string log_path = runtime_elementwise_defer_log_path();
@@ -1814,14 +1814,26 @@ void log_runtime_elementwise_deferred_event(
   if (!log) {
     return;
   }
+  const RuntimeElementwiseMixedChain& chain = candidate.chain;
+  const Tensor& output = candidate.output;
   const std::vector<std::string> ops = runtime_elementwise_mixed_ops(chain);
+  const bool stack_planned_recording_active =
+      api::context()->is_stack_planned_recording_active();
+  const bool include_tensor_state =
+      candidate.stack_planned_candidate || stack_planned_recording_active;
   std::ostringstream row;
   row << "{\"schema\":\"VulkanRuntimeElementwiseDeferredChainTrace.v0\"";
-  row << ",\"sequence\":" << sequence;
+  row << ",\"sequence\":" << candidate.sequence;
   row << ",\"event\":" << runtime_json_quote(event ? event : "");
   row << ",\"family\":\"ElementwiseChain\"";
   row << ",\"behavior_change\":1";
   row << ",\"status\":" << runtime_json_quote(status ? status : "");
+  row << ",\"stack_planned_candidate\":"
+      << (candidate.stack_planned_candidate ? 1 : 0);
+  row << ",\"stack_planned_recording_active\":"
+      << (stack_planned_recording_active ? 1 : 0);
+  row << ",\"stack_planned_recording_active_at_register\":"
+      << (candidate.stack_planned_recording_active_at_register ? 1 : 0);
   row << ",\"chain_length\":" << chain.steps.size();
   row << ",\"ops\":";
   append_runtime_string_array(row, ops);
@@ -1850,8 +1862,98 @@ void log_runtime_elementwise_deferred_event(
     ++rhs_index;
   }
   row << ']';
+  if (include_tensor_state) {
+    row << ",\"input_lease_status\":\"captured_deferred_input\"";
+    row << ",\"rhs_lease_status\":\"captured_deferred_rhs\"";
+    row << ",\"output_lease_status\":"
+        << runtime_json_quote(
+               event != nullptr && std::string(event) == "materialize_output"
+                   ? "materialized_deferred_output"
+                   : "deferred_placeholder_output");
+    row << ",\"input_tensor_state\":"
+        << runtime_json_quote(describe_tensor_state(chain.input));
+    row << ",\"input_tensor_provenance\":"
+        << runtime_json_quote(describe_tensor_provenance(chain.input));
+    row << ",\"output_tensor_state\":"
+        << runtime_json_quote(describe_tensor_state(output));
+    row << ",\"output_tensor_provenance\":"
+        << runtime_json_quote(describe_tensor_provenance(output));
+    std::vector<std::string> rhs_states;
+    std::vector<std::string> rhs_provenance;
+    for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+      if (step.operand_kind != RuntimeElementwiseMixedOperandKind::Tensor) {
+        continue;
+      }
+      rhs_states.push_back(describe_tensor_state(step.rhs));
+      rhs_provenance.push_back(describe_tensor_provenance(step.rhs));
+    }
+    row << ",\"rhs_tensor_states\":";
+    append_runtime_string_array(row, rhs_states);
+    row << ",\"rhs_tensor_provenance\":";
+    append_runtime_string_array(row, rhs_provenance);
+  }
   if (!detail.empty()) {
     row << ",\"detail\":" << runtime_json_quote(detail);
+  }
+  row << "}\n";
+  log << row.str();
+}
+
+void log_runtime_elementwise_deferred_decision(
+    const char* event,
+    const RuntimeElementwiseMixedChain& chain,
+    const Tensor& tensor,
+    const char* status,
+    const char* reason,
+    const bool stack_planned_recording_active) {
+  const std::string log_path = runtime_elementwise_defer_log_path();
+  if (log_path.empty()) {
+    return;
+  }
+  std::ofstream log(log_path, std::ios::app);
+  if (!log) {
+    return;
+  }
+  const std::vector<std::string> ops = runtime_elementwise_mixed_ops(chain);
+  std::ostringstream row;
+  row << "{\"schema\":\"VulkanRuntimeElementwiseDeferredChainTrace.v0\"";
+  row << ",\"sequence\":0";
+  row << ",\"event\":" << runtime_json_quote(event ? event : "");
+  row << ",\"family\":\"ElementwiseChain\"";
+  row << ",\"behavior_change\":0";
+  row << ",\"status\":" << runtime_json_quote(status ? status : "");
+  row << ",\"reason\":" << runtime_json_quote(reason ? reason : "");
+  row << ",\"stack_planned_recording_active\":"
+      << (stack_planned_recording_active ? 1 : 0);
+  row << ",\"chain_length\":" << chain.steps.size();
+  row << ",\"ops\":";
+  append_runtime_string_array(row, ops);
+  row << ",\"operand_kinds\":";
+  append_runtime_mixed_operand_kind_array(row, chain);
+  row << ",\"tensor_rhs_count\":"
+      << runtime_elementwise_mixed_tensor_rhs_count(chain);
+  row << ",\"tensor_key\":"
+      << reinterpret_cast<uintptr_t>(tensor.unsafeGetTensorImpl());
+  row << ",\"tensor_shape\":";
+  append_runtime_shape_array(row, tensor.sizes());
+  if (stack_planned_recording_active) {
+    row << ",\"tensor_state\":"
+        << runtime_json_quote(describe_tensor_state(tensor));
+    row << ",\"tensor_provenance\":"
+        << runtime_json_quote(describe_tensor_provenance(tensor));
+    std::vector<std::string> rhs_states;
+    std::vector<std::string> rhs_provenance;
+    for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+      if (step.operand_kind != RuntimeElementwiseMixedOperandKind::Tensor) {
+        continue;
+      }
+      rhs_states.push_back(describe_tensor_state(step.rhs));
+      rhs_provenance.push_back(describe_tensor_provenance(step.rhs));
+    }
+    row << ",\"rhs_tensor_states\":";
+    append_runtime_string_array(row, rhs_states);
+    row << ",\"rhs_tensor_provenance\":";
+    append_runtime_string_array(row, rhs_provenance);
   }
   row << "}\n";
   log << row.str();
@@ -1877,6 +1979,10 @@ void register_runtime_elementwise_deferred_candidate(
     RuntimeElementwiseDeferredCandidate candidate) {
   RuntimeElementwiseDeferredState& state =
       runtime_elementwise_deferred_state();
+  candidate.stack_planned_recording_active_at_register =
+      api::context()->is_stack_planned_recording_active();
+  candidate.stack_planned_candidate =
+      candidate.stack_planned_recording_active_at_register;
   size_t sequence = 0;
   {
     std::lock_guard<std::mutex> lock(state.mutex);
@@ -1889,9 +1995,7 @@ void register_runtime_elementwise_deferred_candidate(
   }
   log_runtime_elementwise_deferred_event(
       "register_output",
-      candidate.chain,
-      output,
-      sequence,
+      candidate,
       "deferred");
 }
 
@@ -1945,7 +2049,6 @@ std::optional<Tensor> try_defer_runtime_elementwise_chain(
       !runtime_elementwise_chain_defer_enabled() ||
       runtime_elementwise_deferred_materialize_active ||
       runtime_elementwise_live_chain_probe_active ||
-      api::context()->is_stack_planned_recording_active() ||
       !runtime_elementwise_defer_input_supported(self)) {
     return std::nullopt;
   }
@@ -1963,6 +2066,18 @@ std::optional<Tensor> try_defer_runtime_elementwise_chain(
   }
   chain.steps.push_back(std::move(step));
   if (!runtime_elementwise_mixed_supported(chain)) {
+    return std::nullopt;
+  }
+  const bool stack_planned_recording_active =
+      api::context()->is_stack_planned_recording_active();
+  if (stack_planned_recording_active) {
+    log_runtime_elementwise_deferred_decision(
+        "stack_plan_reject",
+        chain,
+        self,
+        "rejected",
+        "stack_dynamic_dispatch_value_preservation_unproven",
+        true);
     return std::nullopt;
   }
 
@@ -3313,9 +3428,7 @@ Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
   erase_runtime_elementwise_deferred_candidate(candidate->output);
   log_runtime_elementwise_deferred_event(
       "materialize_output",
-      candidate->chain,
-      candidate->output,
-      candidate->sequence,
+      *candidate,
       "executed");
   return candidate->output;
 }
@@ -4744,12 +4857,16 @@ Tensor add_buffer_out_vulkan(
     const Tensor& other,
     Tensor& output,
     const std::optional<Scalar>& alpha) {
+  const Tensor self_materialized =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(self);
+  const Tensor other_materialized =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(other);
   TORCH_CHECK(
-      should_run_buffer_binary_tensor(self, other),
+      should_run_buffer_binary_tensor(self_materialized, other_materialized),
       "Vulkan add_buffer_out expects float buffer-backed tensors");
   return binary_op_tensor_buffer_impl(
-      self,
-      other,
+      self_materialized,
+      other_materialized,
       alpha,
       VK_KERNEL(buffer_add),
       BinaryOpKind::Add,

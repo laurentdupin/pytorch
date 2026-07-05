@@ -83,16 +83,32 @@ trace row is `VulkanRuntimeElementwiseDeferredChainTrace.v0` with
 `behavior_change=1`. Unsupported consumers must materialize first and then take
 the existing eager path; storage offsets, out/in-place mutation, scalar UBO
 retention, and region-level output ownership remain outside this canary.
-Focused DAv2 `vits_140` probes showed why this canary must fail closed inside
-stack planned recording: generated `add`/`mul` shaders were correct on the same
-standalone random shapes, but delaying reads of stack-owned token tensors until
-later materialization broke bridge sanity. The canary now refuses to start while
-`Context::is_stack_planned_recording_active()` is true, and convolution,
+Focused DAv2 `vits_140` probes showed why this canary must fail closed broadly
+inside stack planned recording: generated `add`/`mul` shaders were correct on
+the same standalone random shapes, but delaying reads of stack-owned token
+tensors until later materialization broke bridge sanity. A narrower stack
+single-op `mul` experiment also failed when the generated shader was executed at
+the stack op site, and still failed after `add_buffer_out_vulkan` was taught to
+materialize runtime-deferred placeholders before recording its residual add. The
+remaining blocker is therefore dynamic generated dispatch inside stack planned
+recording, not ordinary broadcast math or a missing residual-add materialization
+hook. Such dispatches now require a separate value-preservation/descriptor-
+ownership proof before replacing static eager dispatches. Stack candidates log
+`stack_plan_reject` with
+`reason=stack_dynamic_dispatch_value_preservation_unproven`, including tensor
+state/provenance for the candidate input and tensor RHS operands, and then use
+the existing eager path. `add_buffer_out_vulkan` now materializes any
+runtime-deferred placeholder inputs before checking its buffer route and
+recording the add, so non-stack deferred candidates cannot be consumed as raw
+placeholder buffers by that out path. Normal register/materialize rows record
+whether stack planned recording was active. Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
-materialize any deferred placeholder before reading or planning it. A focused
-`vits_140` bridge run with
-`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` then matched the default
-path (`max_abs=1.1846423149108887e-06`, `mean_abs=6.115393347272402e-08`).
+materialize any deferred placeholder before reading or planning it.
+The last focused `vits_140` bridge run with
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` and broad stack deferral
+disabled matched the default path (`max_abs=1.1846423149108887e-06`,
+`mean_abs=6.115393347272402e-08`); the stack `mul` canary must keep that bridge
+sanity bar before any broader chain is admitted.
 `api::ShaderInfo` now also has an owned-SPIR-V construction path so future
 runtime-generated programs can hand stable bytes to the shader module cache;
 static registered shaders keep the existing pointer/size cache identity.

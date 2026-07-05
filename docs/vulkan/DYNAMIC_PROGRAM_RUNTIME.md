@@ -272,10 +272,19 @@ should fail closed with a reason rather than reading an uninitialized placeholde
 The canary also fails closed during stack planned recording. DAv2 `vits_140`
 showed that the generated runtime `add`/`mul` shaders can be numerically exact
 on the same standalone shapes while still producing bad model output if their
-inputs are read later across stack-owned lifetime boundaries. Until deferred
-elementwise chains carry region-owned value-preservation proof, output handoff,
-and retire/resource ownership, `try_defer_runtime_elementwise_chain` rejects
-new candidates when `Context::is_stack_planned_recording_active()` is true.
+inputs are read later across stack-owned lifetime boundaries. A stack single-op
+`mul` execute-at-op-site experiment also failed bridge sanity, and the same
+candidate still failed after `add_buffer_out_vulkan` materialized placeholders
+before its residual add. This makes dynamic generated dispatch inside stack
+planned recording a separate value-preservation and descriptor-ownership
+problem. With `PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1`, stack planned
+recording logs `stack_plan_reject` rows with
+`reason=stack_dynamic_dispatch_value_preservation_unproven`, including candidate
+input/RHS tensor state and provenance, then uses the existing eager path. Normal
+`register_output` and `materialize_output` rows also record whether stack
+planned recording was active. `add_buffer_out_vulkan` materializes
+runtime-deferred placeholder inputs before checking and recording its buffer add
+route, so generic out consumers do not read placeholder buffers directly.
 Consumers that are not part of the generated chain, including convolution,
 activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do
