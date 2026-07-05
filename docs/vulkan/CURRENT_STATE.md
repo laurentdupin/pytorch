@@ -121,7 +121,9 @@ provenance writer captures `DeferredTensorHandle.v0`-style output handles and
 input value-lease counts for Vulkan writes, and mandatory access boundaries
 emit `VulkanDeferredRegionPlanTrace.v0` rows with op nodes, routes, handle
 counts, value-lease counts, alias/view counts, boundary kind, and the
-fail-closed prerequisites still blocking execution. Eager execution remains
+fail-closed prerequisites still blocking execution. Vulkan-to-CPU `copy_` also
+records the concrete value-access boundary that forced the flush, including
+source and destination tensor-state descriptions. Eager execution remains
 authoritative (`execution_enabled=0`, `behavior_change=0`); the row exists so
 future generated shader or generated command-list execution can lower a full
 region at the boundary with explicit value-lifetime and output-ownership

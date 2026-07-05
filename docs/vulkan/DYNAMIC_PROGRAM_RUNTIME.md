@@ -288,7 +288,9 @@ records a logical deferred tensor handle for every Vulkan output that reports a
 write, plus value-lease counts for its Vulkan inputs. Mandatory boundaries emit
 `VulkanDeferredRegionPlanTrace.v0` rows with the op nodes, routes, handle count,
 value-lease count, alias/view count, boundary kind, and the exact fail-closed
-prerequisites still blocking execution. Eager execution remains authoritative:
+prerequisites still blocking execution. Vulkan-to-CPU `copy_` now also attaches
+the concrete value-access boundary that forced the flush, including source and
+destination tensor-state descriptions. Eager execution remains authoritative:
 the row records `execution_enabled=0` and `behavior_change=0`. This is the
 foundation needed before a future flush-boundary executor can replace eager
 dispatches with a generated shader or generated command list.

@@ -9,6 +9,7 @@
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
+#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
@@ -2433,6 +2434,14 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
 
     // Vulkan -> CPU
     if (dst.device().is_cpu()) {
+      api::note_vulkan_deferred_region_value_access_boundary(
+          "host_readback",
+          "vulkan_to_cpu_copy",
+          "copy_vulkan_to_cpu",
+          describe_tensor_state(src_to_copy),
+          describe_tensor_state(dst),
+          1u,
+          1u);
       pack_vulkan_to_cpu(v_src, dst);
       v_src.context()->submit_pending_work_and_poll_retire();
     } else {

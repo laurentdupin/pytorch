@@ -183,6 +183,14 @@ struct LazyChainState final {
   uint64_t deferred_value_lease_count = 0;
   uint64_t deferred_missing_value_lease_count = 0;
   uint64_t deferred_alias_or_view_count = 0;
+  bool pending_deferred_value_access_boundary = false;
+  std::string deferred_value_access_boundary_kind;
+  std::string deferred_value_access_reason;
+  std::string deferred_value_access_kind;
+  std::string deferred_value_access_source_state;
+  std::string deferred_value_access_destination_state;
+  uint64_t deferred_value_access_vulkan_source_count = 0;
+  uint64_t deferred_value_access_cpu_destination_count = 0;
   std::vector<std::string> ops;
   std::vector<std::string> raw_ops;
   std::vector<DeferredTensorHandleRecord> deferred_tensor_handles;
@@ -1472,6 +1480,14 @@ void clear_deferred_region_plan_state(LazyChainState& state) {
   state.deferred_value_lease_count = 0;
   state.deferred_missing_value_lease_count = 0;
   state.deferred_alias_or_view_count = 0;
+  state.pending_deferred_value_access_boundary = false;
+  state.deferred_value_access_boundary_kind.clear();
+  state.deferred_value_access_reason.clear();
+  state.deferred_value_access_kind.clear();
+  state.deferred_value_access_source_state.clear();
+  state.deferred_value_access_destination_state.clear();
+  state.deferred_value_access_vulkan_source_count = 0;
+  state.deferred_value_access_cpu_destination_count = 0;
 }
 
 void flush_deferred_region_plan(
@@ -1556,6 +1572,48 @@ void flush_deferred_region_plan(
       boundary_kind ? boundary_kind : "unknown_boundary",
       first);
   append_json_field(line, "reason", reason ? reason : "unknown", first);
+  append_json_uint(
+      line,
+      "value_access_boundary_observed",
+      state.pending_deferred_value_access_boundary ? 1u : 0u,
+      first);
+  if (state.pending_deferred_value_access_boundary) {
+    append_json_field(
+        line,
+        "value_access_boundary_kind",
+        state.deferred_value_access_boundary_kind,
+        first);
+    append_json_field(
+        line,
+        "value_access_reason",
+        state.deferred_value_access_reason,
+        first);
+    append_json_field(
+        line,
+        "value_access_kind",
+        state.deferred_value_access_kind,
+        first);
+    append_json_field(
+        line,
+        "value_access_source_state",
+        state.deferred_value_access_source_state,
+        first);
+    append_json_field(
+        line,
+        "value_access_destination_state",
+        state.deferred_value_access_destination_state,
+        first);
+    append_json_uint(
+        line,
+        "value_access_vulkan_source_count",
+        state.deferred_value_access_vulkan_source_count,
+        first);
+    append_json_uint(
+        line,
+        "value_access_cpu_destination_count",
+        state.deferred_value_access_cpu_destination_count,
+        first);
+  }
   append_json_field(
       line,
       "submit_phase",
@@ -1687,6 +1745,33 @@ void note_vulkan_deferred_region_tensor_write(
   if (output_is_view) {
     ++state.deferred_alias_or_view_count;
   }
+}
+
+void note_vulkan_deferred_region_value_access_boundary(
+    const char* boundary_kind,
+    const char* reason,
+    const char* access_kind,
+    const std::string& source_state,
+    const std::string& destination_state,
+    const uint64_t vulkan_source_count,
+    const uint64_t cpu_destination_count) {
+  if (!deferred_region_plan_logging_enabled()) {
+    return;
+  }
+
+  LazyChainState& state = lazy_chain_state();
+  state.pending_deferred_value_access_boundary = true;
+  state.deferred_value_access_boundary_kind =
+      boundary_kind && boundary_kind[0] != '\0' ? boundary_kind
+                                                : "unknown_boundary";
+  state.deferred_value_access_reason =
+      reason && reason[0] != '\0' ? reason : "unknown";
+  state.deferred_value_access_kind =
+      access_kind && access_kind[0] != '\0' ? access_kind : "unknown_access";
+  state.deferred_value_access_source_state = source_state;
+  state.deferred_value_access_destination_state = destination_state;
+  state.deferred_value_access_vulkan_source_count = vulkan_source_count;
+  state.deferred_value_access_cpu_destination_count = cpu_destination_count;
 }
 
 void note_vulkan_lazy_chain_op(const char* op_name) {

@@ -51,6 +51,14 @@ void note_vulkan_deferred_region_tensor_write(
     const std::vector<std::string>& input_states,
     uint64_t vulkan_input_count,
     uint64_t missing_input_lease_count);
+void note_vulkan_deferred_region_value_access_boundary(
+    const char* boundary_kind,
+    const char* reason,
+    const char* access_kind,
+    const std::string& source_state,
+    const std::string& destination_state,
+    uint64_t vulkan_source_count,
+    uint64_t cpu_destination_count);
 
 void log_vulkan_failure(
     VulkanFailureClass failure_class,
