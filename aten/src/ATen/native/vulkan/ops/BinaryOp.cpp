@@ -1922,10 +1922,19 @@ void append_runtime_elementwise_stack_context(
   const api::StackRegionCommandBufferTopologyPlanResult topology =
       api::context()->snapshot_stack_region_command_buffer_topology_plan(
           request);
+  const api::StackPlannedRecordingStats stats =
+      api::context()->snapshot_stack_planned_recording_stats();
   row << ",\"stack_planned_recording_owned_by_current_thread\":"
       << (topology.stack_planned_recording_owned_by_current_thread ? 1 : 0);
   row << ",\"command_buffer_recording_id\":"
       << topology.current_command_buffer_recording_id;
+  row << ",\"stack_recorded_compute_jobs\":" << stats.recorded_compute_jobs;
+  row << ",\"stack_recorded_descriptor_writes\":"
+      << stats.recorded_descriptor_writes;
+  row << ",\"stack_recorded_barriers\":" << stats.recorded_barriers;
+  row << ",\"stack_suppressed_frequency_flushes\":"
+      << stats.suppressed_frequency_flushes;
+  row << ",\"stack_premature_submits\":" << stats.premature_submits;
   row << ",\"stack_command_buffer_topology_status\":"
       << runtime_json_quote(topology.topology_status);
   row << ",\"stack_region_owned_topology_status\":"
@@ -1933,10 +1942,9 @@ void append_runtime_elementwise_stack_context(
   row << ",\"stack_phase_boundary_topology_status\":"
       << runtime_json_quote(topology.phase_boundary_topology_status);
   row << ",\"stack_pending_dispatch_count_status\":"
-      << runtime_json_quote(
-             "pending_dispatch_count_not_exposed_to_elementwise_defer_log");
+      << runtime_json_quote("stack_recorded_compute_jobs_snapshot_available");
   const char* command_order_status =
-      "recording_domain_observed_dispatch_index_missing";
+      "recording_domain_dispatch_count_observed_consumer_order_unproven";
   if (!topology.stack_planned_recording_owned_by_current_thread) {
     command_order_status = "missing_stack_planned_recording_owner";
   } else if (topology.current_command_buffer_recording_id == 0u) {

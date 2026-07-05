@@ -300,10 +300,11 @@ directly.
 Stack candidate rows now also carry structured value-lease and command-order
 proof fields: input/RHS/output tensor keys, storage ids, view ids, generations,
 logical descriptor hashes, byte ranges, provenance writer and route, stack
-phase/block, command-buffer recording id, topology status, and
+phase/block, command-buffer recording id, stack recorded
+compute-job/descriptor/barrier counters, topology status, and
 `authorizes_stack_dynamic_path=0`. The current `vits_140` evidence observes a
 valid stack recording domain for residual1/residual2 candidates, but reports
-`stack_command_order_proof_status=recording_domain_observed_dispatch_index_missing`
+`stack_command_order_proof_status=recording_domain_dispatch_count_observed_consumer_order_unproven`
 and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
 That is the next concrete blocker before a generated command list can replace
 the eager residual elementwise ops inside stack planned recording.

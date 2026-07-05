@@ -744,6 +744,7 @@ class TORCH_API Context final {
       PendingCommandFlushReason reason = PendingCommandFlushReason::Unknown,
       VkFence fence_handle = VK_NULL_HANDLE);
   bool is_stack_planned_recording_active() const;
+  StackPlannedRecordingStats snapshot_stack_planned_recording_stats() const;
   StackRegionSingleRecordingPlanResult
   snapshot_stack_region_single_recording_plan(
       const StackRegionSingleRecordingPlanRequest& request) const;

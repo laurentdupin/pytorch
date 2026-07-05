@@ -113,11 +113,12 @@ that out path. Normal register/materialize rows record whether stack planned
 recording was active. Stack candidate rows also carry structured value-lease and
 command-order proof fields: input/RHS/output tensor keys, storage ids, view ids,
 generations, logical descriptor hashes, byte ranges, provenance writer and
-route, stack phase/block, command-buffer recording id, topology status, and
+route, stack phase/block, command-buffer recording id, stack recorded
+compute-job/descriptor/barrier counters, topology status, and
 `authorizes_stack_dynamic_path=0`. The last focused `vits_140` deferred-log run
 observed residual1/residual2 stack candidates inside valid command-buffer
 recording domains, but every stack row still reported
-`stack_command_order_proof_status=recording_domain_observed_dispatch_index_missing`
+`stack_command_order_proof_status=recording_domain_dispatch_count_observed_consumer_order_unproven`
 and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
 Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner

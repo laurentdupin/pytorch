@@ -1662,6 +1662,11 @@ bool Context::stack_planned_recording_owned_by_current_thread() const {
       stack_planned_recording_owner_ == std::this_thread::get_id();
 }
 
+StackPlannedRecordingStats Context::snapshot_stack_planned_recording_stats()
+    const {
+  return stack_planned_recording_stats_;
+}
+
 StackRegionSingleRecordingPlanResult
 Context::snapshot_stack_region_single_recording_plan(
     const StackRegionSingleRecordingPlanRequest& request) const {
