@@ -34,6 +34,7 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <algorithm>
@@ -1822,6 +1823,13 @@ const char* runtime_elementwise_deferred_pipeline_path_status(
   return "selected";
 }
 
+const char* runtime_elementwise_deferred_value_lease_status(
+    const bool stack_planned_candidate) {
+  return stack_planned_candidate
+      ? "captured_tensor_handle_without_stack_value_lease"
+      : "consumer_boundary_materialized_tensor_lease";
+}
+
 std::string runtime_elementwise_mixed_program_key(
     const RuntimeElementwiseMixedChain& chain) {
   std::ostringstream key;
@@ -1834,6 +1842,109 @@ std::string runtime_elementwise_mixed_program_key(
     key << '_' << step.op;
   }
   return key.str();
+}
+
+void append_runtime_tensor_value_lease(
+    std::ostringstream& out,
+    const Tensor& tensor) {
+  if (!tensor.defined()) {
+    out << "{\"defined\":0}";
+    return;
+  }
+  const VulkanTensorStateDesc desc = inspect_tensor_state(tensor);
+  out << "{\"defined\":1";
+  out << ",\"tensor_key\":"
+      << reinterpret_cast<uintptr_t>(tensor.unsafeGetTensorImpl());
+  out << ",\"storage_id\":" << desc.storage_id;
+  out << ",\"view_id\":" << desc.view_id;
+  out << ",\"generation\":" << desc.generation;
+  out << ",\"logical_desc_hash\":" << desc.logical_desc_hash;
+  out << ",\"storage_offset\":" << desc.storage_offset;
+  out << ",\"buffer_length\":" << desc.buffer_length;
+  out << ",\"is_view\":" << (desc.is_view ? 1 : 0);
+  out << ",\"last_write_compute\":" << (desc.last_write_was_compute ? 1 : 0);
+  out << ",\"producer\":" << runtime_json_quote(desc.producer);
+  out << ",\"route\":" << runtime_json_quote(desc.route);
+  out << ",\"provenance_writer\":"
+      << runtime_json_quote(tensor_provenance_writer(tensor));
+  out << ",\"provenance_route\":"
+      << runtime_json_quote(tensor_provenance_route(tensor));
+  out << "}";
+}
+
+void append_runtime_tensor_value_lease_array(
+    std::ostringstream& out,
+    const std::vector<Tensor>& tensors) {
+  out << '[';
+  for (const auto idx : c10::irange(tensors.size())) {
+    if (idx > 0) {
+      out << ',';
+    }
+    append_runtime_tensor_value_lease(out, tensors[idx]);
+  }
+  out << ']';
+}
+
+std::vector<Tensor> runtime_elementwise_tensor_rhs_for_lease(
+    const RuntimeElementwiseMixedChain& chain) {
+  std::vector<Tensor> rhs_tensors;
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    if (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor) {
+      rhs_tensors.push_back(step.rhs);
+    }
+  }
+  return rhs_tensors;
+}
+
+void append_runtime_elementwise_stack_context(
+    std::ostringstream& row,
+    const RuntimeElementwiseMixedChain& chain,
+    const bool stack_planned_recording_active) {
+  const bool inside_stack_phase = api::inside_vision_stack_phase();
+  row << ",\"inside_vision_stack_phase\":" << (inside_stack_phase ? 1 : 0);
+  row << ",\"stack_phase\":"
+      << runtime_json_quote(
+             api::vision_stack_phase_name(api::current_vision_stack_phase()));
+  row << ",\"stack_block\":" << api::current_vision_stack_block_index();
+  if (!stack_planned_recording_active) {
+    return;
+  }
+  api::StackRegionCommandBufferTopologyPlanRequest request;
+  request.stack_region_id = "runtime_elementwise_deferred_stack";
+  request.boundary_id = runtime_elementwise_mixed_program_key(chain);
+  request.boundary_class = "elementwise_chain";
+  request.single_recording_plan_key = request.boundary_id;
+  request.single_recording_owner_key = request.boundary_id;
+  request.producer_role = "runtime_elementwise_deferred_input";
+  request.consumer_role = "runtime_elementwise_deferred_materialize";
+  request.stack_scope_planned_region_present =
+      api::stack_planned_region_context_active();
+  const api::StackRegionCommandBufferTopologyPlanResult topology =
+      api::context()->snapshot_stack_region_command_buffer_topology_plan(
+          request);
+  row << ",\"stack_planned_recording_owned_by_current_thread\":"
+      << (topology.stack_planned_recording_owned_by_current_thread ? 1 : 0);
+  row << ",\"command_buffer_recording_id\":"
+      << topology.current_command_buffer_recording_id;
+  row << ",\"stack_command_buffer_topology_status\":"
+      << runtime_json_quote(topology.topology_status);
+  row << ",\"stack_region_owned_topology_status\":"
+      << runtime_json_quote(topology.region_owned_topology_status);
+  row << ",\"stack_phase_boundary_topology_status\":"
+      << runtime_json_quote(topology.phase_boundary_topology_status);
+  row << ",\"stack_pending_dispatch_count_status\":"
+      << runtime_json_quote(
+             "pending_dispatch_count_not_exposed_to_elementwise_defer_log");
+  const char* command_order_status =
+      "recording_domain_observed_dispatch_index_missing";
+  if (!topology.stack_planned_recording_owned_by_current_thread) {
+    command_order_status = "missing_stack_planned_recording_owner";
+  } else if (topology.current_command_buffer_recording_id == 0u) {
+    command_order_status = "missing_command_buffer_recording_id";
+  }
+  row << ",\"stack_command_order_proof_status\":"
+      << runtime_json_quote(command_order_status);
+  row << ",\"authorizes_stack_dynamic_path\":0";
 }
 
 void log_runtime_elementwise_deferred_event(
@@ -1876,10 +1987,15 @@ void log_runtime_elementwise_deferred_event(
       << runtime_json_quote(
              runtime_elementwise_deferred_value_preservation_status(
                  candidate.stack_planned_candidate));
+  row << ",\"value_lease_status\":"
+      << runtime_json_quote(runtime_elementwise_deferred_value_lease_status(
+             candidate.stack_planned_candidate));
   if (materialize_callsite != nullptr && materialize_callsite[0] != '\0') {
     row << ",\"materialize_callsite\":"
         << runtime_json_quote(materialize_callsite);
   }
+  append_runtime_elementwise_stack_context(
+      row, chain, candidate.stack_planned_candidate);
   row << ",\"stack_planned_candidate\":"
       << (candidate.stack_planned_candidate ? 1 : 0);
   row << ",\"stack_planned_recording_active\":"
@@ -1922,6 +2038,13 @@ void log_runtime_elementwise_deferred_event(
                event != nullptr && std::string(event) == "materialize_output"
                    ? "materialized_deferred_output"
                    : "deferred_placeholder_output");
+    row << ",\"input_value_lease\":";
+    append_runtime_tensor_value_lease(row, chain.input);
+    row << ",\"rhs_value_leases\":";
+    append_runtime_tensor_value_lease_array(
+        row, runtime_elementwise_tensor_rhs_for_lease(chain));
+    row << ",\"output_value_lease\":";
+    append_runtime_tensor_value_lease(row, output);
     row << ",\"input_tensor_state\":"
         << runtime_json_quote(describe_tensor_state(chain.input));
     row << ",\"input_tensor_provenance\":"
@@ -1987,6 +2110,11 @@ void log_runtime_elementwise_deferred_decision(
       << runtime_json_quote(
              runtime_elementwise_deferred_value_preservation_status(
                  stack_planned_recording_active));
+  row << ",\"value_lease_status\":"
+      << runtime_json_quote(runtime_elementwise_deferred_value_lease_status(
+             stack_planned_recording_active));
+  append_runtime_elementwise_stack_context(
+      row, chain, stack_planned_recording_active);
   row << ",\"stack_planned_recording_active\":"
       << (stack_planned_recording_active ? 1 : 0);
   row << ",\"chain_length\":" << chain.steps.size();
@@ -2001,6 +2129,11 @@ void log_runtime_elementwise_deferred_decision(
   row << ",\"tensor_shape\":";
   append_runtime_shape_array(row, tensor.sizes());
   if (stack_planned_recording_active) {
+    row << ",\"input_value_lease\":";
+    append_runtime_tensor_value_lease(row, tensor);
+    row << ",\"rhs_value_leases\":";
+    append_runtime_tensor_value_lease_array(
+        row, runtime_elementwise_tensor_rhs_for_lease(chain));
     row << ",\"tensor_state\":"
         << runtime_json_quote(describe_tensor_state(tensor));
     row << ",\"tensor_provenance\":"

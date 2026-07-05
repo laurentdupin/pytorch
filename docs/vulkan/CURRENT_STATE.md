@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-05 at local HEAD `4aca712ed8a` plus deferred runtime
-path diagnostics:
+Last refreshed: 2026-07-06 at local HEAD `8bf5f97748c` plus stack value-lease
+proof diagnostics:
 `PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
 lazy-region capture observer. It does not defer or fuse execution; it records
 the eager Vulkan op-hit chain and flushes that chain when a mandatory access
@@ -110,7 +110,16 @@ before checking its buffer route and recording the add, and passes an explicit
 materialization callsite into the deferred trace when that boundary fires, so
 non-stack deferred candidates cannot be consumed as raw placeholder buffers by
 that out path. Normal register/materialize rows record whether stack planned
-recording was active. Convolution,
+recording was active. Stack candidate rows also carry structured value-lease and
+command-order proof fields: input/RHS/output tensor keys, storage ids, view ids,
+generations, logical descriptor hashes, byte ranges, provenance writer and
+route, stack phase/block, command-buffer recording id, topology status, and
+`authorizes_stack_dynamic_path=0`. The last focused `vits_140` deferred-log run
+observed residual1/residual2 stack candidates inside valid command-buffer
+recording domains, but every stack row still reported
+`stack_command_order_proof_status=recording_domain_observed_dispatch_index_missing`
+and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
+Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
 materialize any deferred placeholder before reading or planning it.
 The last focused `vits_140` bridge run with

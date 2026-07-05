@@ -297,6 +297,16 @@ runtime-deferred placeholder inputs before checking and recording its buffer add
 route, and passes a materialization callsite into the deferred trace when that
 boundary fires, so generic out consumers do not read placeholder buffers
 directly.
+Stack candidate rows now also carry structured value-lease and command-order
+proof fields: input/RHS/output tensor keys, storage ids, view ids, generations,
+logical descriptor hashes, byte ranges, provenance writer and route, stack
+phase/block, command-buffer recording id, topology status, and
+`authorizes_stack_dynamic_path=0`. The current `vits_140` evidence observes a
+valid stack recording domain for residual1/residual2 candidates, but reports
+`stack_command_order_proof_status=recording_domain_observed_dispatch_index_missing`
+and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
+That is the next concrete blocker before a generated command list can replace
+the eager residual elementwise ops inside stack planned recording.
 Consumers that are not part of the generated chain, including convolution,
 activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do
