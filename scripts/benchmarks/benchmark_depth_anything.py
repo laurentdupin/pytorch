@@ -123,9 +123,11 @@ VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE = (
     "stack_capture_decoder_preprocess"
 )
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION = "compiled_session_bridge"
+VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES = (
+    VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION,
+)
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES = (
     VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,
-    VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION,
 )
 
 
@@ -1038,6 +1040,13 @@ class VulkanStackOutputDeviceBridge:
         self.pretrained = getattr(model, "pretrained")
         self.stack_owner = stack_owner
         self.original_forward = model.forward
+        if bridge_mode in VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES:
+            raise ValueError(
+                "Deprecated Vulkan replay/compiled-session bridge mode is "
+                f"quarantined: {bridge_mode}. Use "
+                f"{VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE} or "
+                "the generated command-list path under development."
+            )
         if bridge_mode not in VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES:
             raise ValueError(
                 f"Unsupported Vulkan stack output bridge mode: {bridge_mode}"
@@ -2899,9 +2908,8 @@ def run() -> None:
         help=(
             "Select the opt-in Vulkan stack output bridge implementation. "
             "stack_capture_decoder_preprocess preserves the current private "
-            "capture to decoder path; compiled_session_bridge routes through "
-            "the existing DAv2 "
-            "compiled/replay bridge for measurement only."
+            "capture to decoder path. Replay/compiled-session bridge modes are "
+            "quarantined and no longer selectable from the benchmark harness."
         ),
     )
     args = parser.parse_args()

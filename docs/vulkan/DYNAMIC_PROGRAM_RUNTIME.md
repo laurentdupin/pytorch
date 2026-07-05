@@ -179,6 +179,63 @@ Generation is not a route loophole. It is allowed only when the semantic
 family validator accepts the operation and the contract grants compilation or
 command-list generation for that family.
 
+The first executable generated-shader slice is the explicit
+`vulkan_prepack::runtime_elementwise_chain` POC op. It is not an eager-route
+replacement. It compiles a metadata-aware fp32 buffer shader at runtime with
+`PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC`, loads the SPIR-V into an owned
+`ShaderInfo`, binds the usual tensor metadata UBOs, and dispatches a runtime
+tensor-RHS op list over `add`/`mul`/`sub`/`div`. The compatibility helper
+`vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div` calls the same
+executor for:
+
+```text
+(((input + add_rhs) * mul_rhs) - sub_rhs) / div_rhs
+```
+
+The program key is semantic rather than shape-row based: the op sequence, dtype,
+rank/layout class, and descriptor pattern define the compiled program, while
+same-shaped rank-1 through rank-4 Vulkan fp32 buffer tensor extents use runtime
+tensor metadata for sizes, strides, storage offsets, width-pack padding, and
+dispatch geometry. RHS operands may also broadcast to the root/output shape,
+which covers Python scalar literals as the rank-0 Vulkan buffer operands that
+the existing eager route already emits. H/W and other extents are not baked into
+the shader. The slice intentionally remains explicit and narrow for direct
+invocation. The current executor supports 1 to 4 tensor-RHS ops because
+`submit_compute_job` is variadic; a fully unbounded generated command list needs
+a lower-level dynamic descriptor binding path.
+
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG=<path>` is the first
+live-handle bridge from eager execution into that generated executor. The
+normal `aten::binary_op.buffer_float` and `unary_op_buffer` paths share a
+behavior-neutral mixed live-chain recorder for fp32 Vulkan buffer elementwise
+chains. It records binary tensor/RHS-broadcast steps over
+`add`/`mul`/`sub`/`div` and unary steps over
+`exp`/`sqrt`/`log`/`sin`/`cos`/`neg`/`reciprocal`/`rsqrt`/`silu` by the logical
+eager tensor handles when the root/output shape is stable and every tensor RHS
+is broadcast-compatible with that shape. With
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE=1`, the recorder submits the
+matching generated runtime shader as a sidecar proof once the chain reaches at
+least two ops. It does not replace the eager result, does not defer the eager
+ops, and logs `behavior_change=0` /
+`normal_eager_output_preserved=1` in
+`VulkanRuntimeElementwiseLiveChainTrace.v0`. The generated program key is the
+op sequence and operand-kind sequence, not exact tensor extents; runtime tensor
+metadata supplies sizes, strides, storage offsets, and dispatch geometry. The
+current sidecar supports up to eight steps and up to four tensor-RHS operands
+because the executor still uses the existing variadic `submit_compute_job`
+entry point. Focused random-shape coverage includes a pure unary
+`neg -> exp -> sqrt` chain and a mixed
+`add -> neg -> exp -> mul -> sqrt` chain. Mixed scalar UBO steps, aliases,
+output ownership, and flush-time replacement remain future runtime command-list
+work rather than hidden behavior. The live sidecar is intentionally opt-in
+because it retains eager tensor handles long enough to submit the proof shader;
+production replacement must move to metadata snapshots plus weak storage
+validation before it can own output or retire behavior.
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT=1` is an additional
+diagnostic-only mode that reads back the sidecar output and normal eager output
+and logs `output_check_max_abs`; it is for parity tests and must not be used as
+a performance path.
+
 ## First Implemented Slice
 
 `SmallSpatialPointwiseConvContract` `GenericDynamicHW` admits fp32 direct-buffer
@@ -404,6 +461,207 @@ ownership.
 for batch-one fp32 groups-one, dilation-one runtime shapes on the generic
 `conv2d_buffer_float` branch. Non-1x1 random-shape tests exercise this family
 without requiring exact observed H/W or kernel rows.
+
+## Lazy Chain Observation
+
+`PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` records the eager Vulkan operation chain
+that could be collected by a future lazy region compiler. The observer is
+behavior-neutral: ops still execute eagerly, but every `log_vulkan_op_hit`
+record is appended to a per-thread chain until a mandatory access boundary
+flushes it. Current flush boundaries are:
+
+```text
+device_copy
+host_upload
+host_readback
+cpu_fallback
+sync_readback
+synchronize_stream
+synchronize_device
+stream_flush
+stream_exchange
+flush_pending_cmds
+event_record
+event_block
+event_synchronize
+```
+
+Each JSONL row uses schema `VulkanLazyEagerChain.v0` and contains the boundary,
+submit phase, caller/runtime labels where available, and the ordered op list.
+This is the first diagnostic surface for answering, "what chain could we have
+captured before Python or the backend required a real value?"
+
+`flush_pending_cmds` submits are counted under submit origin
+`pending_command_flush` instead of `tensor_cpu_readback`, and the lazy/deferred
+trace rows carry a finer `reason` field. Current reasons separate eager
+linear/addmm submits, linear+GELU submits, replay input-upload visibility,
+first-record warmup, compiled replay submit guards, vision replay output
+materialization, stack replay step submit guards, and temporary-clone lifetime
+protection. This keeps the trace useful for deferred execution planning: a
+future region planner can rank natural-chain cuts by semantic cause instead of
+treating every internal pending-command flush as the same blocker or polluting
+readback counters.
+
+`PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL=linear` is the first opt-in
+behavior canary built on that classification. It only targets plain
+`aten::linear` pending-command flushes after the packed-context path. It does
+not affect `addmm`, raw-direct linear, linear+GELU, repeat temp-clone lifetime,
+replay input uploads, replay warmup, replay submit guards, or output
+materialization. The canary is accepted only in inference mode, with Vulkan
+input/weight/output tensors, a rank-2 Vulkan weight, and a persistent packed
+linear context retained by a bounded canary owner until blocking readback/fence
+cleanup releases it. Inference mode is the autograd guard; module parameter
+tensors may still carry `requires_grad=True` metadata. If those guards fail, or
+if the retention budget is exhausted, the existing `linear_eager_submit` flush
+still runs.
+
+`PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG=<path>` records the lifecycle of the
+existing deferred bridge paths that already return placeholder Vulkan tensors
+and materialize or fuse later. This is still behavior-neutral; it does not make
+new ops lazy and it does not skip eager execution outside those existing
+bridges. The log uses schema `VulkanDeferredExecutionTrace.v0` and emits:
+
+```text
+deferred_bridge_event
+deferred_region_flush
+```
+
+The first event records bridge families such as image normalization,
+linear+GELU, add+layer-norm, layer-scale, attention query-scale, and decomposed
+attention bridges when they defer, alias, hit, fuse, materialize, go stale, or
+clear a registry entry. The flush event is emitted at the same mandatory
+boundaries as `PYTORCH_VULKAN_LAZY_CHAIN_LOG`, but only when at least one
+deferred bridge event is pending. It records the pending deferred event count
+plus the pending lazy-chain op count and, for pending-command flushes, the same
+reason code used by the lazy-chain observer. This provides the initial central
+deferred-region trace surface before a broader runtime command-list executor
+exists.
+
+## Runtime Shader Compilation POC
+
+`PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG=<path>` plus
+`PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR=<dir>` enables the first
+behavior-neutral runtime shader compilation proof of concept. When a mandatory
+flush boundary is reached, the lazy-chain observer inspects the pending op
+backlog. If it sees a supported resident tensor-buffer elementwise chain, it
+generates a compute GLSL shader for that chain and writes it to the cache
+directory.
+
+If `PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC=<path-to-glslc>` is also set, the POC
+invokes `glslc` and validates the generated SPIR-V header. The generated row
+uses schema `VulkanRuntimeShaderCompileTrace.v0` and records:
+
+```text
+family
+group_key
+operand_kind
+ops
+boundary_kind
+reason
+glsl_path
+spv_path
+compile status
+cache hit
+behavior_change=0
+```
+
+The first supported family is `ElementwiseChain` for fp32 tensor-buffer
+elementwise chains whose operands are already Vulkan-resident before the chain
+starts. It now recognizes binary `add`, `sub`, `mul`, `div`, `floor_divide`,
+and `pow` plus unary `exp`, `sqrt`, `log`, `sin`, `cos`, `neg`, `rsqrt`, and
+`silu`. Runtime shape is represented by `numel`; the generated shader does not
+require exact H/W or rank rows. A focused test pre-uploads all operands,
+executes `add -> mul -> sub -> div -> pow`, reaches a host-readback boundary,
+and asserts that the POC generated GLSL, compiled SPIR-V when `glslc` is
+available, and left normal eager execution numerically unchanged. Unary ops are
+already supported by the generator, but current eager unary kernels may insert
+device-copy boundaries between unary dispatches; those boundaries correctly
+prevent the POC from pretending they formed one natural no-sync chain.
+
+This POC does not redirect execution, bind the generated pipeline, defer tensor
+SSA values, or replace existing eager dispatches. Its purpose is narrower:
+prove that a backend-visible op backlog at a flush point can be recognized,
+converted to runtime-generated shader source, compiled, cached by a group key,
+and logged without changing behavior.
+
+`PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG=<path>` records the next
+behavior-neutral layer for the same recognized backlog. It emits
+`VulkanRuntimeCommandListPlanTrace.v0` rows that describe the command buffer
+the generated-region runtime would record:
+
+```text
+program key
+shader family
+runtime shape policy
+dispatch geometry
+descriptor slots
+params uniform buffer
+push-constant support status
+barriers
+commands
+deferred-handle/output/alias proof requirements
+missing execution prerequisites
+execution_enabled=0
+behavior_change=0
+```
+
+For the initial `ElementwiseChain` tensor-buffer family, the plan has one
+output storage buffer, one base input buffer, one right-hand-side buffer per
+binary op, a required params uniform buffer carrying `numel` and any scalar
+constants, pre-dispatch read/write barriers, and the command sequence
+`bind pipeline -> bind descriptors -> bind params -> dispatch`. The plan records
+`push_constants_supported=0` because current Vulkan compute pipeline layouts do
+not expose push-constant ranges. This is the intended replacement shape for old
+replay: generate a fresh command plan from semantic descriptors at runtime. It
+still does not execute because the current eager op-hit backlog does not yet
+carry deferred tensor SSA handles, output allocation ownership, alias/escape
+proof, a generated-shader executor hook, or params-UBO executor plumbing.
+
+`api::ShaderInfo` now has an owned-SPIR-V construction path so future generated
+programs can give the shader module cache a stable byte owner instead of a
+temporary vector. Static registered shaders keep their existing pointer/size
+cache identity; owned runtime shaders use content-based hashing. This is an
+execution prerequisite only, not generated-region execution by itself.
+
+The same command-list log also recognizes `DeviceCopyChain` candidates for
+Vulkan buffer-to-buffer `copy_` work. These rows intentionally use
+`shader_family=none_copy_command_list`: they are not fused compute shaders.
+They describe a future generated command list with copy barriers and
+`copy_buffer_to_buffer` commands, blocked today by missing deferred tensor
+handle capture, source/destination identity capture, copy-command executor
+plumbing, and alias/escape proof.
+
+The command-list POC also logs full multi-dispatch regions when a mandatory
+flush backlog is not a pure elementwise or pure copy chain. These rows are not
+single generated shaders. They are examples of a future generated command list
+that would record existing Vulkan kernels in order, with explicit region
+ownership and barriers:
+
+```text
+ConvPrepackUploadCommandListRegion
+DecoderConvUpsampleCatCommandListRegion
+LinearGeluMlpCommandListRegion
+PatchEmbedFeatureMapToTokensCommandListRegion
+PointwiseUpsampleCommandListRegion
+ResidualNormCommandListRegion
+TokenPrefixBackboneCommandListRegion
+TransformerBlockCommandListRegion
+UpsampleCommandListRegion
+VisionPatchTokenPrepCommandListRegion
+ObservedMultiOpCommandListRegion
+```
+
+The row contains the raw op tokens, subfamily tags such as
+`contains_elementwise`, `contains_convolution`, `contains_patch_or_token_layout`,
+`contains_upsample`, `contains_attention_or_bmm`, `contains_linear`,
+`contains_norm`, `contains_cat`, and `contains_copy_or_transfer`, the proposed
+command sequence, the runtime descriptor shape policy, and fail-closed
+prerequisites such as producer/consumer edge capture, descriptor binding
+capture, barrier-plan execution, region output ownership, deferred tensor
+handles, and alias/escape proof. A focused `elementwise add -> bilinear
+upsample` test now proves that a complete non-elementwise chain is logged as a
+full multi-dispatch region candidate instead of being mistaken for an inner
+elementwise subsequence.
 
 ## Validation Policy
 

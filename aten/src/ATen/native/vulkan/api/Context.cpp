@@ -1,4 +1,5 @@
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <cstdlib>
 #include <cstring>
@@ -3114,6 +3115,7 @@ void Context::flush_if_current_stream(const c10::Stream& stream) {
       stream.device_index(),
       " on context for device ",
       device_index_);
+  flush_vulkan_lazy_chain_boundary("stream_flush", "flush_if_current_stream");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   // Version-one invariant: a Context owns one active command buffer, and
   // exchange_stream() flushes before switching streams. Therefore unsubmitted
@@ -3136,6 +3138,7 @@ c10::Stream Context::exchange_stream(c10::Stream stream) {
       stream.device_index(),
       " on context for device ",
       device_index_);
+  flush_vulkan_lazy_chain_boundary("stream_exchange", "exchange_stream");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   submit_cmd_to_gpu(
       VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
@@ -3155,6 +3158,7 @@ bool Context::query_stream(const c10::Stream& stream) {
 }
 
 void Context::synchronize_stream(const c10::Stream& stream) {
+  flush_vulkan_lazy_chain_boundary("synchronize_stream", "explicit_stream_wait");
   bool synchronized_current_stream = false;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   if (sync_logging_enabled()) {
@@ -3196,6 +3200,7 @@ void Context::synchronize_stream(const c10::Stream& stream) {
 }
 
 void Context::synchronize_device() {
+  flush_vulkan_lazy_chain_boundary("synchronize_device", "explicit_device_wait");
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     if (sync_logging_enabled()) {
@@ -4621,17 +4626,69 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
   return submission;
 }
 
-void Context::flush_pending_cmds(VkFence fence_handle) {
+const char* pending_command_flush_reason_name(
+    const PendingCommandFlushReason reason) {
+  switch (reason) {
+    case PendingCommandFlushReason::Unknown:
+      return "unknown";
+    case PendingCommandFlushReason::AddmmEagerSubmit:
+      return "addmm_eager_submit";
+    case PendingCommandFlushReason::LinearEagerSubmit:
+      return "linear_eager_submit";
+    case PendingCommandFlushReason::LinearRawDirectWeightEagerSubmit:
+      return "linear_raw_direct_weight_eager_submit";
+    case PendingCommandFlushReason::LinearGeluEagerSubmit:
+      return "linear_gelu_eager_submit";
+    case PendingCommandFlushReason::RepeatTemporaryCloneLifetime:
+      return "repeat_temporary_clone_lifetime";
+    case PendingCommandFlushReason::AttentionReplayInputUpload:
+      return "attention_replay_input_upload";
+    case PendingCommandFlushReason::AttentionReplayWarmup:
+      return "attention_replay_warmup";
+    case PendingCommandFlushReason::CompiledReplaySubmitGuard:
+      return "compiled_replay_submit_guard";
+    case PendingCommandFlushReason::VisionReplayInputUpload:
+      return "vision_replay_input_upload";
+    case PendingCommandFlushReason::VisionReplayWarmup:
+      return "vision_replay_warmup";
+    case PendingCommandFlushReason::VisionReplaySubmitGuard:
+      return "vision_replay_submit_guard";
+    case PendingCommandFlushReason::VisionReplayOutputMaterialization:
+      return "vision_replay_output_materialization";
+    case PendingCommandFlushReason::VisionCompiledSessionInputUpload:
+      return "vision_compiled_session_input_upload";
+    case PendingCommandFlushReason::VisionCompiledSessionWarmup:
+      return "vision_compiled_session_warmup";
+    case PendingCommandFlushReason::VisionBundleInputUpload:
+      return "vision_bundle_input_upload";
+    case PendingCommandFlushReason::VisionBundleWarmup:
+      return "vision_bundle_warmup";
+    case PendingCommandFlushReason::VisionStackReplayInputUpload:
+      return "vision_stack_replay_input_upload";
+    case PendingCommandFlushReason::VisionStackReplayWarmup:
+      return "vision_stack_replay_warmup";
+    case PendingCommandFlushReason::VisionStackReplayStepSubmitGuard:
+      return "vision_stack_replay_step_submit_guard";
+  }
+  return "unknown";
+}
+
+void Context::flush_pending_cmds(
+    const PendingCommandFlushReason reason,
+    VkFence fence_handle) {
+  const char* const reason_name = pending_command_flush_reason_name(reason);
+  flush_vulkan_lazy_chain_boundary("flush_pending_cmds", reason_name);
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   submit_cmd_to_gpu(
-      fence_handle, false, VulkanSubmitOrigin::TensorCpuReadback);
+      fence_handle, false, VulkanSubmitOrigin::PendingCommandFlush);
   if (cpu_timeline) {
     std::ostringstream stream;
     stream << "event=flush_pending_cmds duration_us="
            << (cpu_timeline_now_us() - cpu_start_us)
+           << " reason=" << reason_name
            << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0);
     append_cpu_timeline_log_line(stream.str());
   }

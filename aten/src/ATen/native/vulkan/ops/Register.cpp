@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/Batchnorm.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Convert.h>
@@ -447,6 +448,8 @@ std::vector<int64_t> submit_origin_counters_runtime() {
           counters.debug_validation.load(std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.conv_prepack_upload.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.pending_command_flush.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.unknown.load(std::memory_order_relaxed)),
   };
 }
@@ -1680,6 +1683,13 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::check_tensor_finite(Tensor X, str label) -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div("
+      "Tensor input, Tensor add_rhs, Tensor mul_rhs, Tensor sub_rhs, "
+      "Tensor div_rhs) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::runtime_elementwise_chain("
+      "Tensor input, Tensor[] rhs_tensors, str[] ops) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::value_trace_enabled() -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::device_policy_snapshot() -> str[]"));
@@ -2656,6 +2666,13 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::token_prefix_cat_add"),
       TORCH_FN(token_prefix_cat_add));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div"),
+      TORCH_FN(run_runtime_elementwise_chain_add_mul_sub_div));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::runtime_elementwise_chain"),
+      TORCH_FN(run_runtime_elementwise_chain));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));

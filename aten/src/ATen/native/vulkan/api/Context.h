@@ -79,6 +79,31 @@ enum class PendingWorkRetireDrainPolicy : uint8_t {
   DeferTinyOldPathPending,
 };
 
+enum class PendingCommandFlushReason : uint8_t {
+  Unknown,
+  AddmmEagerSubmit,
+  LinearEagerSubmit,
+  LinearRawDirectWeightEagerSubmit,
+  LinearGeluEagerSubmit,
+  RepeatTemporaryCloneLifetime,
+  AttentionReplayInputUpload,
+  AttentionReplayWarmup,
+  CompiledReplaySubmitGuard,
+  VisionReplayInputUpload,
+  VisionReplayWarmup,
+  VisionReplaySubmitGuard,
+  VisionReplayOutputMaterialization,
+  VisionCompiledSessionInputUpload,
+  VisionCompiledSessionWarmup,
+  VisionBundleInputUpload,
+  VisionBundleWarmup,
+  VisionStackReplayInputUpload,
+  VisionStackReplayWarmup,
+  VisionStackReplayStepSubmitGuard,
+};
+
+const char* pending_command_flush_reason_name(PendingCommandFlushReason reason);
+
 //
 // Vulkan Context holds onto all relevant Vulkan state as it pertains to our
 // use of Vulkan in PyTorch.  A Context is associated with one, and only one,
@@ -715,7 +740,9 @@ class TORCH_API Context final {
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false,
       VulkanSubmitOrigin origin = VulkanSubmitOrigin::Unknown);
-  void flush_pending_cmds(VkFence fence_handle = VK_NULL_HANDLE);
+  void flush_pending_cmds(
+      PendingCommandFlushReason reason = PendingCommandFlushReason::Unknown,
+      VkFence fence_handle = VK_NULL_HANDLE);
   bool is_stack_planned_recording_active() const;
   StackRegionSingleRecordingPlanResult
   snapshot_stack_region_single_recording_plan(

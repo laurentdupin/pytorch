@@ -72,6 +72,7 @@ VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES = (
     "shutdown",
     "debug_validation",
     "conv_prepack_upload",
+    "pending_command_flush",
     "unknown",
 )
 
@@ -301,6 +302,54 @@ class TestVulkanGovernance(TestCase):
                         if env_name in text:
                             offenders.append(os.path.relpath(path, REPO_ROOT))
         self.assertEqual([], offenders)
+
+    def test_vulkan_depth_benchmark_replay_bridge_mode_is_quarantined(self):
+        benchmark = self._depth_anything_benchmark_module()
+        compiled_session = (
+            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
+        )
+        self.assertIn(
+            compiled_session,
+            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES,
+        )
+        self.assertNotIn(
+            compiled_session,
+            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES,
+        )
+        self.assertEqual(
+            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES,
+            (benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,),
+        )
+
+    def test_vulkan_public_replay_bridge_api_set_is_quarantined(self):
+        register_cpp = self._repo_text(
+            "aten",
+            "src",
+            "ATen",
+            "native",
+            "vulkan",
+            "ops",
+            "Register.cpp",
+        )
+        observed = {
+            match.split("(", 1)[0]
+            for match in re.findall(
+                r'"(vulkan_prepack::run_[^"]*(?:replay|compiled_session)'
+                r'[^"]*bridge[^"]*)"',
+                register_cpp,
+            )
+        }
+        expected = {
+            "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge",
+            "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
+            "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge",
+            "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge",
+            "vulkan_prepack::run_vision_backbone_stack_compiled_session_bridge",
+            "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session_bridge",
+            "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge",
+            "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge",
+        }
+        self.assertEqual(expected, observed)
 
     def test_vulkan_stack_output_bridge_sanity_runs_reference_first(self):
         benchmark = self._depth_anything_benchmark_module()
@@ -7948,6 +7997,983 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             ),
         )
         return repo_root, result
+
+    def test_lazy_chain_log_flushes_on_readback_boundary(self):
+        log_name = "vulkan_lazy_chain_test.jsonl"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+
+                torch.manual_seed(37)
+                x_cpu = torch.randn(2, 3, dtype=torch.float32)
+                x = x_cpu.to("vulkan")
+                y = (x + 1.0) * 2.0
+                actual = y.cpu()
+                expected = (x_cpu + 1.0) * 2.0
+                torch.testing.assert_close(actual, expected)
+
+                with open(os.environ["PYTORCH_VULKAN_LAZY_CHAIN_LOG"], encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                non_empty = [
+                    record for record in records
+                    if record["op_count"] > 0
+                ]
+                assert non_empty, records
+                readback_records = [
+                    record for record in non_empty
+                    if record["boundary_kind"] in {
+                        "host_readback",
+                        "synchronize_stream",
+                        "synchronize_device",
+                    }
+                ]
+                assert readback_records, records
+                op_names = [
+                    op["op"]
+                    for record in readback_records
+                    for op in record["ops"]
+                ]
+                assert any("binary_op" in op for op in op_names), op_names
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_LAZY_CHAIN_LOG": log_name},
+                error_prefix="Vulkan lazy-chain log test failed.",
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_runtime_shader_compile_poc_generates_elementwise_chain_shader(self):
+        import shutil
+
+        log_name = "vulkan_runtime_shader_compile_test.jsonl"
+        cache_name = "vulkan_runtime_shader_compile_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        glslc = shutil.which("glslc")
+        extra_env = {
+            "PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG": log_path,
+            "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+        }
+        if glslc:
+            extra_env["PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC"] = glslc
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(2610)
+                x_cpu = torch.rand(5, 7, dtype=torch.float32) + 2.0
+                a_cpu = torch.rand(5, 7, dtype=torch.float32) + 1.0
+                b_cpu = torch.rand(5, 7, dtype=torch.float32) + 1.0
+                c_cpu = torch.rand(5, 7, dtype=torch.float32) * 0.25
+                d_cpu = torch.rand(5, 7, dtype=torch.float32) + 1.0
+                e_cpu = torch.rand(5, 7, dtype=torch.float32) * 0.2 + 1.1
+                x = x_cpu.to("vulkan")
+                a = a_cpu.to("vulkan")
+                b = b_cpu.to("vulkan")
+                c = c_cpu.to("vulkan")
+                d = d_cpu.to("vulkan")
+                e = e_cpu.to("vulkan")
+                with torch.inference_mode():
+                    y = torch.pow((((x + a) * b) - c) / d, e)
+                    actual = y.cpu()
+                expected = torch.pow((((x_cpu + a_cpu) * b_cpu) - c_cpu) / d_cpu, e_cpu)
+                torch.testing.assert_close(actual, expected)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env=extra_env,
+                error_prefix=(
+                    "Vulkan runtime shader compiler POC test failed."
+                ),
+            )
+
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                rows = [
+                    json.loads(line)
+                    for line in log_file
+                    if line.strip()
+                ]
+            compile_rows = [
+                row for row in rows
+                if row.get("schema") ==
+                "VulkanRuntimeShaderCompileTrace.v0"
+            ]
+            self.assertGreaterEqual(len(compile_rows), 1)
+            row = compile_rows[0]
+            self.assertEqual(row["family"], "ElementwiseChain")
+            self.assertEqual(row["operand_kind"], "tensor_buffer")
+            self.assertEqual(
+                row["ops"],
+                ["add", "mul", "sub", "div", "pow"],
+            )
+            self.assertEqual(
+                row["op_arities"],
+                ["binary", "binary", "binary", "binary", "binary"],
+            )
+            self.assertEqual(
+                row["op_operand_kinds"],
+                [
+                    "tensor_buffer",
+                    "tensor_buffer",
+                    "tensor_buffer",
+                    "tensor_buffer",
+                    "tensor_buffer",
+                ],
+            )
+            self.assertEqual(row["behavior_change"], "0")
+            self.assertTrue(os.path.exists(row["glsl_path"]))
+            with open(row["glsl_path"], "r", encoding="utf-8") as glsl_file:
+                glsl_text = glsl_file.read()
+            self.assertIn("value = value + rhs_data0[idx];", glsl_text)
+            self.assertIn("value = value * rhs_data1[idx];", glsl_text)
+            self.assertIn("value = value - rhs_data2[idx];", glsl_text)
+            self.assertIn("value = value / rhs_data3[idx];", glsl_text)
+            self.assertIn("value = pow(value, rhs_data4[idx]);", glsl_text)
+            if glslc:
+                self.assertEqual(row["status"], "compiled_spv")
+                self.assertEqual(row["spv_valid"], 1)
+                self.assertTrue(os.path.exists(row["spv_path"]))
+            else:
+                self.assertEqual(row["status"], "generated_glsl_only")
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_elementwise_chain_poc_executes_generated_shader(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest("glslc is required for runtime shader execution POC.")
+
+        cache_name = "vulkan_runtime_elementwise_chain_exec_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_chain_seed={seed}", flush=True)
+                with torch.inference_mode():
+                    for _ in range(6):
+                        rank = rng.randint(1, 4)
+                        shape = tuple(rng.randint(1, 13) for _ in range(rank))
+                        x_cpu = torch.randn(shape, dtype=torch.float32)
+                        op_count = rng.randint(1, 4)
+                        candidates = ["add", "mul", "sub", "div"]
+                        ops = [rng.choice(candidates) for _ in range(op_count)]
+                        rhs_cpu = []
+                        expected = x_cpu
+                        for op in ops:
+                            if op == "div":
+                                rhs = torch.rand(shape, dtype=torch.float32) + 1.25
+                                expected = expected / rhs
+                            else:
+                                rhs = torch.randn(shape, dtype=torch.float32) * 0.25
+                                if op == "add":
+                                    expected = expected + rhs
+                                elif op == "mul":
+                                    expected = expected * rhs
+                                elif op == "sub":
+                                    expected = expected - rhs
+                                else:
+                                    raise AssertionError(op)
+                            rhs_cpu.append(rhs)
+                        x = x_cpu.to("vulkan")
+                        rhs_vk = [rhs.to("vulkan") for rhs in rhs_cpu]
+                        y = torch.ops.vulkan_prepack.runtime_elementwise_chain(
+                            x, rhs_vk, ops)
+                        assert y.is_vulkan, type(y)
+                        actual = y.cpu()
+                        torch.testing.assert_close(
+                            actual,
+                            expected,
+                            atol=1e-5,
+                            rtol=1e-5)
+                    x_cpu = torch.randn(2, 3, dtype=torch.float32)
+                    a_cpu = torch.randn(2, 3, dtype=torch.float32) * 0.25
+                    b_cpu = torch.randn(2, 3, dtype=torch.float32) * 0.25
+                    c_cpu = torch.randn(2, 3, dtype=torch.float32) * 0.25
+                    d_cpu = torch.rand(2, 3, dtype=torch.float32) + 1.25
+                    y = torch.ops.vulkan_prepack.runtime_elementwise_chain_add_mul_sub_div(
+                        x_cpu.to("vulkan"),
+                        a_cpu.to("vulkan"),
+                        b_cpu.to("vulkan"),
+                        c_cpu.to("vulkan"),
+                        d_cpu.to("vulkan"))
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        (((x_cpu + a_cpu) * b_cpu) - c_cpu) / d_cpu,
+                        atol=1e-5,
+                        rtol=1e-5)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan runtime executable elementwise-chain POC failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_*.spv")))
+        finally:
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_elementwise_live_chain_probe_executes_eager_chain(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest("glslc is required for runtime live-chain execution POC.")
+
+        log_name = "vulkan_runtime_elementwise_live_chain_test.jsonl"
+        cache_name = "vulkan_runtime_elementwise_live_chain_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        for path in (log_path,):
+            if os.path.exists(path):
+                os.remove(path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import json
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_live_chain_seed={seed}", flush=True)
+                rank = rng.randint(1, 4)
+                shape = tuple(rng.randint(2, 11) for _ in range(rank))
+                ops = ["add", "mul", "sub", "div"]
+                x_cpu = torch.randn(shape, dtype=torch.float32)
+                rhs_cpu = [
+                    torch.randn(shape, dtype=torch.float32) * 0.25,
+                    torch.randn(shape, dtype=torch.float32) * 0.25,
+                    torch.randn(shape, dtype=torch.float32) * 0.25,
+                    torch.rand(shape, dtype=torch.float32) + 1.25,
+                ]
+                expected = (((x_cpu + rhs_cpu[0]) * rhs_cpu[1]) - rhs_cpu[2]) / rhs_cpu[3]
+                with torch.inference_mode():
+                    y = x_cpu.to("vulkan")
+                    rhs_vk = [rhs.to("vulkan") for rhs in rhs_cpu]
+                    y = y + rhs_vk[0]
+                    y = y * rhs_vk[1]
+                    y = y - rhs_vk[2]
+                    y = y / rhs_vk[3]
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        expected,
+                        atol=1e-5,
+                        rtol=1e-5)
+
+                with open(
+                    os.environ["PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG"],
+                    encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                assert records, "missing live-chain records"
+                accepted = [
+                    row for row in records
+                    if row["status"] == "executed" and row["ops"] == ops
+                ]
+                assert accepted, records
+                row = accepted[-1]
+                assert row["behavior_change"] == 0, row
+                assert row["normal_eager_output_preserved"] == 1, row
+                assert row["executed"] == 1, row
+                assert row["chain_length"] == 4, row
+                assert row["input_shape"] == list(shape), row
+                assert row["output_shape"] == list(shape), row
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG": log_path,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan runtime live elementwise-chain probe failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_*.spv")))
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_elementwise_live_chain_probe_executes_scalar_broadcast_chain(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest("glslc is required for runtime scalar-chain POC.")
+
+        log_name = "vulkan_runtime_elementwise_scalar_live_chain_test.jsonl"
+        cache_name = "vulkan_runtime_elementwise_scalar_live_chain_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import json
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_scalar_live_chain_seed={seed}", flush=True)
+                rank = rng.randint(1, 4)
+                shape = tuple(rng.randint(2, 11) for _ in range(rank))
+                x_cpu = torch.randn(shape, dtype=torch.float32)
+                expected = (((x_cpu + 1.25) * 0.5) - 2.0) / 1.75
+                with torch.inference_mode():
+                    y = x_cpu.to("vulkan")
+                    y = y + 1.25
+                    y = y * 0.5
+                    y = y - 2.0
+                    y = y / 1.75
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        expected,
+                        atol=1e-5,
+                        rtol=1e-5)
+
+                with open(
+                    os.environ["PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG"],
+                    encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                assert records, "missing scalar live-chain records"
+                accepted = [
+                    row for row in records
+                    if row["status"] == "executed" and
+                    row["ops"] == ["add", "mul", "sub", "div"]
+                ]
+                assert accepted, records
+                row = accepted[-1]
+                assert row["operand_kinds"] == ["tensor", "tensor", "tensor", "tensor"], row
+                assert row["tensor_rhs_count"] == 4, row
+                assert row["scalar_rhs_count"] == 0, row
+                assert row["behavior_change"] == 0, row
+                assert row["normal_eager_output_preserved"] == 1, row
+                assert row["input_shape"] == list(shape), row
+                assert row["output_shape"] == list(shape), row
+                assert row["output_check_max_abs"] <= 1e-5, row
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG": log_path,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan runtime scalar live elementwise-chain probe failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_*.spv")))
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_elementwise_live_chain_probe_executes_unary_chain(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest("glslc is required for runtime unary-chain POC.")
+
+        log_name = "vulkan_runtime_elementwise_unary_live_chain_test.jsonl"
+        cache_name = "vulkan_runtime_elementwise_unary_live_chain_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import json
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_unary_live_chain_seed={seed}", flush=True)
+                rank = rng.randint(1, 4)
+                shape = tuple(rng.randint(2, 11) for _ in range(rank))
+                x_cpu = torch.randn(shape, dtype=torch.float32) * 0.5
+                expected = torch.sqrt(torch.exp(torch.neg(x_cpu)))
+                with torch.inference_mode():
+                    y = x_cpu.to("vulkan")
+                    y = torch.neg(y)
+                    y = torch.exp(y)
+                    y = torch.sqrt(y)
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        expected,
+                        atol=1e-5,
+                        rtol=1e-5)
+
+                with open(
+                    os.environ["PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG"],
+                    encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                assert records, "missing unary live-chain records"
+                accepted = [
+                    row for row in records
+                    if row["source"] == "unary_op_buffer" and
+                    row["status"] == "executed" and
+                    row["ops"] == ["neg", "exp", "sqrt"]
+                ]
+                assert accepted, records
+                row = accepted[-1]
+                assert row["operand_kinds"] == ["unary", "unary", "unary"], row
+                assert row["tensor_rhs_count"] == 0, row
+                assert row["scalar_rhs_count"] == 0, row
+                assert row["behavior_change"] == 0, row
+                assert row["normal_eager_output_preserved"] == 1, row
+                assert row["input_shape"] == list(shape), row
+                assert row["output_shape"] == list(shape), row
+                assert row["output_check_max_abs"] <= 1e-5, row
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG": log_path,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan runtime unary live elementwise-chain probe failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_mixed_unary_*.spv")))
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_elementwise_live_chain_probe_executes_mixed_chain(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest("glslc is required for runtime mixed-chain POC.")
+
+        log_name = "vulkan_runtime_elementwise_mixed_live_chain_test.jsonl"
+        cache_name = "vulkan_runtime_elementwise_mixed_live_chain_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import json
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_mixed_live_chain_seed={seed}", flush=True)
+                rank = rng.randint(1, 4)
+                shape = tuple(rng.randint(2, 11) for _ in range(rank))
+                x_cpu = torch.randn(shape, dtype=torch.float32) * 0.25
+                rhs_cpu = torch.randn(shape, dtype=torch.float32) * 0.25
+                expected = torch.sqrt(torch.exp(torch.neg(x_cpu + rhs_cpu)) * 0.5)
+                with torch.inference_mode():
+                    y = x_cpu.to("vulkan")
+                    rhs = rhs_cpu.to("vulkan")
+                    y = y + rhs
+                    y = torch.neg(y)
+                    y = torch.exp(y)
+                    y = y * 0.5
+                    y = torch.sqrt(y)
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        expected,
+                        atol=1e-5,
+                        rtol=1e-5)
+
+                with open(
+                    os.environ["PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG"],
+                    encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                assert records, "missing mixed live-chain records"
+                expected_ops = ["add", "neg", "exp", "mul", "sqrt"]
+                expected_kinds = ["tensor", "unary", "unary", "tensor", "unary"]
+                accepted = [
+                    row for row in records
+                    if row["source"] == "mixed_elementwise_live_chain" and
+                    row["status"] == "executed" and
+                    row["ops"] == expected_ops and
+                    row["operand_kinds"] == expected_kinds
+                ]
+                assert accepted, records
+                row = accepted[-1]
+                assert row["tensor_rhs_count"] == 2, row
+                assert row["scalar_rhs_count"] == 0, row
+                assert row["behavior_change"] == 0, row
+                assert row["normal_eager_output_preserved"] == 1, row
+                assert row["input_shape"] == list(shape), row
+                assert row["output_shape"] == list(shape), row
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG": log_path,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan runtime mixed live elementwise-chain probe failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_mixed_*.spv")))
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_command_list_plan_poc_logs_elementwise_chain(self):
+        log_name = "vulkan_runtime_command_list_plan_test.jsonl"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(2611)
+                x_cpu = torch.randn(3, 11, dtype=torch.float32)
+                a_cpu = torch.randn(3, 11, dtype=torch.float32)
+                b_cpu = torch.randn(3, 11, dtype=torch.float32)
+                c_cpu = torch.randn(3, 11, dtype=torch.float32)
+                x = x_cpu.to("vulkan")
+                a = a_cpu.to("vulkan")
+                b = b_cpu.to("vulkan")
+                c = c_cpu.to("vulkan")
+                with torch.inference_mode():
+                    y = ((x + a) * b) - c
+                    actual = y.cpu()
+                expected = ((x_cpu + a_cpu) * b_cpu) - c_cpu
+                torch.testing.assert_close(actual, expected)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG": log_path},
+                error_prefix=(
+                    "Vulkan runtime command-list POC test failed."
+                ),
+            )
+
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                rows = [
+                    json.loads(line)
+                    for line in log_file
+                    if line.strip()
+                ]
+            plan_rows = [
+                row for row in rows
+                if row.get("schema") ==
+                "VulkanRuntimeCommandListPlanTrace.v0"
+            ]
+            self.assertGreaterEqual(len(plan_rows), 1)
+            row = plan_rows[0]
+            self.assertEqual(row["status"], "planned_not_executed")
+            self.assertEqual(row["family"], "ElementwiseChain")
+            self.assertEqual(row["operand_kind"], "tensor_buffer")
+            self.assertEqual(row["ops"], ["add", "mul", "sub"])
+            self.assertEqual(row["op_arities"], ["binary", "binary", "binary"])
+            self.assertEqual(
+                row["op_operand_kinds"],
+                ["tensor_buffer", "tensor_buffer", "tensor_buffer"],
+            )
+            self.assertEqual(row["tensor_rhs_count"], 3)
+            self.assertEqual(row["scalar_rhs_count"], 0)
+            self.assertEqual(row["unary_count"], 0)
+            self.assertEqual(row["boundary_kind"], "host_readback")
+            self.assertEqual(row["reason"], "vulkan_to_cpu_copy")
+            self.assertEqual(row["descriptor_set_count"], 1)
+            self.assertEqual(row["descriptor_binding_count"], 6)
+            self.assertEqual(
+                row["descriptor_slots"],
+                [
+                    "binding0:storage_buffer_write:output",
+                    "binding1:storage_buffer_read:input0",
+                    "binding2:storage_buffer_read:rhs0",
+                    "binding3:storage_buffer_read:rhs1",
+                    "binding4:storage_buffer_read:rhs2",
+                    "binding5:uniform_buffer:params",
+                ],
+            )
+            self.assertEqual(row["layout_contract"], "direct_dense_buffer_required")
+            self.assertEqual(
+                row["descriptor_layout_signature"],
+                "raw_dense_elementwise_params_ubo_v0",
+            )
+            self.assertEqual(row["shape_policy"], "runtime_numel_params_ubo")
+            self.assertEqual(row["params_binding"], "uniform_buffer_required")
+            self.assertEqual(row["push_constants_supported"], 0)
+            self.assertEqual(row["params"], ["numel:uint32"])
+            self.assertEqual(
+                row["commands"],
+                [
+                    "bind_compute_pipeline",
+                    "bind_descriptor_set",
+                    "bind_params_uniform_buffer",
+                    "dispatch_numel_1d",
+                ],
+            )
+            self.assertExpectedInline(
+                sorted(row["missing_execution_prerequisites"]),
+                """['alias_escape_proof', 'deferred_tensor_handle_capture', 'generated_output_allocation', 'params_uniform_buffer_executor', 'runtime_shader_executor_hook']""",  # noqa: B950
+            )
+            self.assertEqual(row["requires_deferred_tensor_handles"], 1)
+            self.assertEqual(row["requires_output_allocation"], 1)
+            self.assertEqual(row["requires_alias_escape_proof"], 1)
+            self.assertEqual(row["execution_enabled"], 0)
+            self.assertEqual(row["behavior_change"], "0")
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_runtime_command_list_plan_poc_logs_multi_dispatch_region(self):
+        log_name = "vulkan_runtime_command_list_multi_plan_test.jsonl"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+                import torch.nn.functional as F
+
+                torch.manual_seed(2613)
+                x_cpu = torch.randn(1, 4, 12, 10, dtype=torch.float32)
+                a_cpu = torch.randn(1, 4, 12, 10, dtype=torch.float32)
+                x = x_cpu.to("vulkan")
+                a = a_cpu.to("vulkan")
+                with torch.inference_mode():
+                    y = F.interpolate(
+                        x + a,
+                        scale_factor=2,
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                    actual = y.cpu()
+                expected = F.interpolate(
+                    x_cpu + a_cpu,
+                    scale_factor=2,
+                    mode="bilinear",
+                    align_corners=False,
+                )
+                torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG": log_path},
+                error_prefix=(
+                    "Vulkan runtime multi-dispatch command-list POC test failed."
+                ),
+            )
+
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                rows = [
+                    json.loads(line)
+                    for line in log_file
+                    if line.strip()
+                ]
+            plan_rows = [
+                row for row in rows
+                if row.get("schema") ==
+                "VulkanRuntimeCommandListPlanTrace.v0" and
+                row.get("family") == "UpsampleCommandListRegion"
+            ]
+            self.assertGreaterEqual(len(plan_rows), 1)
+            row = plan_rows[0]
+            self.assertEqual(row["status"], "planned_not_executed")
+            self.assertEqual(row["operand_kind"], "multi_dispatch_region")
+            self.assertEqual(row["shader_family"], "multi_dispatch_existing_kernels")
+            self.assertEqual(row["layout_contract"], "per_op_contracts_required")
+            self.assertEqual(row["shape_policy"], "runtime_descriptors_per_op")
+            self.assertIn("aten::binary_op.submit", row["op_tokens"])
+            self.assertIn("contains_elementwise", row["subfamily_tags"])
+            self.assertIn("contains_upsample", row["subfamily_tags"])
+            self.assertIn("dispatch_existing_elementwise", row["commands"])
+            self.assertIn("dispatch_existing_upsample", row["commands"])
+            self.assertExpectedInline(
+                sorted(row["missing_execution_prerequisites"]),
+                """['alias_escape_proof', 'barrier_plan_executor', 'deferred_tensor_handle_capture', 'descriptor_binding_capture', 'producer_consumer_edge_capture', 'region_output_ownership']""",  # noqa: B950
+            )
+            self.assertEqual(row["requires_deferred_tensor_handles"], 1)
+            self.assertEqual(row["requires_output_allocation"], 1)
+            self.assertEqual(row["requires_alias_escape_proof"], 1)
+            self.assertEqual(row["execution_enabled"], 0)
+            self.assertEqual(row["behavior_change"], "0")
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_runtime_command_list_plan_poc_logs_device_copy_chain(self):
+        log_name = "vulkan_runtime_command_list_copy_plan_test.jsonl"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(2612)
+                src_cpu = torch.randn(5, 7, dtype=torch.float32)
+                src = src_cpu.to("vulkan")
+                dst = torch.empty_like(src)
+                with torch.inference_mode():
+                    dst.copy_(src)
+                    actual = dst.cpu()
+                torch.testing.assert_close(actual, src_cpu)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG": log_path},
+                error_prefix=(
+                    "Vulkan runtime command-list copy POC test failed."
+                ),
+            )
+
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                rows = [
+                    json.loads(line)
+                    for line in log_file
+                    if line.strip()
+                ]
+            plan_rows = [
+                row for row in rows
+                if row.get("schema") ==
+                "VulkanRuntimeCommandListPlanTrace.v0" and
+                row.get("family") == "DeviceCopyChain"
+            ]
+            self.assertGreaterEqual(len(plan_rows), 1)
+            row = plan_rows[0]
+            self.assertEqual(row["status"], "planned_not_executed")
+            self.assertEqual(row["copy_count"], 1)
+            self.assertEqual(
+                row["group_key"],
+                "DeviceCopyChain:buffer_to_buffer_direct_transfer"
+                if row["direct_transfer_only"]
+                else "DeviceCopyChain:buffer_to_buffer",
+            )
+            self.assertEqual(row["operand_kind"], "buffer_to_buffer")
+            self.assertEqual(row["shader_family"], "none_copy_command_list")
+            self.assertEqual(row["layout_contract"], "buffer_copy_required")
+            self.assertEqual(row["shape_policy"], "runtime_byte_range")
+            self.assertEqual(row["descriptor_set_count"], 0)
+            self.assertEqual(row["descriptor_binding_count"], 0)
+            self.assertEqual(
+                row["commands"],
+                [
+                    "insert_copy_read_barrier",
+                    "copy_buffer_to_buffer",
+                    "insert_copy_write_barrier",
+                ],
+            )
+            self.assertExpectedInline(
+                sorted(row["missing_execution_prerequisites"]),
+                """['alias_escape_proof', 'copy_command_executor_hook', 'deferred_tensor_handle_capture', 'source_destination_identity_capture']""",  # noqa: B950
+            )
+            self.assertEqual(row["requires_deferred_tensor_handles"], 1)
+            self.assertEqual(row["requires_output_allocation"], 0)
+            self.assertEqual(row["requires_alias_escape_proof"], 1)
+            self.assertEqual(row["execution_enabled"], 0)
+            self.assertEqual(row["behavior_change"], "0")
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
+    def test_deferred_execution_log_records_bridge_flush(self):
+        log_name = "vulkan_deferred_execution_test.jsonl"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import json
+                import os
+                import torch
+
+                torch.manual_seed(41)
+                image_cpu = torch.randint(
+                    0,
+                    255,
+                    (72, 80, 3),
+                    dtype=torch.uint8,
+                ).float()
+                mean_cpu = torch.tensor([0.485, 0.456, 0.406])
+                std_cpu = torch.tensor([0.229, 0.224, 0.225])
+
+                image = image_cpu.to("vulkan")
+                mean = mean_cpu.to("vulkan")
+                std = std_cpu.to("vulkan")
+                normalized = ((image / 255.0) - mean) / std
+                actual = normalized.cpu()
+                expected = ((image_cpu / 255.0) - mean_cpu) / std_cpu
+                torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)
+
+                with open(os.environ["PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG"], encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+
+                bridge_events = [
+                    record for record in records
+                    if record["event"] == "deferred_bridge_event"
+                ]
+                assert bridge_events, records
+                assert any(
+                    record["family"] == "ImageNormalizeDeferredBridge"
+                    and record["action"] == "defer_scale"
+                    for record in bridge_events
+                ), bridge_events
+                assert any(
+                    record["family"] == "ImageNormalizeDeferredBridge"
+                    and record["action"] == "defer_mean"
+                    for record in bridge_events
+                ), bridge_events
+                assert any(
+                    record["family"] == "ImageNormalizeDeferredBridge"
+                    and record["action"] == "defer_std"
+                    for record in bridge_events
+                ), bridge_events
+                assert any(
+                    record["family"] == "ImageNormalizeDeferredBridge"
+                    and record["action"] == "fused"
+                    for record in bridge_events
+                ), bridge_events
+
+                flush_events = [
+                    record for record in records
+                    if record["event"] == "deferred_region_flush"
+                ]
+                assert flush_events, records
+                assert any(
+                    record["boundary_kind"] in {
+                        "host_readback",
+                        "synchronize_stream",
+                        "synchronize_device",
+                    }
+                    and record["pending_deferred_event_count"] > 0
+                    for record in flush_events
+                ), flush_events
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG": log_name},
+                error_prefix="Vulkan deferred execution log test failed.",
+            )
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
 
     def _skip_if_repo_subprocess_cannot_import(
             self,
@@ -18591,6 +19617,70 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertGreater(submit_origins["host_upload"], 0)
         self.assertEqual(submit_origins["tensor_cpu_readback"], 0)
         self.assertEqual(x_vulkan.device.type, "vulkan")
+
+    def test_pending_command_flush_submit_origin_is_not_readback(self):
+        torch.manual_seed(2604)
+        x = torch.randn(4, 8).to("vulkan")
+        weight = torch.randn(16, 8).to("vulkan")
+        bias = torch.randn(16).to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+
+        with torch.inference_mode():
+            y = F.linear(x, weight, bias)
+
+        submit_origins = _vulkan_submit_origin_counters_by_name()
+        self.assertGreater(submit_origins["pending_command_flush"], 0)
+        self.assertEqual(submit_origins["tensor_cpu_readback"], 0)
+        self.assertEqual(y.device.type, "vulkan")
+
+    def test_linear_pending_flush_deferral_canary_preserves_correctness(self):
+        script = f"""
+            import torch
+            import torch.nn.functional as F
+
+            SUBMIT_ORIGIN_NAMES = {list(VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES)!r}
+
+            def submit_origin_counters():
+                return dict(zip(
+                    SUBMIT_ORIGIN_NAMES,
+                    torch.ops.vulkan_prepack.submit_origin_counters(),
+                ))
+
+            torch.manual_seed(2605)
+            x_cpu = torch.randn(6, 8)
+            weight_cpu = torch.randn(16, 8)
+            bias_cpu = torch.randn(16)
+            x = x_cpu.to("vulkan")
+            weight = weight_cpu.to("vulkan")
+            bias = bias_cpu.to("vulkan")
+
+            torch.ops.vulkan_prepack.reset_submit_origin_counters()
+            with torch.inference_mode():
+                y = F.linear(x, weight, bias)
+
+            before_cpu = submit_origin_counters()
+            assert before_cpu["pending_command_flush"] == 0, before_cpu
+            assert before_cpu["tensor_cpu_readback"] == 0, before_cpu
+            assert y.device.type == "vulkan"
+
+            actual = y.cpu()
+            expected = F.linear(x_cpu, weight_cpu, bias_cpu)
+            torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)
+
+            after_cpu = submit_origin_counters()
+            assert after_cpu["pending_command_flush"] == 0, after_cpu
+            assert after_cpu["tensor_cpu_readback"] > 0, after_cpu
+        """
+        self._run_repo_python_subprocess(
+            script,
+            extra_env={
+                "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL": "linear",
+            },
+            error_prefix=(
+                "Vulkan linear pending-flush deferral canary test failed."
+            ),
+        )
 
     def test_tensor_cpu_readback_submit_origin_stays_readback(self):
         torch.manual_seed(2602)

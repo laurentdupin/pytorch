@@ -1,6 +1,122 @@
 # Vulkan Current State
 
 Last refreshed: 2026-07-04 at local dynamic program runtime expansion:
+`PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
+lazy-region capture observer. It does not defer or fuse execution; it records
+the eager Vulkan op-hit chain and flushes that chain when a mandatory access
+boundary is reached (`device_copy`, host upload/readback, CPU fallback,
+sync-readback, stream exchange/flush, internal pending-command flush, event
+record/block/synchronize, or explicit stream/device synchronize). This provides
+the ordered candidate region that a future runtime region compiler would need
+before any behavior-changing lazy tensor/proxy work.
+`PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG=<path>` now records the central lifecycle
+for existing deferred bridges (`image_normalize`, `linear_gelu`,
+`add_layer_norm`, `layer_scale`, attention query-scale, and decomposed
+attention). It emits `VulkanDeferredExecutionTrace.v0` bridge events and flush
+records at the same mandatory boundaries as the lazy-chain observer. This is
+still behavior-neutral; it does not introduce a broad lazy tensor executor, but
+it gives the next deferred runtime command-list task a single trace surface
+instead of parsing bridge-specific op-hit strings.
+`PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG=<path>` together with
+`PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR=<dir>` is now the first
+behavior-neutral runtime shader generation POC. At a mandatory flush boundary,
+the lazy-chain observer recognizes resident tensor-buffer `ElementwiseChain`
+groups across binary `add`/`sub`/`mul`/`div`/`floor_divide`/`pow` and unary
+`exp`/`sqrt`/`log`/`sin`/`cos`/`neg`/`rsqrt`/`silu`, writes generated GLSL into
+the cache directory, and invokes
+`PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC=<path-to-glslc>` when provided to produce
+and validate SPIR-V. The generated trace row is
+`VulkanRuntimeShaderCompileTrace.v0` with `behavior_change=0`: normal eager
+dispatch still runs, no generated pipeline is bound, and no tensor SSA executor
+exists yet. The focused live-chain test uses `add -> mul -> sub -> div -> pow`;
+the generator can emit the unary ops listed above, but current eager unary
+kernels may cut the natural chain with `tensor_to_contiguous` device-copy
+boundaries.
+`PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG=<path>` now records the matching
+behavior-neutral generated command-list plan for the same `ElementwiseChain`
+backlog. The `VulkanRuntimeCommandListPlanTrace.v0` row names the program key,
+runtime shape policy, descriptor slots, params-uniform-buffer requirement,
+push-constant support status, barriers, and command sequence
+(`bind_compute_pipeline`, `bind_descriptor_set`, `bind_params_uniform_buffer`,
+`dispatch_numel_1d`). It explicitly records `execution_enabled=0` and the
+missing execution prerequisites because the current backlog still lacks
+deferred tensor SSA handles, output allocation ownership, a generated-shader
+executor hook, params-UBO executor plumbing, and alias/escape proof.
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG=<path>` now bridges the
+explicit generated-shader executor to ordinary eager elementwise chains for
+the narrow fp32 Vulkan buffer case where the root/output shape is stable and
+each tensor RHS is broadcast-compatible with that shape. The
+`aten::binary_op.buffer_float` and `unary_op_buffer` routes now share a mixed
+live-chain recorder over binary `add`/`mul`/`sub`/`div` steps and unary
+`exp`/`sqrt`/`log`/`sin`/`cos`/`neg`/`reciprocal`/`rsqrt`/`silu` steps. This
+includes Python scalar literals when eager represents them as rank-0 Vulkan
+buffer operands. The shared recorder captures logical eager input/RHS/output
+tensor handles and op names; with
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE=1`, it submits the generated
+runtime elementwise-chain shader as a sidecar proof once a chain reaches two or
+more ops. The trace row is
+`VulkanRuntimeElementwiseLiveChainTrace.v0` and records
+`behavior_change=0` / `normal_eager_output_preserved=1`: normal eager dispatch
+still produces the returned tensor, and the generated chain output is not used
+for user-visible execution. Focused random-shape coverage now includes pure
+unary `neg -> exp -> sqrt` and mixed `add -> neg -> exp -> mul -> sqrt` chains.
+Mixed scalar UBO steps, alias proof, output ownership, and flush-time
+replacement remain future runtime command-list work rather than hidden
+behavior. The sidecar is opt-in and may retain eager tensor handles for the
+proof dispatch; production replacement must use metadata snapshots and weak
+storage validation before it can own outputs or retire resources.
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT=1` is diagnostic-only
+and reads back the sidecar/eager outputs to log `output_check_max_abs` for
+parity tests, not for performance runs.
+`api::ShaderInfo` now also has an owned-SPIR-V construction path so future
+runtime-generated programs can hand stable bytes to the shader module cache;
+static registered shaders keep the existing pointer/size cache identity.
+The same command-list trace now recognizes `DeviceCopyChain` candidates for
+Vulkan buffer-to-buffer `copy_` work with
+`shader_family=none_copy_command_list`, so copy/materialization backlog can be
+cataloged separately from generated compute-shader chains.
+It also logs non-elementwise flush backlogs as full multi-dispatch region
+candidates such as `ConvPrepackUploadCommandListRegion`,
+`DecoderConvUpsampleCatCommandListRegion`, `LinearGeluMlpCommandListRegion`,
+`PatchEmbedFeatureMapToTokensCommandListRegion`,
+`PointwiseUpsampleCommandListRegion`, `ResidualNormCommandListRegion`,
+`TokenPrefixBackboneCommandListRegion`, `TransformerBlockCommandListRegion`,
+`UpsampleCommandListRegion`, `VisionPatchTokenPrepCommandListRegion`, and
+`ObservedMultiOpCommandListRegion`.
+Those rows describe command lists built from existing Vulkan kernels and fail
+closed on missing deferred tensor handles, producer/consumer edge capture,
+descriptor binding capture, barrier execution, region output ownership, and
+alias/escape proof. They also carry subfamily tags for copy/transfer,
+elementwise, conv/prepack, patch/token layout, upsample, attention/BMM, linear,
+GELU, norm, cat, and token-prefix content. This prevents a long mixed chain from
+being mislabeled as a small inner arithmetic shader candidate.
+The old replay/compiled-session execution surface is now quarantined under
+`docs/vulkan/REPLAY_RETIREMENT.md`. The DAv2 benchmark no longer exposes
+`compiled_session_bridge` as a selectable stack-output bridge mode, and
+governance freezes the current public `vulkan_prepack::*replay*bridge` /
+`*compiled_session*bridge` API set. Replay diagnostics and stale-tensor safety
+checks remain available only as migration evidence while generated command-list
+regions become the replacement path.
+Internal `flush_pending_cmds` cuts now use submit origin
+`pending_command_flush` instead of `tensor_cpu_readback` and carry a
+first-class `PendingCommandFlushReason`, separating eager linear/addmm submits,
+replay input-upload visibility, replay warmup, replay submit guards, vision
+output materialization, stack replay step submit guards, and temporary-clone
+lifetime protection. The trace can now show why a natural lazy chain was cut
+instead of collapsing all internal submits into one opaque boundary or polluting
+readback counters.
+`PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL=linear` is now the first
+classification-driven behavior canary. It can skip the immediate plain
+`aten::linear` pending-command flush only in inference mode when the packed
+linear context is persistent and retained by the canary's bounded pending
+context owner. It leaves `addmm`, raw-direct linear, linear+GELU, repeat
+lifetime protection, replay warmup, replay submit guards, and output
+materialization unchanged. If the retention budget is exhausted, the canary
+fails closed and the existing `linear_eager_submit` flush runs.
+A focused DepthExtractor DAv2 `vits_140` image smoke with this canary accepted
+48 plain-linear deferrals, removed all `flush_pending_cmds` lazy-chain
+boundaries from that run, and matched the default depth output bit-for-bit
+(`max_abs=0`, `mean_abs=0`).
 `SmallSpatialPointwiseConvContract` `GenericDynamicHW` is the first adaptive pointwise
 example, admitting legal fp32 direct-buffer 1x1 conv with unseen batch/H/W
 under semantic 1x1/direct-buffer guards and routing it through the existing

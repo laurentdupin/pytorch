@@ -424,6 +424,8 @@ utils::TransitionReason readback_transition_reason_for_phase() {
 }
 
 void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
+  api::flush_vulkan_lazy_chain_boundary(
+      "device_copy", buffer_copy_reason_name(decision.reason));
   if (!utils::transition_logging_enabled()) {
     return;
   }
@@ -471,6 +473,7 @@ void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
 }
 
 void log_host_upload_transition(const Tensor& src, const vTensor& dst) {
+  api::flush_vulkan_lazy_chain_boundary("host_upload", "cpu_to_vulkan_copy");
   if (!utils::transition_logging_enabled()) {
     return;
   }
@@ -509,6 +512,8 @@ void log_host_upload_transition(const Tensor& src, const vTensor& dst) {
 }
 
 void log_readback_transition(const vTensor& src, const Tensor& dst) {
+  api::flush_vulkan_lazy_chain_boundary(
+      "host_readback", "vulkan_to_cpu_copy");
   if (!utils::transition_logging_enabled()) {
     return;
   }
@@ -1111,7 +1116,8 @@ void release_retired_objects_after_context_unlock(api::Context* const context) {
   utils::log_vulkan_op_hit("aten::copy_.release_retired_contexts_begin");
   const bool released_retired_objects =
       utils::release_retired_packed_weight_entries() |
-      utils::release_retired_linear_contexts();
+      utils::release_retired_linear_contexts() |
+      release_pending_linear_flush_deferral_contexts();
   utils::log_vulkan_op_hit("aten::copy_.release_retired_contexts_end");
   if (released_retired_objects) {
     utils::log_vulkan_op_hit("aten::copy_.retire_after_release_begin");

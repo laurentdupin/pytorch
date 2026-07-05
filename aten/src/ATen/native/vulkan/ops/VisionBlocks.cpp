@@ -6468,12 +6468,14 @@ std::optional<std::vector<Tensor>> try_run_vision_backbone_stack_compiled_sessio
       replay_bundle.tensor_slot(
           compiled_session_tensor_slot(compiled_bindings, compiled_plan.input_value)),
       input);
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::VisionCompiledSessionInputUpload);
 
   const bool first_record = !replay_bundle.recorded();
   if (first_record) {
     replay_bundle.warmup();
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::VisionCompiledSessionWarmup);
     replay_bundle.record_steps_individually();
   }
   run_recorded_compiled_replay_or_direct_steps(
@@ -7633,7 +7635,8 @@ void run_recorded_compiled_replay_or_direct_steps(
       "CompiledReplaySubmitGuard",
       detail);
   replay_bundle.warmup();
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::CompiledReplaySubmitGuard);
 }
 
 bool run_compiled_session_image_entry_region(
@@ -8096,13 +8099,15 @@ std::optional<Tensor> try_run_vision_decoder_preprocess_head_compiled_session(
             compiled_bindings.input_values[idx])),
         layer_tokens[idx]);
   }
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::VisionCompiledSessionInputUpload);
   const size_t output_slot_idx = compiled_session_tensor_slot(
       compiled_bindings,
       decoder_plan->final_output_value);
   if (first_run) {
     replay_bundle.warmup();
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::VisionCompiledSessionWarmup);
     replay_bundle.record_steps_individually();
     utils::log_vulkan_op_hit(
         "vulkan_prepack::run_vision_decoder_preprocess_head_compiled_session.replay_warmup");
@@ -9517,7 +9522,8 @@ Tensor run_vision_backbone_block_context(
           context.get(),
           vision_replay.program());
       copy_tensor_for_replay(vision_replay.input_slot(), input);
-      api::context()->flush_pending_cmds();
+      api::context()->flush_pending_cmds(
+          api::PendingCommandFlushReason::VisionReplayInputUpload);
 
       if (!vision_replay.recorded()) {
         Tensor warmup_output = utils::create_buffer_tensor(
@@ -9534,7 +9540,8 @@ Tensor run_vision_backbone_block_context(
             graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
             &vision_replay.output_slot());
         copy_tensor_for_replay(warmup_output, vision_replay.output_slot());
-        api::context()->flush_pending_cmds();
+        api::context()->flush_pending_cmds(
+            api::PendingCommandFlushReason::VisionReplayWarmup);
         vision_replay.replay().record([&]() {
           if (graph_scratch.has_value()) {
             graph_scratch->reset();
@@ -9588,7 +9595,8 @@ Tensor run_vision_backbone_block_context(
           &vision_replay.program(),
           graph_scratch.has_value() ? &(*graph_scratch) : nullptr,
           &vision_replay.output_slot());
-      api::context()->flush_pending_cmds();
+      api::context()->flush_pending_cmds(
+          api::PendingCommandFlushReason::VisionReplaySubmitGuard);
       Tensor output = utils::create_buffer_tensor(
           vision_replay.output_slot().sizes(),
           vision_replay.output_slot().scalar_type(),
@@ -9645,7 +9653,8 @@ Tensor run_vision_backbone_block_context(
   if (vision_program_ptr != nullptr) {
     output = materialize_escaping_vulkan_output(
         output, output_device.type() == kVulkan);
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::VisionReplayOutputMaterialization);
   }
   utils::log_vulkan_op_hit("vulkan_prepack::run_vision_backbone_block_context");
   Tensor restored = maybe_restore_tensor(output, output_device, output_dtype);
@@ -10768,7 +10777,8 @@ Tensor run_vision_decoder_fusion_block_context_impl(
         utils::copy_buffer_tensor_direct_(
             *vision_replay.skip_slot(), *skip_tensor);
       }
-      api::context()->flush_pending_cmds();
+      api::context()->flush_pending_cmds(
+          api::PendingCommandFlushReason::VisionReplayInputUpload);
 
       if (!vision_replay.recorded()) {
         Tensor warmup_output = utils::create_buffer_tensor(
@@ -10783,7 +10793,8 @@ Tensor run_vision_decoder_fusion_block_context_impl(
                 target_sizes,
                 context,
                 replay_outputs));
-        api::context()->flush_pending_cmds();
+        api::context()->flush_pending_cmds(
+            api::PendingCommandFlushReason::VisionReplayWarmup);
         vision_replay.replay().record([&]() {
           (void)run_vision_decoder_fusion_block_program(
               vision_replay.input_slot(),
@@ -10822,7 +10833,8 @@ Tensor run_vision_decoder_fusion_block_context_impl(
           target_sizes,
           context,
           replay_outputs);
-      api::context()->flush_pending_cmds();
+      api::context()->flush_pending_cmds(
+          api::PendingCommandFlushReason::VisionReplaySubmitGuard);
       Tensor output = utils::create_buffer_tensor(
           vision_replay.output_slot().sizes(),
           vision_replay.output_slot().scalar_type(),
@@ -11681,7 +11693,8 @@ Tensor run_vision_decoder_head_context_impl(
   copy_tensor_for_replay(vision_replay->layer2_slot(), layer2_buffer);
   copy_tensor_for_replay(vision_replay->layer3_slot(), layer3_buffer);
   copy_tensor_for_replay(vision_replay->layer4_slot(), layer4_buffer);
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::VisionReplayInputUpload);
 
   if (!vision_replay->recorded()) {
     Tensor warmup_output = utils::create_buffer_tensor(
@@ -11702,7 +11715,8 @@ Tensor run_vision_decoder_head_context_impl(
             vision_replay->refinenet2_program(),
             vision_replay->refinenet1_program(),
             vision_replay->output_slot()));
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::VisionReplayWarmup);
     vision_replay->replay().record([&]() {
       (void)run_vision_decoder_head_program(
           vision_replay->layer1_slot(),
@@ -11751,7 +11765,8 @@ Tensor run_vision_decoder_head_context_impl(
       vision_replay->refinenet2_program(),
       vision_replay->refinenet1_program(),
       vision_replay->output_slot());
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::VisionReplaySubmitGuard);
   Tensor output = utils::create_buffer_tensor(
       vision_replay->output_slot().sizes(),
       vision_replay->output_slot().scalar_type(),
@@ -12028,7 +12043,8 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
     utils::copy_buffer_tensor_direct_(
         *decoder_replay.skip_slot(), *decoder_skip_buffer);
   }
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::VisionBundleInputUpload);
 
   const std::string root_label =
       current_graph_capture_label("depth.vision", "depth.vision.graph");
@@ -12109,7 +12125,8 @@ std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(
             decoder_target_sizes,
             decoder_context,
             replay_outputs));
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::VisionBundleWarmup);
     replay_bundle.record();
     utils::log_vulkan_op_hit(
         "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge.replay_warmup");
@@ -12434,7 +12451,8 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
       : "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge";
 
   copy_tensor_for_replay(replays[0].input_slot(), input);
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::VisionStackReplayInputUpload);
 
   const bool first_record = !replay_bundle.recorded();
   for (size_t idx = 0u; idx < replays.size(); ++idx) {
@@ -12468,7 +12486,10 @@ std::vector<Tensor> run_vision_backbone_stack_replay_bundle_bridge_impl(
       }
     }
   }
-  api::context()->flush_pending_cmds();
+  const api::PendingCommandFlushReason stack_step_flush_reason = first_record
+      ? api::PendingCommandFlushReason::VisionStackReplayWarmup
+      : api::PendingCommandFlushReason::VisionStackReplayStepSubmitGuard;
+  api::context()->flush_pending_cmds(stack_step_flush_reason);
   if (first_record) {
     replay_bundle.record_empty();
   }

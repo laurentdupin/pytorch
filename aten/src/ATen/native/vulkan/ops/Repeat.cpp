@@ -47,7 +47,8 @@ Tensor repeat(const Tensor& self, const IntArrayRef repeats) {
     tensor_to_repeat = at::cat(tensor_seq_to_concat, i);
     // cat submits image copies that read from these temporary clones. Submit
     // the command buffer before dropping the only tensor references to them.
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::RepeatTemporaryCloneLifetime);
     tensor_seq_to_concat.clear();
   }
   return tensor_to_repeat;

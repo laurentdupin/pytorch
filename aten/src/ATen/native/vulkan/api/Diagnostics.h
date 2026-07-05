@@ -30,6 +30,11 @@ void mark_vulkan_post_failure_recovery_required();
 bool vulkan_post_failure_recovery_required();
 void clear_vulkan_post_failure_recovery_required();
 
+void note_vulkan_lazy_chain_op(const char* op_name);
+void flush_vulkan_lazy_chain_boundary(
+    const char* boundary_kind,
+    const char* reason);
+
 void log_vulkan_failure(
     VulkanFailureClass failure_class,
     const char* op_name,

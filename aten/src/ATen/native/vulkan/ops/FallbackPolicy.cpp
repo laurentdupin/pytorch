@@ -502,6 +502,10 @@ void report_vulkan_cpu_fallback(
   if (!tensors.empty() && !has_vulkan_tensor(tensors)) {
     return;
   }
+  api::flush_vulkan_lazy_chain_boundary(
+      kind == VulkanCpuFallbackKind::SyncReadback ? "sync_readback"
+                                                  : "cpu_fallback",
+      reason ? reason : fallback_kind_name(kind));
 
   if (kind == VulkanCpuFallbackKind::SyncReadback) {
     sync_readback_counter().fetch_add(1, std::memory_order_relaxed);

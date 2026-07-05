@@ -28389,6 +28389,7 @@ void reset_vulkan_submit_origin_counters() {
   counters.shutdown.store(0u, std::memory_order_relaxed);
   counters.debug_validation.store(0u, std::memory_order_relaxed);
   counters.conv_prepack_upload.store(0u, std::memory_order_relaxed);
+  counters.pending_command_flush.store(0u, std::memory_order_relaxed);
   counters.unknown.store(0u, std::memory_order_relaxed);
 }
 
@@ -28695,6 +28696,9 @@ void note_vulkan_queue_submit(VulkanSubmitOrigin origin) {
     case VulkanSubmitOrigin::ConvPrepackUpload:
       counters.conv_prepack_upload.fetch_add(1u, std::memory_order_relaxed);
       break;
+    case VulkanSubmitOrigin::PendingCommandFlush:
+      counters.pending_command_flush.fetch_add(1u, std::memory_order_relaxed);
+      break;
     case VulkanSubmitOrigin::Unknown:
     default:
       counters.unknown.fetch_add(1u, std::memory_order_relaxed);
@@ -28732,6 +28736,8 @@ const char* submit_origin_name(const VulkanSubmitOrigin origin) {
       return "debug_validation";
     case VulkanSubmitOrigin::ConvPrepackUpload:
       return "conv_prepack_upload";
+    case VulkanSubmitOrigin::PendingCommandFlush:
+      return "pending_command_flush";
     case VulkanSubmitOrigin::Unknown:
     default:
       return "unknown";

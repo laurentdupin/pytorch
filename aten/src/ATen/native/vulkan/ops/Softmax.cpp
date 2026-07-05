@@ -1776,7 +1776,8 @@ Tensor run_attention_runtime_buffer_math_replay_impl(
   copy_tensor_for_attention_replay(attention_replay.query_slot(), query);
   copy_tensor_for_attention_replay(attention_replay.key_slot(), key);
   copy_tensor_for_attention_replay(attention_replay.value_slot(), value);
-  api::context()->flush_pending_cmds();
+  api::context()->flush_pending_cmds(
+      api::PendingCommandFlushReason::AttentionReplayInputUpload);
 
   if (!attention_replay.recorded()) {
     Tensor warmup_output = utils::create_buffer_tensor(
@@ -1791,7 +1792,8 @@ Tensor run_attention_runtime_buffer_math_replay_impl(
         &attention_replay.output_slot());
     copy_tensor_for_attention_replay(
         warmup_output, attention_replay.output_slot());
-    api::context()->flush_pending_cmds();
+    api::context()->flush_pending_cmds(
+        api::PendingCommandFlushReason::AttentionReplayWarmup);
     attention_replay.replay().record([&]() {
       (void)run_attention_runtime_buffer_math_program_impl(
           attention_replay.query_slot(),

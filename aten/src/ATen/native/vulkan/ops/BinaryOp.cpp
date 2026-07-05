@@ -3,6 +3,7 @@
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
+#include <ATen/ops/abs.h>
 #include <ATen/ops/add.h>
 #include <ATen/ops/as_strided.h>
 #include <ATen/ops/bitwise_and.h>
@@ -13,6 +14,7 @@
 #include <ATen/ops/logical_and.h>
 #include <ATen/ops/logical_not.h>
 #include <ATen/ops/logical_or.h>
+#include <ATen/ops/max.h>
 #include <ATen/ops/maximum.h>
 #include <ATen/ops/mul.h>
 #include <ATen/ops/ones_like.h>
@@ -36,7 +38,11 @@
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <c10/util/irange.h>
+#include <exception>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <sstream>
 #include <torch/library.h>
@@ -76,6 +82,617 @@ const char* binary_op_kind_name(const BinaryOpKind op_kind) {
       return "pow";
   }
   return "unknown";
+}
+
+std::string quote_runtime_shader_command_arg(const std::string& value) {
+  std::string quoted = "\"";
+  for (const char ch : value) {
+    if (ch == '"') {
+      quoted += "\\\"";
+    } else {
+      quoted += ch;
+    }
+  }
+  quoted += "\"";
+  return quoted;
+}
+
+std::string runtime_shader_env(const char* name) {
+  const char* value = std::getenv(name);
+  return value == nullptr ? std::string{} : std::string{value};
+}
+
+const char* runtime_elementwise_chain_op_symbol(const std::string& op) {
+  if (op == "add") {
+    return "+";
+  }
+  if (op == "mul") {
+    return "*";
+  }
+  if (op == "sub") {
+    return "-";
+  }
+  if (op == "div") {
+    return "/";
+  }
+  TORCH_CHECK(false, "Unsupported runtime elementwise chain op: ", op);
+  return "";
+}
+
+std::string runtime_elementwise_chain_key(const std::vector<std::string>& ops) {
+  std::ostringstream key;
+  for (const auto idx : c10::irange(ops.size())) {
+    runtime_elementwise_chain_op_symbol(ops[idx]);
+    if (idx > 0) {
+      key << '_';
+    }
+    key << ops[idx];
+  }
+  return key.str();
+}
+
+std::string runtime_elementwise_chain_glsl(
+    const std::vector<std::string>& ops) {
+  TORCH_CHECK(!ops.empty(), "Runtime elementwise chain expects at least one op");
+  TORCH_CHECK(
+      ops.size() <= 16,
+      "Runtime elementwise chain currently supports at most 16 ops");
+
+  std::ostringstream glsl;
+  glsl << R"(#version 450 core
+layout(std430) buffer;
+
+uint coord_to_idx(const uvec4 coord, const uvec4 strides) {
+  const uvec4 linear_terms = coord * strides;
+  return linear_terms.x + linear_terms.y + linear_terms.z + linear_terms.w;
+}
+
+uvec4 idx_to_coord(const uint idx, const uvec4 strides, const uvec4 sizes) {
+  return uvec4(
+      (idx / strides.x) % sizes.x,
+      (idx / strides.y) % sizes.y,
+      (idx / strides.z) % sizes.z,
+      (idx / strides.w) % sizes.w);
+}
+
+layout(set = 0, binding = 0) buffer restrict writeonly OutBuffer {
+  float data[];
+} uOutput;
+layout(set = 0, binding = 1) uniform restrict OutMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+} uOutMeta;
+
+)";
+  for (const auto idx : c10::irange(ops.size() + 1u)) {
+    const size_t buffer_binding = 2u + idx * 2u;
+    const size_t meta_binding = buffer_binding + 1u;
+    glsl << "layout(set = 0, binding = " << buffer_binding
+         << ") buffer restrict readonly InBuffer" << idx << " {\n"
+         << "  float data[];\n"
+         << "} uInput" << idx << ";\n"
+         << "layout(set = 0, binding = " << meta_binding
+         << ") uniform restrict InMeta" << idx << " {\n"
+         << "  uvec4 logical_sizes;\n"
+         << "  uvec4 logical_strides;\n"
+         << "  uvec4 physical_strides;\n"
+         << "  uvec4 info;\n"
+         << "} uInMeta" << idx << ";\n\n";
+  }
+  glsl << R"(layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+)";
+  for (const auto idx : c10::irange(ops.size() + 1u)) {
+    glsl << "float read_input" << idx << "(const uvec4 coord) {\n"
+         << "  const uvec4 read_sizes = max(uInMeta" << idx
+         << ".logical_sizes, uvec4(1));\n"
+         << "  const uvec4 read_coord = min(coord, read_sizes - uvec4(1));\n"
+         << "  const uint read_idx = coord_to_idx(read_coord, uInMeta" << idx
+         << ".physical_strides) + uInMeta" << idx << ".info.w;\n"
+         << "  if (read_idx >= uInMeta" << idx << ".info.z) {\n"
+         << "    return 0.0;\n"
+         << "  }\n"
+         << "  return uInput" << idx << ".data[read_idx];\n"
+         << "}\n\n";
+  }
+  glsl << R"(void zero_width_pack_padding(
+    const uvec4 write_coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (write_coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = write_coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = 0.0;
+    }
+  }
+}
+
+void main() {
+  const uint write_idx = ivec3(gl_GlobalInvocationID).x;
+  const uint out_numel = uOutMeta.info.y;
+  const uint out_buf_length = uOutMeta.info.z;
+  const uint out_storage_offset = uOutMeta.info.w;
+
+  if (write_idx >= out_numel) {
+    return;
+  }
+
+  const uvec4 coord =
+      idx_to_coord(write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
+  float value = read_input0(coord);
+)";
+  for (const auto idx : c10::irange(ops.size())) {
+    glsl << "  value = value " << runtime_elementwise_chain_op_symbol(ops[idx])
+         << " read_input" << (idx + 1u) << "(coord);\n";
+  }
+  glsl << R"(
+  const uint actual_write_idx =
+      coord_to_idx(coord, uOutMeta.physical_strides) + out_storage_offset;
+  if (actual_write_idx < out_buf_length) {
+    uOutput.data[actual_write_idx] = value;
+  }
+
+  zero_width_pack_padding(coord, out_buf_length, out_storage_offset);
+}
+)";
+  return glsl.str();
+}
+
+std::vector<uint32_t> read_runtime_spirv_file(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  TORCH_CHECK(in, "Could not read runtime Vulkan SPIR-V file: ", path.string());
+  in.seekg(0, std::ios::end);
+  const std::streamoff byte_size = in.tellg();
+  TORCH_CHECK(
+      byte_size > 0 &&
+          byte_size % static_cast<std::streamoff>(sizeof(uint32_t)) == 0,
+      "Runtime Vulkan SPIR-V file has invalid byte size: ",
+      path.string());
+  in.seekg(0, std::ios::beg);
+  std::vector<uint32_t> words(
+      static_cast<size_t>(byte_size) / sizeof(uint32_t));
+  in.read(
+      reinterpret_cast<char*>(words.data()),
+      static_cast<std::streamsize>(byte_size));
+  TORCH_CHECK(
+      !words.empty() && words[0] == 0x07230203u,
+      "Runtime Vulkan shader compiler produced invalid SPIR-V: ",
+      path.string());
+  return words;
+}
+
+const std::vector<uint32_t>& runtime_elementwise_chain_spirv(
+    const std::vector<std::string>& ops) {
+  static std::mutex mutex;
+  static std::unordered_map<std::string, std::vector<uint32_t>> cached_spirv;
+  const std::string program_key = runtime_elementwise_chain_key(ops);
+  std::lock_guard<std::mutex> lock(mutex);
+  const auto cache_it = cached_spirv.find(program_key);
+  if (cache_it != cached_spirv.end()) {
+    return cache_it->second;
+  }
+
+  const std::string glslc_path =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC");
+  TORCH_CHECK(
+      !glslc_path.empty(),
+      "vulkan_prepack::runtime_elementwise_chain requires ",
+      "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC to point at glslc");
+
+  std::filesystem::path cache_dir =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR");
+  if (cache_dir.empty()) {
+    cache_dir =
+        std::filesystem::temp_directory_path() / "pytorch_vulkan_runtime_shaders";
+  }
+
+  std::error_code ec;
+  std::filesystem::create_directories(cache_dir, ec);
+  TORCH_CHECK(
+      !ec,
+      "Could not create Vulkan runtime shader cache directory ",
+      cache_dir.string(),
+      ": ",
+      ec.message());
+
+  const std::filesystem::path glsl_path =
+      cache_dir / ("runtime_elementwise_chain_" + program_key + ".glsl");
+  const std::filesystem::path spv_path =
+      cache_dir / ("runtime_elementwise_chain_" + program_key + ".spv");
+  {
+    std::ofstream glsl(glsl_path);
+    TORCH_CHECK(
+        glsl,
+        "Could not write runtime Vulkan GLSL file: ",
+        glsl_path.string());
+    glsl << runtime_elementwise_chain_glsl(ops);
+  }
+
+  std::ostringstream command;
+  command << quote_runtime_shader_command_arg(glslc_path)
+          << " -fshader-stage=compute "
+          << quote_runtime_shader_command_arg(glsl_path.string()) << " -o "
+          << quote_runtime_shader_command_arg(spv_path.string())
+          << " --target-env=vulkan1.3 --target-spv=spv1.6 -Werror";
+#ifdef _WIN32
+  std::string shell_command = "cmd.exe /S /C \"";
+  shell_command += command.str();
+  shell_command += "\"";
+  const int compile_exit_code = std::system(shell_command.c_str());
+#else
+  const int compile_exit_code = std::system(command.str().c_str());
+#endif
+  TORCH_CHECK(
+      compile_exit_code == 0,
+      "Runtime Vulkan shader compilation failed for ",
+      glsl_path.string(),
+      " with exit code ",
+      compile_exit_code);
+
+  const auto insert_result = cached_spirv.emplace(
+      program_key,
+      read_runtime_spirv_file(spv_path));
+  return insert_result.first->second;
+}
+
+bool same_sizes_as(const Tensor& lhs, const Tensor& rhs) {
+  return lhs.sizes().vec() == rhs.sizes().vec();
+}
+
+void check_runtime_elementwise_chain_tensor(
+    const Tensor& tensor,
+    const Tensor& reference,
+    const char* name) {
+  TORCH_CHECK(
+      tensor.is_vulkan(),
+      "runtime_elementwise_chain expects Vulkan tensor ",
+      name);
+  TORCH_CHECK(
+      tensor.scalar_type() == at::kFloat,
+      "runtime_elementwise_chain expects fp32 tensor ",
+      name);
+  TORCH_CHECK(
+      same_sizes_as(tensor, reference) ||
+          utils::broadcast_size(reference, tensor) == reference.sizes().vec(),
+      "runtime_elementwise_chain expects RHS tensors broadcastable to input");
+  const vTensor& v_tensor = convert(tensor);
+  TORCH_CHECK(
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_elementwise_compute(v_tensor) &&
+          !v_tensor.is_quantized(),
+      "runtime_elementwise_chain expects supported Vulkan buffer tensor ",
+      name);
+}
+
+const char* runtime_elementwise_scalar_chain_op_symbol(const std::string& op) {
+  if (op == "add") {
+    return "+";
+  }
+  if (op == "mul") {
+    return "*";
+  }
+  TORCH_CHECK(false, "Unsupported runtime scalar elementwise chain op: ", op);
+  return "";
+}
+
+const char* runtime_elementwise_scalar_component(const size_t idx) {
+  switch (idx) {
+    case 0u:
+      return "x";
+    case 1u:
+      return "y";
+    case 2u:
+      return "z";
+    case 3u:
+      return "w";
+  }
+  TORCH_CHECK(false, "Runtime scalar elementwise chain supports at most 4 ops");
+  return "";
+}
+
+std::string runtime_elementwise_scalar_chain_key(
+    const std::vector<std::string>& ops) {
+  std::ostringstream key;
+  key << "scalar";
+  for (const std::string& op : ops) {
+    runtime_elementwise_scalar_chain_op_symbol(op);
+    key << '_' << op;
+  }
+  return key.str();
+}
+
+std::string runtime_elementwise_scalar_chain_glsl(
+    const std::vector<std::string>& ops) {
+  TORCH_CHECK(
+      !ops.empty(),
+      "Runtime scalar elementwise chain expects at least one op");
+  TORCH_CHECK(
+      ops.size() <= 4,
+      "Runtime scalar elementwise chain currently supports at most 4 ops");
+
+  std::ostringstream glsl;
+  glsl << R"(#version 450 core
+layout(std430) buffer;
+
+uint coord_to_idx(const uvec4 coord, const uvec4 strides) {
+  const uvec4 linear_terms = coord * strides;
+  return linear_terms.x + linear_terms.y + linear_terms.z + linear_terms.w;
+}
+
+uvec4 idx_to_coord(const uint idx, const uvec4 strides, const uvec4 sizes) {
+  return uvec4(
+      (idx / strides.x) % sizes.x,
+      (idx / strides.y) % sizes.y,
+      (idx / strides.z) % sizes.z,
+      (idx / strides.w) % sizes.w);
+}
+
+layout(set = 0, binding = 0) buffer restrict writeonly OutBuffer {
+  float data[];
+} uOutput;
+layout(set = 0, binding = 1) uniform restrict OutMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+} uOutMeta;
+layout(set = 0, binding = 2) buffer restrict readonly InBuffer {
+  float data[];
+} uInput;
+layout(set = 0, binding = 3) uniform restrict InMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+} uInMeta;
+layout(set = 0, binding = 4) uniform restrict ScalarParams {
+  vec4 scalars;
+} uScalars;
+
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+float read_input(const uvec4 coord) {
+  if (!all(lessThan(coord, uInMeta.logical_sizes))) {
+    return 0.0;
+  }
+  const uint read_idx =
+      coord_to_idx(coord, uInMeta.physical_strides) + uInMeta.info.w;
+  if (read_idx >= uInMeta.info.z) {
+    return 0.0;
+  }
+  return uInput.data[read_idx];
+}
+
+void zero_width_pack_padding(
+    const uvec4 write_coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (write_coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = write_coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = 0.0;
+    }
+  }
+}
+
+void main() {
+  const uint write_idx = ivec3(gl_GlobalInvocationID).x;
+  const uint out_numel = uOutMeta.info.y;
+  const uint out_buf_length = uOutMeta.info.z;
+  const uint out_storage_offset = uOutMeta.info.w;
+
+  if (write_idx >= out_numel) {
+    return;
+  }
+
+  const uvec4 coord =
+      idx_to_coord(write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
+  float value = read_input(coord);
+)";
+  for (const auto idx : c10::irange(ops.size())) {
+    glsl << "  value = value "
+         << runtime_elementwise_scalar_chain_op_symbol(ops[idx])
+         << " uScalars.scalars."
+         << runtime_elementwise_scalar_component(idx) << ";\n";
+  }
+  glsl << R"(
+  const uint actual_write_idx =
+      coord_to_idx(coord, uOutMeta.physical_strides) + out_storage_offset;
+  if (actual_write_idx < out_buf_length) {
+    uOutput.data[actual_write_idx] = value;
+  }
+
+  zero_width_pack_padding(coord, out_buf_length, out_storage_offset);
+}
+)";
+  return glsl.str();
+}
+
+const std::vector<uint32_t>& runtime_elementwise_scalar_chain_spirv(
+    const std::vector<std::string>& ops) {
+  static std::mutex mutex;
+  static std::unordered_map<std::string, std::vector<uint32_t>> cached_spirv;
+  const std::string program_key = runtime_elementwise_scalar_chain_key(ops);
+  std::lock_guard<std::mutex> lock(mutex);
+  const auto cache_it = cached_spirv.find(program_key);
+  if (cache_it != cached_spirv.end()) {
+    return cache_it->second;
+  }
+
+  const std::string glslc_path =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC");
+  TORCH_CHECK(
+      !glslc_path.empty(),
+      "runtime scalar elementwise chain requires ",
+      "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC to point at glslc");
+
+  std::filesystem::path cache_dir =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR");
+  if (cache_dir.empty()) {
+    cache_dir =
+        std::filesystem::temp_directory_path() / "pytorch_vulkan_runtime_shaders";
+  }
+
+  std::error_code ec;
+  std::filesystem::create_directories(cache_dir, ec);
+  TORCH_CHECK(
+      !ec,
+      "Could not create Vulkan runtime shader cache directory ",
+      cache_dir.string(),
+      ": ",
+      ec.message());
+
+  const std::filesystem::path glsl_path =
+      cache_dir / ("runtime_elementwise_chain_" + program_key + ".glsl");
+  const std::filesystem::path spv_path =
+      cache_dir / ("runtime_elementwise_chain_" + program_key + ".spv");
+  {
+    std::ofstream glsl(glsl_path);
+    TORCH_CHECK(
+        glsl,
+        "Could not write runtime Vulkan GLSL file: ",
+        glsl_path.string());
+    glsl << runtime_elementwise_scalar_chain_glsl(ops);
+  }
+
+  std::ostringstream command;
+  command << quote_runtime_shader_command_arg(glslc_path)
+          << " -fshader-stage=compute "
+          << quote_runtime_shader_command_arg(glsl_path.string()) << " -o "
+          << quote_runtime_shader_command_arg(spv_path.string())
+          << " --target-env=vulkan1.3 --target-spv=spv1.6 -Werror";
+#ifdef _WIN32
+  std::string shell_command = "cmd.exe /S /C \"";
+  shell_command += command.str();
+  shell_command += "\"";
+  const int compile_exit_code = std::system(shell_command.c_str());
+#else
+  const int compile_exit_code = std::system(command.str().c_str());
+#endif
+  TORCH_CHECK(
+      compile_exit_code == 0,
+      "Runtime Vulkan scalar shader compilation failed for ",
+      glsl_path.string(),
+      " with exit code ",
+      compile_exit_code);
+
+  const auto insert_result = cached_spirv.emplace(
+      program_key,
+      read_runtime_spirv_file(spv_path));
+  return insert_result.first->second;
+}
+
+Tensor run_runtime_elementwise_scalar_chain(
+    const Tensor& input,
+    const std::vector<float>& scalars,
+    const std::vector<std::string>& ops) {
+  TORCH_CHECK(
+      !ops.empty() && ops.size() == scalars.size(),
+      "runtime scalar elementwise chain expects one scalar per op");
+  TORCH_CHECK(
+      ops.size() <= 4,
+      "runtime scalar elementwise chain currently supports 1 to 4 ops");
+  for (const auto idx : c10::irange(ops.size())) {
+    runtime_elementwise_scalar_chain_op_symbol(ops[idx]);
+    TORCH_CHECK(
+        std::isfinite(scalars[idx]),
+        "runtime scalar elementwise chain expects finite scalar values");
+  }
+  check_runtime_elementwise_chain_tensor(input, input, "input");
+
+  api::AllocationScope allocation_scope(
+      "runtime_elementwise_chain.scalar_rhs");
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(input);
+  TORCH_CHECK(
+      v_input.numel() > 0,
+      "runtime scalar elementwise chain expects a non-empty tensor");
+
+  vTensor v_output{
+      context,
+      input.sizes().vec(),
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  const std::vector<uint32_t>& spirv =
+      runtime_elementwise_scalar_chain_spirv(ops);
+  api::ShaderInfo shader_descriptor{
+      "runtime_elementwise_chain." +
+          runtime_elementwise_scalar_chain_key(ops),
+      std::vector<uint32_t>(spirv.begin(), spirv.end()),
+      {
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      },
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  const uvec3 local_size = adaptive_work_group_size(global_size);
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  struct ScalarBlock final {
+    api::utils::vec4 scalars;
+  } block{{{0.0f, 0.0f, 0.0f, 0.0f}}};
+  for (const auto idx : c10::irange(scalars.size())) {
+    block.scalars.data[idx] = scalars[idx];
+  }
+  api::UniformParamsBuffer params(context, block);
+
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::runtime_elementwise_scalar_chain");
+  context->submit_compute_job(
+      shader_descriptor,
+      pipeline_barrier,
+      global_size,
+      local_size,
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "vulkan_prepack::runtime_elementwise_scalar_chain",
+      "runtime_generated_elementwise_scalar_chain",
+      {input});
 }
 
 utils::ElementwiseBroadcastOp elementwise_broadcast_op(
@@ -157,6 +774,1054 @@ void log_binary_submit(
          << " local=[" << local_size.data[0] << 'x' << local_size.data[1]
          << 'x' << local_size.data[2] << ']';
   utils::log_vulkan_op_hit(stream.str());
+}
+
+struct RuntimeElementwiseLiveChain final {
+  Tensor input;
+  std::vector<Tensor> rhs_tensors;
+  std::vector<float> scalar_rhs;
+  std::vector<std::string> ops;
+};
+
+struct RuntimeElementwiseLiveChainState final {
+  std::mutex mutex;
+  std::unordered_map<const void*, RuntimeElementwiseLiveChain> chains;
+  size_t sequence{0};
+};
+
+RuntimeElementwiseLiveChainState& runtime_elementwise_live_chain_state() {
+  static RuntimeElementwiseLiveChainState state;
+  return state;
+}
+
+thread_local bool runtime_elementwise_live_chain_probe_active = false;
+
+bool runtime_elementwise_live_chain_execute_enabled() {
+  const std::string value =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE");
+  return value == "1" || value == "true" || value == "TRUE";
+}
+
+bool runtime_elementwise_live_chain_check_output_enabled() {
+  const std::string value = runtime_shader_env(
+      "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT");
+  return value == "1" || value == "true" || value == "TRUE";
+}
+
+std::string runtime_elementwise_live_chain_log_path() {
+  return runtime_shader_env("PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG");
+}
+
+const char* runtime_elementwise_live_chain_op_name(
+    const BinaryOpKind op_kind) {
+  switch (op_kind) {
+    case BinaryOpKind::Add:
+      return "add";
+    case BinaryOpKind::Sub:
+      return "sub";
+    case BinaryOpKind::Mul:
+      return "mul";
+    case BinaryOpKind::Div:
+      return "div";
+    case BinaryOpKind::FloorDivide:
+    case BinaryOpKind::Pow:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+std::string runtime_json_quote(const std::string& value) {
+  std::string quoted = "\"";
+  for (const char ch : value) {
+    switch (ch) {
+      case '\\':
+        quoted += "\\\\";
+        break;
+      case '"':
+        quoted += "\\\"";
+        break;
+      case '\n':
+        quoted += "\\n";
+        break;
+      case '\r':
+        quoted += "\\r";
+        break;
+      case '\t':
+        quoted += "\\t";
+        break;
+      default:
+        quoted += ch;
+        break;
+    }
+  }
+  quoted += "\"";
+  return quoted;
+}
+
+void append_runtime_string_array(
+    std::ostringstream& out,
+    const std::vector<std::string>& values) {
+  out << '[';
+  for (const auto idx : c10::irange(values.size())) {
+    if (idx > 0) {
+      out << ',';
+    }
+    out << runtime_json_quote(values[idx]);
+  }
+  out << ']';
+}
+
+void append_runtime_operand_kind_array(
+    std::ostringstream& out,
+    const RuntimeElementwiseLiveChain& chain) {
+  out << '[';
+  const char* kind = chain.scalar_rhs.empty() ? "tensor" : "scalar";
+  for (const auto idx : c10::irange(chain.ops.size())) {
+    if (idx > 0) {
+      out << ',';
+    }
+    out << runtime_json_quote(kind);
+  }
+  out << ']';
+}
+
+void append_runtime_shape_array(std::ostringstream& out, IntArrayRef sizes) {
+  out << '[';
+  for (const auto idx : c10::irange(sizes.size())) {
+    if (idx > 0) {
+      out << ',';
+    }
+    out << sizes[idx];
+  }
+  out << ']';
+}
+
+void log_runtime_elementwise_live_chain(
+    const RuntimeElementwiseLiveChain& chain,
+    const Tensor& output,
+    const size_t sequence,
+    const char* status,
+    const bool executed,
+    const std::string& detail) {
+  const std::string log_path = runtime_elementwise_live_chain_log_path();
+  if (log_path.empty()) {
+    return;
+  }
+  std::ofstream log(log_path, std::ios::app);
+  if (!log) {
+    return;
+  }
+  std::ostringstream row;
+  row << "{\"schema\":\"VulkanRuntimeElementwiseLiveChainTrace.v0\"";
+  row << ",\"sequence\":" << sequence;
+  row << ",\"family\":\"ElementwiseChain\"";
+  row << ",\"source\":\"binary_op_tensor_buffer\"";
+  row << ",\"behavior_change\":0";
+  row << ",\"normal_eager_output_preserved\":1";
+  row << ",\"status\":" << runtime_json_quote(status);
+  row << ",\"executed\":" << (executed ? 1 : 0);
+  row << ",\"chain_length\":" << chain.ops.size();
+  row << ",\"ops\":";
+  append_runtime_string_array(row, chain.ops);
+  row << ",\"operand_kinds\":";
+  append_runtime_operand_kind_array(row, chain);
+  row << ",\"tensor_rhs_count\":" << chain.rhs_tensors.size();
+  row << ",\"scalar_rhs_count\":" << chain.scalar_rhs.size();
+  row << ",\"input_shape\":";
+  append_runtime_shape_array(row, chain.input.sizes());
+  row << ",\"output_shape\":";
+  append_runtime_shape_array(row, output.sizes());
+  if (!detail.empty()) {
+    row << ",\"detail\":" << runtime_json_quote(detail);
+  }
+  row << "}\n";
+  log << row.str();
+}
+
+bool runtime_live_chain_same_shape(
+    const Tensor& lhs,
+    const Tensor& rhs,
+    const Tensor& output) {
+  if (lhs.sizes().vec() != output.sizes().vec()) {
+    return false;
+  }
+  try {
+    utils::is_broadcastable(output, rhs);
+    return utils::broadcast_size(output, rhs) == output.sizes().vec();
+  } catch (const c10::Error&) {
+    return false;
+  }
+}
+
+bool runtime_live_chain_alpha_is_one(
+    const std::optional<Scalar>& alpha_arg) {
+  return !alpha_arg.has_value() || alpha_arg->to<float>() == 1.0f;
+}
+
+void maybe_probe_runtime_elementwise_live_chain(
+    const Tensor& self,
+    const Tensor& other,
+    const Tensor& output,
+    const std::optional<Scalar>& alpha_arg,
+    const BinaryOpKind op_kind,
+    const bool used_output_arg) {
+  if (runtime_elementwise_live_chain_probe_active) {
+    return;
+  }
+  const bool execute = runtime_elementwise_live_chain_execute_enabled();
+  if (!execute && runtime_elementwise_live_chain_log_path().empty()) {
+    return;
+  }
+  const char* op_name = runtime_elementwise_live_chain_op_name(op_kind);
+  if (op_name == nullptr || used_output_arg ||
+      !runtime_live_chain_alpha_is_one(alpha_arg) ||
+      !runtime_live_chain_same_shape(self, other, output)) {
+    return;
+  }
+  if (!self.is_vulkan() || !other.is_vulkan() || !output.is_vulkan() ||
+      self.scalar_type() != kFloat || other.scalar_type() != kFloat ||
+      output.scalar_type() != kFloat) {
+    return;
+  }
+
+  RuntimeElementwiseLiveChain chain;
+  size_t sequence = 0;
+  {
+    RuntimeElementwiseLiveChainState& state =
+        runtime_elementwise_live_chain_state();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const void* self_key = self.unsafeGetTensorImpl();
+    auto previous = state.chains.find(self_key);
+    if (previous != state.chains.end()) {
+      if (!previous->second.scalar_rhs.empty()) {
+        return;
+      }
+      chain = previous->second;
+    } else {
+      chain.input = self;
+    }
+    chain.rhs_tensors.push_back(other);
+    chain.ops.emplace_back(op_name);
+    if (chain.ops.size() > 4u) {
+      state.chains.erase(self_key);
+      return;
+    }
+    const void* output_key = output.unsafeGetTensorImpl();
+    state.chains[output_key] = chain;
+    if (state.chains.size() > 256u) {
+      state.chains.erase(state.chains.begin());
+    }
+    sequence = ++state.sequence;
+  }
+
+  bool executed = false;
+  std::string status = "captured";
+  std::string detail;
+  if (execute && chain.ops.size() >= 2u) {
+    runtime_elementwise_live_chain_probe_active = true;
+    try {
+      Tensor generated =
+          run_runtime_elementwise_chain(chain.input, chain.rhs_tensors, chain.ops);
+      (void)generated;
+      executed = true;
+      status = "executed";
+    } catch (const c10::Error& error) {
+      status = "execute_failed";
+      detail = error.what_without_backtrace();
+    } catch (const std::exception& error) {
+      status = "execute_failed";
+      detail = error.what();
+    } catch (...) {
+      status = "execute_failed";
+      detail = "unknown runtime elementwise live-chain execution error";
+    }
+    runtime_elementwise_live_chain_probe_active = false;
+  }
+  log_runtime_elementwise_live_chain(
+      chain, output, sequence, status.c_str(), executed, detail);
+}
+
+bool runtime_live_scalar_op_supported(const BinaryOpKind op_kind) {
+  return op_kind == BinaryOpKind::Add || op_kind == BinaryOpKind::Mul;
+}
+
+void maybe_probe_runtime_elementwise_live_chain_scalar(
+    const Tensor& self,
+    const Tensor& output,
+    const float scalar,
+    const std::optional<Scalar>& alpha_arg,
+    const BinaryOpKind op_kind) {
+  if (runtime_elementwise_live_chain_probe_active) {
+    return;
+  }
+  const bool execute = runtime_elementwise_live_chain_execute_enabled();
+  if (!execute && runtime_elementwise_live_chain_log_path().empty()) {
+    return;
+  }
+  if (!runtime_live_scalar_op_supported(op_kind) ||
+      !runtime_live_chain_alpha_is_one(alpha_arg) || !std::isfinite(scalar) ||
+      !self.is_vulkan() || !output.is_vulkan() ||
+      self.scalar_type() != kFloat || output.scalar_type() != kFloat ||
+      self.sizes().vec() != output.sizes().vec()) {
+    return;
+  }
+
+  RuntimeElementwiseLiveChain chain;
+  size_t sequence = 0;
+  {
+    RuntimeElementwiseLiveChainState& state =
+        runtime_elementwise_live_chain_state();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const void* self_key = self.unsafeGetTensorImpl();
+    auto previous = state.chains.find(self_key);
+    if (previous != state.chains.end()) {
+      if (!previous->second.rhs_tensors.empty()) {
+        return;
+      }
+      chain = previous->second;
+    } else {
+      chain.input = self;
+    }
+    chain.scalar_rhs.push_back(scalar);
+    chain.ops.emplace_back(binary_op_kind_name(op_kind));
+    if (chain.ops.size() > 4u) {
+      state.chains.erase(self_key);
+      return;
+    }
+    const void* output_key = output.unsafeGetTensorImpl();
+    state.chains[output_key] = chain;
+    if (state.chains.size() > 256u) {
+      state.chains.erase(state.chains.begin());
+    }
+    sequence = ++state.sequence;
+  }
+
+  bool executed = false;
+  std::string status = "captured";
+  std::string detail;
+  if (execute && chain.ops.size() >= 2u) {
+    runtime_elementwise_live_chain_probe_active = true;
+    try {
+      Tensor generated = run_runtime_elementwise_scalar_chain(
+          chain.input, chain.scalar_rhs, chain.ops);
+      (void)generated;
+      executed = true;
+      status = "executed";
+    } catch (const c10::Error& error) {
+      status = "execute_failed";
+      detail = error.what_without_backtrace();
+    } catch (const std::exception& error) {
+      status = "execute_failed";
+      detail = error.what();
+    } catch (...) {
+      status = "execute_failed";
+      detail = "unknown runtime elementwise scalar live-chain execution error";
+    }
+    runtime_elementwise_live_chain_probe_active = false;
+  }
+  log_runtime_elementwise_live_chain(
+      chain, output, sequence, status.c_str(), executed, detail);
+}
+
+enum class RuntimeElementwiseMixedOperandKind : uint8_t {
+  Tensor,
+  Unary,
+};
+
+struct RuntimeElementwiseMixedStep final {
+  RuntimeElementwiseMixedOperandKind operand_kind{
+      RuntimeElementwiseMixedOperandKind::Unary};
+  std::string op;
+  Tensor rhs;
+};
+
+struct RuntimeElementwiseMixedChain final {
+  Tensor input;
+  std::vector<RuntimeElementwiseMixedStep> steps;
+};
+
+struct RuntimeElementwiseMixedChainState final {
+  std::mutex mutex;
+  std::unordered_map<const void*, RuntimeElementwiseMixedChain> chains;
+  size_t sequence{0};
+};
+
+RuntimeElementwiseMixedChainState& runtime_elementwise_mixed_chain_state() {
+  static RuntimeElementwiseMixedChainState state;
+  return state;
+}
+
+bool runtime_elementwise_mixed_unary_supported(const std::string& op) {
+  return op == "exp" || op == "sqrt" || op == "log" || op == "sin" ||
+      op == "cos" || op == "neg" || op == "reciprocal" || op == "rsqrt" ||
+      op == "silu";
+}
+
+std::string runtime_elementwise_mixed_unary_expression(
+    const std::string& op) {
+  if (op == "exp") {
+    return "exp(value)";
+  }
+  if (op == "sqrt") {
+    return "sqrt(value)";
+  }
+  if (op == "log") {
+    return "log(value)";
+  }
+  if (op == "sin") {
+    return "sin(value)";
+  }
+  if (op == "cos") {
+    return "cos(value)";
+  }
+  if (op == "neg") {
+    return "-value";
+  }
+  if (op == "reciprocal") {
+    return "1.0 / value";
+  }
+  if (op == "rsqrt") {
+    return "inversesqrt(value)";
+  }
+  if (op == "silu") {
+    return "value / (1.0 + exp(-value))";
+  }
+  TORCH_CHECK(false, "Unsupported runtime mixed unary op: ", op);
+  return "";
+}
+
+size_t runtime_elementwise_mixed_tensor_rhs_count(
+    const RuntimeElementwiseMixedChain& chain) {
+  size_t count = 0;
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    if (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+bool runtime_elementwise_mixed_supported(
+    const RuntimeElementwiseMixedChain& chain) {
+  if (chain.steps.empty() || chain.steps.size() > 8u) {
+    return false;
+  }
+  if (runtime_elementwise_mixed_tensor_rhs_count(chain) > 4u) {
+    return false;
+  }
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    if (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor) {
+      try {
+        runtime_elementwise_chain_op_symbol(step.op);
+      } catch (const c10::Error&) {
+        return false;
+      }
+    } else if (!runtime_elementwise_mixed_unary_supported(step.op)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::string runtime_elementwise_mixed_chain_key(
+    const RuntimeElementwiseMixedChain& chain) {
+  std::ostringstream key;
+  key << "mixed";
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    key << '_'
+        << (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor
+                ? "tensor"
+                : "unary")
+        << '_' << step.op;
+  }
+  return key.str();
+}
+
+std::string runtime_elementwise_mixed_chain_glsl(
+    const RuntimeElementwiseMixedChain& chain) {
+  TORCH_CHECK(
+      runtime_elementwise_mixed_supported(chain),
+      "Unsupported runtime mixed elementwise chain");
+  const size_t rhs_count = runtime_elementwise_mixed_tensor_rhs_count(chain);
+
+  std::ostringstream glsl;
+  glsl << R"(#version 450 core
+layout(std430) buffer;
+
+uint coord_to_idx(const uvec4 coord, const uvec4 strides) {
+  const uvec4 linear_terms = coord * strides;
+  return linear_terms.x + linear_terms.y + linear_terms.z + linear_terms.w;
+}
+
+uvec4 idx_to_coord(const uint idx, const uvec4 strides, const uvec4 sizes) {
+  return uvec4(
+      (idx / strides.x) % sizes.x,
+      (idx / strides.y) % sizes.y,
+      (idx / strides.z) % sizes.z,
+      (idx / strides.w) % sizes.w);
+}
+
+layout(set = 0, binding = 0) buffer restrict writeonly OutBuffer {
+  float data[];
+} uOutput;
+layout(set = 0, binding = 1) uniform restrict OutMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+} uOutMeta;
+layout(set = 0, binding = 2) buffer restrict readonly InBuffer {
+  float data[];
+} uInput;
+layout(set = 0, binding = 3) uniform restrict InMeta {
+  uvec4 logical_sizes;
+  uvec4 logical_strides;
+  uvec4 physical_strides;
+  uvec4 info;
+} uInMeta;
+
+)";
+  for (const auto idx : c10::irange(rhs_count)) {
+    const size_t buffer_binding = 4u + idx * 2u;
+    const size_t meta_binding = buffer_binding + 1u;
+    glsl << "layout(set = 0, binding = " << buffer_binding
+         << ") buffer restrict readonly RhsBuffer" << idx << " {\n"
+         << "  float data[];\n"
+         << "} uRhs" << idx << ";\n"
+         << "layout(set = 0, binding = " << meta_binding
+         << ") uniform restrict RhsMeta" << idx << " {\n"
+         << "  uvec4 logical_sizes;\n"
+         << "  uvec4 logical_strides;\n"
+         << "  uvec4 physical_strides;\n"
+         << "  uvec4 info;\n"
+         << "} uRhsMeta" << idx << ";\n\n";
+  }
+  glsl << R"(layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+float read_input(const uvec4 coord) {
+  const uint read_idx =
+      coord_to_idx(coord, uInMeta.physical_strides) + uInMeta.info.w;
+  if (read_idx >= uInMeta.info.z) {
+    return 0.0;
+  }
+  return uInput.data[read_idx];
+}
+
+)";
+  for (const auto idx : c10::irange(rhs_count)) {
+    glsl << "float read_rhs" << idx << "(const uvec4 coord) {\n"
+         << "  const uvec4 read_sizes = max(uRhsMeta" << idx
+         << ".logical_sizes, uvec4(1));\n"
+         << "  const uvec4 read_coord = min(coord, read_sizes - uvec4(1));\n"
+         << "  const uint read_idx = coord_to_idx(read_coord, uRhsMeta" << idx
+         << ".physical_strides) + uRhsMeta" << idx << ".info.w;\n"
+         << "  if (read_idx >= uRhsMeta" << idx << ".info.z) {\n"
+         << "    return 0.0;\n"
+         << "  }\n"
+         << "  return uRhs" << idx << ".data[read_idx];\n"
+         << "}\n\n";
+  }
+  glsl << R"(void zero_width_pack_padding(
+    const uvec4 write_coord,
+    const uint out_buf_length,
+    const uint out_storage_offset) {
+  const uint logical_channels = uOutMeta.logical_sizes.x;
+  const uint physical_channels = uOutMeta.physical_strides.y;
+  if (write_coord.x != 0u || logical_channels >= physical_channels) {
+    return;
+  }
+
+  uvec4 pad_coord = write_coord;
+  for (uint c = logical_channels; c < physical_channels; ++c) {
+    pad_coord.x = c;
+    const uint pad_idx =
+        coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
+    if (pad_idx < out_buf_length) {
+      uOutput.data[pad_idx] = 0.0;
+    }
+  }
+}
+
+void main() {
+  const uint write_idx = ivec3(gl_GlobalInvocationID).x;
+  const uint out_numel = uOutMeta.info.y;
+  const uint out_buf_length = uOutMeta.info.z;
+  const uint out_storage_offset = uOutMeta.info.w;
+
+  if (write_idx >= out_numel) {
+    return;
+  }
+
+  const uvec4 coord =
+      idx_to_coord(write_idx, uOutMeta.logical_strides, uOutMeta.logical_sizes);
+  float value = read_input(coord);
+)";
+  size_t rhs_idx = 0;
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    if (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor) {
+      glsl << "  value = value " << runtime_elementwise_chain_op_symbol(step.op)
+           << " read_rhs" << rhs_idx << "(coord);\n";
+      ++rhs_idx;
+    } else {
+      glsl << "  value = "
+           << runtime_elementwise_mixed_unary_expression(step.op) << ";\n";
+    }
+  }
+  glsl << R"(
+  const uint actual_write_idx =
+      coord_to_idx(coord, uOutMeta.physical_strides) + out_storage_offset;
+  if (actual_write_idx < out_buf_length) {
+    uOutput.data[actual_write_idx] = value;
+  }
+
+  zero_width_pack_padding(coord, out_buf_length, out_storage_offset);
+}
+)";
+  return glsl.str();
+}
+
+const std::vector<uint32_t>& runtime_elementwise_mixed_chain_spirv(
+    const RuntimeElementwiseMixedChain& chain) {
+  static std::mutex mutex;
+  static std::unordered_map<std::string, std::vector<uint32_t>> cached_spirv;
+  const std::string program_key = runtime_elementwise_mixed_chain_key(chain);
+  std::lock_guard<std::mutex> lock(mutex);
+  const auto cache_it = cached_spirv.find(program_key);
+  if (cache_it != cached_spirv.end()) {
+    return cache_it->second;
+  }
+
+  const std::string glslc_path =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC");
+  TORCH_CHECK(
+      !glslc_path.empty(),
+      "runtime mixed elementwise chain requires ",
+      "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC to point at glslc");
+
+  std::filesystem::path cache_dir =
+      runtime_shader_env("PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR");
+  if (cache_dir.empty()) {
+    cache_dir =
+        std::filesystem::temp_directory_path() / "pytorch_vulkan_runtime_shaders";
+  }
+
+  std::error_code ec;
+  std::filesystem::create_directories(cache_dir, ec);
+  TORCH_CHECK(
+      !ec,
+      "Could not create Vulkan runtime shader cache directory ",
+      cache_dir.string(),
+      ": ",
+      ec.message());
+
+  const std::filesystem::path glsl_path =
+      cache_dir / ("runtime_elementwise_chain_" + program_key + ".glsl");
+  const std::filesystem::path spv_path =
+      cache_dir / ("runtime_elementwise_chain_" + program_key + ".spv");
+  {
+    std::ofstream glsl(glsl_path);
+    TORCH_CHECK(
+        glsl,
+        "Could not write runtime Vulkan GLSL file: ",
+        glsl_path.string());
+    glsl << runtime_elementwise_mixed_chain_glsl(chain);
+  }
+
+  std::ostringstream command;
+  command << quote_runtime_shader_command_arg(glslc_path)
+          << " -fshader-stage=compute "
+          << quote_runtime_shader_command_arg(glsl_path.string()) << " -o "
+          << quote_runtime_shader_command_arg(spv_path.string())
+          << " --target-env=vulkan1.3 --target-spv=spv1.6 -Werror";
+#ifdef _WIN32
+  std::string shell_command = "cmd.exe /S /C \"";
+  shell_command += command.str();
+  shell_command += "\"";
+  const int compile_exit_code = std::system(shell_command.c_str());
+#else
+  const int compile_exit_code = std::system(command.str().c_str());
+#endif
+  TORCH_CHECK(
+      compile_exit_code == 0,
+      "Runtime Vulkan mixed shader compilation failed for ",
+      glsl_path.string(),
+      " with exit code ",
+      compile_exit_code);
+
+  const auto insert_result = cached_spirv.emplace(
+      program_key,
+      read_runtime_spirv_file(spv_path));
+  return insert_result.first->second;
+}
+
+void append_runtime_mixed_operand_kind_array(
+    std::ostringstream& out,
+    const RuntimeElementwiseMixedChain& chain) {
+  out << '[';
+  for (const auto idx : c10::irange(chain.steps.size())) {
+    if (idx > 0) {
+      out << ',';
+    }
+    out << runtime_json_quote(
+        chain.steps[idx].operand_kind == RuntimeElementwiseMixedOperandKind::Tensor
+            ? "tensor"
+            : "unary");
+  }
+  out << ']';
+}
+
+std::vector<std::string> runtime_elementwise_mixed_ops(
+    const RuntimeElementwiseMixedChain& chain) {
+  std::vector<std::string> ops;
+  ops.reserve(chain.steps.size());
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    ops.push_back(step.op);
+  }
+  return ops;
+}
+
+const char* runtime_elementwise_mixed_source(
+    const RuntimeElementwiseMixedChain& chain) {
+  bool has_tensor = false;
+  bool has_unary = false;
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    has_tensor |= step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor;
+    has_unary |= step.operand_kind == RuntimeElementwiseMixedOperandKind::Unary;
+  }
+  if (has_tensor && has_unary) {
+    return "mixed_elementwise_live_chain";
+  }
+  if (has_unary) {
+    return "unary_op_buffer";
+  }
+  return "binary_op_tensor_buffer";
+}
+
+void log_runtime_elementwise_mixed_live_chain(
+    const RuntimeElementwiseMixedChain& chain,
+    const Tensor& output,
+    const size_t sequence,
+    const char* status,
+    const bool executed,
+    const std::string& detail,
+    const std::optional<double>& output_check_max_abs = std::nullopt) {
+  const std::string log_path = runtime_elementwise_live_chain_log_path();
+  if (log_path.empty()) {
+    return;
+  }
+  std::ofstream log(log_path, std::ios::app);
+  if (!log) {
+    return;
+  }
+  const std::vector<std::string> ops = runtime_elementwise_mixed_ops(chain);
+  const size_t tensor_rhs_count =
+      runtime_elementwise_mixed_tensor_rhs_count(chain);
+  std::ostringstream row;
+  row << "{\"schema\":\"VulkanRuntimeElementwiseLiveChainTrace.v0\"";
+  row << ",\"sequence\":" << sequence;
+  row << ",\"family\":\"ElementwiseChain\"";
+  row << ",\"source\":" << runtime_json_quote(
+      runtime_elementwise_mixed_source(chain));
+  row << ",\"behavior_change\":0";
+  row << ",\"normal_eager_output_preserved\":1";
+  row << ",\"status\":" << runtime_json_quote(status);
+  row << ",\"executed\":" << (executed ? 1 : 0);
+  row << ",\"chain_length\":" << chain.steps.size();
+  row << ",\"ops\":";
+  append_runtime_string_array(row, ops);
+  row << ",\"operand_kinds\":";
+  append_runtime_mixed_operand_kind_array(row, chain);
+  row << ",\"tensor_rhs_count\":" << tensor_rhs_count;
+  row << ",\"scalar_rhs_count\":0";
+  row << ",\"input_shape\":";
+  append_runtime_shape_array(row, chain.input.sizes());
+  row << ",\"output_shape\":";
+  append_runtime_shape_array(row, output.sizes());
+  if (output_check_max_abs.has_value()) {
+    row << ",\"output_check_max_abs\":" << *output_check_max_abs;
+  }
+  if (!detail.empty()) {
+    row << ",\"detail\":" << runtime_json_quote(detail);
+  }
+  row << "}\n";
+  log << row.str();
+}
+
+bool runtime_elementwise_mixed_input_supported(const Tensor& tensor) {
+  if (!tensor.is_vulkan() || tensor.scalar_type() != kFloat) {
+    return false;
+  }
+  const vTensor& v_tensor = convert(tensor);
+  return v_tensor.storage_type() == api::StorageType::BUFFER &&
+      utils::supports_buffer_elementwise_compute(v_tensor) &&
+      !v_tensor.is_quantized();
+}
+
+Tensor run_runtime_elementwise_mixed_chain(
+    const RuntimeElementwiseMixedChain& chain) {
+  TORCH_CHECK(
+      runtime_elementwise_mixed_supported(chain),
+      "Unsupported runtime mixed elementwise chain");
+  TORCH_CHECK(
+      runtime_elementwise_mixed_input_supported(chain.input),
+      "runtime mixed elementwise chain expects a Vulkan fp32 buffer input");
+
+  std::vector<Tensor> rhs_tensors;
+  rhs_tensors.reserve(runtime_elementwise_mixed_tensor_rhs_count(chain));
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    if (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor) {
+      check_runtime_elementwise_chain_tensor(
+          step.rhs, chain.input, "rhs");
+      rhs_tensors.push_back(step.rhs);
+    }
+  }
+
+  api::AllocationScope allocation_scope(
+      "runtime_elementwise_chain.mixed");
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(chain.input);
+  TORCH_CHECK(
+      v_input.numel() > 0,
+      "runtime mixed elementwise chain expects a non-empty tensor");
+
+  vTensor v_output{
+      context,
+      chain.input.sizes().vec(),
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  std::vector<vTensor*> v_rhs;
+  v_rhs.reserve(rhs_tensors.size());
+  for (const Tensor& rhs : rhs_tensors) {
+    v_rhs.push_back(&convert(rhs));
+  }
+
+  std::vector<VkDescriptorType> layout{
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+  };
+  layout.resize(4u + v_rhs.size() * 2u);
+  for (const auto idx : c10::irange(v_rhs.size())) {
+    layout[4u + idx * 2u] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    layout[5u + idx * 2u] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  }
+
+  const std::vector<uint32_t>& spirv =
+      runtime_elementwise_mixed_chain_spirv(chain);
+  api::ShaderInfo shader_descriptor{
+      "runtime_elementwise_chain." + runtime_elementwise_mixed_chain_key(chain),
+      std::vector<uint32_t>(spirv.begin(), spirv.end()),
+      layout,
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  const uvec3 local_size = adaptive_work_group_size(global_size);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  std::vector<api::UniformParamsBuffer> rhs_metas;
+  rhs_metas.reserve(v_rhs.size());
+  for (const vTensor* rhs : v_rhs) {
+    rhs_metas.emplace_back(utils::make_buffer_compute_metadata_ubo(context, *rhs));
+  }
+
+  utils::log_vulkan_op_hit("vulkan_prepack::runtime_mixed_elementwise_chain");
+  if (v_rhs.empty()) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer());
+  } else if (v_rhs.size() == 1u) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer(),
+        v_rhs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[0].buffer());
+  } else if (v_rhs.size() == 2u) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer(),
+        v_rhs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[0].buffer(),
+        v_rhs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[1].buffer());
+  } else if (v_rhs.size() == 3u) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer(),
+        v_rhs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[0].buffer(),
+        v_rhs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[1].buffer(),
+        v_rhs[2]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[2].buffer());
+  } else {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer(),
+        v_rhs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[0].buffer(),
+        v_rhs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[1].buffer(),
+        v_rhs[2]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[2].buffer(),
+        v_rhs[3]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        rhs_metas[3].buffer());
+  }
+
+  std::vector<Tensor> provenance_inputs;
+  provenance_inputs.reserve(rhs_tensors.size() + 1u);
+  provenance_inputs.push_back(chain.input);
+  provenance_inputs.insert(
+      provenance_inputs.end(), rhs_tensors.begin(), rhs_tensors.end());
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "vulkan_prepack::runtime_mixed_elementwise_chain",
+      "runtime_generated_mixed_elementwise_chain",
+      provenance_inputs);
+}
+
+void record_runtime_elementwise_mixed_chain_step(
+    const Tensor& self,
+    const Tensor& output,
+    RuntimeElementwiseMixedStep step) {
+  if (runtime_elementwise_live_chain_probe_active) {
+    return;
+  }
+  const bool execute = runtime_elementwise_live_chain_execute_enabled();
+  if (!execute && runtime_elementwise_live_chain_log_path().empty()) {
+    return;
+  }
+  if (!runtime_elementwise_mixed_input_supported(self) ||
+      !runtime_elementwise_mixed_input_supported(output) ||
+      self.sizes().vec() != output.sizes().vec()) {
+    return;
+  }
+  if (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor &&
+      !runtime_live_chain_same_shape(self, step.rhs, output)) {
+    return;
+  }
+
+  RuntimeElementwiseMixedChain chain;
+  size_t sequence = 0;
+  {
+    RuntimeElementwiseMixedChainState& state =
+        runtime_elementwise_mixed_chain_state();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const void* self_key = self.unsafeGetTensorImpl();
+    auto previous = state.chains.find(self_key);
+    if (previous != state.chains.end()) {
+      chain = previous->second;
+    } else {
+      chain.input = self;
+    }
+    chain.steps.push_back(std::move(step));
+    if (!runtime_elementwise_mixed_supported(chain)) {
+      state.chains.erase(self_key);
+      return;
+    }
+    const void* output_key = output.unsafeGetTensorImpl();
+    state.chains[output_key] = chain;
+    if (state.chains.size() > 256u) {
+      state.chains.erase(state.chains.begin());
+    }
+    sequence = ++state.sequence;
+  }
+
+  bool executed = false;
+  std::string status = "captured";
+  std::string detail;
+  std::optional<double> output_check_max_abs;
+  if (execute && chain.steps.size() >= 2u) {
+    runtime_elementwise_live_chain_probe_active = true;
+    try {
+      Tensor generated = run_runtime_elementwise_mixed_chain(chain);
+      if (runtime_elementwise_live_chain_check_output_enabled()) {
+        const Tensor difference = at::abs(at::sub(generated.cpu(), output.cpu()));
+        output_check_max_abs = at::max(difference).item<double>();
+      }
+      (void)generated;
+      executed = true;
+      status = "executed";
+    } catch (const c10::Error& error) {
+      status = "execute_failed";
+      detail = error.what_without_backtrace();
+    } catch (const std::exception& error) {
+      status = "execute_failed";
+      detail = error.what();
+    } catch (...) {
+      status = "execute_failed";
+      detail = "unknown runtime mixed live-chain execution error";
+    }
+    runtime_elementwise_live_chain_probe_active = false;
+  }
+  log_runtime_elementwise_mixed_live_chain(
+      chain,
+      output,
+      sequence,
+      status.c_str(),
+      executed,
+      detail,
+      output_check_max_abs);
 }
 
 struct DeferredImageNormalizeCandidate final {
@@ -1318,6 +2983,216 @@ Tensor prepare_native_integral_buffer_input(const Tensor& input_arg) {
 
 } // namespace
 
+void note_runtime_elementwise_binary_live_chain(
+    const Tensor& self,
+    const Tensor& other,
+    const Tensor& output,
+    const char* op_name) {
+  if (op_name == nullptr) {
+    return;
+  }
+  RuntimeElementwiseMixedStep step;
+  step.operand_kind = RuntimeElementwiseMixedOperandKind::Tensor;
+  step.op = op_name;
+  step.rhs = other;
+  record_runtime_elementwise_mixed_chain_step(self, output, std::move(step));
+}
+
+void note_runtime_elementwise_unary_live_chain(
+    const Tensor& self,
+    const Tensor& output,
+    const char* op_name) {
+  if (op_name == nullptr || !runtime_elementwise_mixed_unary_supported(op_name)) {
+    return;
+  }
+  RuntimeElementwiseMixedStep step;
+  step.operand_kind = RuntimeElementwiseMixedOperandKind::Unary;
+  step.op = op_name;
+  record_runtime_elementwise_mixed_chain_step(self, output, std::move(step));
+}
+
+Tensor run_runtime_elementwise_chain_add_mul_sub_div(
+    const Tensor& input,
+    const Tensor& add_rhs,
+    const Tensor& mul_rhs,
+    const Tensor& sub_rhs,
+    const Tensor& div_rhs) {
+  return run_runtime_elementwise_chain(
+      input,
+      std::vector<Tensor>{add_rhs, mul_rhs, sub_rhs, div_rhs},
+      std::vector<std::string>{"add", "mul", "sub", "div"});
+}
+
+Tensor run_runtime_elementwise_chain(
+    const Tensor& input,
+    const std::vector<Tensor>& rhs_tensors,
+    const std::vector<std::string>& ops) {
+  TORCH_CHECK(
+      !ops.empty() && ops.size() == rhs_tensors.size(),
+      "runtime_elementwise_chain expects one RHS tensor per op");
+  TORCH_CHECK(
+      ops.size() <= 4,
+      "runtime_elementwise_chain currently supports 1 to 4 tensor RHS ops");
+  check_runtime_elementwise_chain_tensor(input, input, "input");
+  for (const auto idx : c10::irange(rhs_tensors.size())) {
+    runtime_elementwise_chain_op_symbol(ops[idx]);
+    check_runtime_elementwise_chain_tensor(
+        rhs_tensors[idx],
+        input,
+        "rhs");
+  }
+
+  api::AllocationScope allocation_scope(
+      "runtime_elementwise_chain.tensor_rhs");
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(input);
+  TORCH_CHECK(
+      v_input.numel() > 0,
+      "runtime_elementwise_chain expects a non-empty tensor");
+
+  std::vector<vTensor*> v_inputs;
+  v_inputs.reserve(rhs_tensors.size() + 1u);
+  v_inputs.push_back(&v_input);
+  for (const Tensor& rhs : rhs_tensors) {
+    v_inputs.push_back(&convert(rhs));
+  }
+
+  vTensor v_output{
+      context,
+      input.sizes().vec(),
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  std::vector<VkDescriptorType> layout{
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+  };
+  layout.resize(2u + v_inputs.size() * 2u);
+  for (size_t idx = 0u; idx < v_inputs.size(); ++idx) {
+    layout[2u + idx * 2u] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    layout[3u + idx * 2u] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  }
+  const std::vector<uint32_t>& spirv = runtime_elementwise_chain_spirv(ops);
+  api::ShaderInfo shader_descriptor{
+      "runtime_elementwise_chain." + runtime_elementwise_chain_key(ops),
+      std::vector<uint32_t>(spirv.begin(), spirv.end()),
+      layout,
+  };
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()),
+      1u,
+      1u,
+  };
+  const uvec3 local_size = adaptive_work_group_size(global_size);
+
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  std::vector<api::UniformParamsBuffer> input_metas;
+  input_metas.reserve(v_inputs.size());
+  for (const vTensor* v_tensor : v_inputs) {
+    input_metas.emplace_back(
+        utils::make_buffer_compute_metadata_ubo(context, *v_tensor));
+  }
+
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::runtime_elementwise_chain");
+  if (ops.size() == 1u) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_inputs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[0].buffer(),
+        v_inputs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[1].buffer());
+  } else if (ops.size() == 2u) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_inputs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[0].buffer(),
+        v_inputs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[1].buffer(),
+        v_inputs[2]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[2].buffer());
+  } else if (ops.size() == 3u) {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_inputs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[0].buffer(),
+        v_inputs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[1].buffer(),
+        v_inputs[2]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[2].buffer(),
+        v_inputs[3]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[3].buffer());
+  } else {
+    context->submit_compute_job(
+        shader_descriptor,
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_inputs[0]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[0].buffer(),
+        v_inputs[1]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[1].buffer(),
+        v_inputs[2]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[2].buffer(),
+        v_inputs[3]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[3].buffer(),
+        v_inputs[4]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        input_metas[4].buffer());
+  }
+
+  std::vector<Tensor> provenance_inputs;
+  provenance_inputs.reserve(rhs_tensors.size() + 1u);
+  provenance_inputs.push_back(input);
+  provenance_inputs.insert(
+      provenance_inputs.end(),
+      rhs_tensors.begin(),
+      rhs_tensors.end());
+
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "vulkan_prepack::runtime_elementwise_chain",
+      "runtime_generated_elementwise_chain",
+      provenance_inputs);
+}
+
 static Tensor binary_op_tensor_buffer_integral(
     const Tensor& self_arg,
     const Tensor& other_arg,
@@ -1507,8 +3382,11 @@ static Tensor binary_op_scalar_buffer(
       in_meta.buffer(),
       params.buffer());
 
-  return record_tensor_write_and_return(
+  Tensor returned = record_tensor_write_and_return(
       convert(v_output), "aten::binary_op", "scalar_buffer_integral", {self});
+  maybe_probe_runtime_elementwise_live_chain_scalar(
+      self, returned, other_val, alpha_arg, op_kind);
+  return returned;
 }
 
 static Tensor binary_op_scalar_buffer_integral(
@@ -1975,12 +3853,17 @@ static Tensor binary_op_tensor_buffer_impl(
           false);
   const TensorContractProvenance contract_provenance =
       make_tensor_contract_provenance(contract_match.metadata);
-  return record_tensor_write_and_return(
+  Tensor returned = record_tensor_write_and_return(
       output,
       "aten::binary_op",
       "tensor_buffer",
       {self, other},
       contract_match.matched ? &contract_provenance : nullptr);
+  if (!output_arg && runtime_live_chain_alpha_is_one(alpha_arg)) {
+    note_runtime_elementwise_binary_live_chain(
+        self, other, returned, binary_op_kind_name(op_kind));
+  }
+  return returned;
 }
 
 static Tensor binary_op_tensor_buffer(

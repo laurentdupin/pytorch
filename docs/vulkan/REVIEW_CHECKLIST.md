@@ -120,6 +120,10 @@ Use this checklist for Vulkan backend changes.
   accepting a fix, adding a canary, rejecting a slower route, or blocking an
   unsafe/correctness-failed topology. Do not repeat a rejected candidate unless
   its recorded revisit conditions are met.
+- Replay/compiled-session paths are quarantined under
+  `docs/vulkan/REPLAY_RETIREMENT.md`. Do not add new replay benchmark modes,
+  public replay bridge APIs, or replay-backed default routes. New region work
+  should target runtime-generated command lists instead.
 - Rerun the real-model matrix after default backend behavior changes or before
   claiming or raising model gates. Pure docs, spec-helper, or fixture-only
   changes do not require a matrix refresh unless they reveal stale gate claims.

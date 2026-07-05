@@ -12,6 +12,16 @@ namespace {
 constexpr uint32_t kSpvMagic = 0x07230203u;
 constexpr uint32_t kSpvVersion16 = 0x00010600u;
 
+void refresh_owned_spirv_pointer(ShaderInfo& shader_info) {
+  if (shader_info.owned_spirv.empty()) {
+    return;
+  }
+
+  shader_info.src_code.bin = shader_info.owned_spirv.data();
+  shader_info.src_code.size = static_cast<uint32_t>(
+      shader_info.owned_spirv.size() * sizeof(uint32_t));
+}
+
 } // namespace
 
 //
@@ -24,6 +34,100 @@ ShaderInfo::ShaderInfo()
           0u,
       } {}
 
+ShaderInfo::ShaderInfo(const ShaderInfo& other)
+    : src_code{other.src_code},
+      kernel_name{other.kernel_name},
+      kernel_layout{other.kernel_layout},
+      source_path{other.source_path},
+      target_env{other.target_env},
+      spv_version_word{other.spv_version_word},
+      capabilities{other.capabilities},
+      extensions{other.extensions},
+      execution_modes{other.execution_modes},
+      owned_spirv{other.owned_spirv},
+      uses_local_size_id{other.uses_local_size_id},
+      out_tile_size{other.out_tile_size},
+      tile_size{other.tile_size},
+      bias_storage_type{other.bias_storage_type},
+      weight_storage_type{other.weight_storage_type},
+      required_subgroup_size{other.required_subgroup_size},
+      require_full_subgroups{other.require_full_subgroups} {
+  refresh_owned_spirv_pointer(*this);
+}
+
+ShaderInfo& ShaderInfo::operator=(const ShaderInfo& other) {
+  if (this == &other) {
+    return *this;
+  }
+
+  src_code = other.src_code;
+  kernel_name = other.kernel_name;
+  kernel_layout = other.kernel_layout;
+  source_path = other.source_path;
+  target_env = other.target_env;
+  spv_version_word = other.spv_version_word;
+  capabilities = other.capabilities;
+  extensions = other.extensions;
+  execution_modes = other.execution_modes;
+  owned_spirv = other.owned_spirv;
+  uses_local_size_id = other.uses_local_size_id;
+  out_tile_size = other.out_tile_size;
+  tile_size = other.tile_size;
+  bias_storage_type = other.bias_storage_type;
+  weight_storage_type = other.weight_storage_type;
+  required_subgroup_size = other.required_subgroup_size;
+  require_full_subgroups = other.require_full_subgroups;
+  refresh_owned_spirv_pointer(*this);
+  return *this;
+}
+
+ShaderInfo::ShaderInfo(ShaderInfo&& other) noexcept
+    : src_code{other.src_code},
+      kernel_name{std::move(other.kernel_name)},
+      kernel_layout{std::move(other.kernel_layout)},
+      source_path{std::move(other.source_path)},
+      target_env{std::move(other.target_env)},
+      spv_version_word{other.spv_version_word},
+      capabilities{std::move(other.capabilities)},
+      extensions{std::move(other.extensions)},
+      execution_modes{std::move(other.execution_modes)},
+      owned_spirv{std::move(other.owned_spirv)},
+      uses_local_size_id{other.uses_local_size_id},
+      out_tile_size{other.out_tile_size},
+      tile_size{std::move(other.tile_size)},
+      bias_storage_type{other.bias_storage_type},
+      weight_storage_type{other.weight_storage_type},
+      required_subgroup_size{other.required_subgroup_size},
+      require_full_subgroups{other.require_full_subgroups} {
+  refresh_owned_spirv_pointer(*this);
+}
+
+ShaderInfo& ShaderInfo::operator=(ShaderInfo&& other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+
+  src_code = other.src_code;
+  kernel_name = std::move(other.kernel_name);
+  kernel_layout = std::move(other.kernel_layout);
+  source_path = std::move(other.source_path);
+  target_env = std::move(other.target_env);
+  spv_version_word = other.spv_version_word;
+  capabilities = std::move(other.capabilities);
+  extensions = std::move(other.extensions);
+  execution_modes = std::move(other.execution_modes);
+  owned_spirv = std::move(other.owned_spirv);
+  uses_local_size_id = other.uses_local_size_id;
+  out_tile_size = other.out_tile_size;
+  tile_size = std::move(other.tile_size);
+  bias_storage_type = other.bias_storage_type;
+  weight_storage_type = other.weight_storage_type;
+  required_subgroup_size = other.required_subgroup_size;
+  require_full_subgroups = other.require_full_subgroups;
+  refresh_owned_spirv_pointer(*this);
+  return *this;
+}
+
 ShaderInfo::ShaderInfo(
     std::string name,
     const uint32_t* const spirv_bin,
@@ -35,6 +139,20 @@ ShaderInfo::ShaderInfo(
       },
       kernel_name{std::move(name)},
       kernel_layout{std::move(layout)} {}
+
+ShaderInfo::ShaderInfo(
+    std::string name,
+    std::vector<uint32_t> spirv_words,
+    std::vector<VkDescriptorType> layout)
+    : src_code{
+          nullptr,
+          0u,
+      },
+      kernel_name{std::move(name)},
+      kernel_layout{std::move(layout)},
+      owned_spirv{std::move(spirv_words)} {
+  refresh_owned_spirv_pointer(*this);
+}
 
 ShaderInfo::ShaderInfo(
     std::string name,
@@ -73,6 +191,11 @@ ShaderInfo::ShaderInfo(
 }
 
 bool operator==(const ShaderInfo& _1, const ShaderInfo& _2) {
+  if (!_1.owned_spirv.empty() || !_2.owned_spirv.empty()) {
+    return _1.src_code.size == _2.src_code.size &&
+        _1.owned_spirv == _2.owned_spirv;
+  }
+
   return (
       _1.src_code.bin == _2.src_code.bin &&
       _1.src_code.size == _2.src_code.size);
