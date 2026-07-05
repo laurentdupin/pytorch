@@ -275,16 +275,28 @@ on the same standalone shapes while still producing bad model output if their
 inputs are read later across stack-owned lifetime boundaries. A stack single-op
 `mul` execute-at-op-site experiment also failed bridge sanity, and the same
 candidate still failed after `add_buffer_out_vulkan` materialized placeholders
-before its residual add. This makes dynamic generated dispatch inside stack
-planned recording a separate value-preservation and descriptor-ownership
-problem. With `PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1`, stack planned
-recording logs `stack_plan_reject` rows with
-`reason=stack_dynamic_dispatch_value_preservation_unproven`, including candidate
-input/RHS tensor state and provenance, then uses the existing eager path. Normal
+before its residual add. A follow-up A/B materialized the same stack deferred
+single-op `mul` through the existing static registered `VK_KERNEL(buffer_mul)`
+path instead of the runtime-owned SPIR-V path; bridge sanity still failed. This
+makes stack deferred output replacement a value-preservation/input-lifetime
+problem, not a shader-generation-only problem. With
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1`, stack planned recording logs
+`stack_plan_reject` rows with
+`reason=stack_deferred_value_preservation_unproven`, including candidate
+input/RHS tensor state and provenance, then uses the existing eager path. The
+same trace rows classify attempted stack replacement as
+`pipeline_path=stack_generated_command_list_candidate` with
+`pipeline_path_status=rejected`,
+`value_preservation_status=stack_value_preservation_unproven`, and a
+shape-independent `program_key`; ordinary non-stack deferred materializations report
+`pipeline_path=runtime_owned_spirv_deferred_materialize` and
+`value_preservation_status=consumer_materialize_boundary_required`. Normal
 `register_output` and `materialize_output` rows also record whether stack
 planned recording was active. `add_buffer_out_vulkan` materializes
 runtime-deferred placeholder inputs before checking and recording its buffer add
-route, so generic out consumers do not read placeholder buffers directly.
+route, and passes a materialization callsite into the deferred trace when that
+boundary fires, so generic out consumers do not read placeholder buffers
+directly.
 Consumers that are not part of the generated chain, including convolution,
 activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do

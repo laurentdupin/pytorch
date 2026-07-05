@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-05 at local HEAD `804e57cd2ba` plus deferred region
-plan foundation:
+Last refreshed: 2026-07-05 at local HEAD `4aca712ed8a` plus deferred runtime
+path diagnostics:
 `PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
 lazy-region capture observer. It does not defer or fuse execution; it records
 the eager Vulkan op-hit chain and flushes that chain when a mandatory access
@@ -90,18 +90,27 @@ tensors until later materialization broke bridge sanity. A narrower stack
 single-op `mul` experiment also failed when the generated shader was executed at
 the stack op site, and still failed after `add_buffer_out_vulkan` was taught to
 materialize runtime-deferred placeholders before recording its residual add. The
-remaining blocker is therefore dynamic generated dispatch inside stack planned
-recording, not ordinary broadcast math or a missing residual-add materialization
-hook. Such dispatches now require a separate value-preservation/descriptor-
-ownership proof before replacing static eager dispatches. Stack candidates log
+same candidate also failed when materialized through the existing static
+registered `VK_KERNEL(buffer_mul)` path instead of the runtime-owned SPIR-V
+path. The remaining blocker is therefore deferred stack value preservation and
+input lifetime ownership, not ordinary broadcast math, shader generation, or a
+missing residual-add materialization hook. Stack candidates log
 `stack_plan_reject` with
-`reason=stack_dynamic_dispatch_value_preservation_unproven`, including tensor
+`reason=stack_deferred_value_preservation_unproven`, including tensor
 state/provenance for the candidate input and tensor RHS operands, and then use
-the existing eager path. `add_buffer_out_vulkan` now materializes any
-runtime-deferred placeholder inputs before checking its buffer route and
-recording the add, so non-stack deferred candidates cannot be consumed as raw
-placeholder buffers by that out path. Normal register/materialize rows record
-whether stack planned recording was active. Convolution,
+the existing eager path. The same rows classify the attempted path as
+`pipeline_path=stack_generated_command_list_candidate` with
+`pipeline_path_status=rejected`,
+`value_preservation_status=stack_value_preservation_unproven`, and a
+shape-independent `program_key`; ordinary non-stack deferred materializations report
+`pipeline_path=runtime_owned_spirv_deferred_materialize` and
+`value_preservation_status=consumer_materialize_boundary_required`.
+`add_buffer_out_vulkan` now materializes any runtime-deferred placeholder inputs
+before checking its buffer route and recording the add, and passes an explicit
+materialization callsite into the deferred trace when that boundary fires, so
+non-stack deferred candidates cannot be consumed as raw placeholder buffers by
+that out path. Normal register/materialize rows record whether stack planned
+recording was active. Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
 materialize any deferred placeholder before reading or planning it.
 The last focused `vits_140` bridge run with

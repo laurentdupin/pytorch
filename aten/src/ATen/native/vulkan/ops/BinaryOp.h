@@ -61,6 +61,10 @@ Tensor materialize_deferred_image_normalize_candidate_if_needed(
 Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
     const Tensor& tensor);
 
+Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
+    const Tensor& tensor,
+    const char* materialize_callsite);
+
 std::optional<Tensor> try_defer_runtime_elementwise_unary_candidate(
     const Tensor& tensor,
     const char* op_name);

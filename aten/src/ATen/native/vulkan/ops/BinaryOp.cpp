@@ -1801,11 +1801,47 @@ std::string runtime_elementwise_defer_log_path() {
   return runtime_shader_env("PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG");
 }
 
+const char* runtime_elementwise_deferred_pipeline_path(
+    const bool stack_planned_candidate) {
+  return stack_planned_candidate ? "stack_generated_command_list_candidate"
+                                 : "runtime_owned_spirv_deferred_materialize";
+}
+
+const char* runtime_elementwise_deferred_value_preservation_status(
+    const bool stack_planned_candidate) {
+  return stack_planned_candidate
+      ? "stack_value_preservation_unproven"
+      : "consumer_materialize_boundary_required";
+}
+
+const char* runtime_elementwise_deferred_pipeline_path_status(
+    const char* status) {
+  if (status != nullptr && std::string(status) == "rejected") {
+    return "rejected";
+  }
+  return "selected";
+}
+
+std::string runtime_elementwise_mixed_program_key(
+    const RuntimeElementwiseMixedChain& chain) {
+  std::ostringstream key;
+  key << "elementwise_chain";
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    key << '.';
+    key << (step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor
+                ? "tensor"
+                : "unary");
+    key << '_' << step.op;
+  }
+  return key.str();
+}
+
 void log_runtime_elementwise_deferred_event(
     const char* event,
     const RuntimeElementwiseDeferredCandidate& candidate,
     const char* status,
-    const std::string& detail = std::string()) {
+    const std::string& detail = std::string(),
+    const char* materialize_callsite = nullptr) {
   const std::string log_path = runtime_elementwise_defer_log_path();
   if (log_path.empty()) {
     return;
@@ -1828,6 +1864,22 @@ void log_runtime_elementwise_deferred_event(
   row << ",\"family\":\"ElementwiseChain\"";
   row << ",\"behavior_change\":1";
   row << ",\"status\":" << runtime_json_quote(status ? status : "");
+  row << ",\"pipeline_path\":"
+      << runtime_json_quote(runtime_elementwise_deferred_pipeline_path(
+             candidate.stack_planned_candidate));
+  row << ",\"pipeline_path_status\":"
+      << runtime_json_quote(
+             runtime_elementwise_deferred_pipeline_path_status(status));
+  row << ",\"program_key\":"
+      << runtime_json_quote(runtime_elementwise_mixed_program_key(chain));
+  row << ",\"value_preservation_status\":"
+      << runtime_json_quote(
+             runtime_elementwise_deferred_value_preservation_status(
+                 candidate.stack_planned_candidate));
+  if (materialize_callsite != nullptr && materialize_callsite[0] != '\0') {
+    row << ",\"materialize_callsite\":"
+        << runtime_json_quote(materialize_callsite);
+  }
   row << ",\"stack_planned_candidate\":"
       << (candidate.stack_planned_candidate ? 1 : 0);
   row << ",\"stack_planned_recording_active\":"
@@ -1923,6 +1975,18 @@ void log_runtime_elementwise_deferred_decision(
   row << ",\"behavior_change\":0";
   row << ",\"status\":" << runtime_json_quote(status ? status : "");
   row << ",\"reason\":" << runtime_json_quote(reason ? reason : "");
+  row << ",\"pipeline_path\":"
+      << runtime_json_quote(runtime_elementwise_deferred_pipeline_path(
+             stack_planned_recording_active));
+  row << ",\"pipeline_path_status\":"
+      << runtime_json_quote(
+             runtime_elementwise_deferred_pipeline_path_status(status));
+  row << ",\"program_key\":"
+      << runtime_json_quote(runtime_elementwise_mixed_program_key(chain));
+  row << ",\"value_preservation_status\":"
+      << runtime_json_quote(
+             runtime_elementwise_deferred_value_preservation_status(
+                 stack_planned_recording_active));
   row << ",\"stack_planned_recording_active\":"
       << (stack_planned_recording_active ? 1 : 0);
   row << ",\"chain_length\":" << chain.steps.size();
@@ -2076,7 +2140,7 @@ std::optional<Tensor> try_defer_runtime_elementwise_chain(
         chain,
         self,
         "rejected",
-        "stack_dynamic_dispatch_value_preservation_unproven",
+        "stack_deferred_value_preservation_unproven",
         true);
     return std::nullopt;
   }
@@ -3393,7 +3457,8 @@ void note_runtime_elementwise_unary_live_chain(
 }
 
 Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
-    const Tensor& tensor) {
+    const Tensor& tensor,
+    const char* materialize_callsite) {
   if (
       !tensor.defined() || !tensor.is_vulkan() ||
       runtime_elementwise_deferred_materialize_active) {
@@ -3429,8 +3494,16 @@ Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
   log_runtime_elementwise_deferred_event(
       "materialize_output",
       *candidate,
-      "executed");
+      "executed",
+      "runtime_generated_deferred_materialize",
+      materialize_callsite);
   return candidate->output;
+}
+
+Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
+    const Tensor& tensor) {
+  return materialize_deferred_runtime_elementwise_candidate_if_needed(
+      tensor, "unspecified");
 }
 
 std::optional<Tensor> try_defer_runtime_elementwise_unary_candidate(
@@ -4858,9 +4931,11 @@ Tensor add_buffer_out_vulkan(
     Tensor& output,
     const std::optional<Scalar>& alpha) {
   const Tensor self_materialized =
-      materialize_deferred_runtime_elementwise_candidate_if_needed(self);
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          self, "add_buffer_out_vulkan.self");
   const Tensor other_materialized =
-      materialize_deferred_runtime_elementwise_candidate_if_needed(other);
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          other, "add_buffer_out_vulkan.other");
   TORCH_CHECK(
       should_run_buffer_binary_tensor(self_materialized, other_materialized),
       "Vulkan add_buffer_out expects float buffer-backed tensors");
