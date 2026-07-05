@@ -2337,8 +2337,11 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   TORCH_CHECK(
       dst.sizes() == src.sizes(), "Vulkan copy_: Tensor sizes are mismatched!");
   Tensor src_to_copy = src.is_vulkan()
-      ? materialize_decomposed_attention_candidate_if_needed(src)
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(src)
       : src;
+  src_to_copy = src_to_copy.is_vulkan()
+      ? materialize_decomposed_attention_candidate_if_needed(src_to_copy)
+      : src_to_copy;
   src_to_copy = src_to_copy.is_vulkan()
       ? materialize_deferred_attention_query_scale_candidate_if_needed(src_to_copy)
       : src_to_copy;

@@ -1553,11 +1553,12 @@ bool runtime_elementwise_mixed_input_supported(const Tensor& tensor) {
   }
   const vTensor& v_tensor = convert(tensor);
   return v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.storage_offset() == 0 &&
       utils::supports_buffer_elementwise_compute(v_tensor) &&
       !v_tensor.is_quantized();
 }
 
-Tensor run_runtime_elementwise_mixed_chain(
+std::vector<Tensor> runtime_elementwise_mixed_rhs_tensors(
     const RuntimeElementwiseMixedChain& chain) {
   TORCH_CHECK(
       runtime_elementwise_mixed_supported(chain),
@@ -1575,22 +1576,29 @@ Tensor run_runtime_elementwise_mixed_chain(
       rhs_tensors.push_back(step.rhs);
     }
   }
+  return rhs_tensors;
+}
 
+void submit_runtime_elementwise_mixed_chain_to_output(
+    const RuntimeElementwiseMixedChain& chain,
+    const std::vector<Tensor>& rhs_tensors,
+    vTensor& v_output,
+    const char* allocation_label) {
   api::AllocationScope allocation_scope(
-      "runtime_elementwise_chain.mixed");
+      allocation_label ? allocation_label : "runtime_elementwise_chain.mixed");
   api::Context* const context = api::context();
   vTensor& v_input = convert(chain.input);
   TORCH_CHECK(
       v_input.numel() > 0,
       "runtime mixed elementwise chain expects a non-empty tensor");
-
-  vTensor v_output{
-      context,
-      chain.input.sizes().vec(),
-      v_input.dtype(),
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  TORCH_CHECK(
+      v_output.sizes() == v_input.sizes(),
+      "runtime mixed elementwise chain output shape must match input shape");
+  TORCH_CHECK(
+      v_output.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_elementwise_compute(v_output) &&
+          !v_output.is_quantized(),
+      "runtime mixed elementwise chain output must be a Vulkan fp32 buffer");
 
   std::vector<vTensor*> v_rhs;
   v_rhs.reserve(rhs_tensors.size());
@@ -1727,6 +1735,28 @@ Tensor run_runtime_elementwise_mixed_chain(
         v_rhs[3]->buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
         rhs_metas[3].buffer());
   }
+}
+
+Tensor run_runtime_elementwise_mixed_chain(
+    const RuntimeElementwiseMixedChain& chain) {
+  std::vector<Tensor> rhs_tensors =
+      runtime_elementwise_mixed_rhs_tensors(chain);
+
+  api::Context* const context = api::context();
+  vTensor& v_input = convert(chain.input);
+  vTensor v_output{
+      context,
+      chain.input.sizes().vec(),
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+
+  submit_runtime_elementwise_mixed_chain_to_output(
+      chain,
+      rhs_tensors,
+      v_output,
+      "runtime_elementwise_chain.mixed");
 
   std::vector<Tensor> provenance_inputs;
   provenance_inputs.reserve(rhs_tensors.size() + 1u);
@@ -1738,6 +1768,222 @@ Tensor run_runtime_elementwise_mixed_chain(
       "vulkan_prepack::runtime_mixed_elementwise_chain",
       "runtime_generated_mixed_elementwise_chain",
       provenance_inputs);
+}
+
+struct RuntimeElementwiseDeferredCandidate final {
+  RuntimeElementwiseMixedChain chain;
+  Tensor output;
+};
+
+struct RuntimeElementwiseDeferredState final {
+  std::mutex mutex;
+  std::unordered_map<const void*, RuntimeElementwiseDeferredCandidate> candidates;
+  size_t sequence{0};
+};
+
+RuntimeElementwiseDeferredState& runtime_elementwise_deferred_state() {
+  static RuntimeElementwiseDeferredState state;
+  return state;
+}
+
+thread_local bool runtime_elementwise_deferred_materialize_active = false;
+
+bool runtime_elementwise_chain_defer_enabled() {
+  const std::string value = runtime_shader_env(
+      "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER");
+  return value == "1" || value == "true" || value == "TRUE";
+}
+
+std::string runtime_elementwise_defer_log_path() {
+  return runtime_shader_env("PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG");
+}
+
+void log_runtime_elementwise_deferred_event(
+    const char* event,
+    const RuntimeElementwiseMixedChain& chain,
+    const Tensor& output,
+    const size_t sequence,
+    const char* status,
+    const std::string& detail = std::string()) {
+  const std::string log_path = runtime_elementwise_defer_log_path();
+  if (log_path.empty()) {
+    return;
+  }
+  std::ofstream log(log_path, std::ios::app);
+  if (!log) {
+    return;
+  }
+  const std::vector<std::string> ops = runtime_elementwise_mixed_ops(chain);
+  std::ostringstream row;
+  row << "{\"schema\":\"VulkanRuntimeElementwiseDeferredChainTrace.v0\"";
+  row << ",\"sequence\":" << sequence;
+  row << ",\"event\":" << runtime_json_quote(event ? event : "");
+  row << ",\"family\":\"ElementwiseChain\"";
+  row << ",\"behavior_change\":1";
+  row << ",\"status\":" << runtime_json_quote(status ? status : "");
+  row << ",\"chain_length\":" << chain.steps.size();
+  row << ",\"ops\":";
+  append_runtime_string_array(row, ops);
+  row << ",\"operand_kinds\":";
+  append_runtime_mixed_operand_kind_array(row, chain);
+  row << ",\"tensor_rhs_count\":"
+      << runtime_elementwise_mixed_tensor_rhs_count(chain);
+  row << ",\"input_shape\":";
+  append_runtime_shape_array(row, chain.input.sizes());
+  row << ",\"output_shape\":";
+  append_runtime_shape_array(row, output.sizes());
+  if (!detail.empty()) {
+    row << ",\"detail\":" << runtime_json_quote(detail);
+  }
+  row << "}\n";
+  log << row.str();
+}
+
+std::optional<RuntimeElementwiseDeferredCandidate>
+lookup_runtime_elementwise_deferred_candidate(const Tensor& tensor) {
+  if (!tensor.defined()) {
+    return std::nullopt;
+  }
+  RuntimeElementwiseDeferredState& state =
+      runtime_elementwise_deferred_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  const auto it = state.candidates.find(tensor.unsafeGetTensorImpl());
+  if (it == state.candidates.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+void register_runtime_elementwise_deferred_candidate(
+    const Tensor& output,
+    RuntimeElementwiseDeferredCandidate candidate) {
+  RuntimeElementwiseDeferredState& state =
+      runtime_elementwise_deferred_state();
+  size_t sequence = 0;
+  {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (state.candidates.size() >= 256u) {
+      state.candidates.erase(state.candidates.begin());
+    }
+    state.candidates[output.unsafeGetTensorImpl()] = candidate;
+    sequence = ++state.sequence;
+  }
+  log_runtime_elementwise_deferred_event(
+      "register_output",
+      candidate.chain,
+      output,
+      sequence,
+      "deferred");
+}
+
+void erase_runtime_elementwise_deferred_candidate(const Tensor& tensor) {
+  if (!tensor.defined()) {
+    return;
+  }
+  RuntimeElementwiseDeferredState& state =
+      runtime_elementwise_deferred_state();
+  std::lock_guard<std::mutex> lock(state.mutex);
+  state.candidates.erase(tensor.unsafeGetTensorImpl());
+}
+
+class RuntimeElementwiseDeferredMaterializeGuard final {
+ public:
+  RuntimeElementwiseDeferredMaterializeGuard() {
+    previous_ = runtime_elementwise_deferred_materialize_active;
+    runtime_elementwise_deferred_materialize_active = true;
+  }
+
+  ~RuntimeElementwiseDeferredMaterializeGuard() {
+    runtime_elementwise_deferred_materialize_active = previous_;
+  }
+
+ private:
+  bool previous_{false};
+};
+
+bool runtime_elementwise_defer_input_supported(const Tensor& tensor) {
+  return runtime_elementwise_mixed_input_supported(tensor) &&
+      tensor.sizes().vec() == convert(tensor).sizes();
+}
+
+Tensor make_runtime_elementwise_deferred_output_like(const Tensor& input) {
+  api::Context* const context = api::context();
+  const vTensor& v_input = convert(input);
+  vTensor v_output{
+      context,
+      input.sizes().vec(),
+      v_input.dtype(),
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+  return convert(v_output);
+}
+
+std::optional<Tensor> try_defer_runtime_elementwise_chain(
+    const Tensor& self,
+    RuntimeElementwiseMixedStep step) {
+  if (
+      !runtime_elementwise_chain_defer_enabled() ||
+      runtime_elementwise_deferred_materialize_active ||
+      runtime_elementwise_live_chain_probe_active ||
+      !runtime_elementwise_defer_input_supported(self)) {
+    return std::nullopt;
+  }
+  if (
+      step.operand_kind == RuntimeElementwiseMixedOperandKind::Tensor &&
+      !runtime_live_chain_same_shape(self, step.rhs, self)) {
+    return std::nullopt;
+  }
+
+  RuntimeElementwiseMixedChain chain;
+  if (auto existing = lookup_runtime_elementwise_deferred_candidate(self)) {
+    chain = existing->chain;
+  } else {
+    chain.input = self;
+  }
+  chain.steps.push_back(std::move(step));
+  if (!runtime_elementwise_mixed_supported(chain)) {
+    return std::nullopt;
+  }
+
+  Tensor output = make_runtime_elementwise_deferred_output_like(self);
+  register_runtime_elementwise_deferred_candidate(
+      output,
+      RuntimeElementwiseDeferredCandidate{chain, output});
+  return output;
+}
+
+std::optional<Tensor> try_defer_runtime_elementwise_binary(
+    const Tensor& self,
+    const Tensor& other,
+    const std::optional<Scalar>& alpha_arg,
+    const BinaryOpKind op_kind) {
+  if (!runtime_live_chain_alpha_is_one(alpha_arg)) {
+    return std::nullopt;
+  }
+  const char* op_name = runtime_elementwise_live_chain_op_name(op_kind);
+  if (op_name == nullptr || !other.defined() ||
+      !runtime_elementwise_mixed_input_supported(other) ||
+      lookup_runtime_elementwise_deferred_candidate(other).has_value()) {
+    return std::nullopt;
+  }
+  RuntimeElementwiseMixedStep step;
+  step.operand_kind = RuntimeElementwiseMixedOperandKind::Tensor;
+  step.op = op_name;
+  step.rhs = other;
+  return try_defer_runtime_elementwise_chain(self, std::move(step));
+}
+
+std::optional<Tensor> try_defer_runtime_elementwise_unary(
+    const Tensor& self,
+    const char* op_name) {
+  if (op_name == nullptr || !runtime_elementwise_mixed_unary_supported(op_name)) {
+    return std::nullopt;
+  }
+  RuntimeElementwiseMixedStep step;
+  step.operand_kind = RuntimeElementwiseMixedOperandKind::Unary;
+  step.op = op_name;
+  return try_defer_runtime_elementwise_chain(self, std::move(step));
 }
 
 void record_runtime_elementwise_mixed_chain_step(
@@ -3011,6 +3257,55 @@ void note_runtime_elementwise_unary_live_chain(
   record_runtime_elementwise_mixed_chain_step(self, output, std::move(step));
 }
 
+Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
+    const Tensor& tensor) {
+  if (
+      !tensor.defined() || !tensor.is_vulkan() ||
+      runtime_elementwise_deferred_materialize_active) {
+    return tensor;
+  }
+  std::optional<RuntimeElementwiseDeferredCandidate> candidate =
+      lookup_runtime_elementwise_deferred_candidate(tensor);
+  if (!candidate.has_value()) {
+    return tensor;
+  }
+
+  RuntimeElementwiseDeferredMaterializeGuard guard;
+  std::vector<Tensor> rhs_tensors =
+      runtime_elementwise_mixed_rhs_tensors(candidate->chain);
+  vTensor& v_output = convert(candidate->output);
+  submit_runtime_elementwise_mixed_chain_to_output(
+      candidate->chain,
+      rhs_tensors,
+      v_output,
+      "runtime_elementwise_chain.deferred_materialize");
+
+  std::vector<Tensor> provenance_inputs;
+  provenance_inputs.reserve(rhs_tensors.size() + 1u);
+  provenance_inputs.push_back(candidate->chain.input);
+  provenance_inputs.insert(
+      provenance_inputs.end(), rhs_tensors.begin(), rhs_tensors.end());
+  record_tensor_write(
+      candidate->output,
+      "vulkan_prepack::runtime_deferred_elementwise_chain",
+      "runtime_generated_deferred_elementwise_chain",
+      provenance_inputs);
+  erase_runtime_elementwise_deferred_candidate(candidate->output);
+  log_runtime_elementwise_deferred_event(
+      "materialize_output",
+      candidate->chain,
+      candidate->output,
+      0,
+      "executed");
+  return candidate->output;
+}
+
+std::optional<Tensor> try_defer_runtime_elementwise_unary_candidate(
+    const Tensor& tensor,
+    const char* op_name) {
+  return try_defer_runtime_elementwise_unary(tensor, op_name);
+}
+
 Tensor run_runtime_elementwise_chain_add_mul_sub_div(
     const Tensor& input,
     const Tensor& add_rhs,
@@ -3517,21 +3812,25 @@ static Tensor binary_op_scalar(
   api::AllocationScope allocation_scope("binary_op");
   utils::validate_replay_tensor_not_stale(
       self_arg, "aten::binary_op.scalar");
+  const Tensor self_runtime_materialized =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
   api::Context* const context = api::context();
   if (!alpha_arg.has_value()) {
     if (auto deferred = try_start_deferred_image_normalize_scalar(
-            self_arg, other, op_kind)) {
+            self_runtime_materialized, other, op_kind)) {
       return *deferred;
     }
     if (op_kind == BinaryOpKind::Mul) {
       if (auto deferred =
-              try_start_deferred_attention_query_scale(self_arg, other)) {
+              try_start_deferred_attention_query_scale(
+                  self_runtime_materialized, other)) {
         return *deferred;
       }
     }
   }
   const Tensor self_materialized =
-      materialize_decomposed_attention_candidate_if_needed(self_arg);
+      materialize_decomposed_attention_candidate_if_needed(
+          self_runtime_materialized);
   const Tensor self_attention_query_scaled =
       materialize_deferred_attention_query_scale_candidate_if_needed(
           self_materialized);
@@ -3893,26 +4192,48 @@ static Tensor binary_op_tensor(
       self_arg, "aten::binary_op.tensor");
   utils::validate_replay_tensor_not_stale(
       other_arg, "aten::binary_op.tensor");
-  if (auto deferred_scale = try_start_deferred_image_normalize_tensor_scale(
-          self_arg, other_arg, alpha_arg, op_kind)) {
-    return *deferred_scale;
-  }
-  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
-          self_arg, other_arg, alpha_arg, op_kind)) {
-    return *deferred_scale;
-  }
-  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
-          other_arg, self_arg, alpha_arg, op_kind)) {
-    return *deferred_scale;
-  }
-  if (auto deferred = try_update_deferred_image_normalize_tensor(
+  if (auto deferred = try_defer_runtime_elementwise_binary(
           self_arg, other_arg, alpha_arg, op_kind)) {
     return *deferred;
   }
+  const Tensor self_runtime_materialized =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
+  const Tensor other_runtime_materialized =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(other_arg);
+  if (auto deferred_scale = try_start_deferred_image_normalize_tensor_scale(
+          self_runtime_materialized,
+          other_runtime_materialized,
+          alpha_arg,
+          op_kind)) {
+    return *deferred_scale;
+  }
+  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
+          self_runtime_materialized,
+          other_runtime_materialized,
+          alpha_arg,
+          op_kind)) {
+    return *deferred_scale;
+  }
+  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
+          other_runtime_materialized,
+          self_runtime_materialized,
+          alpha_arg,
+          op_kind)) {
+    return *deferred_scale;
+  }
+  if (auto deferred = try_update_deferred_image_normalize_tensor(
+          self_runtime_materialized,
+          other_runtime_materialized,
+          alpha_arg,
+          op_kind)) {
+    return *deferred;
+  }
   const Tensor self_attention_materialized =
-      materialize_decomposed_attention_candidate_if_needed(self_arg);
+      materialize_decomposed_attention_candidate_if_needed(
+          self_runtime_materialized);
   const Tensor other_attention_materialized =
-      materialize_decomposed_attention_candidate_if_needed(other_arg);
+      materialize_decomposed_attention_candidate_if_needed(
+          other_runtime_materialized);
   const Tensor self_attention_query_scaled =
       materialize_deferred_attention_query_scale_candidate_if_needed(
           self_attention_materialized);

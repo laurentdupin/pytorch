@@ -8627,6 +8627,186 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(cache_dir):
                 shutil.rmtree(cache_dir)
 
+    def test_runtime_elementwise_deferred_chain_materializes_on_readback(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest(
+                "glslc is required for runtime deferred-chain execution POC.")
+
+        log_name = "vulkan_runtime_elementwise_deferred_chain_test.jsonl"
+        cache_name = "vulkan_runtime_elementwise_deferred_chain_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import json
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_deferred_chain_seed={seed}", flush=True)
+                rank = rng.randint(1, 4)
+                shape = tuple(rng.randint(2, 11) for _ in range(rank))
+                x_cpu = torch.randn(shape, dtype=torch.float32) * 0.25
+                add_cpu = torch.randn(shape, dtype=torch.float32) * 0.25
+                mul_cpu = torch.rand(shape, dtype=torch.float32) + 0.75
+                expected = torch.sqrt(torch.exp(torch.neg(x_cpu + add_cpu)) * mul_cpu)
+                with torch.inference_mode():
+                    y = x_cpu.to("vulkan")
+                    add_rhs = add_cpu.to("vulkan")
+                    mul_rhs = mul_cpu.to("vulkan")
+                    y = y + add_rhs
+                    y = torch.neg(y)
+                    y = torch.exp(y)
+                    y = y * mul_rhs
+                    y = torch.sqrt(y)
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        expected,
+                        atol=1e-5,
+                        rtol=1e-5)
+
+                with open(
+                    os.environ["PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG"],
+                    encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                assert records, "missing deferred-chain records"
+                expected_ops = ["add", "neg", "exp", "mul", "sqrt"]
+                accepted = [
+                    row for row in records
+                    if row["event"] == "materialize_output" and
+                    row["status"] == "executed" and
+                    row["ops"] == expected_ops
+                ]
+                assert accepted, records
+                row = accepted[-1]
+                assert row["family"] == "ElementwiseChain", row
+                assert row["behavior_change"] == 1, row
+                assert row["chain_length"] == 5, row
+                assert row["operand_kinds"] == [
+                    "tensor", "unary", "unary", "tensor", "unary"], row
+                assert row["tensor_rhs_count"] == 2, row
+                assert row["input_shape"] == list(shape), row
+                assert row["output_shape"] == list(shape), row
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG": log_path,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan runtime deferred elementwise-chain POC failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_mixed_*.spv")))
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
+    def test_runtime_elementwise_deferred_chain_materializes_before_scalar_consumer(self):
+        import shutil
+
+        glslc = os.environ.get(
+            "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC") or shutil.which("glslc")
+        if not glslc:
+            self.skipTest(
+                "glslc is required for runtime deferred-chain execution POC.")
+
+        log_name = "vulkan_runtime_elementwise_deferred_scalar_consumer_test.jsonl"
+        cache_name = "vulkan_runtime_elementwise_deferred_scalar_consumer_cache_test"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        cache_dir = os.path.join(repo_root, cache_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+
+        try:
+            script = """
+                import json
+                import os
+                import random
+                import torch
+
+                seed = int.from_bytes(os.urandom(8), "little")
+                rng = random.Random(seed)
+                print(f"runtime_elementwise_deferred_scalar_seed={seed}", flush=True)
+                rank = rng.randint(1, 4)
+                shape = tuple(rng.randint(2, 11) for _ in range(rank))
+                x_cpu = torch.randn(shape, dtype=torch.float32) * 0.25
+                rhs_cpu = torch.randn(shape, dtype=torch.float32) * 0.25
+                expected = (x_cpu + rhs_cpu) * 1.75
+                with torch.inference_mode():
+                    y = x_cpu.to("vulkan")
+                    rhs = rhs_cpu.to("vulkan")
+                    y = y + rhs
+                    y = y * 1.75
+                    torch.testing.assert_close(
+                        y.cpu(),
+                        expected,
+                        atol=1e-5,
+                        rtol=1e-5)
+
+                with open(
+                    os.environ["PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG"],
+                    encoding="utf-8") as handle:
+                    records = [
+                        json.loads(line)
+                        for line in handle
+                        if line.strip()
+                    ]
+                accepted = [
+                    row for row in records
+                    if row["event"] == "materialize_output" and
+                    row["status"] == "executed" and
+                    row["ops"] == ["add"]
+                ]
+                assert accepted, records
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER": "1",
+                    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG": log_path,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR": cache_dir,
+                    "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC": glslc,
+                },
+                error_prefix=(
+                    "Vulkan deferred elementwise scalar-consumer test failed."
+                ),
+            )
+            self.assertTrue(glob.glob(os.path.join(
+                cache_dir,
+                "runtime_elementwise_chain_mixed_*.spv")))
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+
     def test_runtime_command_list_plan_poc_logs_elementwise_chain(self):
         log_name = "vulkan_runtime_command_list_plan_test.jsonl"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -68,6 +68,20 @@ storage validation before it can own outputs or retire resources.
 `PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT=1` is diagnostic-only
 and reads back the sidecar/eager outputs to log `output_check_max_abs` for
 parity tests, not for performance runs.
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` is now the first
+behavior-changing deferred-output canary for generated runtime shaders. It is
+limited to fp32 Vulkan buffer elementwise chains with zero storage offset,
+stable root/output shape, same-shape tensor RHS operands, supported unary
+steps, at most eight total steps, and at most four tensor RHS operands.
+Instead of running each eager
+elementwise op immediately, the canary returns a Vulkan placeholder that owns
+the output buffer and records the chain. Mandatory access boundaries currently
+materialize the chain at `copy_`/CPU readback by submitting the generated mixed
+elementwise shader into that placeholder, then recording normal provenance. The
+trace row is `VulkanRuntimeElementwiseDeferredChainTrace.v0` with
+`behavior_change=1`. Unsupported consumers must materialize first and then take
+the existing eager path; storage offsets, out/in-place mutation, scalar UBO
+retention, and region-level output ownership remain outside this canary.
 `api::ShaderInfo` now also has an owned-SPIR-V construction path so future
 runtime-generated programs can hand stable bytes to the shader module cache;
 static registered shaders keep the existing pointer/size cache identity.

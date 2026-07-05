@@ -236,6 +236,39 @@ diagnostic-only mode that reads back the sidecar output and normal eager output
 and logs `output_check_max_abs`; it is for parity tests and must not be used as
 a performance path.
 
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` is the first
+behavior-changing deferred-output slice. For the same narrow fp32 Vulkan buffer
+elementwise-chain family, supported binary tensor-RHS and unary operations may
+return a Vulkan placeholder instead of running the eager kernel immediately.
+The placeholder owns the future output buffer, the runtime chain is retained by
+logical tensor handle, and mandatory access boundaries materialize the chain by
+submitting the generated runtime shader into that placeholder. CPU readback via
+`copy_` is the first materialization boundary. The trace row is
+`VulkanRuntimeElementwiseDeferredChainTrace.v0` and records
+`behavior_change=1`.
+
+This canary is deliberately smaller than the live-chain sidecar:
+
+```text
+supported:
+  fp32 Vulkan BUFFER tensors with zero storage offset
+  stable root/output shape
+  same-shape tensor RHS operands
+  unary steps supported by the mixed runtime generator
+  <= 8 steps and <= 4 tensor RHS operands
+
+not yet supported:
+  scalar UBO steps as retained deferred operands
+  storage offsets/out/in-place mutation
+  non-elementwise consumers without forced materialization
+  cross-region output ownership
+  unbounded descriptor lists
+```
+
+If a deferred placeholder reaches an unsupported eager consumer, the consumer
+must materialize it first and then use the existing eager path. Legal semantics
+should fail closed with a reason rather than reading an uninitialized placeholder.
+
 ## First Implemented Slice
 
 `SmallSpatialPointwiseConvContract` `GenericDynamicHW` admits fp32 direct-buffer

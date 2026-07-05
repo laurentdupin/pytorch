@@ -826,12 +826,18 @@ Tensor unary_op(
     const api::ShaderInfo& buffer_shader_descriptor,
     const UnaryOpKind op_kind) {
   api::Context* const context = api::context();
+  if (auto deferred = try_defer_runtime_elementwise_unary_candidate(
+          self_arg, unary_op_kind_name(op_kind))) {
+    return *deferred;
+  }
+  const Tensor self_source =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
 
-  if (needs_unary_cpu_fallback(self_arg)) {
-    return unary_op_cpu_fallback(self_arg, op_kind);
+  if (needs_unary_cpu_fallback(self_source)) {
+    return unary_op_cpu_fallback(self_source, op_kind);
   }
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_source.is_vulkan() ? self_source : self_source.vulkan();
   Tensor logical_self = self;
   const auto plan = utils::build_vulkan_execution_plan(
       self, utils::VulkanExecutionPlanKind::ElementwiseInput);
