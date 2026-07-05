@@ -1,6 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-04 at local dynamic program runtime expansion:
+Last refreshed: 2026-07-05 at local HEAD `1dcead2adec` plus deferred
+elementwise stack-lifetime guard:
 `PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
 lazy-region capture observer. It does not defer or fuse execution; it records
 the eager Vulkan op-hit chain and flushes that chain when a mandatory access
@@ -82,6 +83,16 @@ trace row is `VulkanRuntimeElementwiseDeferredChainTrace.v0` with
 `behavior_change=1`. Unsupported consumers must materialize first and then take
 the existing eager path; storage offsets, out/in-place mutation, scalar UBO
 retention, and region-level output ownership remain outside this canary.
+Focused DAv2 `vits_140` probes showed why this canary must fail closed inside
+stack planned recording: generated `add`/`mul` shaders were correct on the same
+standalone random shapes, but delaying reads of stack-owned token tensors until
+later materialization broke bridge sanity. The canary now refuses to start while
+`Context::is_stack_planned_recording_active()` is true, and convolution,
+activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
+materialize any deferred placeholder before reading or planning it. A focused
+`vits_140` bridge run with
+`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` then matched the default
+path (`max_abs=1.1846423149108887e-06`, `mean_abs=6.115393347272402e-08`).
 `api::ShaderInfo` now also has an owned-SPIR-V construction path so future
 runtime-generated programs can hand stable bytes to the shader module cache;
 static registered shaders keep the existing pointer/size cache identity.

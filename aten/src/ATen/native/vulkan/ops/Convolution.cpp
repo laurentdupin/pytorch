@@ -3177,8 +3177,11 @@ bool can_run_float_buffer_conv2d_add(
 
 Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
   Tensor input = input_arg.is_vulkan()
-      ? materialize_deferred_image_normalize_candidate_if_needed(input_arg)
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
       : input_arg.vulkan();
+  input = input.is_vulkan()
+      ? materialize_deferred_image_normalize_candidate_if_needed(input)
+      : input;
   if (input.scalar_type() == kHalf) {
     input = utils::cast_vulkan_tensor_dtype(input, kFloat);
   }
@@ -4222,8 +4225,12 @@ Tensor run_bfloat16_buffer_conv2d(
     const IntArrayRef output_padding,
     const int64_t groups) {
       Tensor compute_input = input.is_vulkan()
-          ? materialize_deferred_image_normalize_candidate_if_needed(input)
+          ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
           : input;
+      compute_input = compute_input.is_vulkan()
+          ? materialize_deferred_image_normalize_candidate_if_needed(
+                compute_input)
+          : compute_input;
       if (can_run_bfloat16_buffer_conv2d(
               compute_input, weight, bias, transposed, false, output_padding)) {
         return run_bfloat16_buffer_conv2d(
@@ -4922,13 +4929,16 @@ static Tensor run_conv2d_context_impl(
     output_min = output_min > 0.0f ? output_min : 0.0f;
     output_max = output_max > 0.0f ? output_max : 0.0f;
   }
+  const Tensor input_source = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
 
   if (
-      input_arg.device().type() == c10::DeviceType::Vulkan &&
-      input_arg.scalar_type() == kFloat &&
+      input_source.device().type() == c10::DeviceType::Vulkan &&
+      input_source.scalar_type() == kFloat &&
       can_run_exact_pointwise_nooverlap_conv_transpose2d(conv_context)) {
     if (auto no_overlap_output = try_run_no_overlap_conv_transpose2d_contract(
-            input_arg,
+            input_source,
             conv_context,
             output_min,
             output_max,
@@ -4936,7 +4946,7 @@ static Tensor run_conv2d_context_impl(
       return *no_overlap_output;
     }
     return run_exact_pointwise_nooverlap_conv_transpose2d(
-        input_arg,
+        input_source,
         conv_context,
         output_min,
         output_max,
@@ -4945,9 +4955,9 @@ static Tensor run_conv2d_context_impl(
 
   if (!quantized && packed_weight.execution_layout() ==
           api::ExecutionLayout::BUFFER_DIRECT) {
-    Tensor buffer_input = prepare_runtime_float_buffer_conv_input(input_arg);
+    Tensor buffer_input = prepare_runtime_float_buffer_conv_input(input_source);
     log_channel_cat_to_conv_input_readiness(
-        input_arg,
+        input_source,
         buffer_input,
         packed_weight,
         transposed,
@@ -4994,7 +5004,7 @@ static Tensor run_conv2d_context_impl(
 
   api::Context* const context = api::context();
   const Tensor runtime_input_arg =
-      input_arg.requires_grad() ? input_arg.detach() : input_arg;
+      input_source.requires_grad() ? input_source.detach() : input_source;
   Tensor input = utils::prepare_vulkan_execution_tensor(
       runtime_input_arg,
       utils::VulkanExecutionPlanKind::Conv2dRuntimeInput,

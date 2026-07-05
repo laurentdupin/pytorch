@@ -1,7 +1,8 @@
-#include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/Persistence.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 
 #include <c10/core/InferenceMode.h>
 
@@ -1105,16 +1106,23 @@ Tensor prepare_vulkan_direct_buffer_execution_tensor(
 Tensor prepare_vulkan_execution_tensor(
     const Tensor& input,
     const VulkanExecutionPlanKind kind) {
+  const Tensor materialized_input = input.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
+      : input;
   return execute_vulkan_execution_plan(
-      input, build_vulkan_execution_plan(input, kind));
+      materialized_input, build_vulkan_execution_plan(materialized_input, kind));
 }
 
 Tensor prepare_vulkan_execution_tensor(
     const Tensor& input,
     const VulkanExecutionPlanKind kind,
     const VulkanPlanningRequest& request) {
+  const Tensor materialized_input = input.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
+      : input;
   return execute_vulkan_execution_plan(
-      input, build_vulkan_execution_plan(input, kind, request));
+      materialized_input,
+      build_vulkan_execution_plan(materialized_input, kind, request));
 }
 
 std::optional<Tensor> prepare_optional_vulkan_execution_tensor(

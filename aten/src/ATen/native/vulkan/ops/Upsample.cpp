@@ -2,6 +2,7 @@
 #include <ATen/ops/_upsample_bilinear2d_aa.h>
 #include <ATen/ops/_upsample_nearest_exact2d.h>
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
@@ -21,8 +22,11 @@ namespace ops {
 using namespace api::utils;
 
 Tensor prepare_upsample_texture_input(const Tensor& input_arg) {
+  const Tensor input = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
   return utils::prepare_vulkan_execution_tensor(
-      input_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+      input, utils::VulkanExecutionPlanKind::TextureComputeInput);
 }
 
 bool should_run_buffer_upsample(const Tensor& input_arg) {
@@ -284,28 +288,32 @@ static Tensor upsample_nearest2d(
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
-  if (should_run_buffer_nearest_upsample(input_arg)) {
+  const Tensor input_source = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
+  if (should_run_buffer_nearest_upsample(input_source)) {
     return upsample_nearest2d_buffer_impl(
-        input_arg, output_sizes, scales_h, scales_w);
+        input_source, output_sizes, scales_h, scales_w);
   }
 
   if (
-      !input_arg.is_quantized() &&
-      c10::isIntegralType(input_arg.scalar_type(), /*includeBool=*/true)) {
-    Tensor float_input = utils::cast_vulkan_tensor_dtype(input_arg, kFloat);
+      !input_source.is_quantized() &&
+      c10::isIntegralType(input_source.scalar_type(), /*includeBool=*/true)) {
+    Tensor float_input = utils::cast_vulkan_tensor_dtype(input_source, kFloat);
     Tensor float_output =
         upsample_nearest2d(float_input, output_sizes, scales_h, scales_w);
-    return utils::cast_vulkan_tensor_dtype(float_output, input_arg.scalar_type());
+    return utils::cast_vulkan_tensor_dtype(
+        float_output, input_source.scalar_type());
   }
 
   api::AllocationScope allocation_scope("upsample_nearest");
   api::Context* const context = api::context();
 
   TORCH_CHECK(
-      (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
+      (4 == input_source.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
-  const Tensor input = prepare_upsample_texture_input(input_arg);
+  const Tensor input = prepare_upsample_texture_input(input_source);
   const vTensor& v_input = convert(input);
   const auto v_input_sizes = v_input.sizes();
 
@@ -336,9 +344,9 @@ static Tensor upsample_nearest2d(
       0u,
       {
           safe_downcast<int32_t>(
-              input_arg.size(Layout::Activation4D::width) - 1),
+              input_source.size(Layout::Activation4D::width) - 1),
           safe_downcast<int32_t>(
-              input_arg.size(Layout::Activation4D::height) - 1),
+              input_source.size(Layout::Activation4D::height) - 1),
       },
       {
           compute_scales_value<float>(
@@ -385,15 +393,18 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
+  const Tensor input = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
   report_vulkan_cpu_fallback(
       "aten::_upsample_nearest_exact2d",
       "small_cpu_control_fallback",
-      {input_arg});
+      {input});
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
-    const Tensor input_cpu = input_arg.is_vulkan() ? input_arg.cpu() : input_arg;
+    const Tensor input_cpu = input.is_vulkan() ? input.cpu() : input;
     result_cpu = at::_upsample_nearest_exact2d(
         input_cpu,
         output_sizes,
@@ -401,10 +412,10 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
         scales_w);
   }
   Tensor result = record_tensor_write_and_return(
-      result_cpu.to(input_arg.device()),
+      result_cpu.to(input.device()),
       "aten::_upsample_nearest_exact2d",
       "small_cpu_control_fallback",
-      {input_arg});
+      {input});
   if (result.is_vulkan()) {
     api::context()->submit_pending_work_and_poll_retire();
   }
@@ -448,24 +459,27 @@ static Tensor upsample_bilinear2d_aa_cpu_fallback(
     bool align_corners,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
+  const Tensor input = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
   TORCH_CHECK(
-      input_arg.is_vulkan(),
+      input.is_vulkan(),
       "Vulkan _upsample_bilinear2d_aa fallback expects a Vulkan input");
   TORCH_CHECK(
-      input_arg.scalar_type() == kFloat && input_arg.dim() == 4 &&
+      input.scalar_type() == kFloat && input.dim() == 4 &&
           output_sizes.size() == 2,
       "Vulkan _upsample_bilinear2d_aa fallback currently supports float 4D input");
 
   report_vulkan_cpu_fallback(
       "aten::_upsample_bilinear2d_aa",
       "model_core_preprocessing_fallback",
-      {input_arg});
+      {input});
 
   Tensor result_cpu;
   {
     c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
     c10::InferenceMode inference_mode_guard(false);
-    const Tensor input_cpu = input_arg.cpu();
+    const Tensor input_cpu = input.cpu();
     result_cpu = at::_upsample_bilinear2d_aa(
         input_cpu,
         output_sizes,
@@ -475,10 +489,10 @@ static Tensor upsample_bilinear2d_aa_cpu_fallback(
   }
 
   Tensor result = record_tensor_write_and_return(
-      result_cpu.to(input_arg.device()),
+      result_cpu.to(input.device()),
       "aten::_upsample_bilinear2d_aa",
       "model_core_preprocessing_fallback",
-      {input_arg});
+      {input});
   if (result.is_vulkan()) {
     api::context()->submit_pending_work_and_poll_retire();
   }
@@ -528,14 +542,17 @@ static Tensor upsample_bilinear2d(
     const std::optional<double> scales_w) {
   api::AllocationScope allocation_scope("upsample_bilinear");
   api::Context* const context = api::context();
+  const Tensor input_source = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
 
   TORCH_CHECK(
-      (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
+      (4 == input_source.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
-  if (should_run_buffer_upsample(input_arg)) {
+  if (should_run_buffer_upsample(input_source)) {
     return upsample_bilinear2d_buffer_impl(
-        input_arg,
+        input_source,
         output_sizes,
         align_corners,
         scales_h,
@@ -544,10 +561,10 @@ static Tensor upsample_bilinear2d(
   }
 
   if (should_materialize_texture_bilinear_input_to_buffer(
-          input_arg, output_sizes)) {
+          input_source, output_sizes)) {
     utils::log_vulkan_op_hit("aten::upsample_bilinear2d.texture_to_buffer_float");
     return upsample_bilinear2d_buffer_impl(
-        utils::ensure_buffer_storage(input_arg),
+        utils::ensure_buffer_storage(input_source),
         output_sizes,
         align_corners,
         scales_h,
@@ -555,7 +572,7 @@ static Tensor upsample_bilinear2d(
         nullptr);
   }
 
-  const Tensor input = prepare_upsample_texture_input(input_arg);
+  const Tensor input = prepare_upsample_texture_input(input_source);
   const vTensor& v_input = convert(input);
 
   vTensor v_output{
@@ -579,17 +596,17 @@ static Tensor upsample_bilinear2d(
       v_output.extents(), // oextents
       0u, // padding
       {
-          safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_arg) - 1),
-          safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_arg) - 1),
+          safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_source) - 1),
+          safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_source) - 1),
       }, // iextents
       {
           compute_scales_value<float>(
               scales_w,
-              get_dim<Dim4D::Width>(input_arg),
+              get_dim<Dim4D::Width>(input_source),
               get_dim<Dim4D::Width>(v_output)),
           compute_scales_value<float>(
               scales_h,
-              get_dim<Dim4D::Height>(input_arg),
+              get_dim<Dim4D::Height>(input_source),
               get_dim<Dim4D::Height>(v_output)),
       }, // scale
   };
@@ -634,14 +651,17 @@ static Tensor upsample_bicubic2d(
     const std::optional<double> scales_w) {
   api::AllocationScope allocation_scope("upsample_bicubic");
   api::Context* const context = api::context();
+  const Tensor input_source = input_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
+      : input_arg;
 
   TORCH_CHECK(
-      (4 == input_arg.sizes().size()) && (2 == output_sizes.size()),
+      (4 == input_source.sizes().size()) && (2 == output_sizes.size()),
       "Invalid input!");
 
-  if (should_run_buffer_upsample(input_arg)) {
+  if (should_run_buffer_upsample(input_source)) {
     utils::log_vulkan_op_hit("aten::upsample_bicubic2d.buffer_float");
-    const vTensor& v_input = convert(input_arg);
+    const vTensor& v_input = convert(input_source);
 
     vTensor v_output{
         context,
@@ -661,19 +681,19 @@ static Tensor upsample_bicubic2d(
       vec4 scale;
     } block{
         {
-            safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_arg) - 1),
-            safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_arg) - 1),
+            safe_downcast<int32_t>(get_dim<Dim4D::Width>(input_source) - 1),
+            safe_downcast<int32_t>(get_dim<Dim4D::Height>(input_source) - 1),
             safe_downcast<int32_t>(get_dim<Dim4D::Width>(v_output)),
             safe_downcast<int32_t>(get_dim<Dim4D::Height>(v_output)),
         },
         {
             compute_scales_value<float>(
                 scales_w,
-                get_dim<Dim4D::Width>(input_arg),
+                get_dim<Dim4D::Width>(input_source),
                 get_dim<Dim4D::Width>(v_output)),
             compute_scales_value<float>(
                 scales_h,
-                get_dim<Dim4D::Height>(input_arg),
+                get_dim<Dim4D::Height>(input_source),
                 get_dim<Dim4D::Height>(v_output)),
             0.0f,
             0.0f,
@@ -709,10 +729,13 @@ static Tensor upsample_bicubic2d(
         params.buffer());
 
     return record_tensor_write_and_return(
-        convert(v_output), "aten::upsample_bicubic2d", "buffer", {input_arg});
+        convert(v_output),
+        "aten::upsample_bicubic2d",
+        "buffer",
+        {input_source});
   }
 
-  Tensor input = prepare_upsample_texture_input(input_arg);
+  Tensor input = prepare_upsample_texture_input(input_source);
   const vTensor& v_input = convert(input);
 
   vTensor v_output{
@@ -803,11 +826,14 @@ Tensor upsample_bilinear2d_buffer_out_vulkan(
     const std::optional<double> scales_h,
     const std::optional<double> scales_w,
     Tensor& output) {
+  const Tensor input_source = input.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
+      : input;
   TORCH_CHECK(
-      should_run_buffer_upsample(input),
+      should_run_buffer_upsample(input_source),
       "Vulkan bilinear upsample out expects float buffer-backed input");
   return upsample_bilinear2d_buffer_impl(
-      input,
+      input_source,
       output_sizes,
       align_corners,
       scales_h,

@@ -269,6 +269,18 @@ If a deferred placeholder reaches an unsupported eager consumer, the consumer
 must materialize it first and then use the existing eager path. Legal semantics
 should fail closed with a reason rather than reading an uninitialized placeholder.
 
+The canary also fails closed during stack planned recording. DAv2 `vits_140`
+showed that the generated runtime `add`/`mul` shaders can be numerically exact
+on the same standalone shapes while still producing bad model output if their
+inputs are read later across stack-owned lifetime boundaries. Until deferred
+elementwise chains carry region-owned value-preservation proof, output handoff,
+and retire/resource ownership, `try_defer_runtime_elementwise_chain` rejects
+new candidates when `Context::is_stack_planned_recording_active()` is true.
+Consumers that are not part of the generated chain, including convolution,
+activation/clamp and upsample, materialize a placeholder before reading it; the
+central `ensure_buffer_storage` and execution-planner preparation helpers do
+the same for generic eager consumers.
+
 ## First Implemented Slice
 
 `SmallSpatialPointwiseConvContract` `GenericDynamicHW` admits fp32 direct-buffer

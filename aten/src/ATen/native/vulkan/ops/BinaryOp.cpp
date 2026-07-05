@@ -1773,6 +1773,7 @@ Tensor run_runtime_elementwise_mixed_chain(
 struct RuntimeElementwiseDeferredCandidate final {
   RuntimeElementwiseMixedChain chain;
   Tensor output;
+  size_t sequence{0};
 };
 
 struct RuntimeElementwiseDeferredState final {
@@ -1828,10 +1829,27 @@ void log_runtime_elementwise_deferred_event(
   append_runtime_mixed_operand_kind_array(row, chain);
   row << ",\"tensor_rhs_count\":"
       << runtime_elementwise_mixed_tensor_rhs_count(chain);
+  row << ",\"input_tensor_key\":"
+      << reinterpret_cast<uintptr_t>(chain.input.unsafeGetTensorImpl());
+  row << ",\"output_tensor_key\":"
+      << reinterpret_cast<uintptr_t>(output.unsafeGetTensorImpl());
   row << ",\"input_shape\":";
   append_runtime_shape_array(row, chain.input.sizes());
   row << ",\"output_shape\":";
   append_runtime_shape_array(row, output.sizes());
+  row << ",\"rhs_shapes\":[";
+  size_t rhs_index = 0;
+  for (const RuntimeElementwiseMixedStep& step : chain.steps) {
+    if (step.operand_kind != RuntimeElementwiseMixedOperandKind::Tensor) {
+      continue;
+    }
+    if (rhs_index > 0u) {
+      row << ',';
+    }
+    append_runtime_shape_array(row, step.rhs.sizes());
+    ++rhs_index;
+  }
+  row << ']';
   if (!detail.empty()) {
     row << ",\"detail\":" << runtime_json_quote(detail);
   }
@@ -1865,8 +1883,9 @@ void register_runtime_elementwise_deferred_candidate(
     if (state.candidates.size() >= 256u) {
       state.candidates.erase(state.candidates.begin());
     }
-    state.candidates[output.unsafeGetTensorImpl()] = candidate;
     sequence = ++state.sequence;
+    candidate.sequence = sequence;
+    state.candidates[output.unsafeGetTensorImpl()] = candidate;
   }
   log_runtime_elementwise_deferred_event(
       "register_output",
@@ -1926,6 +1945,7 @@ std::optional<Tensor> try_defer_runtime_elementwise_chain(
       !runtime_elementwise_chain_defer_enabled() ||
       runtime_elementwise_deferred_materialize_active ||
       runtime_elementwise_live_chain_probe_active ||
+      api::context()->is_stack_planned_recording_active() ||
       !runtime_elementwise_defer_input_supported(self)) {
     return std::nullopt;
   }
@@ -3295,7 +3315,7 @@ Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
       "materialize_output",
       candidate->chain,
       candidate->output,
-      0,
+      candidate->sequence,
       "executed");
   return candidate->output;
 }

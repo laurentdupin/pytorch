@@ -5,6 +5,7 @@
 #endif // _WIN32
 
 #include <ATen/native/vulkan/ops/Clamp.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
@@ -67,7 +68,9 @@ Tensor clamp_buffer_impl(
     const std::optional<Scalar>& max,
     Tensor* output_arg) {
   api::Context* const context = api::context();
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg)
+      : self_arg.vulkan();
   vTensor& v_self = convert(self);
   TORCH_CHECK(
       can_run_float_buffer_clamp(v_self),
@@ -183,18 +186,21 @@ Tensor _clamp(
     const std::optional<Scalar>& max,
     const api::ShaderInfo& shader_descriptor) {
   TORCH_CHECK(min || max, "At least one of 'min' or 'max' must not be None");
+  const Tensor self_source = self_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg)
+      : self_arg;
 
-  if (self_arg.is_vulkan() && self_arg.scalar_type() == at::kFloat) {
-    const vTensor& v_self = convert(self_arg);
+  if (self_source.is_vulkan() && self_source.scalar_type() == at::kFloat) {
+    const vTensor& v_self = convert(self_source);
     if (can_run_float_buffer_clamp(v_self)) {
-      return clamp_buffer(self_arg, min, max);
+      return clamp_buffer(self_source, min, max);
     }
   }
 
   api::Context* const context = api::context();
 
   Tensor self = utils::prepare_vulkan_execution_tensor(
-      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+      self_source, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -379,9 +385,12 @@ Tensor activation(
     const Tensor& self_arg,
     const api::ShaderInfo& shader_descriptor) {
   api::Context* const context = api::context();
+  const Tensor self_source = self_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg)
+      : self_arg;
 
   Tensor self = utils::prepare_vulkan_execution_tensor(
-      self_arg, utils::VulkanExecutionPlanKind::TextureComputeInput);
+      self_source, utils::VulkanExecutionPlanKind::TextureComputeInput);
   const vTensor& v_self = convert(self);
 
   vTensor v_output{
@@ -432,7 +441,9 @@ Tensor activation_buffer(
     const char* route_name = "buffer") {
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg)
+      : self_arg.vulkan();
   vTensor& v_self = convert(self);
 
   TORCH_CHECK(
@@ -488,7 +499,9 @@ Tensor activation_scalar_buffer(
       "Vulkan buffer scalar activation expects two scalar parameters");
   api::Context* const context = api::context();
 
-  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  Tensor self = self_arg.is_vulkan()
+      ? materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg)
+      : self_arg.vulkan();
   vTensor& v_self = convert(self);
 
   TORCH_CHECK(
