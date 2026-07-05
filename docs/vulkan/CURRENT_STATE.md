@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-05 at local HEAD `1dcead2adec` plus deferred
-elementwise stack-lifetime guard:
+Last refreshed: 2026-07-05 at local HEAD `804e57cd2ba` plus deferred region
+plan foundation:
 `PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
 lazy-region capture observer. It does not defer or fuse execution; it records
 the eager Vulkan op-hit chain and flushes that chain when a mandatory access
@@ -115,6 +115,17 @@ alias/escape proof. They also carry subfamily tags for copy/transfer,
 elementwise, conv/prepack, patch/token layout, upsample, attention/BMM, linear,
 GELU, norm, cat, and token-prefix content. This prevents a long mixed chain from
 being mislabeled as a small inner arithmetic shader candidate.
+`PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG=<path>` now records the first
+behavior-neutral broad deferred-region plan surface. The central tensor
+provenance writer captures `DeferredTensorHandle.v0`-style output handles and
+input value-lease counts for Vulkan writes, and mandatory access boundaries
+emit `VulkanDeferredRegionPlanTrace.v0` rows with op nodes, routes, handle
+counts, value-lease counts, alias/view counts, boundary kind, and the
+fail-closed prerequisites still blocking execution. Eager execution remains
+authoritative (`execution_enabled=0`, `behavior_change=0`); the row exists so
+future generated shader or generated command-list execution can lower a full
+region at the boundary with explicit value-lifetime and output-ownership
+requirements instead of relying on per-op placeholder heuristics.
 The old replay/compiled-session execution surface is now quarantined under
 `docs/vulkan/REPLAY_RETIREMENT.md`. The DAv2 benchmark no longer exposes
 `compiled_session_bridge` as a selectable stack-output bridge mode, and

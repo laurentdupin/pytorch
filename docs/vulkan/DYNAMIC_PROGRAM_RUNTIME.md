@@ -281,6 +281,18 @@ activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do
 the same for generic eager consumers.
 
+`PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG=<path>` is the first broad
+behavior-neutral `DeferredRegionPlan.v0` surface. Instead of observing only the
+old label-only lazy chain, it hooks the central tensor provenance writer and
+records a logical deferred tensor handle for every Vulkan output that reports a
+write, plus value-lease counts for its Vulkan inputs. Mandatory boundaries emit
+`VulkanDeferredRegionPlanTrace.v0` rows with the op nodes, routes, handle count,
+value-lease count, alias/view count, boundary kind, and the exact fail-closed
+prerequisites still blocking execution. Eager execution remains authoritative:
+the row records `execution_enabled=0` and `behavior_change=0`. This is the
+foundation needed before a future flush-boundary executor can replace eager
+dispatches with a generated shader or generated command list.
+
 ## First Implemented Slice
 
 `SmallSpatialPointwiseConvContract` `GenericDynamicHW` admits fp32 direct-buffer

@@ -2,7 +2,9 @@
 
 #ifdef USE_VULKAN_API
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -34,6 +36,21 @@ void note_vulkan_lazy_chain_op(const char* op_name);
 void flush_vulkan_lazy_chain_boundary(
     const char* boundary_kind,
     const char* reason);
+bool vulkan_deferred_region_plan_logging_enabled();
+void note_vulkan_deferred_region_tensor_write(
+    const char* op_name,
+    const char* route_name,
+    uint64_t output_storage_id,
+    uint64_t output_view_id,
+    uint64_t output_generation,
+    uint64_t output_logical_desc_hash,
+    int64_t output_storage_offset,
+    int64_t output_buffer_length,
+    bool output_is_view,
+    const std::string& output_state,
+    const std::vector<std::string>& input_states,
+    uint64_t vulkan_input_count,
+    uint64_t missing_input_lease_count);
 
 void log_vulkan_failure(
     VulkanFailureClass failure_class,

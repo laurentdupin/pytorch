@@ -8912,6 +8912,71 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
+    def test_deferred_region_plan_logs_tensor_handles_at_boundary(self):
+        log_name = "vulkan_deferred_region_plan_test.jsonl"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(repo_root, log_name)
+        if os.path.exists(log_path):
+            os.remove(log_path)
+
+        try:
+            script = """
+                import torch
+
+                torch.manual_seed(2617)
+                x_cpu = torch.randn(3, 11, dtype=torch.float32)
+                a_cpu = torch.randn(3, 11, dtype=torch.float32)
+                b_cpu = torch.randn(3, 11, dtype=torch.float32)
+                x = x_cpu.to("vulkan")
+                a = a_cpu.to("vulkan")
+                b = b_cpu.to("vulkan")
+                with torch.inference_mode():
+                    y = (x + a) * b
+                    actual = y.cpu()
+                expected = (x_cpu + a_cpu) * b_cpu
+                torch.testing.assert_close(actual, expected)
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG": log_path},
+                error_prefix=(
+                    "Vulkan deferred-region plan tensor handle test failed."
+                ),
+            )
+
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                rows = [
+                    json.loads(line)
+                    for line in log_file
+                    if line.strip()
+                ]
+            plan_rows = [
+                row for row in rows
+                if row.get("schema") == "VulkanDeferredRegionPlanTrace.v0"
+            ]
+            self.assertGreaterEqual(len(plan_rows), 1)
+            row = plan_rows[-1]
+            self.assertEqual(row["status"], "planned_not_executed")
+            self.assertEqual(row["boundary_kind"], "host_readback")
+            self.assertEqual(row["reason"], "vulkan_to_cpu_copy")
+            self.assertGreaterEqual(row["op_node_count"], 2)
+            self.assertGreaterEqual(row["tensor_handle_count"], 2)
+            self.assertGreaterEqual(row["value_lease_count"], 1)
+            self.assertIn("aten::binary_op", "".join(row["ops"]))
+            self.assertIn(
+                "lower_region_at_flush_boundary",
+                row["commands"],
+            )
+            self.assertIn(
+                "deferred_region_executor",
+                row["missing_execution_prerequisites"],
+            )
+            self.assertEqual(row["execution_enabled"], 0)
+            self.assertEqual(row["behavior_change"], "0")
+        finally:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+
     def test_runtime_command_list_plan_poc_logs_multi_dispatch_region(self):
         log_name = "vulkan_runtime_command_list_multi_plan_test.jsonl"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

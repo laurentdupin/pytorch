@@ -53,6 +53,14 @@ const std::string& deferred_execution_log_path() {
   return path;
 }
 
+const std::string& deferred_region_plan_log_path() {
+  static const std::string path = []() {
+    const char* env = std::getenv("PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG");
+    return env ? std::string(env) : std::string();
+  }();
+  return path;
+}
+
 const std::string& runtime_shader_compile_log_path() {
   static const std::string path = []() {
     const char* env = std::getenv("PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG");
@@ -93,6 +101,10 @@ bool deferred_execution_logging_enabled() {
   return !deferred_execution_log_path().empty();
 }
 
+bool deferred_region_plan_logging_enabled() {
+  return !deferred_region_plan_log_path().empty();
+}
+
 bool runtime_shader_compile_logging_enabled() {
   return !runtime_shader_compile_log_path().empty() &&
       !runtime_shader_cache_dir().empty();
@@ -108,6 +120,11 @@ std::mutex& lazy_chain_log_mutex() {
 }
 
 std::mutex& deferred_execution_log_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::mutex& deferred_region_plan_log_mutex() {
   static std::mutex mutex;
   return mutex;
 }
@@ -132,14 +149,44 @@ std::unordered_set<std::string>& runtime_shader_compile_cache() {
   return *cache;
 }
 
+struct DeferredTensorHandleRecord final {
+  uint64_t handle_id = 0;
+  uint64_t storage_id = 0;
+  uint64_t view_id = 0;
+  uint64_t generation = 0;
+  uint64_t logical_desc_hash = 0;
+  int64_t storage_offset = 0;
+  int64_t buffer_length = 0;
+  bool is_view = false;
+  std::string state;
+};
+
+struct DeferredOpNodeRecord final {
+  uint64_t node_id = 0;
+  uint64_t output_handle_id = 0;
+  std::string op;
+  std::string route;
+  uint64_t input_count = 0;
+  uint64_t vulkan_input_count = 0;
+  uint64_t missing_input_lease_count = 0;
+};
+
 struct LazyChainState final {
   uint64_t next_chain_id = 1;
   uint64_t next_op_id = 1;
   uint64_t next_deferred_region_id = 1;
   uint64_t next_deferred_event_id = 1;
+  uint64_t next_deferred_region_plan_id = 1;
+  uint64_t next_deferred_tensor_handle_id = 1;
+  uint64_t next_deferred_op_node_id = 1;
   uint64_t pending_deferred_event_count = 0;
+  uint64_t deferred_value_lease_count = 0;
+  uint64_t deferred_missing_value_lease_count = 0;
+  uint64_t deferred_alias_or_view_count = 0;
   std::vector<std::string> ops;
   std::vector<std::string> raw_ops;
+  std::vector<DeferredTensorHandleRecord> deferred_tensor_handles;
+  std::vector<DeferredOpNodeRecord> deferred_op_nodes;
 };
 
 LazyChainState& lazy_chain_state() {
@@ -252,6 +299,15 @@ void append_deferred_execution_log_line(const std::string& line) {
   }
   std::lock_guard<std::mutex> lock(deferred_execution_log_mutex());
   std::ofstream out(deferred_execution_log_path(), std::ios::app);
+  out << line << '\n';
+}
+
+void append_deferred_region_plan_log_line(const std::string& line) {
+  if (!deferred_region_plan_logging_enabled()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(deferred_region_plan_log_mutex());
+  std::ofstream out(deferred_region_plan_log_path(), std::ios::app);
   out << line << '\n';
 }
 
@@ -1410,6 +1466,122 @@ void flush_deferred_execution_region(
   state.pending_deferred_event_count = 0;
 }
 
+void clear_deferred_region_plan_state(LazyChainState& state) {
+  state.deferred_tensor_handles.clear();
+  state.deferred_op_nodes.clear();
+  state.deferred_value_lease_count = 0;
+  state.deferred_missing_value_lease_count = 0;
+  state.deferred_alias_or_view_count = 0;
+}
+
+void flush_deferred_region_plan(
+    LazyChainState& state,
+    const char* boundary_kind,
+    const char* reason) {
+  if (!deferred_region_plan_logging_enabled()) {
+    return;
+  }
+  if (state.deferred_op_nodes.empty()) {
+    clear_deferred_region_plan_state(state);
+    return;
+  }
+
+  std::vector<std::string> op_names;
+  std::vector<std::string> route_names;
+  op_names.reserve(state.deferred_op_nodes.size());
+  route_names.reserve(state.deferred_op_nodes.size());
+  for (const DeferredOpNodeRecord& node : state.deferred_op_nodes) {
+    op_names.emplace_back(node.op);
+    route_names.emplace_back(node.route);
+  }
+
+  std::vector<std::string> missing_prerequisites = {
+      "barrier_plan_executor",
+      "deferred_region_executor",
+      "generated_output_allocation",
+      "region_output_ownership",
+      "runtime_shader_or_command_list_lowering",
+      "value_lifetime_validation",
+  };
+  std::string top_blocker = "missing_deferred_region_executor";
+  if (state.deferred_missing_value_lease_count > 0u) {
+    top_blocker = "missing_value_lease_capture";
+    missing_prerequisites.emplace_back("complete_value_lease_capture");
+  }
+  if (state.deferred_alias_or_view_count > 0u) {
+    if (top_blocker == "missing_deferred_region_executor") {
+      top_blocker = "alias_or_view_escape_proof_required";
+    }
+    missing_prerequisites.emplace_back("alias_escape_proof");
+  }
+  const std::vector<std::string> commands = {
+      "capture_deferred_tensor_handles",
+      "capture_value_lifetime_leases",
+      "classify_boundary",
+      "lower_region_at_flush_boundary",
+  };
+
+  std::ostringstream line;
+  bool first = true;
+  line << '{';
+  append_json_field(line, "schema", "VulkanDeferredRegionPlanTrace.v0", first);
+  append_json_field(line, "event", "deferred_region_plan_flush", first);
+  append_json_field(line, "status", "planned_not_executed", first);
+  append_json_uint(line, "region_id", state.next_deferred_region_plan_id++, first);
+  append_json_uint(
+      line,
+      "op_node_count",
+      static_cast<uint64_t>(state.deferred_op_nodes.size()),
+      first);
+  append_json_uint(
+      line,
+      "tensor_handle_count",
+      static_cast<uint64_t>(state.deferred_tensor_handles.size()),
+      first);
+  append_json_uint(
+      line, "value_lease_count", state.deferred_value_lease_count, first);
+  append_json_uint(
+      line,
+      "missing_value_lease_count",
+      state.deferred_missing_value_lease_count,
+      first);
+  append_json_uint(
+      line,
+      "alias_or_view_handle_count",
+      state.deferred_alias_or_view_count,
+      first);
+  append_json_field(
+      line,
+      "boundary_kind",
+      boundary_kind ? boundary_kind : "unknown_boundary",
+      first);
+  append_json_field(line, "reason", reason ? reason : "unknown", first);
+  append_json_field(
+      line,
+      "submit_phase",
+      submit_phase_name(current_submit_phase()),
+      first);
+  append_json_field(
+      line,
+      "recent_op",
+      recent_op_label().empty() ? "none" : recent_op_label(),
+      first);
+  append_json_string_array(line, "ops", op_names, first);
+  append_json_string_array(line, "routes", route_names, first);
+  append_json_string_array(line, "commands", commands, first);
+  append_json_string_array(
+      line, "missing_execution_prerequisites", missing_prerequisites, first);
+  append_json_field(line, "top_blocker", top_blocker, first);
+  append_json_uint(line, "requires_deferred_tensor_handles", 1u, first);
+  append_json_uint(line, "requires_value_lifetime_leases", 1u, first);
+  append_json_uint(line, "requires_output_ownership", 1u, first);
+  append_json_uint(line, "execution_enabled", 0u, first);
+  append_json_field(line, "behavior_change", "0", first);
+  line << '}';
+  append_deferred_region_plan_log_line(line.str());
+  clear_deferred_region_plan_state(state);
+}
+
 void append_vulkan_failure_log(const std::string& message) {
   if (!vulkan_failure_logging_enabled()) {
     return;
@@ -1464,6 +1636,59 @@ void clear_vulkan_post_failure_recovery_required() {
   post_failure_recovery_required().store(false, std::memory_order_release);
 }
 
+bool vulkan_deferred_region_plan_logging_enabled() {
+  return deferred_region_plan_logging_enabled();
+}
+
+void note_vulkan_deferred_region_tensor_write(
+    const char* op_name,
+    const char* route_name,
+    const uint64_t output_storage_id,
+    const uint64_t output_view_id,
+    const uint64_t output_generation,
+    const uint64_t output_logical_desc_hash,
+    const int64_t output_storage_offset,
+    const int64_t output_buffer_length,
+    const bool output_is_view,
+    const std::string& output_state,
+    const std::vector<std::string>& input_states,
+    const uint64_t vulkan_input_count,
+    const uint64_t missing_input_lease_count) {
+  if (
+      !deferred_region_plan_logging_enabled() || op_name == nullptr ||
+      op_name[0] == '\0' || is_lazy_chain_internal_bookkeeping(op_name)) {
+    return;
+  }
+
+  LazyChainState& state = lazy_chain_state();
+  const uint64_t output_handle_id = state.next_deferred_tensor_handle_id++;
+  state.deferred_tensor_handles.push_back({
+      output_handle_id,
+      output_storage_id,
+      output_view_id,
+      output_generation,
+      output_logical_desc_hash,
+      output_storage_offset,
+      output_buffer_length,
+      output_is_view,
+      output_state,
+  });
+  state.deferred_op_nodes.push_back({
+      state.next_deferred_op_node_id++,
+      output_handle_id,
+      op_name,
+      route_name && route_name[0] != '\0' ? route_name : "<unspecified>",
+      static_cast<uint64_t>(input_states.size()),
+      vulkan_input_count,
+      missing_input_lease_count,
+  });
+  state.deferred_value_lease_count += vulkan_input_count;
+  state.deferred_missing_value_lease_count += missing_input_lease_count;
+  if (output_is_view) {
+    ++state.deferred_alias_or_view_count;
+  }
+}
+
 void note_vulkan_lazy_chain_op(const char* op_name) {
   if (
       (!lazy_chain_logging_enabled() &&
@@ -1501,6 +1726,7 @@ void flush_vulkan_lazy_chain_boundary(
   if (
       !lazy_chain_logging_enabled() &&
       !deferred_execution_logging_enabled() &&
+      !deferred_region_plan_logging_enabled() &&
       !runtime_shader_compile_logging_enabled() &&
       !runtime_command_list_logging_enabled()) {
     return;
@@ -1508,6 +1734,7 @@ void flush_vulkan_lazy_chain_boundary(
   LazyChainState& state = lazy_chain_state();
   maybe_log_runtime_command_list_plan(state, boundary_kind, reason);
   maybe_compile_runtime_shader_group(state, boundary_kind, reason);
+  flush_deferred_region_plan(state, boundary_kind, reason);
   flush_deferred_execution_region(state, boundary_kind, reason);
   if (!lazy_chain_logging_enabled()) {
     state.raw_ops.clear();
