@@ -147,6 +147,15 @@ ordinary eager outputs. A focused DAv2 `vits_140`
 existing static `add_scaled_buffer_float` path and the generated `mul -> add`
 path corrupted bridge sanity when writing a fresh stack block output slot, so
 stack output-slot ownership remains a region command-list problem.
+Generated elementwise chains can also target caller-owned output storage through
+`try_runtime_elementwise_chain_out_vulkan`. The first use is
+`token_prefix_cat_add`, where both prefix and token position-add slices write
+into views of the final concatenated output. The out path is fail-closed and
+falls back to `add_buffer_out_vulkan` if the generated output write cannot prove
+layout/storage compatibility. A focused `vits_140` run recorded 14
+`vulkan_prepack::runtime_mixed_elementwise_chain_out` hits, kept the 144
+residual returned-tensor chain hits, reduced `aten::binary_op.buffer_float` to
+10, and preserved the same bridge sanity and zero fallback/readback counters.
 Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
 materialize any deferred placeholder before reading or planning it.

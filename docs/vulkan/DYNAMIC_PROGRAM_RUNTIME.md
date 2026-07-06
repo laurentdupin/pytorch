@@ -333,6 +333,16 @@ both the existing static `add_scaled_buffer_float` and the generated `mul ->
 add` shader corrupted bridge sanity when they wrote a fresh stack block output
 slot, confirming that slot/output ownership still belongs to future region work
 rather than this eager generated-chain slice.
+The next ownership step is generated out-buffer execution, not placeholder
+deferral. `try_runtime_elementwise_chain_out_vulkan` submits the same mixed
+runtime elementwise shader into caller-owned output storage after materializing
+deferred operands and marking the output for Vulkan execution. It is currently
+used only by `token_prefix_cat_add` for the prefix and token position-add views
+inside one concatenated output tensor; unsupported layout/storage cases fall
+back to `add_buffer_out_vulkan`. A focused `vits_140` bridge run recorded 14
+`vulkan_prepack::runtime_mixed_elementwise_chain_out` hits and reduced
+`aten::binary_op.buffer_float` hits to 10 while preserving the same bridge
+sanity and zero fallback/readback counters.
 Consumers that are not part of the generated chain, including convolution,
 activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do

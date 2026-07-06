@@ -3878,6 +3878,79 @@ std::optional<Tensor> try_runtime_elementwise_chain_vulkan(
   }
 }
 
+std::optional<Tensor> try_runtime_elementwise_chain_out_vulkan(
+    const Tensor& input_arg,
+    const std::vector<Tensor>& rhs_tensors,
+    const std::vector<std::string>& ops,
+    Tensor& output_arg) {
+  if (
+      !input_arg.defined() || !input_arg.is_vulkan() ||
+      input_arg.scalar_type() != kFloat || !output_arg.defined() ||
+      !output_arg.is_vulkan() || output_arg.scalar_type() != kFloat ||
+      ops.empty() || ops.size() != rhs_tensors.size()) {
+    return std::nullopt;
+  }
+  try {
+    const auto prepare_operand =
+        [](const Tensor& tensor, const char* callsite) -> Tensor {
+      const Tensor runtime_materialized =
+          materialize_deferred_runtime_elementwise_candidate_if_needed(
+              tensor, callsite);
+      const Tensor attention_materialized =
+          materialize_decomposed_attention_candidate_if_needed(
+              runtime_materialized);
+      const Tensor attention_query_scaled =
+          materialize_deferred_attention_query_scale_candidate_if_needed(
+              attention_materialized);
+      const Tensor image_normalized =
+          materialize_deferred_image_normalize_candidate_if_needed(
+              attention_query_scaled);
+      return materialize_deferred_add_layer_norm_candidate_if_needed(
+          materialize_deferred_linear_gelu_candidate_if_needed(
+              image_normalized));
+    };
+    RuntimeElementwiseMixedChain chain;
+    chain.input =
+        prepare_operand(input_arg, "runtime_elementwise_chain.out.input");
+    std::vector<Tensor> rhs;
+    rhs.reserve(rhs_tensors.size());
+    for (const auto idx : c10::irange(rhs_tensors.size())) {
+      RuntimeElementwiseMixedStep step;
+      step.operand_kind = RuntimeElementwiseMixedOperandKind::Tensor;
+      step.op = ops[idx];
+      step.rhs =
+          prepare_operand(rhs_tensors[idx], "runtime_elementwise_chain.out.rhs");
+      rhs.push_back(step.rhs);
+      chain.steps.push_back(std::move(step));
+    }
+
+    Tensor output = utils::mark_tensor_execution(
+        output_arg,
+        utils::resolve_buffer_execution_layout(convert(output_arg)),
+        false);
+    vTensor& v_output = convert(output);
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::runtime_mixed_elementwise_chain_out");
+    submit_runtime_elementwise_mixed_chain_to_output(
+        chain,
+        rhs,
+        v_output,
+        "runtime_elementwise_chain.mixed_out");
+
+    std::vector<Tensor> provenance_inputs;
+    provenance_inputs.reserve(rhs.size() + 1u);
+    provenance_inputs.push_back(chain.input);
+    provenance_inputs.insert(provenance_inputs.end(), rhs.begin(), rhs.end());
+    return record_tensor_write_and_return(
+        output,
+        "vulkan_prepack::runtime_mixed_elementwise_chain_out",
+        "runtime_generated_mixed_elementwise_chain_out",
+        provenance_inputs);
+  } catch (const c10::Error&) {
+    return std::nullopt;
+  }
+}
+
 static Tensor binary_op_tensor_buffer_integral(
     const Tensor& self_arg,
     const Tensor& other_arg,

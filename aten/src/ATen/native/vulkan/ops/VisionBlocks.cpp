@@ -13424,12 +13424,26 @@ Tensor token_prefix_cat_add(
       make_token_prefix_cat_add_dim1_view(output, prefix.sizes(), 0);
   Tensor prefix_pos =
       make_token_prefix_cat_add_dim1_view(pos, prefix.sizes(), 0);
-  (void)add_buffer_out_vulkan(prefix, prefix_pos, prefix_output);
+  if (!try_runtime_elementwise_chain_out_vulkan(
+           prefix,
+           std::vector<Tensor>{prefix_pos},
+           std::vector<std::string>{"add"},
+           prefix_output)
+           .has_value()) {
+    (void)add_buffer_out_vulkan(prefix, prefix_pos, prefix_output);
+  }
 
   Tensor token_output =
       make_token_prefix_cat_add_dim1_view(output, tokens.sizes(), 1);
   Tensor token_pos = make_token_prefix_cat_add_dim1_view(pos, tokens.sizes(), 1);
-  (void)add_buffer_out_vulkan(tokens, token_pos, token_output);
+  if (!try_runtime_elementwise_chain_out_vulkan(
+           tokens,
+           std::vector<Tensor>{token_pos},
+           std::vector<std::string>{"add"},
+           token_output)
+           .has_value()) {
+    (void)add_buffer_out_vulkan(tokens, token_pos, token_output);
+  }
 
   utils::log_vulkan_op_hit("vulkan_prepack::token_prefix_cat_add");
   const TensorContractProvenance provenance =
