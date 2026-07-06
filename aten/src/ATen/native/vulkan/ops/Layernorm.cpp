@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/NativeLayerNorm.h>
 #include <ATen/native/vulkan/ops/Norm.h>
@@ -964,7 +965,11 @@ Tensor run_layernorm_context(
     const Tensor& input_arg,
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& layernorm_context) {
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor input_vulkan =
+      input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor input =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          input_vulkan, "layernorm_context.input");
   const std::optional<Tensor> weight_opt = layernorm_context->weight();
   const std::optional<Tensor> bias_opt = layernorm_context->bias();
   const float eps = api::utils::safe_downcast<float>(layernorm_context->eps());
@@ -981,7 +986,11 @@ Tensor run_layernorm_context_out(
     IntArrayRef normalized_shape,
     const c10::intrusive_ptr<LayernormPackedContext>& layernorm_context,
     Tensor& output) {
-  const Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor input_vulkan =
+      input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
+  const Tensor input =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          input_vulkan, "layernorm_context_out.input");
   const std::optional<Tensor> weight_opt = layernorm_context->weight();
   const std::optional<Tensor> bias_opt = layernorm_context->bias();
   const float eps = api::utils::safe_downcast<float>(layernorm_context->eps());
@@ -1020,10 +1029,16 @@ std::optional<std::pair<Tensor, Tensor>> try_run_add_layernorm_context_out(
     const c10::intrusive_ptr<LayernormPackedContext>& layernorm_context,
     Tensor& residual_output_arg,
     Tensor& norm_output_arg) {
-  const Tensor residual =
+  const Tensor residual_vulkan =
       residual_arg.is_vulkan() ? residual_arg : residual_arg.vulkan();
-  const Tensor addend =
+  const Tensor addend_vulkan =
       addend_arg.is_vulkan() ? addend_arg : addend_arg.vulkan();
+  const Tensor residual =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          residual_vulkan, "add_layernorm_context_out.residual");
+  const Tensor addend =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          addend_vulkan, "add_layernorm_context_out.addend");
   const std::optional<Tensor> weight_opt = layernorm_context->weight();
   const std::optional<Tensor> bias_opt = layernorm_context->bias();
 
@@ -1169,11 +1184,21 @@ try_run_add_scaled_layernorm_context_out(
     return std::nullopt;
   }
 
-  const Tensor residual =
+  const Tensor residual_vulkan =
       residual_arg.is_vulkan() ? residual_arg : residual_arg.vulkan();
-  const Tensor addend =
+  const Tensor addend_vulkan =
       addend_arg.is_vulkan() ? addend_arg : addend_arg.vulkan();
-  const Tensor scale = scale_arg.is_vulkan() ? scale_arg : scale_arg.vulkan();
+  const Tensor scale_vulkan =
+      scale_arg.is_vulkan() ? scale_arg : scale_arg.vulkan();
+  const Tensor residual =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          residual_vulkan, "add_scaled_layernorm_context_out.residual");
+  const Tensor addend =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          addend_vulkan, "add_scaled_layernorm_context_out.addend");
+  const Tensor scale =
+      materialize_deferred_runtime_elementwise_candidate_if_needed(
+          scale_vulkan, "add_scaled_layernorm_context_out.scale");
   const std::optional<Tensor> weight_opt = layernorm_context->weight();
   const std::optional<Tensor> bias_opt = layernorm_context->bias();
 

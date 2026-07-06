@@ -296,7 +296,8 @@ planned recording was active. `add_buffer_out_vulkan` materializes
 runtime-deferred placeholder inputs before checking and recording its buffer add
 route, and passes a materialization callsite into the deferred trace when that
 boundary fires, so generic out consumers do not read placeholder buffers
-directly.
+directly. Layernorm context consumers also materialize runtime-deferred
+placeholders before reading context inputs.
 Stack candidate rows now also carry structured value-lease and command-order
 proof fields: input/RHS/output tensor keys, storage ids, view ids, generations,
 logical descriptor hashes, byte ranges, provenance writer and route, stack
@@ -306,8 +307,15 @@ compute-job/descriptor/barrier counters, topology status, and
 valid stack recording domain for residual1/residual2 candidates, but reports
 `stack_command_order_proof_status=recording_domain_dispatch_count_observed_consumer_order_unproven`
 and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
-That is the next concrete blocker before a generated command list can replace
-the eager residual elementwise ops inside stack planned recording.
+Additional local POCs narrowed the blocker: the generated runtime
+`[tokens,384] * [384]` chain is exact outside the stack, including when both
+inputs are Vulkan clone leases. Inside stack planned recording, broad deferred
+layerscale still failed bridge sanity after explicit layernorm materialization,
+after private device-copy input/RHS leases, and after materializing the stack
+`mul` through the existing static binary shader before copying into the deferred
+placeholder. That points at current-topology placeholder/output ownership and
+consumer ordering, so stack runtime elementwise deferral remains rejected until
+a generated command-list region owns the output and consumer sequence directly.
 Consumers that are not part of the generated chain, including convolution,
 activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do

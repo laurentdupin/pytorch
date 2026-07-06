@@ -109,7 +109,9 @@ shape-independent `program_key`; ordinary non-stack deferred materializations re
 before checking its buffer route and recording the add, and passes an explicit
 materialization callsite into the deferred trace when that boundary fires, so
 non-stack deferred candidates cannot be consumed as raw placeholder buffers by
-that out path. Normal register/materialize rows record whether stack planned
+that out path. Layernorm context consumers now perform the same mandatory
+materialization before reading context inputs. Normal register/materialize rows
+record whether stack planned
 recording was active. Stack candidate rows also carry structured value-lease and
 command-order proof fields: input/RHS/output tensor keys, storage ids, view ids,
 generations, logical descriptor hashes, byte ranges, provenance writer and
@@ -120,6 +122,16 @@ observed residual1/residual2 stack candidates inside valid command-buffer
 recording domains, but every stack row still reported
 `stack_command_order_proof_status=recording_domain_dispatch_count_observed_consumer_order_unproven`
 and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
+Follow-up local POCs confirmed this is not a standalone shader math issue:
+the generated `[tokens,384] * [384]` runtime chain, and the same chain fed by
+Vulkan `clone()` leases, are exact outside stack planned recording. Inside the
+stack, broad deferred layerscale still failed bridge sanity after explicit
+layernorm materialization, after private device-copy input/RHS leases, and after
+materializing the stack `mul` through the existing static binary shader before
+copying into the deferred placeholder. Stack runtime elementwise deferral
+therefore remains rejected until the placeholder/output ownership and consumer
+order can be represented by a real generated command-list region instead of
+retrofitting a placeholder into the current stack topology.
 Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
 materialize any deferred placeholder before reading or planning it.
