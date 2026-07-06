@@ -18,7 +18,8 @@ Tensor add_buffer_out_vulkan(
     const Tensor& self,
     const Tensor& other,
     Tensor& output,
-    const std::optional<Scalar>& alpha = std::nullopt);
+    const std::optional<Scalar>& alpha = std::nullopt,
+    const char* callsite = nullptr);
 
 Tensor run_runtime_elementwise_chain_add_mul_sub_div(
     const Tensor& input,

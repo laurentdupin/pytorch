@@ -85,6 +85,19 @@ const char* binary_op_kind_name(const BinaryOpKind op_kind) {
   return "unknown";
 }
 
+std::string format_binary_op_sizes(IntArrayRef sizes) {
+  std::ostringstream stream;
+  stream << "[";
+  for (const auto i : c10::irange(sizes.size())) {
+    if (i != 0u) {
+      stream << "x";
+    }
+    stream << sizes[i];
+  }
+  stream << "]";
+  return stream.str();
+}
+
 std::string quote_runtime_shader_command_arg(const std::string& value) {
   std::string quoted = "\"";
   for (const char ch : value) {
@@ -4496,9 +4509,10 @@ static Tensor binary_op_tensor_buffer_impl(
     const std::optional<Scalar>& alpha_arg,
     const api::ShaderInfo& shader_descriptor,
     const BinaryOpKind op_kind,
-    Tensor* output_arg) {
+    Tensor* output_arg,
+    const char* callsite = nullptr) {
+  const std::string parent_allocation_label = api::current_allocation_label();
   api::AllocationScope allocation_scope("binary_op.buffer");
-  utils::log_vulkan_op_hit("aten::binary_op.buffer_float");
   utils::validate_replay_tensor_not_stale(
       self_arg, "aten::binary_op.tensor_buffer");
   utils::validate_replay_tensor_not_stale(
@@ -4522,6 +4536,18 @@ static Tensor binary_op_tensor_buffer_impl(
 
   const std::vector<int64_t> output_sizes =
       utils::broadcast_size(self_input, other_input);
+  std::ostringstream hit;
+  hit << "aten::binary_op.buffer_float"
+      << " kind=" << binary_op_kind_name(op_kind)
+      << " self_sizes=" << format_binary_op_sizes(self_input.sizes())
+      << " other_sizes=" << format_binary_op_sizes(other_input.sizes())
+      << " output_sizes=" << format_binary_op_sizes(output_sizes);
+  if (callsite != nullptr) {
+    hit << " callsite=" << callsite;
+  } else if (!parent_allocation_label.empty()) {
+    hit << " parent_caller=" << parent_allocation_label;
+  }
+  utils::log_vulkan_op_hit(hit.str());
   Tensor output_tensor;
   vTensor* v_output_ptr = nullptr;
   vTensor owned_output;
@@ -5186,7 +5212,8 @@ Tensor add_buffer_out_vulkan(
     const Tensor& self,
     const Tensor& other,
     Tensor& output,
-    const std::optional<Scalar>& alpha) {
+    const std::optional<Scalar>& alpha,
+    const char* callsite) {
   const Tensor self_materialized =
       materialize_deferred_runtime_elementwise_candidate_if_needed(
           self, "add_buffer_out_vulkan.self");
@@ -5202,7 +5229,8 @@ Tensor add_buffer_out_vulkan(
       alpha,
       VK_KERNEL(buffer_add),
       BinaryOpKind::Add,
-      &output);
+      &output,
+      callsite == nullptr ? "add_buffer_out_vulkan" : callsite);
 }
 
 std::optional<Tensor> try_add_scaled_buffer_out_vulkan(

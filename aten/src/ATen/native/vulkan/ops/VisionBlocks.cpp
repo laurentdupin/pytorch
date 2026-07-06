@@ -4481,7 +4481,11 @@ Tensor run_vision_decoder_fusion_block_program(
               context->res1_conv2_context(),
               outputs.skip_conv2_output);
       residual = add_buffer_out_vulkan(
-          residual, *skip_tensor, outputs.skip_res_output);
+          residual,
+          *skip_tensor,
+          outputs.skip_res_output,
+          std::nullopt,
+          "vision_decoder.skip_residual_add");
     }
     auto fused_main_input = try_add_relu_buffer_out_vulkan(
         main_input,
@@ -4493,7 +4497,11 @@ Tensor run_vision_decoder_fusion_block_program(
       output = std::move(fused_main_input->second);
     } else {
       main_input = add_buffer_out_vulkan(
-          main_input, residual, outputs.main_input_output);
+          main_input,
+          residual,
+          outputs.main_input_output,
+          std::nullopt,
+          "vision_decoder.main_skip_residual_add");
     }
   }
 
@@ -4517,7 +4525,11 @@ Tensor run_vision_decoder_fusion_block_program(
         context->res2_conv2_context(),
         outputs.main_conv2_output);
     output = add_buffer_out_vulkan(
-        output, main_input, outputs.main_res_output);
+        output,
+        main_input,
+        outputs.main_res_output,
+        std::nullopt,
+        "vision_decoder.main_residual_add");
   }
   if (can_run_decoder_out_conv_before_upsample(
           output, context, outputs.main_conv2_output)) {
@@ -5688,7 +5700,12 @@ Tensor run_vision_backbone_block_program(
       }
     }
     mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
-    (void)add_buffer_out_vulkan(hidden_states, mlp_addend, add_output);
+    (void)add_buffer_out_vulkan(
+        hidden_states,
+        mlp_addend,
+        add_output,
+        std::nullopt,
+        "vision_block.residual2_add");
     note_stack_execution_manifest_row(
         "vision_block.residual2",
         "buffer_add",
@@ -7132,8 +7149,12 @@ bool run_compiled_executable_dispatch_step(
         maybe_expand_compiled_region_batch(pos_encoding, positioned_input);
     Tensor& output_slot = compiled_executable_tensor_slot(
         context.tensor_slots, context.bindings, step.writes[0]);
-    output_slot =
-        add_buffer_out_vulkan(positioned_input, pos_encoding, output_slot);
+    output_slot = add_buffer_out_vulkan(
+        positioned_input,
+        pos_encoding,
+        output_slot,
+        std::nullopt,
+        "compiled_executable.elementwise_add");
     return true;
   }
 
@@ -7755,8 +7776,12 @@ bool run_compiled_session_image_entry_region(
         }
         Tensor& output_slot =
             tensor_slots.at(compiled_session_tensor_slot(bindings, op.outputs[0]));
-        output_slot =
-            add_buffer_out_vulkan(positioned_input, pos_encoding, output_slot);
+        output_slot = add_buffer_out_vulkan(
+            positioned_input,
+            pos_encoding,
+            output_slot,
+            std::nullopt,
+            "compiled_session.elementwise_add");
         break;
       }
       case utils::VulkanIROpKind::Concat: {
@@ -13430,7 +13455,12 @@ Tensor token_prefix_cat_add(
            std::vector<std::string>{"add"},
            prefix_output)
            .has_value()) {
-    (void)add_buffer_out_vulkan(prefix, prefix_pos, prefix_output);
+    (void)add_buffer_out_vulkan(
+        prefix,
+        prefix_pos,
+        prefix_output,
+        std::nullopt,
+        "token_prefix_cat_add.prefix_fallback");
   }
 
   Tensor token_output =
@@ -13442,7 +13472,12 @@ Tensor token_prefix_cat_add(
            std::vector<std::string>{"add"},
            token_output)
            .has_value()) {
-    (void)add_buffer_out_vulkan(tokens, token_pos, token_output);
+    (void)add_buffer_out_vulkan(
+        tokens,
+        token_pos,
+        token_output,
+        std::nullopt,
+        "token_prefix_cat_add.tokens_fallback");
   }
 
   utils::log_vulkan_op_hit("vulkan_prepack::token_prefix_cat_add");

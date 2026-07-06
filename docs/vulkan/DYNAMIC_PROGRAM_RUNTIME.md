@@ -342,7 +342,14 @@ inside one concatenated output tensor; unsupported layout/storage cases fall
 back to `add_buffer_out_vulkan`. A focused `vits_140` bridge run recorded 14
 `vulkan_prepack::runtime_mixed_elementwise_chain_out` hits and reduced
 `aten::binary_op.buffer_float` hits to 10 while preserving the same bridge
-sanity and zero fallback/readback counters.
+sanity and zero fallback/readback counters. The remaining 10 binary adds are
+not the repeated bridge-private decoder context path: a follow-up attribution
+run showed one `[1,64,5,8]` add and three adds at each of `[1,64,10,15]`,
+`[1,64,20,30]`, and `[1,64,40,60]`, all before the first
+`run_vision_decoder_fusion_block_context.*` bridge record. Binary buffer hits
+now log `kind`, operand/output sizes, optional `callsite`, and parent caller in
+`PYTORCH_VULKAN_OP_HIT_LOG` so future generated-chain work can classify those
+setup/preflight residual adds separately from timed bridge execution.
 Consumers that are not part of the generated chain, including convolution,
 activation/clamp and upsample, materialize a placeholder before reading it; the
 central `ensure_buffer_storage` and execution-planner preparation helpers do

@@ -156,6 +156,16 @@ layout/storage compatibility. A focused `vits_140` run recorded 14
 `vulkan_prepack::runtime_mixed_elementwise_chain_out` hits, kept the 144
 residual returned-tensor chain hits, reduced `aten::binary_op.buffer_float` to
 10, and preserved the same bridge sanity and zero fallback/readback counters.
+The remaining 10 binary hits are now shape-attributed in the op-hit log:
+focused `vits_140` classification showed `add` at `[1,64,5,8]` once and at
+`[1,64,10,15]`, `[1,64,20,30]`, and `[1,64,40,60]` three times each. All ten
+occur before the first `run_vision_decoder_fusion_block_context.*` bridge record
+and are the initial unbridged decoder residual ladder/preflight, not the
+repeated bridge-private decoder context path. The add helper therefore records
+`kind`, operand/output sizes, optional `callsite`, and parent caller in
+`PYTORCH_VULKAN_OP_HIT_LOG` without changing execution or allocation labels, so
+future work can distinguish setup/preflight binary adds from timed bridge work
+instead of re-chasing the same shapes.
 Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
 materialize any deferred placeholder before reading or planning it.
