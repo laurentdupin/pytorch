@@ -1,7 +1,7 @@
 # Vulkan Current State
 
-Last refreshed: 2026-07-06 at local HEAD `8bf5f97748c` plus stack value-lease
-proof diagnostics:
+Last refreshed: 2026-07-06 at local HEAD `621e8687c60` plus materialized
+runtime-generated residual2 stack chain:
 `PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
 lazy-region capture observer. It does not defer or fuse execution; it records
 the eager Vulkan op-hit chain and flushes that chain when a mandatory access
@@ -132,6 +132,19 @@ copying into the deferred placeholder. Stack runtime elementwise deferral
 therefore remains rejected until the placeholder/output ownership and consumer
 order can be represented by a real generated command-list region instead of
 retrofitting a placeholder into the current stack topology.
+The first behavior-bearing generated stack chain is narrower and keeps normal
+eager tensor ownership: non-program residual2 now materializes deferred bridge
+operands, compiles/runs a runtime `mul -> add` shader for
+`mlp_output * ls2_gamma + hidden_states`, and returns the generated tensor as
+the block output. A focused DAv2 `vits_140`
+`stack_capture_decoder_preprocess` run recorded 72 generated
+`vulkan_prepack::runtime_elementwise_chain` submissions with bridge sanity
+passing (`max_abs=1.1846423149108887e-06`,
+`mean_abs=6.115393347272402e-08`), `cpu_fallback=0`, and `sync_readback=0`.
+A direct-output-slot variant stayed rejected: both the existing static
+`add_scaled_buffer_float` path and the generated `mul -> add` path corrupted
+bridge sanity when writing a fresh stack block output slot, so stack output-slot
+ownership remains a region command-list problem.
 Convolution,
 activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
 materialize any deferred placeholder before reading or planning it.

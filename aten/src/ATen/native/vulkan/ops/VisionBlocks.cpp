@@ -5674,18 +5674,44 @@ Tensor run_vision_backbone_block_program(
   {
     api::VulkanVisionStackPhaseScope scope(
         api::VulkanVisionStackPhase::Residual2);
-    mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
-    output = at::add(hidden_states, mlp_addend);
-    note_stack_execution_manifest_row(
-        "vision_block.residual2",
-        "buffer_add",
-        {std::cref(hidden_states), std::cref(mlp_addend)},
-        {std::cref(output)},
-        true,
-        false,
-        false,
-        false,
-        true);
+    bool used_runtime_generated_residual2 = false;
+    if (!vision_program && context->ls2_gamma().defined()) {
+      output = try_runtime_elementwise_chain_vulkan(
+                   mlp_output,
+                   std::vector<Tensor>{context->ls2_gamma(), hidden_states},
+                   std::vector<std::string>{"mul", "add"})
+                   .value_or(Tensor{});
+      used_runtime_generated_residual2 = output.defined();
+    }
+    if (!output.defined()) {
+      mlp_addend = maybe_apply_layerscale(mlp_output, context->ls2_gamma());
+      output = at::add(hidden_states, mlp_addend);
+    }
+    if (used_runtime_generated_residual2) {
+      note_stack_execution_manifest_row(
+          "vision_block.residual2",
+          "runtime_mixed_elementwise_chain",
+          {std::cref(mlp_output),
+           std::cref(context->ls2_gamma()),
+           std::cref(hidden_states)},
+          {std::cref(output)},
+          true,
+          false,
+          false,
+          false,
+          true);
+    } else {
+      note_stack_execution_manifest_row(
+          "vision_block.residual2",
+          "buffer_add",
+          {std::cref(hidden_states), std::cref(mlp_addend)},
+          {std::cref(output)},
+          true,
+          false,
+          false,
+          false,
+          true);
+    }
   }
   if (!use_2d_input) {
     output = output.reshape({batch_size, token_count, embed_dim});

@@ -32,6 +32,11 @@ Tensor run_runtime_elementwise_chain(
     const std::vector<Tensor>& rhs_tensors,
     const std::vector<std::string>& ops);
 
+std::optional<Tensor> try_runtime_elementwise_chain_vulkan(
+    const Tensor& input,
+    const std::vector<Tensor>& rhs_tensors,
+    const std::vector<std::string>& ops);
+
 void note_runtime_elementwise_binary_live_chain(
     const Tensor& self,
     const Tensor& other,

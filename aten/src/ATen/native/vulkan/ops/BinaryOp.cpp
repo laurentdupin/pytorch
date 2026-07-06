@@ -3835,6 +3835,49 @@ Tensor run_runtime_elementwise_chain(
       provenance_inputs);
 }
 
+std::optional<Tensor> try_runtime_elementwise_chain_vulkan(
+    const Tensor& input_arg,
+    const std::vector<Tensor>& rhs_tensors,
+    const std::vector<std::string>& ops) {
+  if (
+      !input_arg.defined() || !input_arg.is_vulkan() ||
+      input_arg.scalar_type() != kFloat || ops.empty() ||
+      ops.size() != rhs_tensors.size()) {
+    return std::nullopt;
+  }
+  try {
+    const auto prepare_operand =
+        [](const Tensor& tensor, const char* callsite) -> Tensor {
+      const Tensor runtime_materialized =
+          materialize_deferred_runtime_elementwise_candidate_if_needed(
+              tensor, callsite);
+      const Tensor attention_materialized =
+          materialize_decomposed_attention_candidate_if_needed(
+              runtime_materialized);
+      const Tensor attention_query_scaled =
+          materialize_deferred_attention_query_scale_candidate_if_needed(
+              attention_materialized);
+      const Tensor image_normalized =
+          materialize_deferred_image_normalize_candidate_if_needed(
+              attention_query_scaled);
+      return materialize_deferred_add_layer_norm_candidate_if_needed(
+          materialize_deferred_linear_gelu_candidate_if_needed(
+              image_normalized));
+    };
+    const Tensor input =
+        prepare_operand(input_arg, "runtime_elementwise_chain.try.input");
+    std::vector<Tensor> rhs;
+    rhs.reserve(rhs_tensors.size());
+    for (const Tensor& tensor : rhs_tensors) {
+      rhs.push_back(
+          prepare_operand(tensor, "runtime_elementwise_chain.try.rhs"));
+    }
+    return run_runtime_elementwise_chain(input, rhs, ops);
+  } catch (const c10::Error&) {
+    return std::nullopt;
+  }
+}
+
 static Tensor binary_op_tensor_buffer_integral(
     const Tensor& self_arg,
     const Tensor& other_arg,
