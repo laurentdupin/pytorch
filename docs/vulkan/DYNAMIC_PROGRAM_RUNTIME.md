@@ -316,17 +316,18 @@ after private device-copy input/RHS leases, and after materializing the stack
 placeholder. That points at current-topology placeholder/output ownership and
 consumer ordering, so stack runtime elementwise deferral remains rejected until
 a generated command-list region owns the output and consumer sequence directly.
-The first behavior-bearing stack use of the runtime generator therefore avoids
-placeholder replacement: non-program residual2 now tries a materialized
-runtime-generated `mul -> add` chain,
-`mlp_output * ls2_gamma + hidden_states`, and returns the generated output as a
-normal eager tensor. The optional helper materializes existing deferred bridge
-operands before compiling/submitting the generated chain, matching the ordinary
+The first behavior-bearing stack uses of the runtime generator therefore avoid
+placeholder replacement: non-program residual1 and residual2 now try
+materialized runtime-generated `mul -> add` chains for
+`attention_output * ls1_gamma + input_2d` and
+`mlp_output * ls2_gamma + hidden_states`, returning generated outputs as normal
+eager tensors. The optional helper materializes existing deferred bridge
+operands before compiling/submitting the generated chains, matching the ordinary
 binary-op materialization discipline. A focused DAv2 `vits_140`
-`stack_capture_decoder_preprocess` run recorded 72
-`vulkan_prepack::runtime_elementwise_chain` submissions, zero CPU fallback,
-zero sync readback, and bridge sanity
-`max_abs=1.1846423149108887e-06` /
+`stack_capture_decoder_preprocess` run recorded 144
+`vulkan_prepack::runtime_elementwise_chain` submissions, reduced
+`aten::binary_op.buffer_float` hits to 24, kept zero CPU fallback and zero sync
+readback, and passed bridge sanity `max_abs=1.1846423149108887e-06` /
 `mean_abs=6.115393347272402e-08`. A direct output-slot variant was rejected:
 both the existing static `add_scaled_buffer_float` and the generated `mul ->
 add` shader corrupted bridge sanity when they wrote a fresh stack block output

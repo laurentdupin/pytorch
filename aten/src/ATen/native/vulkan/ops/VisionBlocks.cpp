@@ -5530,10 +5530,14 @@ Tensor run_vision_backbone_block_program(
     }
   }
   if (!mlp_input.defined()) {
-    api::VulkanVisionStackPhaseScope scope(
-        api::VulkanVisionStackPhase::Residual1);
-    attention_addend =
-        maybe_apply_layerscale(attention_output, context->ls1_gamma());
+    const bool defer_layerscale_to_runtime_generated_residual =
+        !vision_program && context->ls1_gamma().defined();
+    if (!defer_layerscale_to_runtime_generated_residual) {
+      api::VulkanVisionStackPhaseScope scope(
+          api::VulkanVisionStackPhase::Residual1);
+      attention_addend =
+          maybe_apply_layerscale(attention_output, context->ls1_gamma());
+    }
   }
   if (vision_program && !mlp_input.defined()) {
     api::VulkanVisionStackPhaseScope scope(
@@ -5554,17 +5558,45 @@ Tensor run_vision_backbone_block_program(
     {
       api::VulkanVisionStackPhaseScope scope(
           api::VulkanVisionStackPhase::Residual1);
-      hidden_states = at::add(input_2d, attention_addend);
-      note_stack_execution_manifest_row(
-          "vision_block.residual1",
-          "buffer_add",
-          {std::cref(input_2d), std::cref(attention_addend)},
-          {std::cref(hidden_states)},
-          true,
-          false,
-          false,
-          false,
-          true);
+      bool used_runtime_generated_residual1 = false;
+      if (!vision_program && context->ls1_gamma().defined()) {
+        hidden_states = try_runtime_elementwise_chain_vulkan(
+                            attention_output,
+                            std::vector<Tensor>{context->ls1_gamma(), input_2d},
+                            std::vector<std::string>{"mul", "add"})
+                            .value_or(Tensor{});
+        used_runtime_generated_residual1 = hidden_states.defined();
+      }
+      if (!hidden_states.defined()) {
+        attention_addend =
+            maybe_apply_layerscale(attention_output, context->ls1_gamma());
+        hidden_states = at::add(input_2d, attention_addend);
+      }
+      if (used_runtime_generated_residual1) {
+        note_stack_execution_manifest_row(
+            "vision_block.residual1",
+            "runtime_mixed_elementwise_chain",
+            {std::cref(attention_output),
+             std::cref(context->ls1_gamma()),
+             std::cref(input_2d)},
+            {std::cref(hidden_states)},
+            true,
+            false,
+            false,
+            false,
+            true);
+      } else {
+        note_stack_execution_manifest_row(
+            "vision_block.residual1",
+            "buffer_add",
+            {std::cref(input_2d), std::cref(attention_addend)},
+            {std::cref(hidden_states)},
+            true,
+            false,
+            false,
+            false,
+            true);
+      }
     }
     {
       api::VulkanVisionStackPhaseScope scope(api::VulkanVisionStackPhase::Norm2);
