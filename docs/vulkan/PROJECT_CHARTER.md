@@ -13,6 +13,16 @@ paths.
 
 ## Direction
 
+The performance architecture is graph-first. Capture an inference program on
+CPU with `torch.export`, lower the functional ATen graph through Vulkan
+contracts, and execute it as a cached `VulkanGraphProgram`. See
+`docs/vulkan/GRAPH_RUNTIME.md`.
+
+The eager Vulkan backend remains a simple, correct instruction set and fallback
+surface. Do not add new speculative deferred placeholders, per-consumer
+materialization protocols, replay bridges, or model-specific orchestration to
+the eager path.
+
 Prefer three contract classes:
 
 - `KernelFamilyContract`: reusable kernel-family legality, route labels,
@@ -26,6 +36,10 @@ Prefer three contract classes:
 Contract work may start with finite proven tuples, but the tuple table must be
 named for the backend behavior, not for the model that exposed it.
 
+In graph lowering, `KernelFamilyContract` owns node admission,
+`LayoutTransitionContract` owns graph-edge representation policy, and
+`RegionContract` owns complete partition/program validation.
+
 ## Non-Goals
 
 - Do not chase the next exact model shape unless the task explicitly requests a
@@ -36,6 +50,9 @@ named for the backend behavior, not for the model that exposed it.
 - Do not add permanent feature flags for unproven routes.
 - Do not let CUDA or DirectML comparisons drive daily kernel selection. Use
   them as milestone checks.
+- Do not reconstruct whole-program ownership from eager op side effects when
+  the exported graph already provides producer, consumer, alias, lifetime, and
+  output information.
 
 ## Accepted Model-Name Uses
 

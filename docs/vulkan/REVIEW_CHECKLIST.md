@@ -127,3 +127,23 @@ Use this checklist for Vulkan backend changes.
 - Rerun the real-model matrix after default backend behavior changes or before
   claiming or raising model gates. Pure docs, spec-helper, or fixture-only
   changes do not require a matrix refresh unless they reveal stale gate claims.
+
+## Graph Runtime
+
+- New performance work follows `docs/vulkan/GRAPH_RUNTIME.md`.
+- New eager deferred placeholders or per-consumer materialization protocols are
+  rejected; graph fusion owns future-consumer knowledge.
+- Graph capture happens from CPU until Vulkan tensors have a supported
+  FakeTensor/storage representation.
+- Node admission uses semantic contracts rather than exact observed shapes.
+- CPU partitions are explicit, counted, and visible in the program plan.
+- Layout transitions are graph-edge plan steps with reason and byte budgets.
+- Temporary lifetime and slot reuse come from SSA first/last use, not
+  retire-time inference.
+- Recorded command buffers bind program-owned stable slots and descriptors.
+- Stateful values define update, version-invalidation, or partition-boundary
+  behavior before recording is enabled.
+- Runtime-generated shaders are graph codegen; production execution does not
+  shell out to a manually configured compiler executable.
+- Legacy replay, stack-region, or deferred code may be changed only for a
+  correctness fix, migration hook, or deletion enabled by replacement parity.

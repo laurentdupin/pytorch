@@ -6,6 +6,10 @@ Each task should convert observed model failures into reusable contracts,
 generated tests, or structural diagnostics. Stop after a new blocker unless the
 task explicitly authorizes fixing it.
 
+The approved performance path is defined in `docs/vulkan/GRAPH_RUNTIME.md`.
+Existing eager deferred, replay, compiled-session, and stack-region work is
+migration evidence, not an expansion point.
+
 ## Phase 1: Route Specialization Audit
 
 Goal: make model-name and exact-shape production routing visible.
@@ -441,31 +445,85 @@ the generic `conv2d_buffer_float` branch. The remaining generic conv migration
 is explicit direct-output ownership, batched-conv ownership, or a
 layout-transition contract, not another exact conv row.
 
-## Phase 4: Region And Layout Contracts
+## Phase 4: Export And Lowering
 
-Promote DAv2 stack-owner evidence into reusable region-planning rules:
+Goal: turn an unmodified inference model into a model-independent Vulkan graph
+program without capturing from Vulkan opaque tensors.
 
-- shape/capability keys
-- explicit intermediate escape policy
-- binding validation
-- descriptor table readiness
-- planned-recording diagnostics
-- lifetime/provenance proof
+- capture on CPU with `torch.export(strict=False)`;
+- rewrite captured factory-device arguments;
+- upload lifted parameters and buffers to the selected Vulkan device;
+- use semantic dynamic families as node-admission predicates;
+- represent unsupported work as explicit partitions or fail-loud nodes;
+- lower transition contracts onto graph edges;
+- emit a stable graph-coverage and parity census;
+- execute the first lowered program through existing eager Vulkan kernels.
 
-Promote layout/materialization evidence into `LayoutTransitionContract` rules:
+Exit criteria:
 
-- metadata view legality
-- dense materialization legality
-- buffer/texture transition reasons
-- readback legality
-- finite-value and provenance diagnostics
+- DAv2 runs through the product graph API with Vulkan/eager parity;
+- no diagnostic clone barriers are required for correctness;
+- unsupported nodes are named and counted rather than hidden by fallback;
+- graph capture/lowering has model-independent tests and random-shape fixtures.
 
-## Phase 5: Milestone Comparisons
+## Phase 5: C++ Graph Plan Executor
 
-Use CUDA and DirectML comparisons only as milestone checks:
+Goal: remove Python per-node execution and make output/lifetime ownership
+structural.
 
-- after a contract family lands
-- after a region-planning milestone lands
-- before claiming a model gate is ready
+- define an immutable generic graph-plan schema;
+- preallocate input, constant, temporary, output, workspace, and parameter
+  slots from SSA lifetimes;
+- build descriptor and barrier plans once;
+- attach execution to a stream/timeline completion token;
+- keep public outputs generation-safe across repeated invocations;
+- give stateful inputs an explicit update or invalidation protocol.
+
+Exit criteria:
+
+- the C++ executor matches the Python correctness executor;
+- repeated no-readback execution cannot overwrite live outputs or overflow the
+  host stack;
+- fallback, transition, copy, submit, and memory counters remain explicit.
+
+## Phase 6: Recorded Command Partitions And Fusion
+
+Goal: approach kernel-bound latency through stable program ownership.
+
+- record bounded Vulkan-only partitions against program-owned slots;
+- cache by graph, guard, device/driver, capability, layout, and weight version;
+- reuse descriptors and pipelines;
+- move linear/GELU, residual/layer-scale, token-prefix, normalization, SDPA,
+  and elementwise fusion into graph rewrites;
+- move generated shader compilation behind a real compiler and pipeline cache;
+- add capability-keyed heuristic and bounded autotuning plans.
+
+Exit criteria:
+
+- recorded partitions pass repeated-process correctness and lifetime tests;
+- program execution materially reduces control-plane submits and descriptor
+  rebuilds;
+- a rejected plan cannot become a global default on another adapter.
+
+## Phase 7: Replacement Cleanup
+
+Delete only after replacement parity:
+
+- speculative eager deferred bridges and per-consumer materialization hooks;
+- replay and compiled-session bridge APIs;
+- stack-region proof maps and rejected canary implementations;
+- model-specific stack/decoder orchestration;
+- obsolete environment toggles and monolithic tests/docs.
+
+Retain the eager kernel library, semantic admission contracts, transition
+rules, packed-weight caches, streams/events, capability profiles, and compact
+runtime scoreboards.
+
+## Phase 8: Corpus And Milestone Comparisons
+
+Use DAv2, Lotus, HY-MT, PaddleOCR, and Gemma to measure graph coverage,
+explicit partitions, parity, memory, transitions, submits, and latency. Use
+CUDA and DirectML only after a graph-runtime milestone or before claiming a
+model/device gate.
 
 Do not let comparison deltas choose daily one-off Vulkan route additions.

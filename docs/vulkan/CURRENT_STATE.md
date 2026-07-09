@@ -1,5 +1,15 @@
 # Vulkan Current State
 
+Architecture decision, 2026-07-09: the Vulkan performance path is now
+graph-first. CPU `torch.export` capture, contract-driven graph lowering, a
+generic `VulkanGraphProgram`, program-owned memory/descriptors, and recorded
+command partitions replace further expansion of eager deferred placeholders,
+stack proof canaries, replay bridges, and model-specific orchestration. See
+`docs/vulkan/GRAPH_RUNTIME.md` for the source-of-truth design and
+`docs/vulkan/ROADMAP.md` for migration gates. The historical evidence below is
+retained to guide migration and deletion; it is not an instruction to expand
+the superseded systems.
+
 Last refreshed: 2026-07-06 with materialized runtime-generated residual1 and
 residual2 stack chains:
 `PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral

@@ -18,6 +18,11 @@ Replay must not be used as the default answer for new performance work. New
 work should either target the dynamic program runtime, the generated command-list
 planner, or a contract/transition/lifetime proof that those systems consume.
 
+The approved successor is now `VulkanGraphProgram`, described in
+`docs/vulkan/GRAPH_RUNTIME.md`. New command-list work must be generated from an
+exported graph partition with program-owned memory and descriptors. Do not add
+another eager op-stream capture or replay bridge while migrating.
+
 ## Current Inventory
 
 ### Quarantined benchmark surface
