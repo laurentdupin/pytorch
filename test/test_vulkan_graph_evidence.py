@@ -57,6 +57,28 @@ class TestVulkanGraphEvidence(TestCase):
             )
         )
 
+    def test_measured_parity_cases_require_and_accept_shared_case_fields(self):
+        payload = {
+            "schema": EVIDENCE_SCHEMA,
+            "artifact_type": "parity",
+            "status": "measured",
+            "cases": [
+                {
+                    "name": "normal",
+                    "input_shape": [[1, 3, 140, 140]],
+                    "timing": {"first_run_seconds": 1.0},
+                    "guard": {"status": "accepted"},
+                },
+                {
+                    "name": "alternate",
+                    "input_shape": [[1, 3, 140, 280]],
+                    "timing": {"first_run_seconds": 1.0},
+                    "guard": {"status": "recompiled_guard_variant"},
+                },
+            ],
+        }
+        self.assertEqual(validate_evidence_payload(payload), [])
+
 
 if __name__ == "__main__":
     run_tests()

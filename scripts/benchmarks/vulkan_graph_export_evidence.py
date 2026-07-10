@@ -239,6 +239,12 @@ def _run_case(
         },
         {
             "name": name,
+            "input_shape": _input_shapes(args),
+            "timing": {
+                "first_run_seconds": first_run_seconds,
+                "repeated_run_seconds_reference_only": repeated_run_seconds,
+            },
+            "guard": {"status": "accepted"},
             "graph_vs_eager_vulkan": graph_eager,
             "graph_vs_cpu": graph_cpu_parity,
             "tolerance": {
@@ -384,6 +390,7 @@ def main() -> int:
                 "variant_compile_seconds": variant_seconds,
                 "variant_program_key": _jsonable(alternate_program.key),
             }
+            alternate_parity["guard"] = alternate_census["guard"]
         out_of_range_guard = _out_of_range_guard(program, out_of_range)
     finally:
         for name, value in previous_env.items():
