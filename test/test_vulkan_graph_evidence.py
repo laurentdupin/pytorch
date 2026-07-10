@@ -11,11 +11,14 @@ from torch.vulkan._graph_evidence import (
     template_payload,
     validate_evidence_payload,
 )
-from scripts.benchmarks.vulkan_graph_export_evidence import _is_export_guard_rejection
+from scripts.benchmarks.vulkan_graph_export_evidence import (
+    _adapter_identity,
+    _is_export_guard_rejection,
+)
 
 
 class TestVulkanGraphEvidence(TestCase):
-    def test_checked_in_templates_are_schema_valid_and_unmeasured(self):
+    def test_checked_in_dav2_evidence_is_schema_valid_and_measured(self):
         evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"
         for name, artifact_type in (
             ("dav2_vits_export_census.json", "export_census"),
@@ -24,7 +27,9 @@ class TestVulkanGraphEvidence(TestCase):
             payload = json.loads((evidence_dir / name).read_text(encoding="utf-8"))
             self.assertEqual(payload["schema"], EVIDENCE_SCHEMA)
             self.assertEqual(payload["artifact_type"], artifact_type)
-            self.assertEqual(payload["status"], "template_not_measured")
+            self.assertEqual(payload["status"], "measured")
+            self.assertEqual(len(payload["cases"]), 2)
+            self.assertIsInstance(payload["source_git_sha"], str)
             self.assertEqual(validate_evidence_payload(payload), [])
 
     def test_template_helper_does_not_claim_machine_measurement(self):
@@ -55,6 +60,10 @@ class TestVulkanGraphEvidence(TestCase):
             _is_export_guard_rejection(
                 torch.vulkan.VulkanGraphExecutionError("Vulkan dispatch failed")
             )
+        )
+        self.assertEqual(
+            _adapter_identity(r"C:\scratch\dav2_adapter.py:build"),
+            "dav2_adapter.py:build",
         )
 
     def test_measured_parity_cases_require_and_accept_shared_case_fields(self):

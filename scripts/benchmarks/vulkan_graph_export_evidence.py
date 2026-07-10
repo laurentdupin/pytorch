@@ -71,6 +71,14 @@ def _load_adapter(spec: str) -> Callable[[Path, Path], Mapping[str, Any]]:
     return factory
 
 
+def _adapter_identity(spec: str) -> str:
+    module_spec, factory_name = spec.rsplit(":", 1)
+    module_path = Path(module_spec)
+    if module_path.suffix == ".py":
+        return f"{module_path.name}:{factory_name}"
+    return spec
+
+
 def _tensor_leaves(value: Any) -> list[torch.Tensor]:
     return [
         leaf
@@ -289,6 +297,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--external-root", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--source-git-sha", default=None)
     parser.add_argument("--eager-atol", type=float, default=0.0)
     parser.add_argument("--eager-rtol", type=float, default=0.0)
     parser.add_argument("--cpu-atol", type=float, default=0.0)
@@ -300,6 +309,12 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    source_sha = args.source_git_sha or source_git_sha(REPO_ROOT)
+    if source_sha is None:
+        raise RuntimeError(
+            "Source Git SHA is required; pass --source-git-sha when git is not "
+            "available on PATH"
+        )
     external_root, checkpoint = require_external_assets(
         args.external_root, args.checkpoint
     )
@@ -404,9 +419,9 @@ def main() -> int:
     common = {
         "schema": "VulkanGraphExportEvidence.v1",
         "status": MEASURED_STATUS,
-        "source_git_sha": source_git_sha(REPO_ROOT),
+        "source_git_sha": source_sha,
         "external_assets": {
-            "adapter": args.adapter,
+            "adapter": _adapter_identity(args.adapter),
             "checkpoint_basename": checkpoint.name,
             "checkpoint_sha256": sha256_file(checkpoint),
         },

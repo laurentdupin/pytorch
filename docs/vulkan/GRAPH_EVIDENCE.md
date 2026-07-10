@@ -41,14 +41,17 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --external-root C:\external\Depth-Anything \
   --checkpoint C:\external\Depth-Anything\checkpoints\depth_anything_v2_vits.pth \
   --output-dir C:\results\dav2_vits_graph \
+  --source-git-sha <full-HEAD-SHA> \
   --eager-atol 0.0 --eager-rtol 0.0 \
   --cpu-atol 0.002 --cpu-rtol 0.0
 ```
 
 The caller-owned output directory receives measured
-`dav2_vits_export_census.json` and `dav2_vits_export_parity.json`. Checked-in
-files under `test/vulkan_graph/evidence/` are schema-valid templates only;
-they never claim local-device measurements or include machine paths.
+`dav2_vits_export_census.json` and `dav2_vits_export_parity.json`. The
+checked-in DAv2 evidence records the first verified corpus milestone; future
+measurements are caller-owned until they are deliberately reviewed and
+replaced. The harness requires an explicit source SHA when `git` is not on
+`PATH`, so a sanitized runtime cannot emit unproven provenance.
 
 The machine-readable evidence records graph census and lowerings, guard
 outcomes, program key, Vulkan runtime identity and DLL hashes, timing,

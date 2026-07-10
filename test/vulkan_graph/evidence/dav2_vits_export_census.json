@@ -1,12 +1,577 @@
 {
   "artifact_type": "export_census",
-  "cases": [],
+  "cases": [
+    {
+      "guard": {
+        "status": "accepted"
+      },
+      "input_shape": [
+        [
+          1,
+          3,
+          140,
+          140
+        ]
+      ],
+      "name": "normal",
+      "runtime_counters": {
+        "deferred_values_created": 0,
+        "runtime_cpu_fallback": 0,
+        "runtime_sync_readback_escape": 0
+      },
+      "timing": {
+        "first_run_seconds": 0.11102469999968889,
+        "repeated_run_seconds_reference_only": 0.08398510000188253
+      }
+    },
+    {
+      "guard": {
+        "rejected_program_message": "Vulkan graph node '_guards_fn' (_guards_fn) failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1\n\nWhile executing %_guards_fn : [num_users=0] = call_module[target=_guards_fn](args = (%x,), kwargs = {})\nOriginal traceback:\nNone\nUse tlparse to see full graph. (https://github.com/pytorch/tlparse?tab=readme-ov-file#tlparse-parse-structured-pt2-logs)",
+        "status": "recompiled_guard_variant",
+        "variant_compile_seconds": 3.0996296999983315,
+        "variant_program_key": {
+          "api_version": "1.4.349",
+          "device_id": 30032,
+          "device_index": 0,
+          "driver_version": 8389003,
+          "graph_hash": "3f185ee07a14f17f8e1f8cfc09c6bebe1293a2f60204487bc7f503c26c8def56",
+          "input_signature": [
+            "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
+          ],
+          "state_fingerprint": "0f1656525d53216fd5ed59a80684369e31e170af01f612f7232007740be69a3b",
+          "vendor_id": 4098
+        }
+      },
+      "input_shape": [
+        [
+          1,
+          3,
+          140,
+          280
+        ]
+      ],
+      "name": "alternate",
+      "runtime_counters": {
+        "deferred_values_created": 0,
+        "runtime_cpu_fallback": 0,
+        "runtime_sync_readback_escape": 0
+      },
+      "timing": {
+        "first_run_seconds": 0.12715269999898737,
+        "repeated_run_seconds_reference_only": 0.11001639999813051
+      }
+    }
+  ],
+  "clone_workaround_used": false,
   "external_assets": {
-    "adapter": null,
-    "checkpoint": null
+    "adapter": "dav2_vits_adapter.py:make_adapter",
+    "checkpoint_basename": "depth_anything_v2_vits.pth",
+    "checkpoint_sha256": "715fade13be8f229f8a70cc02066f656f2423a59effd0579197bbf57860e1378"
   },
-  "not_measured_reason": "external_assets_and_device_measurement_required",
+  "graph_census": {
+    "call_function_node_count": 434,
+    "captured_node_count": 623,
+    "composite_runtime_verified": 186,
+    "conditionally_supported": 0,
+    "eager_vulkan_dispatch": 190,
+    "graph_owned_prepacked_contexts": 48,
+    "partition_candidates": {
+      "status": "not_planned_python_correctness_executor",
+      "vulkan_only_candidate_count": 0
+    },
+    "statically_lowered": 48,
+    "unsupported_at_lower_time": 0,
+    "unsupported_by_target": {}
+  },
+  "graph_structure": {
+    "graph_constants": 186,
+    "graph_inputs": 1,
+    "graph_outputs": 1,
+    "normalized_node_count": 623
+  },
+  "linear_lowering": {
+    "context_factory": "vulkan_prepack::create_graph_linear_context",
+    "created_context_count": 48,
+    "linear_node_count": 48,
+    "lowered_count": 48,
+    "nodes": [
+      {
+        "bias_attr": "pretrained.blocks.0.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_1e5488cace7672d1",
+        "context_status": "created",
+        "node_name": "linear",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.0.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.0.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_a22870fb4a145420",
+        "context_status": "created",
+        "node_name": "linear_1",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.0.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.0.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_289a003adc9e608d",
+        "context_status": "created",
+        "node_name": "linear_2",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.0.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.0.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_a3a9390962cbc131",
+        "context_status": "created",
+        "node_name": "linear_3",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.0.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.1.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_8208573a251d7843",
+        "context_status": "created",
+        "node_name": "linear_4",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.1.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.1.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_8a10d5f128af7bc8",
+        "context_status": "created",
+        "node_name": "linear_5",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.1.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.1.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_ed225c3315617a02",
+        "context_status": "created",
+        "node_name": "linear_6",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.1.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.1.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_4bba5b4403f3ddba",
+        "context_status": "created",
+        "node_name": "linear_7",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.1.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.2.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_f2f430ef5e05fbe9",
+        "context_status": "created",
+        "node_name": "linear_8",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.2.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.2.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_6e81209a7182d190",
+        "context_status": "created",
+        "node_name": "linear_9",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.2.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.2.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_c916af0dceeeb995",
+        "context_status": "created",
+        "node_name": "linear_10",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.2.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.2.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_eb0d4bcf2f3eb3f8",
+        "context_status": "created",
+        "node_name": "linear_11",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.2.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.3.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_98cd98230dae78e5",
+        "context_status": "created",
+        "node_name": "linear_12",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.3.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.3.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_e52f92e6bb4f6913",
+        "context_status": "created",
+        "node_name": "linear_13",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.3.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.3.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_6dcec99452f1688a",
+        "context_status": "created",
+        "node_name": "linear_14",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.3.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.3.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_fa2336e820af34c3",
+        "context_status": "created",
+        "node_name": "linear_15",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.3.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.4.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_fba9e89207dd97db",
+        "context_status": "created",
+        "node_name": "linear_16",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.4.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.4.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_17fc79879de2154e",
+        "context_status": "created",
+        "node_name": "linear_17",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.4.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.4.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_3c2981f81e0dd0c2",
+        "context_status": "created",
+        "node_name": "linear_18",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.4.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.4.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_021ba972f9689e64",
+        "context_status": "created",
+        "node_name": "linear_19",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.4.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.5.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_8b3620a823954167",
+        "context_status": "created",
+        "node_name": "linear_20",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.5.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.5.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_422afd2245f2c5c9",
+        "context_status": "created",
+        "node_name": "linear_21",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.5.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.5.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_85559c8ec0ac93ac",
+        "context_status": "created",
+        "node_name": "linear_22",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.5.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.5.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_6b92e84f5b0a367f",
+        "context_status": "created",
+        "node_name": "linear_23",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.5.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.6.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_de19be4b45638227",
+        "context_status": "created",
+        "node_name": "linear_24",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.6.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.6.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_348ef42dce29743a",
+        "context_status": "created",
+        "node_name": "linear_25",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.6.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.6.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_0ecbf63ebb6e3592",
+        "context_status": "created",
+        "node_name": "linear_26",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.6.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.6.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_b354a99bdeac48b0",
+        "context_status": "created",
+        "node_name": "linear_27",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.6.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.7.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_8c36e2043804fc4e",
+        "context_status": "created",
+        "node_name": "linear_28",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.7.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.7.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_76bc33e80797c312",
+        "context_status": "created",
+        "node_name": "linear_29",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.7.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.7.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_8453221d5c02bb63",
+        "context_status": "created",
+        "node_name": "linear_30",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.7.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.7.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_34ab9dc90d6bde4f",
+        "context_status": "created",
+        "node_name": "linear_31",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.7.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.8.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_7c673a4b4cacb154",
+        "context_status": "created",
+        "node_name": "linear_32",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.8.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.8.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_8400a0223d2cac4c",
+        "context_status": "created",
+        "node_name": "linear_33",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.8.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.8.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_6a942b9f453b0533",
+        "context_status": "created",
+        "node_name": "linear_34",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.8.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.8.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_26fee884cc191e80",
+        "context_status": "created",
+        "node_name": "linear_35",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.8.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.9.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_7ad27ca786ef28cd",
+        "context_status": "created",
+        "node_name": "linear_36",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.9.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.9.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_d8406f87914652a8",
+        "context_status": "created",
+        "node_name": "linear_37",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.9.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.9.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_e9be76dc2162645c",
+        "context_status": "created",
+        "node_name": "linear_38",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.9.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.9.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_f86d78691ae68ff9",
+        "context_status": "created",
+        "node_name": "linear_39",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.9.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.10.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_2f1edda655d7391e",
+        "context_status": "created",
+        "node_name": "linear_40",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.10.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.10.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_2508acf9c9679d45",
+        "context_status": "created",
+        "node_name": "linear_41",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.10.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.10.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_1fe6708d02839679",
+        "context_status": "created",
+        "node_name": "linear_42",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.10.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.10.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_63933f00b465afbe",
+        "context_status": "created",
+        "node_name": "linear_43",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.10.mlp.fc2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.11.attn.qkv.bias",
+        "context_attr": "_vulkan_linear_context_7114e7ce4307c2d9",
+        "context_status": "created",
+        "node_name": "linear_44",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.11.attn.qkv.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.11.attn.proj.bias",
+        "context_attr": "_vulkan_linear_context_a4383fe327880339",
+        "context_status": "created",
+        "node_name": "linear_45",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.11.attn.proj.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.11.mlp.fc1.bias",
+        "context_attr": "_vulkan_linear_context_cae17709b0df933c",
+        "context_status": "created",
+        "node_name": "linear_46",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.11.mlp.fc1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.11.mlp.fc2.bias",
+        "context_attr": "_vulkan_linear_context_8db518fd23a06d33",
+        "context_status": "created",
+        "node_name": "linear_47",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.11.mlp.fc2.weight"
+      }
+    ],
+    "rejected_count": 0,
+    "reused_context_count": 0
+  },
+  "original_exported_node_count": 679,
+  "out_of_range_guard": {
+    "exception_type": "VulkanGraphExecutionError",
+    "message": "Vulkan graph node '_guards_fn' (_guards_fn) failed: Guard failed: x.size()[2] >= 140\n\nWhile executing %_guards_fn : [num_users=0] = call_module[target=_guards_fn](args = (%x,), kwargs = {})\nOriginal traceback:\nNone\nUse tlparse to see full graph. (https://github.com/pytorch/tlparse?tab=readme-ov-file#tlparse-parse-structured-pt2-logs)",
+    "status": "guard_rejected"
+  },
+  "program_key": {
+    "api_version": "1.4.349",
+    "device_id": 30032,
+    "device_index": 0,
+    "driver_version": 8389003,
+    "graph_hash": "3f4ef5f40c98a6d499eb4e4c87650ac0776fb4c72f92f39b86cd93af3917955d",
+    "input_signature": [
+      "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
+    ],
+    "state_fingerprint": "0f1656525d53216fd5ed59a80684369e31e170af01f612f7232007740be69a3b",
+    "vendor_id": 4098
+  },
+  "runtime": {
+    "api_version": "1.4.349",
+    "device": "vulkan",
+    "device_id": 30032,
+    "driver_version": 8389003,
+    "loaded_files": {
+      "c10.dll": {
+        "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\c10.dll",
+        "sha256": "84dd37bc1f5e8afcb4c5296741fa95261a017f77a7edd2ae43eba192e2f00a1a"
+      },
+      "torch_cpu.dll": {
+        "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
+        "sha256": "bfd656fca72821524bf4a24c6136a43711df8bf7b402d918c33f3f19961a84b1"
+      }
+    },
+    "vendor_id": 4098
+  },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": null,
-  "status": "template_not_measured"
+  "source_git_sha": "8888ded2c268aa1429dc51f699f94942393f0eba",
+  "speculative_eager_bridges": "disabled",
+  "status": "measured",
+  "timing": {
+    "cpu_export_seconds": 3.1685194999990927,
+    "export_and_lower_seconds": 12.496095200000127
+  }
 }
