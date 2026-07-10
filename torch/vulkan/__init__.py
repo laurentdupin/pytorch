@@ -141,6 +141,15 @@ from ._composite import (  # noqa: E402
     parallelize_module,
     replicate_module,
 )
+from ._graph import (  # noqa: E402
+    VulkanGraphCensus,
+    VulkanGraphExecutionError,
+    VulkanGraphNodeRecord,
+    VulkanGraphProgram,
+    VulkanGraphProgramKey,
+    VulkanLinearLoweringReport,
+    export_and_lower,
+)
 
 
 __all__ = [
@@ -150,12 +159,19 @@ __all__ = [
     "ParallelStyle",
     "Replicate",
     "RowwiseParallel",
+    "VulkanGraphCensus",
+    "VulkanGraphExecutionError",
+    "VulkanGraphNodeRecord",
+    "VulkanGraphProgram",
+    "VulkanGraphProgramKey",
+    "VulkanLinearLoweringReport",
     "current_device",
     "device",
     "device_count",
     "device_group",
     "device_mesh",
     "device_of",
+    "export_and_lower",
     "get_device_name",
     "get_device_properties",
     "is_available",
