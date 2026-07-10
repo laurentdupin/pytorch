@@ -32,6 +32,8 @@ enum class VulkanFallbackPhase : uint8_t {
 
 uint64_t vulkan_cpu_fallback_count();
 uint64_t vulkan_sync_readback_count();
+int64_t begin_vulkan_graph_execution_scope();
+std::vector<int64_t> end_vulkan_graph_execution_scope(int64_t token);
 void reset_vulkan_fallback_counters();
 std::vector<int64_t> vulkan_fallback_phase_counters_snapshot();
 std::vector<int64_t> vulkan_timed_fallback_phase_counters_snapshot();

@@ -331,6 +331,14 @@ int64_t sync_readback_count_runtime() {
   return static_cast<int64_t>(vulkan_sync_readback_count());
 }
 
+int64_t begin_graph_execution_scope_runtime() {
+  return begin_vulkan_graph_execution_scope();
+}
+
+std::vector<int64_t> end_graph_execution_scope_runtime(const int64_t token) {
+  return end_vulkan_graph_execution_scope(token);
+}
+
 std::vector<int64_t> fallback_phase_counters_runtime() {
   return vulkan_fallback_phase_counters_snapshot();
 }
@@ -1467,6 +1475,9 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::create_linear_context(Tensor W, Tensor? B) "
       "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_graph_linear_context(Tensor W, Tensor? B) "
+      "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_linear_context_labeled(Tensor W, Tensor? B, str label) "
       "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1697,6 +1708,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::cpu_fallback_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_readback_count() -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::begin_graph_execution_scope() -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::end_graph_execution_scope(int token) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::fallback_phase_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -1996,6 +2011,12 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_readback_count"),
       TORCH_FN(sync_readback_count_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::begin_graph_execution_scope"),
+      TORCH_FN(begin_graph_execution_scope_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::end_graph_execution_scope"),
+      TORCH_FN(end_graph_execution_scope_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::fallback_phase_counters"),
       TORCH_FN(fallback_phase_counters_runtime));
@@ -2363,6 +2384,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context"),
       TORCH_FN(create_linear_context));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_linear_context"),
+      TORCH_FN(create_graph_linear_context));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
       TORCH_FN(create_linear_context_labeled));
   m.impl(
@@ -2499,6 +2523,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context"),
       TORCH_FN(create_linear_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_linear_context"),
+      TORCH_FN(create_graph_linear_context));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
       TORCH_FN(create_linear_context_labeled));

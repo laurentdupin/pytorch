@@ -60,9 +60,6 @@ class VulkanGraphExecutionError(RuntimeError):
     pass
 
 
-_VULKAN_GRAPH_EXECUTION_LOCK = threading.RLock()
-
-
 def _target_name(target: Any) -> str:
     name = getattr(target, "name", None)
     if callable(name):
@@ -311,11 +308,31 @@ def _tensor_devices(value: Any) -> set[torch.device]:
     }
 
 
-def _fallback_counters() -> tuple[int, int]:
-    return (
-        torch.ops.vulkan_prepack.cpu_fallback_count(),
-        torch.ops.vulkan_prepack.sync_readback_count(),
-    )
+def _begin_graph_execution_scope() -> int:
+    try:
+        return int(torch.ops.vulkan_prepack.begin_graph_execution_scope())
+    except (AttributeError, RuntimeError, TypeError) as error:
+        raise VulkanGraphExecutionError(
+            f"Vulkan graph execution scope begin failed: {error}"
+        ) from error
+
+
+def _end_graph_execution_scope(token: int) -> tuple[int, int]:
+    try:
+        counters = tuple(
+            int(value)
+            for value in torch.ops.vulkan_prepack.end_graph_execution_scope(token)
+        )
+    except (AttributeError, RuntimeError, TypeError) as error:
+        raise VulkanGraphExecutionError(
+            f"Vulkan graph execution scope end failed: {error}"
+        ) from error
+    if len(counters) != 2 or any(value < 0 for value in counters):
+        raise VulkanGraphExecutionError(
+            "Vulkan graph execution scope returned invalid fallback counters: "
+            f"{counters}"
+        )
+    return counters
 
 
 def _bind_runtime_inputs(
@@ -418,6 +435,7 @@ class VulkanGraphProgram:
         self._last_executed_nodes: tuple[str, ...] = ()
         self._last_cpu_fallback_count = 0
         self._last_sync_readback_count = 0
+        self._execution_lock = threading.RLock()
 
     @property
     def graph_module(self) -> torch.fx.GraphModule:
@@ -461,24 +479,18 @@ class VulkanGraphProgram:
             lambda value: _move_runtime_value(value, self._device), bound_args
         )
         interpreter = _VulkanGraphInterpreter(self._graph_module, self._device)
-        with _VULKAN_GRAPH_EXECUTION_LOCK:
-            fallback_before, readback_before = _fallback_counters()
+        with self._execution_lock:
+            scope_token = _begin_graph_execution_scope()
             try:
                 with torch.vulkan.device(self._device), torch.inference_mode():
                     output = interpreter.run(*moved_args)
             finally:
-                fallback_after, readback_after = _fallback_counters()
-                self._last_cpu_fallback_count = fallback_after - fallback_before
-                self._last_sync_readback_count = readback_after - readback_before
+                (
+                    self._last_cpu_fallback_count,
+                    self._last_sync_readback_count,
+                ) = _end_graph_execution_scope(scope_token)
                 self._last_executed_nodes = tuple(interpreter.executed_nodes)
 
-            if (
-                self._last_cpu_fallback_count < 0
-                or self._last_sync_readback_count < 0
-            ):
-                raise VulkanGraphExecutionError(
-                    "Vulkan graph fallback counters were reset during execution"
-                )
             if self._last_cpu_fallback_count or self._last_sync_readback_count:
                 raise VulkanGraphExecutionError(
                     "Vulkan graph execution crossed an implicit host boundary: "

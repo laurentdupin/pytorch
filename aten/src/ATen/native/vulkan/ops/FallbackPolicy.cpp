@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstring>
 #include <cstdlib>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -30,6 +31,33 @@ std::atomic<uint64_t>& cpu_fallback_counter() {
 std::atomic<uint64_t>& sync_readback_counter() {
   static std::atomic<uint64_t> counter{0};
   return counter;
+}
+
+struct VulkanGraphExecutionScope final {
+  int64_t token = 0;
+  uint64_t cpu_fallback_count = 0;
+  uint64_t sync_readback_count = 0;
+};
+
+std::vector<VulkanGraphExecutionScope>& graph_execution_scopes_tls() {
+  thread_local std::vector<VulkanGraphExecutionScope> scopes;
+  return scopes;
+}
+
+int64_t& graph_execution_scope_next_token_tls() {
+  thread_local int64_t token = 0;
+  return token;
+}
+
+void record_vulkan_graph_execution_scope_event(
+    const VulkanCpuFallbackKind kind) {
+  for (VulkanGraphExecutionScope& scope : graph_execution_scopes_tls()) {
+    if (kind == VulkanCpuFallbackKind::SyncReadback) {
+      ++scope.sync_readback_count;
+    } else {
+      ++scope.cpu_fallback_count;
+    }
+  }
 }
 
 struct VulkanFallbackPhaseCounters final {
@@ -411,6 +439,35 @@ uint64_t vulkan_sync_readback_count() {
   return sync_readback_counter().load(std::memory_order_relaxed);
 }
 
+int64_t begin_vulkan_graph_execution_scope() {
+  int64_t& next_token = graph_execution_scope_next_token_tls();
+  TORCH_CHECK(
+      next_token < std::numeric_limits<int64_t>::max(),
+      "Vulkan graph execution scope token overflow");
+  ++next_token;
+  graph_execution_scopes_tls().push_back(VulkanGraphExecutionScope{next_token});
+  return next_token;
+}
+
+std::vector<int64_t> end_vulkan_graph_execution_scope(const int64_t token) {
+  std::vector<VulkanGraphExecutionScope>& scopes = graph_execution_scopes_tls();
+  TORCH_CHECK(
+      !scopes.empty(),
+      "Vulkan graph execution scope end without a matching begin");
+  const VulkanGraphExecutionScope& scope = scopes.back();
+  TORCH_CHECK(
+      scope.token == token,
+      "Vulkan graph execution scopes must end in LIFO order: expected token ",
+      scope.token,
+      ", got ",
+      token);
+  const std::vector<int64_t> counts = {
+      static_cast<int64_t>(scope.cpu_fallback_count),
+      static_cast<int64_t>(scope.sync_readback_count)};
+  scopes.pop_back();
+  return counts;
+}
+
 void reset_vulkan_fallback_counters() {
   cpu_fallback_counter().store(0, std::memory_order_relaxed);
   sync_readback_counter().store(0, std::memory_order_relaxed);
@@ -514,6 +571,7 @@ void report_vulkan_cpu_fallback(
   } else {
     cpu_fallback_counter().fetch_add(1, std::memory_order_relaxed);
   }
+  record_vulkan_graph_execution_scope_event(kind);
   fallback_phase_counter(fallback_phase_counters(), fallback_phase_tls())
       .fetch_add(1, std::memory_order_relaxed);
   if (timed_region_tls()) {

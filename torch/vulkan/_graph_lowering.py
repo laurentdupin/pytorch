@@ -27,6 +27,7 @@ class VulkanLinearLoweringReport:
     rejected_count: int
     created_context_count: int
     reused_context_count: int
+    context_factory: str
     nodes: tuple[VulkanLinearLoweringNodeReport, ...]
 
 
@@ -195,7 +196,7 @@ def lower_static_linear_to_vulkan_contexts(
                 )
                 continue
             try:
-                context = torch.ops.vulkan_prepack.create_linear_context.default(
+                context = torch.ops.vulkan_prepack.create_graph_linear_context.default(
                     _snapshot_for_context(weight).t().contiguous(),
                     None if bias is None else _snapshot_for_context(bias),
                 )
@@ -248,6 +249,7 @@ def lower_static_linear_to_vulkan_contexts(
         rejected_count=sum(report.status == "rejected" for report in reports),
         created_context_count=created_context_count,
         reused_context_count=reused_context_count,
+        context_factory="vulkan_prepack::create_graph_linear_context",
         nodes=tuple(reports),
     )
 

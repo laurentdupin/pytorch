@@ -106,6 +106,10 @@ c10::intrusive_ptr<LinearPackedContext> create_linear_context(
     Tensor&& weight,
     std::optional<Tensor>&& bias);
 
+c10::intrusive_ptr<LinearPackedContext> create_graph_linear_context(
+    Tensor&& weight,
+    std::optional<Tensor>&& bias);
+
 c10::intrusive_ptr<LinearPackedContext> create_linear_context_labeled(
     Tensor&& weight,
     std::optional<Tensor>&& bias,

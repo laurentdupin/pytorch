@@ -47,6 +47,10 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.linear_lowering.rejected_count, 0)
         self.assertEqual(program.linear_lowering.created_context_count, 1)
         self.assertEqual(program.linear_lowering.reused_context_count, 0)
+        self.assertEqual(
+            program.linear_lowering.context_factory,
+            "vulkan_prepack::create_graph_linear_context",
+        )
         self.assertEqual(len(program.key.state_fingerprint), 64)
         self.assertNotIn("linear.weight", program.graph_module.state_dict())
         self.assertNotIn("linear.bias", program.graph_module.state_dict())
@@ -148,6 +152,10 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.linear_lowering.lowered_count, 2)
         self.assertEqual(program.linear_lowering.created_context_count, 1)
         self.assertEqual(program.linear_lowering.reused_context_count, 1)
+        self.assertEqual(
+            program.linear_lowering.context_factory,
+            "vulkan_prepack::create_graph_linear_context",
+        )
         context_attrs = _linear_context_attrs(program)
         self.assertEqual(len(context_attrs), 1)
         self.assertFalse(hasattr(program, "exported_program"))
@@ -208,6 +216,20 @@ class TestVulkanGraph(TestCase):
             program(tensor)
         self.assertEqual(program.run_count, 0)
         self.assertEqual(program.last_cpu_fallback_count, 1)
+
+    def test_graph_execution_scope_is_nested_and_lifo(self):
+        outer = torch.ops.vulkan_prepack.begin_graph_execution_scope()
+        inner = torch.ops.vulkan_prepack.begin_graph_execution_scope()
+        with self.assertRaisesRegex(RuntimeError, "LIFO order"):
+            torch.ops.vulkan_prepack.end_graph_execution_scope(outer)
+        self.assertEqual(
+            torch.ops.vulkan_prepack.end_graph_execution_scope(inner),
+            [0, 0],
+        )
+        self.assertEqual(
+            torch.ops.vulkan_prepack.end_graph_execution_scope(outer),
+            [0, 0],
+        )
 
 
 if __name__ == "__main__":
