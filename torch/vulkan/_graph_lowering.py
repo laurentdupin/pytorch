@@ -53,6 +53,36 @@ class VulkanConv2dLoweringReport:
     nodes: tuple[VulkanConv2dLoweringNodeReport, ...]
 
 
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticLinearGeluRegionNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    linear_node_name: str | None
+    context_attr: str | None
+    plan_attr: str | None
+    program_name: str | None
+    program_version: str | None
+    instruction_count: int
+    input_ssa: int | None
+    output_ssa: int | None
+    input_use_count: int | None
+    input_last_use: int | None
+    static_context_slot: int | None
+    direct_transition_only: bool | None
+    replay_state_empty: bool | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticLinearGeluRegionReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    plan_factory: str
+    nodes: tuple[VulkanStaticLinearGeluRegionNodeReport, ...]
+
+
 def _get_attr_target(value: Any) -> str | None:
     if isinstance(value, torch.fx.Node) and value.op == "get_attr":
         return str(value.target)
@@ -99,6 +129,17 @@ def _conv2d_context_attr_name(
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"_vulkan_conv2d_context_{digest}"
+
+
+def _static_linear_gelu_plan_attr_name(
+    context_attr: str,
+    gelu_node_name: str,
+) -> str:
+    identity = "\x00".join(
+        (context_attr, gelu_node_name, "StaticLinearGeluRegion.v1")
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"_vulkan_static_linear_gelu_plan_{digest}"
 
 
 def _snapshot_for_context(tensor: torch.Tensor) -> torch.Tensor:
@@ -152,6 +193,34 @@ def _static_int_pair(
     if any(item < minimum for item in result):
         return None, f"{name}_outside_supported_range"
     return result, None
+
+
+def _is_tanh_gelu(node: torch.fx.Node) -> bool:
+    return (
+        node.op == "call_function"
+        and node.target == torch.ops.aten.gelu.default
+        and len(node.args) == 1
+        and node.kwargs == {"approximate": "tanh"}
+    )
+
+
+def _graph_owned_linear_context_attr(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> str | None:
+    if (
+        node.op != "call_function"
+        or node.target != torch.ops.vulkan_prepack.run_linear_context.default
+        or len(node.args) != 2
+        or node.kwargs
+    ):
+        return None
+    context_attr = _get_attr_target(node.args[1])
+    if context_attr is None or not context_attr.startswith(
+        "_vulkan_linear_context_"
+    ):
+        return None
+    return context_attr if hasattr(graph_module, context_attr) else None
 
 
 def lower_static_linear_to_vulkan_contexts(
@@ -327,6 +396,190 @@ def lower_static_linear_to_vulkan_contexts(
         created_context_count=created_context_count,
         reused_context_count=reused_context_count,
         context_factory="vulkan_prepack::create_graph_linear_context",
+        nodes=tuple(reports),
+    )
+
+
+def lower_static_linear_gelu_regions(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticLinearGeluRegionReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticLinearGeluRegionNodeReport] = []
+    removed_context_attrs: set[str] = set()
+    candidate_count = 0
+    lowered_count = 0
+    rejected_count = 0
+    skipped_count = 0
+
+    for gelu_node in tuple(graph.nodes):
+        if not _is_tanh_gelu(gelu_node):
+            continue
+        linear_node = gelu_node.args[0]
+        if not isinstance(linear_node, torch.fx.Node):
+            continue
+        context_attr = _graph_owned_linear_context_attr(
+            graph_module, linear_node
+        )
+        if context_attr is None:
+            continue
+        context_node = linear_node.args[1]
+        context_attr_reference_count = sum(
+            node.op == "get_attr" and str(node.target) == context_attr
+            for node in graph.nodes
+        )
+        if len(linear_node.users) != 1:
+            reports.append(
+                VulkanStaticLinearGeluRegionNodeReport(
+                    node_name=gelu_node.name,
+                    status="skipped",
+                    reason="linear_output_has_multiple_users",
+                    linear_node_name=linear_node.name,
+                    context_attr=context_attr,
+                    plan_attr=None,
+                    program_name=None,
+                    program_version=None,
+                    instruction_count=0,
+                    input_ssa=None,
+                    output_ssa=None,
+                    input_use_count=None,
+                    input_last_use=None,
+                    static_context_slot=None,
+                    direct_transition_only=None,
+                    replay_state_empty=None,
+                )
+            )
+            skipped_count += 1
+            continue
+        if context_attr_reference_count != 1:
+            reports.append(
+                VulkanStaticLinearGeluRegionNodeReport(
+                    node_name=gelu_node.name,
+                    status="skipped",
+                    reason="context_attr_has_multiple_references",
+                    linear_node_name=linear_node.name,
+                    context_attr=context_attr,
+                    plan_attr=None,
+                    program_name=None,
+                    program_version=None,
+                    instruction_count=0,
+                    input_ssa=None,
+                    output_ssa=None,
+                    input_use_count=None,
+                    input_last_use=None,
+                    static_context_slot=None,
+                    direct_transition_only=None,
+                    replay_state_empty=None,
+                )
+            )
+            skipped_count += 1
+            continue
+
+        candidate_count += 1
+        plan_attr = _static_linear_gelu_plan_attr_name(context_attr, gelu_node.name)
+        if hasattr(graph_module, plan_attr):
+            reports.append(
+                VulkanStaticLinearGeluRegionNodeReport(
+                    node_name=gelu_node.name,
+                    status="rejected",
+                    reason="deterministic_plan_attribute_collision",
+                    linear_node_name=linear_node.name,
+                    context_attr=context_attr,
+                    plan_attr=plan_attr,
+                    program_name="StaticLinearGeluRegion",
+                    program_version="v1",
+                    instruction_count=1,
+                    input_ssa=0,
+                    output_ssa=1,
+                    input_use_count=1,
+                    input_last_use=0,
+                    static_context_slot=0,
+                    direct_transition_only=True,
+                    replay_state_empty=True,
+                )
+            )
+            rejected_count += 1
+            continue
+        try:
+            plan = torch.ops.vulkan_prepack.create_graph_linear_gelu_plan.default(
+                getattr(graph_module, context_attr)
+            )
+            setattr(graph_module, plan_attr, plan)
+        except (RuntimeError, TypeError, AttributeError) as error:
+            reports.append(
+                VulkanStaticLinearGeluRegionNodeReport(
+                    node_name=gelu_node.name,
+                    status="rejected",
+                    reason=(
+                        "static_linear_gelu_plan_creation_failed:"
+                        f"{type(error).__name__}"
+                    ),
+                    linear_node_name=linear_node.name,
+                    context_attr=context_attr,
+                    plan_attr=plan_attr,
+                    program_name="StaticLinearGeluRegion",
+                    program_version="v1",
+                    instruction_count=1,
+                    input_ssa=0,
+                    output_ssa=1,
+                    input_use_count=1,
+                    input_last_use=0,
+                    static_context_slot=0,
+                    direct_transition_only=True,
+                    replay_state_empty=True,
+                )
+            )
+            rejected_count += 1
+            continue
+
+        with graph.inserting_before(gelu_node):
+            plan_node = graph.create_node("get_attr", plan_attr, (), {})
+            lowered_node = graph.call_function(
+                torch.ops.vulkan_prepack.run_graph_linear_gelu_plan.default,
+                args=(linear_node.args[0], plan_node),
+            )
+        lowered_node.meta = dict(gelu_node.meta)
+        gelu_node.replace_all_uses_with(lowered_node)
+        graph.erase_node(gelu_node)
+        graph.erase_node(linear_node)
+        graph.erase_node(context_node)
+        removed_context_attrs.add(context_attr)
+        reports.append(
+            VulkanStaticLinearGeluRegionNodeReport(
+                node_name=lowered_node.name,
+                status="lowered",
+                reason="graph_owned_static_linear_tanh_gelu",
+                linear_node_name=linear_node.name,
+                context_attr=context_attr,
+                plan_attr=plan_attr,
+                program_name="StaticLinearGeluRegion",
+                program_version="v1",
+                instruction_count=1,
+                input_ssa=0,
+                output_ssa=1,
+                input_use_count=1,
+                input_last_use=0,
+                static_context_slot=0,
+                direct_transition_only=True,
+                replay_state_empty=True,
+            )
+        )
+        lowered_count += 1
+
+    if lowered_count:
+        graph.eliminate_dead_code()
+        for context_attr in removed_context_attrs:
+            if hasattr(graph_module, context_attr):
+                delattr(graph_module, context_attr)
+        graph_module.delete_all_unused_submodules()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticLinearGeluRegionReport(
+        candidate_count=candidate_count,
+        lowered_count=lowered_count,
+        rejected_count=rejected_count,
+        skipped_count=skipped_count,
+        plan_factory="vulkan_prepack::create_graph_linear_gelu_plan",
         nodes=tuple(reports),
     )
 
@@ -731,6 +984,9 @@ __all__ = [
     "VulkanConv2dLoweringReport",
     "VulkanLinearLoweringNodeReport",
     "VulkanLinearLoweringReport",
+    "VulkanStaticLinearGeluRegionNodeReport",
+    "VulkanStaticLinearGeluRegionReport",
     "lower_static_conv2d_to_vulkan_contexts",
     "lower_static_linear_to_vulkan_contexts",
+    "lower_static_linear_gelu_regions",
 ]

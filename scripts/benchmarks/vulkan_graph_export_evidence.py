@@ -181,6 +181,9 @@ def _lowering_report_objects(
 ) -> dict[str, Any]:
     return {
         "linear_lowering": getattr(program, "linear_lowering", None),
+        "static_linear_gelu_regions": getattr(
+            program, "static_linear_gelu_regions", None
+        ),
         "conv2d_lowering": getattr(program, "conv2d_lowering", None),
     }
 

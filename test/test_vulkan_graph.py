@@ -1,3 +1,4 @@
+import copy
 import os
 import operator
 import unittest
@@ -26,8 +27,277 @@ def _conv2d_context_attrs(program):
     }
 
 
+def _static_linear_gelu_plan_attrs(program):
+    return {
+        str(node.target)
+        for node in program.graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_static_linear_gelu_plan_")
+    }
+
+
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
+    def test_static_linear_tanh_gelu_region_matches_cpu_and_transfers_context(self):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 6)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="tanh"
+                )
+
+        torch.manual_seed(10)
+        model = LinearGelu().eval()
+        tensor = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+
+        torch.testing.assert_close(
+            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        torch.testing.assert_close(
+            program(tensor).cpu(), eager_vulkan_output, rtol=1e-4, atol=1e-4
+        )
+        report = program.static_linear_gelu_regions
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertEqual(
+            report.plan_factory,
+            "vulkan_prepack::create_graph_linear_gelu_plan",
+        )
+        node = report.nodes[0]
+        self.assertEqual(node.program_name, "StaticLinearGeluRegion")
+        self.assertEqual(node.program_version, "v1")
+        self.assertEqual(node.instruction_count, 1)
+        self.assertEqual(node.input_ssa, 0)
+        self.assertEqual(node.output_ssa, 1)
+        self.assertEqual(node.input_use_count, 1)
+        self.assertEqual(node.input_last_use, 0)
+        self.assertEqual(node.static_context_slot, 0)
+        self.assertTrue(node.direct_transition_only)
+        self.assertTrue(node.replay_state_empty)
+        self.assertEqual(len(_static_linear_gelu_plan_attrs(program)), 1)
+        self.assertFalse(_linear_context_attrs(program))
+        self.assertFalse(program.graph_module.state_dict())
+        lowered = [
+            node
+            for node in program.census.nodes
+            if node.reason == "graph_owned_static_linear_gelu_plan"
+        ]
+        self.assertEqual(len(lowered), 1)
+        self.assertEqual(lowered[0].classification, "lowered_vulkan")
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_linear_tanh_gelu_region_reuses_dynamic_shapes(self):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(5, 7)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="tanh"
+                )
+
+        torch.manual_seed(11)
+        model = LinearGelu().eval()
+        example = torch.randn(2, 3, 5)
+        batch = torch.export.Dim("batch", min=1, max=4)
+        tokens = torch.export.Dim("tokens", min=1, max=8)
+        program = torch.vulkan.export_and_lower(
+            model,
+            example,
+            dynamic_shapes=({0: batch, 1: tokens},),
+        )
+        plan_attrs = _static_linear_gelu_plan_attrs(program)
+        self.assertEqual(len(plan_attrs), 1)
+        for shape in ((1, 1, 5), (4, 8, 5)):
+            tensor = torch.randn(shape)
+            torch.testing.assert_close(
+                program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+            )
+        self.assertEqual(_static_linear_gelu_plan_attrs(program), plan_attrs)
+        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 1)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_linear_biasless_tanh_gelu_region_preserves_tanh_semantics(self):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 6, bias=False)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="tanh"
+                )
+
+        torch.manual_seed(15)
+        model = LinearGelu().eval()
+        tensor = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+
+        graph_output = program(tensor).cpu()
+        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 1)
+        self.assertEqual(len(_static_linear_gelu_plan_attrs(program)), 1)
+        torch.testing.assert_close(
+            graph_output, model(tensor), rtol=1e-4, atol=1e-4
+        )
+        torch.testing.assert_close(
+            graph_output, eager_vulkan_output, rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_linear_gelu_none_stays_unfused(self):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(3, 4)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="none"
+                )
+
+        torch.manual_seed(12)
+        model = LinearGelu().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.testing.assert_close(
+            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(program.static_linear_gelu_regions.candidate_count, 0)
+        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 0)
+        self.assertFalse(_static_linear_gelu_plan_attrs(program))
+        self.assertEqual(len(_linear_context_attrs(program)), 1)
+
+    def test_static_linear_gelu_multi_use_linear_output_stays_unfused(self):
+        class LinearGeluResidual(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(3, 4)
+
+            def forward(self, tensor):
+                linear = self.linear(tensor)
+                return torch.nn.functional.gelu(linear, approximate="tanh") + linear
+
+        torch.manual_seed(13)
+        model = LinearGeluResidual().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.testing.assert_close(
+            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        report = program.static_linear_gelu_regions
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 1)
+        self.assertEqual(report.nodes[0].reason, "linear_output_has_multiple_users")
+        self.assertFalse(_static_linear_gelu_plan_attrs(program))
+        self.assertEqual(len(_linear_context_attrs(program)), 1)
+
+    def test_static_linear_gelu_tied_context_stays_unfused(self):
+        class TiedLinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(3, 4)
+
+            def forward(self, tensor):
+                first = torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="tanh"
+                )
+                second = torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="tanh"
+                )
+                return first + second
+
+        torch.manual_seed(14)
+        model = TiedLinearGelu().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.testing.assert_close(
+            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        report = program.static_linear_gelu_regions
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 2)
+        self.assertTrue(
+            all(
+                node.reason == "context_attr_has_multiple_references"
+                for node in report.nodes
+            )
+        )
+        self.assertFalse(_static_linear_gelu_plan_attrs(program))
+        self.assertEqual(len(_linear_context_attrs(program)), 1)
+
+    def test_static_linear_gelu_nonprivate_context_stays_unfused(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        context = graph.get_attr("context")
+        linear = graph.call_function(
+            torch.ops.vulkan_prepack.run_linear_context.default,
+            args=(tensor, context),
+        )
+        gelu = graph.call_function(
+            torch.ops.aten.gelu.default,
+            args=(linear,),
+            kwargs={"approximate": "tanh"},
+        )
+        graph.output(gelu)
+        root = torch.nn.Module()
+        root.context = object()
+        graph_module = torch.fx.GraphModule(root, graph)
+
+        report = vulkan_graph.lower_static_linear_gelu_regions(graph_module)
+        self.assertEqual(report.candidate_count, 0)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertFalse(
+            any(
+                str(node.target) == "vulkan_prepack.run_graph_linear_gelu_plan.default"
+                for node in graph_module.graph.nodes
+            )
+        )
+
+    def test_static_linear_gelu_dynamic_context_stays_unfused(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        context = graph.placeholder("context")
+        linear = graph.call_function(
+            torch.ops.vulkan_prepack.run_linear_context.default,
+            args=(tensor, context),
+        )
+        gelu = graph.call_function(
+            torch.ops.aten.gelu.default,
+            args=(linear,),
+            kwargs={"approximate": "tanh"},
+        )
+        graph.output(gelu)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph.lower_static_linear_gelu_regions(graph_module)
+        self.assertEqual(report.candidate_count, 0)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertFalse(
+            any(
+                str(node.target) == "vulkan_prepack.run_graph_linear_gelu_plan.default"
+                for node in graph_module.graph.nodes
+            )
+        )
+
     def test_static_conv2d_lowering_matches_cpu_and_releases_weights(self):
         class ConvRelu(torch.nn.Module):
             def __init__(self, bias):

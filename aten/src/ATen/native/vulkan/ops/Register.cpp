@@ -1,6 +1,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/Functions.h>
+#include <ATen/ops/gelu.h>
 #include <ATen/native/quantized/PackedParams.h>
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
@@ -28,10 +29,13 @@
 #include <ATen/native/vulkan/ops/Zero.h>
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/GraphProgramPlans.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
 #include <torch/custom_class.h>
 #include <torch/library.h>
+
+#include <c10/util/Exception.h>
 
 #include <cmath>
 #include <algorithm>
@@ -39,6 +43,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace at {
@@ -114,6 +119,82 @@ int register_vulkan_linear_packed_context() {
                     LinearPackedContext::pack(state));
               });
   return 0;
+}
+
+int register_vulkan_graph_linear_gelu_plan() {
+  static auto register_vulkan_graph_linear_gelu_plan =
+      torch::selective_class_<utils::GraphLinearGeluPlan>(
+          "vulkan", TORCH_SELECTIVE_CLASS("GraphLinearGeluPlan"));
+  return 0;
+}
+
+namespace {
+
+class GraphLinearGeluInvocation final {
+ private:
+  utils::GraphLinearGeluPlan& plan_;
+
+ public:
+  explicit GraphLinearGeluInvocation(utils::GraphLinearGeluPlan& plan)
+      : plan_(plan) {
+    TORCH_CHECK(
+        plan_.try_begin_invocation(),
+        "StaticLinearGeluRegion.v1 rejects concurrent invocation");
+  }
+
+  ~GraphLinearGeluInvocation() {
+    plan_.end_invocation();
+  }
+};
+
+} // namespace
+
+utils::GraphLinearGeluPlan::GraphLinearGeluPlan(
+    c10::intrusive_ptr<LinearPackedContext> linear_context)
+    : linear_context_(std::move(linear_context)) {
+  TORCH_CHECK(
+      linear_context_,
+      "StaticLinearGeluRegion.v1 requires a static LinearPackedContext");
+}
+
+const utils::StaticLinearGeluPlanSchema&
+utils::GraphLinearGeluPlan::schema() const {
+  return schema_;
+}
+
+const c10::intrusive_ptr<LinearPackedContext>&
+utils::GraphLinearGeluPlan::linear_context() const {
+  return linear_context_;
+}
+
+bool utils::GraphLinearGeluPlan::try_begin_invocation() {
+  return !invocation_active_.test_and_set(std::memory_order_acquire);
+}
+
+void utils::GraphLinearGeluPlan::end_invocation() {
+  invocation_active_.clear(std::memory_order_release);
+}
+
+c10::intrusive_ptr<utils::GraphLinearGeluPlan>
+utils::create_graph_linear_gelu_plan(
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
+  return c10::make_intrusive<utils::GraphLinearGeluPlan>(linear_context);
+}
+
+Tensor utils::run_graph_linear_gelu_plan(
+    const Tensor& input,
+    const c10::intrusive_ptr<utils::GraphLinearGeluPlan>& plan) {
+  TORCH_CHECK(plan, "StaticLinearGeluRegion.v1 requires a plan");
+  TORCH_CHECK(
+      input.is_vulkan(),
+      "StaticLinearGeluRegion.v1 requires a Vulkan input tensor");
+  TORCH_CHECK(
+      plan->schema().instruction_count == 1u &&
+          plan->schema().direct_transition_only &&
+          plan->schema().replay_state_empty,
+      "StaticLinearGeluRegion.v1 has an invalid plan schema");
+  GraphLinearGeluInvocation invocation(*plan);
+  return at::gelu(run_linear_context(input, plan->linear_context()), "tanh");
 }
 
 int register_vulkan_layernorm_packed_context() {
@@ -1410,6 +1491,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_conv2d_packed_context();
   register_vulkan_conv1d_packed_context();
   register_vulkan_linear_packed_context();
+  register_vulkan_graph_linear_gelu_plan();
   register_vulkan_layernorm_packed_context();
   register_vulkan_qwen_linear_attention_prefill_packed_context();
   register_vulkan_vision_backbone_block_packed_context();
@@ -1943,6 +2025,13 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_linear_gelu_context(Tensor X, "
       "__torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_graph_linear_gelu_plan("
+      "__torch__.torch.classes.vulkan.LinearPackedContext context) "
+      "-> __torch__.torch.classes.vulkan.GraphLinearGeluPlan"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_graph_linear_gelu_plan(Tensor X, "
+      "__torch__.torch.classes.vulkan.GraphLinearGeluPlan plan) -> Tensor Y"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_qlinear_context(Tensor X, float scale, int zero_point, "
       "__torch__.torch.classes.vulkan.LinearPackedContext vk_context) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2036,6 +2125,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::timed_fallback_phase_counters"),
       TORCH_FN(timed_fallback_phase_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_linear_gelu_plan"),
+      TORCH_FN(utils::create_graph_linear_gelu_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_phase_counters"),
       TORCH_FN(reset_fallback_phase_counters_runtime));
@@ -2737,6 +2829,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_linear_gelu_context"),
       TORCH_FN(run_linear_gelu_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_linear_gelu_plan"),
+      TORCH_FN(utils::run_graph_linear_gelu_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_layernorm_context"),
       TORCH_FN(run_layernorm_context));
