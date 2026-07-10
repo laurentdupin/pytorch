@@ -4306,10 +4306,25 @@ Tensor run_bfloat16_buffer_conv2d(
           false,
           output_padding,
           groups);
-  const bool force_small_metadata_image_pack =
+  const bool small_metadata_legacy_candidate =
       should_force_image_conv_for_small_metadata_input(compute_input) &&
       !small_metadata_padded_conv2d_match.matched &&
       !patch_embed_float_buffer_route;
+  const bool materialize_small_metadata_buffer_input =
+      small_metadata_legacy_candidate &&
+      utils::supports_buffer_view_fast_path(convert(compute_input));
+  if (materialize_small_metadata_buffer_input) {
+    compute_input = utils::mark_tensor_execution(
+        utils::ensure_buffer_storage(
+            compute_input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED),
+        api::ExecutionLayout::BUFFER_DIRECT,
+        true);
+    utils::log_vulkan_op_hit(
+        "aten::convolution.small_metadata_input.materialize_buffer_direct");
+  }
+  const bool force_small_metadata_image_pack =
+      small_metadata_legacy_candidate &&
+      !materialize_small_metadata_buffer_input;
   constexpr size_t kLargeGtxFloatBufferConvPrepackLimitBytes =
       size_t{4} * 1024u * 1024u;
   const auto device_policy = utils::current_vulkan_device_policy();
@@ -5137,6 +5152,13 @@ Tensor run_conv2d_context(
     const Tensor& input_arg,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
   return run_conv2d_context_impl(input_arg, conv_context, 1.0f, 0u, nullptr);
+}
+
+Tensor run_conv2d_context_relu(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  return run_conv2d_context_impl(
+      input_arg, conv_context, 1.0f, 0u, nullptr, /*fuse_relu=*/true);
 }
 
 Tensor run_conv2d_context_out(

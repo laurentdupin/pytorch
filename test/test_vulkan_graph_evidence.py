@@ -86,6 +86,66 @@ def _fake_static_linear_gelu_report() -> _FakeStaticLinearGeluRegionReport:
     )
 
 
+@dataclass(frozen=True)
+class _FakeStaticConv2dReluNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    conv2d_node_name: str
+    context_attr: str
+    plan_attr: str
+    program_name: str
+    program_version: str
+    instruction_count: int
+    input_ssa: int
+    output_ssa: int
+    input_use_count: int
+    input_last_use: int
+    static_context_slot: int
+    direct_transition_only: bool
+    replay_state_empty: bool
+
+
+@dataclass(frozen=True)
+class _FakeStaticConv2dReluRegionReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    plan_factory: str
+    nodes: tuple[_FakeStaticConv2dReluNodeReport, ...]
+
+
+def _fake_static_conv2d_relu_report() -> _FakeStaticConv2dReluRegionReport:
+    return _FakeStaticConv2dReluRegionReport(
+        candidate_count=1,
+        lowered_count=1,
+        rejected_count=0,
+        skipped_count=0,
+        plan_factory="vulkan_prepack::create_graph_conv2d_relu_plan",
+        nodes=(
+            _FakeStaticConv2dReluNodeReport(
+                node_name="run_graph_conv2d_relu_plan",
+                status="lowered",
+                reason="graph_owned_static_conv2d_relu",
+                conv2d_node_name="run_conv2d_context",
+                context_attr="_vulkan_conv2d_context_a",
+                plan_attr="_vulkan_static_conv2d_relu_plan_a",
+                program_name="StaticConv2dReluRegion",
+                program_version="v1",
+                instruction_count=1,
+                input_ssa=0,
+                output_ssa=1,
+                input_use_count=1,
+                input_last_use=0,
+                static_context_slot=0,
+                direct_transition_only=True,
+                replay_state_empty=True,
+            ),
+        ),
+    )
+
+
 class TestVulkanGraphEvidence(TestCase):
     def test_graph_counts_include_all_graph_owned_lowering_families(self):
         census = SimpleNamespace(
@@ -102,6 +162,7 @@ class TestVulkanGraphEvidence(TestCase):
             linear_lowering=_FakeLoweringReport(created_context_count=48),
             static_linear_gelu_regions=_fake_static_linear_gelu_report(),
             conv2d_lowering=_FakeLoweringReport(created_context_count=31),
+            static_conv2d_relu_regions=_fake_static_conv2d_relu_report(),
         )
         counts = _graph_counts(program)
         self.assertEqual(counts["statically_lowered"], 79)
@@ -120,6 +181,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "linear_lowering": {"created_context_count": 2},
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": None,
+                "static_conv2d_relu_regions": None,
             },
         )
         self.assertEqual(
@@ -128,6 +190,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "linear_lowering": None,
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": {"created_context_count": 3},
+                "static_conv2d_relu_regions": None,
             },
         )
 
@@ -147,10 +210,13 @@ class TestVulkanGraphEvidence(TestCase):
             census=census,
             linear_lowering=_FakeLoweringReport(created_context_count=1),
             static_linear_gelu_regions=_fake_static_linear_gelu_report(),
+            conv2d_lowering=_FakeLoweringReport(created_context_count=1),
+            static_conv2d_relu_regions=_fake_static_conv2d_relu_report(),
         )
         reports = _lowering_reports(program)
         static_report = reports["static_linear_gelu_regions"]
-        self.assertEqual(_graph_counts(program)["graph_owned_prepacked_contexts"], 1)
+        static_conv_report = reports["static_conv2d_relu_regions"]
+        self.assertEqual(_graph_counts(program)["graph_owned_prepacked_contexts"], 2)
         self.assertEqual(static_report["candidate_count"], 1)
         self.assertEqual(static_report["lowered_count"], 1)
         self.assertEqual(static_report["rejected_count"], 0)
@@ -177,6 +243,32 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(node["static_context_slot"], 0)
         self.assertTrue(node["direct_transition_only"])
         self.assertTrue(node["replay_state_empty"])
+        self.assertEqual(static_conv_report["candidate_count"], 1)
+        self.assertEqual(static_conv_report["lowered_count"], 1)
+        self.assertEqual(static_conv_report["rejected_count"], 0)
+        self.assertEqual(static_conv_report["skipped_count"], 0)
+        self.assertEqual(
+            static_conv_report["plan_factory"],
+            "vulkan_prepack::create_graph_conv2d_relu_plan",
+        )
+        conv_node = static_conv_report["nodes"][0]
+        self.assertEqual(conv_node["status"], "lowered")
+        self.assertEqual(conv_node["reason"], "graph_owned_static_conv2d_relu")
+        self.assertEqual(conv_node["conv2d_node_name"], "run_conv2d_context")
+        self.assertEqual(conv_node["context_attr"], "_vulkan_conv2d_context_a")
+        self.assertEqual(
+            conv_node["plan_attr"], "_vulkan_static_conv2d_relu_plan_a"
+        )
+        self.assertEqual(conv_node["program_name"], "StaticConv2dReluRegion")
+        self.assertEqual(conv_node["program_version"], "v1")
+        self.assertEqual(conv_node["instruction_count"], 1)
+        self.assertEqual(conv_node["input_ssa"], 0)
+        self.assertEqual(conv_node["output_ssa"], 1)
+        self.assertEqual(conv_node["input_use_count"], 1)
+        self.assertEqual(conv_node["input_last_use"], 0)
+        self.assertEqual(conv_node["static_context_slot"], 0)
+        self.assertTrue(conv_node["direct_transition_only"])
+        self.assertTrue(conv_node["replay_state_empty"])
 
     def test_checked_in_dav2_evidence_is_schema_valid_and_measured(self):
         evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"

@@ -128,6 +128,13 @@ int register_vulkan_graph_linear_gelu_plan() {
   return 0;
 }
 
+int register_vulkan_graph_conv2d_relu_plan() {
+  static auto register_vulkan_graph_conv2d_relu_plan =
+      torch::selective_class_<utils::GraphConv2dReluPlan>(
+          "vulkan", TORCH_SELECTIVE_CLASS("GraphConv2dReluPlan"));
+  return 0;
+}
+
 namespace {
 
 class GraphLinearGeluInvocation final {
@@ -143,6 +150,23 @@ class GraphLinearGeluInvocation final {
   }
 
   ~GraphLinearGeluInvocation() {
+    plan_.end_invocation();
+  }
+};
+
+class GraphConv2dReluInvocation final {
+ private:
+  utils::GraphConv2dReluPlan& plan_;
+
+ public:
+  explicit GraphConv2dReluInvocation(utils::GraphConv2dReluPlan& plan)
+      : plan_(plan) {
+    TORCH_CHECK(
+        plan_.try_begin_invocation(),
+        "StaticConv2dReluRegion.v1 rejects concurrent invocation");
+  }
+
+  ~GraphConv2dReluInvocation() {
     plan_.end_invocation();
   }
 };
@@ -195,6 +219,54 @@ Tensor utils::run_graph_linear_gelu_plan(
       "StaticLinearGeluRegion.v1 has an invalid plan schema");
   GraphLinearGeluInvocation invocation(*plan);
   return at::gelu(run_linear_context(input, plan->linear_context()), "tanh");
+}
+
+utils::GraphConv2dReluPlan::GraphConv2dReluPlan(
+    c10::intrusive_ptr<Conv2dPackedContext> conv_context)
+    : conv_context_(std::move(conv_context)) {
+  TORCH_CHECK(
+      conv_context_,
+      "StaticConv2dReluRegion.v1 requires a static Conv2dPackedContext");
+}
+
+const utils::StaticConv2dReluPlanSchema&
+utils::GraphConv2dReluPlan::schema() const {
+  return schema_;
+}
+
+const c10::intrusive_ptr<Conv2dPackedContext>&
+utils::GraphConv2dReluPlan::conv_context() const {
+  return conv_context_;
+}
+
+bool utils::GraphConv2dReluPlan::try_begin_invocation() {
+  return !invocation_active_.test_and_set(std::memory_order_acquire);
+}
+
+void utils::GraphConv2dReluPlan::end_invocation() {
+  invocation_active_.clear(std::memory_order_release);
+}
+
+c10::intrusive_ptr<utils::GraphConv2dReluPlan>
+utils::create_graph_conv2d_relu_plan(
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  return c10::make_intrusive<utils::GraphConv2dReluPlan>(conv_context);
+}
+
+Tensor utils::run_graph_conv2d_relu_plan(
+    const Tensor& input,
+    const c10::intrusive_ptr<utils::GraphConv2dReluPlan>& plan) {
+  TORCH_CHECK(plan, "StaticConv2dReluRegion.v1 requires a plan");
+  TORCH_CHECK(
+      input.is_vulkan(),
+      "StaticConv2dReluRegion.v1 requires a Vulkan input tensor");
+  TORCH_CHECK(
+      plan->schema().instruction_count == 1u &&
+          plan->schema().direct_transition_only &&
+          plan->schema().replay_state_empty,
+      "StaticConv2dReluRegion.v1 has an invalid plan schema");
+  GraphConv2dReluInvocation invocation(*plan);
+  return run_conv2d_context_relu(input, plan->conv_context());
 }
 
 int register_vulkan_layernorm_packed_context() {
@@ -1492,6 +1564,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_conv1d_packed_context();
   register_vulkan_linear_packed_context();
   register_vulkan_graph_linear_gelu_plan();
+  register_vulkan_graph_conv2d_relu_plan();
   register_vulkan_layernorm_packed_context();
   register_vulkan_qwen_linear_attention_prefill_packed_context();
   register_vulkan_vision_backbone_block_packed_context();
@@ -1530,6 +1603,13 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_conv2d_context(Tensor X, "
       "__torch__.torch.classes.vulkan.Conv2dPackedContext W_prepack) -> Tensor Y"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_graph_conv2d_relu_plan("
+      "__torch__.torch.classes.vulkan.Conv2dPackedContext context) "
+      "-> __torch__.torch.classes.vulkan.GraphConv2dReluPlan"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_graph_conv2d_relu_plan(Tensor X, "
+      "__torch__.torch.classes.vulkan.GraphConv2dReluPlan plan) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA( // Backwards compatibility
       "vulkan_prepack::conv2d_clamp_run(Tensor X, "
       "__torch__.torch.classes.vulkan.Conv2dOpContext W_prepack) -> Tensor Y"));
@@ -2128,6 +2208,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_linear_gelu_plan"),
       TORCH_FN(utils::create_graph_linear_gelu_plan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_conv2d_relu_plan"),
+      TORCH_FN(utils::create_graph_conv2d_relu_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_phase_counters"),
       TORCH_FN(reset_fallback_phase_counters_runtime));
@@ -2811,6 +2894,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_conv2d_relu_plan"),
+      TORCH_FN(utils::run_graph_conv2d_relu_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv2d_clamp_run"),
       TORCH_FN(conv2d_clamp_run)); // Backwards compatibility

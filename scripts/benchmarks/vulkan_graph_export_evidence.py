@@ -185,6 +185,9 @@ def _lowering_report_objects(
             program, "static_linear_gelu_regions", None
         ),
         "conv2d_lowering": getattr(program, "conv2d_lowering", None),
+        "static_conv2d_relu_regions": getattr(
+            program, "static_conv2d_relu_regions", None
+        ),
     }
 
 

@@ -16,7 +16,9 @@ import torch.utils._pytree as pytree
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanLinearLoweringReport,
+    VulkanStaticConv2dReluRegionReport,
     VulkanStaticLinearGeluRegionReport,
+    lower_static_conv2d_relu_regions,
     lower_static_conv2d_to_vulkan_contexts,
     lower_static_linear_to_vulkan_contexts,
     lower_static_linear_gelu_regions,
@@ -169,6 +171,21 @@ def _is_graph_owned_static_linear_gelu_plan(
     )
 
 
+def _is_graph_owned_static_conv2d_relu_plan(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> bool:
+    if len(node.args) != 2:
+        return False
+    plan_node = node.args[1]
+    if not isinstance(plan_node, torch.fx.Node) or plan_node.op != "get_attr":
+        return False
+    plan_attr = str(plan_node.target)
+    return plan_attr.startswith("_vulkan_static_conv2d_relu_plan_") and hasattr(
+        graph_module, plan_attr
+    )
+
+
 def _classify_node(
     graph_module: torch.fx.GraphModule,
     index: int,
@@ -268,6 +285,24 @@ def _classify_node(
                 operator_name,
                 "lowered_vulkan",
                 "graph_owned_static_linear_gelu_plan",
+            )
+        if operator_name == "vulkan_prepack::run_graph_conv2d_relu_plan":
+            if not _is_graph_owned_static_conv2d_relu_plan(graph_module, node):
+                return VulkanGraphNodeRecord(
+                    index,
+                    node.name,
+                    node.op,
+                    operator_name,
+                    "unsupported",
+                    "run_graph_conv2d_relu_plan_missing_graph_owned_plan",
+                )
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                operator_name,
+                "lowered_vulkan",
+                "graph_owned_static_conv2d_relu_plan",
             )
         if _has_dispatch_kernel(operator_name, "Vulkan"):
             return VulkanGraphNodeRecord(
@@ -530,6 +565,16 @@ def _static_linear_gelu_region_rejection_message(
     )
 
 
+def _static_conv2d_relu_region_rejection_message(
+    report: VulkanStaticConv2dReluRegionReport,
+) -> str:
+    rejected = [node for node in report.nodes if node.status == "rejected"]
+    return "\n".join(
+        f"{node.node_name}: {node.reason}"
+        for node in rejected
+    )
+
+
 def _tensor_leaves(value: Any) -> tuple[torch.Tensor, ...]:
     return tuple(
         leaf
@@ -575,6 +620,7 @@ class VulkanGraphProgram:
         linear_lowering: VulkanLinearLoweringReport,
         static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
         conv2d_lowering: VulkanConv2dLoweringReport,
+        static_conv2d_relu_regions: VulkanStaticConv2dReluRegionReport,
     ) -> None:
         self._graph_module = graph_module
         self._device = device
@@ -583,6 +629,7 @@ class VulkanGraphProgram:
         self._linear_lowering = linear_lowering
         self._static_linear_gelu_regions = static_linear_gelu_regions
         self._conv2d_lowering = conv2d_lowering
+        self._static_conv2d_relu_regions = static_conv2d_relu_regions
         self._run_count = 0
         self._last_executed_nodes: tuple[str, ...] = ()
         self._last_cpu_fallback_count = 0
@@ -617,6 +664,10 @@ class VulkanGraphProgram:
     @property
     def conv2d_lowering(self) -> VulkanConv2dLoweringReport:
         return self._conv2d_lowering
+
+    @property
+    def static_conv2d_relu_regions(self) -> VulkanStaticConv2dReluRegionReport:
+        return self._static_conv2d_relu_regions
 
     @property
     def run_count(self) -> int:
@@ -741,6 +792,9 @@ def export_and_lower(
         conv2d_lowering = lower_static_conv2d_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
         )
+        static_conv2d_relu_regions = lower_static_conv2d_relu_regions(
+            graph_module
+        )
     lowering_rejections: list[str] = []
     if linear_lowering.rejected_count:
         lowering_rejections.append(
@@ -757,6 +811,13 @@ def export_and_lower(
         lowering_rejections.append(
             "conv2d:\n" + _conv2d_lowering_rejection_message(conv2d_lowering)
         )
+    if static_conv2d_relu_regions.rejected_count:
+        lowering_rejections.append(
+            "static_conv2d_relu_regions:\n"
+            + _static_conv2d_relu_region_rejection_message(
+                static_conv2d_relu_regions
+            )
+        )
     if lowering_rejections:
         raise VulkanGraphExecutionError(
             "Exported graph contains rejected static lowerings:\n"
@@ -771,6 +832,7 @@ def export_and_lower(
             repr(linear_lowering),
             repr(static_linear_gelu_regions),
             repr(conv2d_lowering),
+            repr(static_conv2d_relu_regions),
         )
     )
     properties = torch.vulkan.get_device_properties(target_device)
@@ -803,6 +865,7 @@ def export_and_lower(
         linear_lowering,
         static_linear_gelu_regions,
         conv2d_lowering,
+        static_conv2d_relu_regions,
     )
 
 
@@ -814,6 +877,7 @@ __all__ = [
     "VulkanGraphProgramKey",
     "VulkanConv2dLoweringReport",
     "VulkanLinearLoweringReport",
+    "VulkanStaticConv2dReluRegionReport",
     "VulkanStaticLinearGeluRegionReport",
     "export_and_lower",
 ]

@@ -36,6 +36,24 @@ def _static_linear_gelu_plan_attrs(program):
     }
 
 
+def _static_conv2d_relu_plan_attrs(program):
+    return {
+        str(node.target)
+        for node in program.graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_static_conv2d_relu_plan_")
+    }
+
+
+def _static_conv2d_relu_plan_attrs_from_module(graph_module):
+    return {
+        str(node.target)
+        for node in graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_static_conv2d_relu_plan_")
+    }
+
+
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
     def test_static_linear_tanh_gelu_region_matches_cpu_and_transfers_context(self):
@@ -312,7 +330,22 @@ class TestVulkanGraph(TestCase):
         for bias in (False, True):
             model = ConvRelu(bias).eval()
             program = torch.vulkan.export_and_lower(model, tensor)
-            self.assertEqual(program(tensor).cpu(), model(tensor))
+            eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+            with torch.inference_mode():
+                eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+            graph_output = program(tensor).cpu()
+            expected = model(tensor)
+            self.assertTrue(torch.any(expected > 0))
+            torch.testing.assert_close(
+                graph_output, expected, rtol=1e-4, atol=1e-4
+            )
+            torch.testing.assert_close(
+                eager_vulkan_output, expected, rtol=1e-4, atol=1e-4
+            )
+            torch.testing.assert_close(
+                graph_output, eager_vulkan_output, rtol=1e-4, atol=1e-4
+            )
+            self.assertTrue(torch.any(graph_output > 0))
             self.assertEqual(program.conv2d_lowering.conv2d_node_count, 1)
             self.assertEqual(program.conv2d_lowering.lowered_count, 1)
             self.assertEqual(program.conv2d_lowering.rejected_count, 0)
@@ -322,18 +355,189 @@ class TestVulkanGraph(TestCase):
                 program.conv2d_lowering.context_factory,
                 "vulkan_prepack::create_graph_conv2d_context",
             )
-            self.assertEqual(len(_conv2d_context_attrs(program)), 1)
+            report = program.static_conv2d_relu_regions
+            self.assertEqual(report.candidate_count, 1)
+            self.assertEqual(report.lowered_count, 1)
+            self.assertEqual(report.rejected_count, 0)
+            self.assertEqual(report.skipped_count, 0)
+            self.assertEqual(
+                report.plan_factory,
+                "vulkan_prepack::create_graph_conv2d_relu_plan",
+            )
+            node = report.nodes[0]
+            self.assertEqual(node.program_name, "StaticConv2dReluRegion")
+            self.assertEqual(node.program_version, "v1")
+            self.assertEqual(node.instruction_count, 1)
+            self.assertEqual(node.input_ssa, 0)
+            self.assertEqual(node.output_ssa, 1)
+            self.assertEqual(node.input_use_count, 1)
+            self.assertEqual(node.input_last_use, 0)
+            self.assertEqual(node.static_context_slot, 0)
+            self.assertTrue(node.direct_transition_only)
+            self.assertTrue(node.replay_state_empty)
+            self.assertFalse(_conv2d_context_attrs(program))
+            self.assertEqual(len(_static_conv2d_relu_plan_attrs(program)), 1)
             self.assertFalse(program.graph_module.state_dict())
             lowered = [
                 node
                 for node in program.census.nodes
-                if node.reason == "graph_owned_conv2d_context"
+                if node.reason == "graph_owned_static_conv2d_relu_plan"
             ]
             self.assertEqual(len(lowered), 1)
             self.assertEqual(lowered[0].classification, "lowered_vulkan")
             self.assertEqual(program.last_cpu_fallback_count, 0)
             self.assertEqual(program.last_sync_readback_count, 0)
             self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_conv2d_relu_region_reuses_dynamic_shapes(self):
+        class ConvRelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 4, 3, padding=1)
+
+            def forward(self, tensor):
+                return torch.relu(self.conv(tensor))
+
+        torch.manual_seed(16)
+        model = ConvRelu().eval()
+        example = torch.randn(2, 3, 6, 7)
+        batch = torch.export.Dim("batch", min=1, max=4)
+        height = torch.export.Dim("height", min=5, max=12)
+        width = torch.export.Dim("width", min=5, max=12)
+        program = torch.vulkan.export_and_lower(
+            model,
+            example,
+            dynamic_shapes=({0: batch, 2: height, 3: width},),
+        )
+        plan_attrs = _static_conv2d_relu_plan_attrs(program)
+        self.assertEqual(len(plan_attrs), 1)
+        for shape in ((1, 3, 5, 11), (4, 3, 12, 5)):
+            tensor = torch.randn(shape)
+            torch.testing.assert_close(
+                program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+            )
+        self.assertEqual(_static_conv2d_relu_plan_attrs(program), plan_attrs)
+        self.assertEqual(program.static_conv2d_relu_regions.lowered_count, 1)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_conv2d_relu_multi_use_output_stays_unfused(self):
+        class ConvReluResidual(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 4, 3, padding=1)
+
+            def forward(self, tensor):
+                conv = self.conv(tensor)
+                return torch.relu(conv) + conv
+
+        torch.manual_seed(17)
+        model = ConvReluResidual().eval()
+        tensor = torch.randn(1, 3, 6, 5)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.testing.assert_close(
+            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        report = program.static_conv2d_relu_regions
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 1)
+        self.assertEqual(report.nodes[0].reason, "conv2d_output_has_multiple_users")
+        self.assertFalse(_static_conv2d_relu_plan_attrs(program))
+        self.assertEqual(len(_conv2d_context_attrs(program)), 1)
+
+    def test_static_conv2d_relu_tied_context_stays_unfused(self):
+        class TiedConvRelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 4, 3, padding=1)
+
+            def forward(self, tensor):
+                first = torch.relu(self.conv(tensor))
+                second = torch.relu(self.conv(tensor))
+                return first + second
+
+        torch.manual_seed(18)
+        model = TiedConvRelu().eval()
+        tensor = torch.randn(1, 3, 6, 5)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.testing.assert_close(
+            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        report = program.static_conv2d_relu_regions
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 2)
+        self.assertTrue(
+            all(
+                node.reason == "context_attr_has_multiple_references"
+                for node in report.nodes
+            )
+        )
+        self.assertFalse(_static_conv2d_relu_plan_attrs(program))
+        self.assertEqual(len(_conv2d_context_attrs(program)), 1)
+
+    def test_static_conv2d_relu_inplace_stays_unfused(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        context = graph.get_attr("_vulkan_conv2d_context_fake")
+        conv2d = graph.call_function(
+            torch.ops.vulkan_prepack.run_conv2d_context.default,
+            args=(tensor, context),
+        )
+        relu = graph.call_function(torch.ops.aten.relu_.default, args=(conv2d,))
+        graph.output(relu)
+        root = torch.nn.Module()
+        setattr(root, "_vulkan_conv2d_context_fake", object())
+        graph_module = torch.fx.GraphModule(root, graph)
+
+        report = vulkan_graph.lower_static_conv2d_relu_regions(graph_module)
+        self.assertEqual(report.candidate_count, 0)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertFalse(_static_conv2d_relu_plan_attrs_from_module(graph_module))
+
+    def test_static_conv2d_relu_nonprivate_and_dynamic_contexts_stay_unfused(self):
+        for context_op, context_target in (
+            ("get_attr", "context"),
+            ("placeholder", "context"),
+        ):
+            graph = torch.fx.Graph()
+            tensor = graph.placeholder("tensor")
+            context = getattr(graph, context_op)(context_target)
+            conv2d = graph.call_function(
+                torch.ops.vulkan_prepack.run_conv2d_context.default,
+                args=(tensor, context),
+            )
+            relu = graph.call_function(
+                torch.ops.aten.relu.default, args=(conv2d,))
+            graph.output(relu)
+            root = torch.nn.Module()
+            if context_op == "get_attr":
+                root.context = object()
+            graph_module = torch.fx.GraphModule(root, graph)
+
+            report = vulkan_graph.lower_static_conv2d_relu_regions(graph_module)
+            self.assertEqual(report.candidate_count, 0)
+            self.assertEqual(report.lowered_count, 0)
+            self.assertFalse(_static_conv2d_relu_plan_attrs_from_module(graph_module))
+
+    def test_static_conv2d_relu_unsupported_signature_stays_unfused(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        context = graph.get_attr("_vulkan_conv2d_context_fake")
+        conv2d = graph.call_function(
+            torch.ops.vulkan_prepack.run_conv2d_context.default,
+            args=(tensor, context, tensor),
+        )
+        relu = graph.call_function(torch.ops.aten.relu.default, args=(conv2d,))
+        graph.output(relu)
+        root = torch.nn.Module()
+        setattr(root, "_vulkan_conv2d_context_fake", object())
+        graph_module = torch.fx.GraphModule(root, graph)
+
+        report = vulkan_graph.lower_static_conv2d_relu_regions(graph_module)
+        self.assertEqual(report.candidate_count, 0)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertFalse(_static_conv2d_relu_plan_attrs_from_module(graph_module))
 
     def test_reuses_tied_conv2d_context(self):
         class SharedConv(torch.nn.Module):

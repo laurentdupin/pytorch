@@ -193,6 +193,10 @@ Tensor run_conv2d_context(
     const Tensor& input,
     const c10::intrusive_ptr<Conv2dPackedContext>& context);
 
+Tensor run_conv2d_context_relu(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context);
+
 Tensor run_conv2d_context_out(
     const Tensor& input,
     const c10::intrusive_ptr<Conv2dPackedContext>& context,
