@@ -25,8 +25,8 @@
       ],
       "name": "normal",
       "timing": {
-        "first_run_seconds": 0.11102469999968889,
-        "repeated_run_seconds_reference_only": 0.08398510000188253
+        "first_run_seconds": 0.0900372999967658,
+        "repeated_run_seconds_reference_only": 0.07433920000039507
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -53,13 +53,13 @@
       "guard": {
         "rejected_program_message": "Vulkan graph node '_guards_fn' (_guards_fn) failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1\n\nWhile executing %_guards_fn : [num_users=0] = call_module[target=_guards_fn](args = (%x,), kwargs = {})\nOriginal traceback:\nNone\nUse tlparse to see full graph. (https://github.com/pytorch/tlparse?tab=readme-ov-file#tlparse-parse-structured-pt2-logs)",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 3.0996296999983315,
+        "variant_compile_seconds": 3.230011100000411,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "3f185ee07a14f17f8e1f8cfc09c6bebe1293a2f60204487bc7f503c26c8def56",
+          "graph_hash": "42ddc380fc74a01999e44f09be919d685796fc848b099d62d91b5742519a96ec",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -77,8 +77,8 @@
       ],
       "name": "alternate",
       "timing": {
-        "first_run_seconds": 0.12715269999898737,
-        "repeated_run_seconds_reference_only": 0.11001639999813051
+        "first_run_seconds": 0.0716686000014306,
+        "repeated_run_seconds_reference_only": 0.06787529999564867
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -93,6 +93,295 @@
     }
   ],
   "clone_workaround_used": false,
+  "conv2d_lowering": {
+    "context_factory": "vulkan_prepack::create_graph_conv2d_context",
+    "conv2d_node_count": 31,
+    "created_context_count": 31,
+    "lowered_count": 31,
+    "nodes": [
+      {
+        "bias_attr": "pretrained.patch_embed.proj.bias",
+        "context_attr": "_vulkan_conv2d_context_df53883102d670d0",
+        "context_status": "created",
+        "node_name": "conv2d",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "pretrained.patch_embed.proj.weight"
+      },
+      {
+        "bias_attr": "depth_head.projects.0.bias",
+        "context_attr": "_vulkan_conv2d_context_6eacbe9df4945b6f",
+        "context_status": "created",
+        "node_name": "conv2d_1",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.projects.0.weight"
+      },
+      {
+        "bias_attr": "depth_head.projects.1.bias",
+        "context_attr": "_vulkan_conv2d_context_3cf046a20047d59c",
+        "context_status": "created",
+        "node_name": "conv2d_2",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.projects.1.weight"
+      },
+      {
+        "bias_attr": "depth_head.projects.2.bias",
+        "context_attr": "_vulkan_conv2d_context_11434ab9868e3596",
+        "context_status": "created",
+        "node_name": "conv2d_3",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.projects.2.weight"
+      },
+      {
+        "bias_attr": "depth_head.projects.3.bias",
+        "context_attr": "_vulkan_conv2d_context_c48aa68516aa86d6",
+        "context_status": "created",
+        "node_name": "conv2d_4",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.projects.3.weight"
+      },
+      {
+        "bias_attr": "depth_head.resize_layers.3.bias",
+        "context_attr": "_vulkan_conv2d_context_e70bc345d2497e81",
+        "context_status": "created",
+        "node_name": "conv2d_5",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.resize_layers.3.weight"
+      },
+      {
+        "bias_attr": null,
+        "context_attr": "_vulkan_conv2d_context_721626fd601da0af",
+        "context_status": "created",
+        "node_name": "conv2d_6",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.layer1_rn.weight"
+      },
+      {
+        "bias_attr": null,
+        "context_attr": "_vulkan_conv2d_context_7a7d34118b4a0bc6",
+        "context_status": "created",
+        "node_name": "conv2d_7",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.layer2_rn.weight"
+      },
+      {
+        "bias_attr": null,
+        "context_attr": "_vulkan_conv2d_context_881ff2db4701e04c",
+        "context_status": "created",
+        "node_name": "conv2d_8",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.layer3_rn.weight"
+      },
+      {
+        "bias_attr": null,
+        "context_attr": "_vulkan_conv2d_context_cb7d37686af59692",
+        "context_status": "created",
+        "node_name": "conv2d_9",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.layer4_rn.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet4.resConfUnit2.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_113e211cbb1a7185",
+        "context_status": "created",
+        "node_name": "conv2d_10",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet4.resConfUnit2.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet4.resConfUnit2.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_06b3c3d099614041",
+        "context_status": "created",
+        "node_name": "conv2d_11",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet4.resConfUnit2.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet4.out_conv.bias",
+        "context_attr": "_vulkan_conv2d_context_043f88021f121b9e",
+        "context_status": "created",
+        "node_name": "conv2d_12",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet4.out_conv.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet3.resConfUnit1.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_974e8d0234264f0e",
+        "context_status": "created",
+        "node_name": "conv2d_13",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet3.resConfUnit1.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet3.resConfUnit1.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_d796adc37df090fa",
+        "context_status": "created",
+        "node_name": "conv2d_14",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet3.resConfUnit1.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet3.resConfUnit2.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_9766c7f4cdf63e49",
+        "context_status": "created",
+        "node_name": "conv2d_15",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet3.resConfUnit2.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet3.resConfUnit2.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_e32de01fb87ce93b",
+        "context_status": "created",
+        "node_name": "conv2d_16",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet3.resConfUnit2.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet3.out_conv.bias",
+        "context_attr": "_vulkan_conv2d_context_3c47c14664a240c5",
+        "context_status": "created",
+        "node_name": "conv2d_17",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet3.out_conv.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet2.resConfUnit1.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_5bd32daf4259b18e",
+        "context_status": "created",
+        "node_name": "conv2d_18",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet2.resConfUnit1.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet2.resConfUnit1.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_da545c0fa6047f7e",
+        "context_status": "created",
+        "node_name": "conv2d_19",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet2.resConfUnit1.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet2.resConfUnit2.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_52ccf6c2515b2a85",
+        "context_status": "created",
+        "node_name": "conv2d_20",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet2.resConfUnit2.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet2.resConfUnit2.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_191bd2bfc0cf7e62",
+        "context_status": "created",
+        "node_name": "conv2d_21",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet2.resConfUnit2.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet2.out_conv.bias",
+        "context_attr": "_vulkan_conv2d_context_e0a20a84de7025ff",
+        "context_status": "created",
+        "node_name": "conv2d_22",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet2.out_conv.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet1.resConfUnit1.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_08a4abf65fad88a4",
+        "context_status": "created",
+        "node_name": "conv2d_23",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet1.resConfUnit1.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet1.resConfUnit1.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_0ed9bc85d1183edb",
+        "context_status": "created",
+        "node_name": "conv2d_24",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet1.resConfUnit1.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet1.resConfUnit2.conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_01dc05595144eb49",
+        "context_status": "created",
+        "node_name": "conv2d_25",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet1.resConfUnit2.conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet1.resConfUnit2.conv2.bias",
+        "context_attr": "_vulkan_conv2d_context_47f7e1f0304d4cc6",
+        "context_status": "created",
+        "node_name": "conv2d_26",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet1.resConfUnit2.conv2.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.refinenet1.out_conv.bias",
+        "context_attr": "_vulkan_conv2d_context_381b227b7996cd23",
+        "context_status": "created",
+        "node_name": "conv2d_27",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.refinenet1.out_conv.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.output_conv1.bias",
+        "context_attr": "_vulkan_conv2d_context_4a1aef92bb768e3f",
+        "context_status": "created",
+        "node_name": "conv2d_28",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.output_conv1.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.output_conv2.0.bias",
+        "context_attr": "_vulkan_conv2d_context_5e12b44e696d1f07",
+        "context_status": "created",
+        "node_name": "conv2d_29",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.output_conv2.0.weight"
+      },
+      {
+        "bias_attr": "depth_head.scratch.output_conv2.2.bias",
+        "context_attr": "_vulkan_conv2d_context_35393da7615ba85b",
+        "context_status": "created",
+        "node_name": "conv2d_30",
+        "reason": "static_cpu_snapshot_weight_and_bias",
+        "status": "lowered",
+        "weight_attr": "depth_head.scratch.output_conv2.2.weight"
+      }
+    ],
+    "rejected_count": 0,
+    "reused_context_count": 0
+  },
   "external_assets": {
     "adapter": "dav2_vits_adapter.py:make_adapter",
     "checkpoint_basename": "depth_anything_v2_vits.pth",
@@ -100,24 +389,24 @@
   },
   "graph_census": {
     "call_function_node_count": 434,
-    "captured_node_count": 623,
-    "composite_runtime_verified": 186,
+    "captured_node_count": 596,
+    "composite_runtime_verified": 155,
     "conditionally_supported": 0,
     "eager_vulkan_dispatch": 190,
-    "graph_owned_prepacked_contexts": 48,
+    "graph_owned_prepacked_contexts": 79,
     "partition_candidates": {
       "status": "not_planned_python_correctness_executor",
       "vulkan_only_candidate_count": 0
     },
-    "statically_lowered": 48,
+    "statically_lowered": 79,
     "unsupported_at_lower_time": 0,
     "unsupported_by_target": {}
   },
   "graph_structure": {
-    "graph_constants": 186,
+    "graph_constants": 159,
     "graph_inputs": 1,
     "graph_outputs": 1,
-    "normalized_node_count": 623
+    "normalized_node_count": 596
   },
   "linear_lowering": {
     "context_factory": "vulkan_prepack::create_graph_linear_context",
@@ -571,7 +860,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "3f4ef5f40c98a6d499eb4e4c87650ac0776fb4c72f92f39b86cd93af3917955d",
+    "graph_hash": "127cde8ad288614280c68e85ad788bff422e5300cfbf990c664321444f1e79c9",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -590,13 +879,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "bfd656fca72821524bf4a24c6136a43711df8bf7b402d918c33f3f19961a84b1"
+        "sha256": "bb453550f9d25bee045c39d0150f03698e365f7eeff4534f2d090e43edc5e5b7"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "8888ded2c268aa1429dc51f699f94942393f0eba",
+  "source_git_sha": "fccedf7e63a1571116ef73d91001b6c7c41418d8",
   "speculative_eager_bridges": "disabled",
   "status": "measured"
 }
