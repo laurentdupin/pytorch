@@ -269,6 +269,12 @@ def _out_of_range_guard(
     return {"status": "unexpectedly_accepted"}
 
 
+def _is_export_guard_rejection(error: Exception) -> bool:
+    return isinstance(error, torch.vulkan.VulkanGraphExecutionError) and (
+        "Guard failed:" in str(error) or "_guards_fn" in str(error)
+    )
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Record generic torch.export Vulkan graph evidence."
@@ -341,17 +347,43 @@ def main() -> int:
             args.cpu_atol,
             args.cpu_rtol,
         )
-        alternate_census, alternate_parity = _run_case(
-            "alternate",
-            program,
-            eager_model,
-            model,
-            alternate,
-            args.eager_atol,
-            args.eager_rtol,
-            args.cpu_atol,
-            args.cpu_rtol,
-        )
+        try:
+            alternate_census, alternate_parity = _run_case(
+                "alternate",
+                program,
+                eager_model,
+                model,
+                alternate,
+                args.eager_atol,
+                args.eager_rtol,
+                args.cpu_atol,
+                args.cpu_rtol,
+            )
+        except Exception as error:
+            if not _is_export_guard_rejection(error):
+                raise
+            variant_start = time.perf_counter()
+            alternate_program = torch.vulkan.export_and_lower(
+                model, alternate, dynamic_shapes=dynamic_shapes, device=device
+            )
+            variant_seconds = time.perf_counter() - variant_start
+            alternate_census, alternate_parity = _run_case(
+                "alternate",
+                alternate_program,
+                eager_model,
+                model,
+                alternate,
+                args.eager_atol,
+                args.eager_rtol,
+                args.cpu_atol,
+                args.cpu_rtol,
+            )
+            alternate_census["guard"] = {
+                "status": "recompiled_guard_variant",
+                "rejected_program_message": str(error),
+                "variant_compile_seconds": variant_seconds,
+                "variant_program_key": _jsonable(alternate_program.key),
+            }
         out_of_range_guard = _out_of_range_guard(program, out_of_range)
     finally:
         for name, value in previous_env.items():

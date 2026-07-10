@@ -25,6 +25,14 @@ eager Vulkan and CPU parity references, and a readback-separated repeated
 graph reference run. It forces the remaining eager deferred canaries off for
 the graph execution.
 
+Some model frontends export a guard-specialized program even when the adapter
+supplies a broader symbolic policy. If the normal program rejects the legal
+alternate input at `_guards_fn`, the harness records that rejection and creates
+one explicit export-and-lower guard variant for the alternate input. The result
+is reported as `recompiled_guard_variant` with both program identities. This
+is a graph-program cache variant, not a Vulkan exact-shape admission row. Any
+other execution error remains a failure; the harness never uses CPU fallback.
+
 Example:
 
 ```text

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import torch
 from torch.testing._internal.common_utils import run_tests, TestCase
 from torch.vulkan._graph_evidence import (
     EVIDENCE_SCHEMA,
@@ -10,6 +11,7 @@ from torch.vulkan._graph_evidence import (
     template_payload,
     validate_evidence_payload,
 )
+from scripts.benchmarks.vulkan_graph_export_evidence import _is_export_guard_rejection
 
 
 class TestVulkanGraphEvidence(TestCase):
@@ -40,6 +42,20 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(parse_input_shape("1,3,140,280"), (1, 3, 140, 280))
         with self.assertRaisesRegex(ValueError, "four positive"):
             parse_input_shape("1,3,0,280")
+
+    def test_guard_variant_only_handles_export_guard_rejections(self):
+        self.assertTrue(
+            _is_export_guard_rejection(
+                torch.vulkan.VulkanGraphExecutionError(
+                    "Vulkan graph node '_guards_fn' failed: Guard failed: x"
+                )
+            )
+        )
+        self.assertFalse(
+            _is_export_guard_rejection(
+                torch.vulkan.VulkanGraphExecutionError("Vulkan dispatch failed")
+            )
+        )
 
 
 if __name__ == "__main__":
