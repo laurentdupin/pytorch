@@ -17,8 +17,145 @@ def _linear_context_attrs(program):
     }
 
 
+def _conv2d_context_attrs(program):
+    return {
+        str(node.target)
+        for node in program.graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_conv2d_context_")
+    }
+
+
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
+    def test_static_conv2d_lowering_matches_cpu_and_releases_weights(self):
+        class ConvRelu(torch.nn.Module):
+            def __init__(self, bias):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 4, 3, padding=1, bias=bias)
+
+            def forward(self, tensor):
+                return torch.relu(self.conv(tensor))
+
+        torch.manual_seed(7)
+        tensor = torch.randn(2, 3, 8, 7)
+        for bias in (False, True):
+            model = ConvRelu(bias).eval()
+            program = torch.vulkan.export_and_lower(model, tensor)
+            self.assertEqual(program(tensor).cpu(), model(tensor))
+            self.assertEqual(program.conv2d_lowering.conv2d_node_count, 1)
+            self.assertEqual(program.conv2d_lowering.lowered_count, 1)
+            self.assertEqual(program.conv2d_lowering.rejected_count, 0)
+            self.assertEqual(program.conv2d_lowering.created_context_count, 1)
+            self.assertEqual(program.conv2d_lowering.reused_context_count, 0)
+            self.assertEqual(
+                program.conv2d_lowering.context_factory,
+                "vulkan_prepack::create_graph_conv2d_context",
+            )
+            self.assertEqual(len(_conv2d_context_attrs(program)), 1)
+            self.assertFalse(program.graph_module.state_dict())
+            lowered = [
+                node
+                for node in program.census.nodes
+                if node.reason == "graph_owned_conv2d_context"
+            ]
+            self.assertEqual(len(lowered), 1)
+            self.assertEqual(lowered[0].classification, "lowered_vulkan")
+            self.assertEqual(program.last_cpu_fallback_count, 0)
+            self.assertEqual(program.last_sync_readback_count, 0)
+            self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_reuses_tied_conv2d_context(self):
+        class SharedConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(4, 3, 3, 3))
+                self.bias = torch.nn.Parameter(torch.randn(4))
+
+            def forward(self, tensor):
+                first = torch.nn.functional.conv2d(
+                    tensor, self.weight, self.bias, padding=1
+                )
+                second = torch.nn.functional.conv2d(
+                    tensor, self.weight, self.bias, padding=1
+                )
+                return first + second
+
+        torch.manual_seed(8)
+        model = SharedConv().eval()
+        tensor = torch.randn(1, 3, 6, 5)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        self.assertEqual(program(tensor).cpu(), model(tensor))
+        self.assertEqual(program.conv2d_lowering.conv2d_node_count, 2)
+        self.assertEqual(program.conv2d_lowering.lowered_count, 2)
+        self.assertEqual(program.conv2d_lowering.created_context_count, 1)
+        self.assertEqual(program.conv2d_lowering.reused_context_count, 1)
+        self.assertEqual(len(_conv2d_context_attrs(program)), 1)
+
+    def test_rejects_dynamic_conv2d_weight_before_execution(self):
+        class DynamicWeightConv2d(torch.nn.Module):
+            def forward(self, tensor, weight):
+                return torch.nn.functional.conv2d(tensor, weight)
+
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "weight_not_static_get_attr",
+        ):
+            torch.vulkan.export_and_lower(
+                DynamicWeightConv2d().eval(),
+                (torch.randn(1, 3, 6, 6), torch.randn(4, 3, 3, 3)),
+            )
+
+    def test_rejects_invalid_static_conv2d_parameter(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        tensor.meta["val"] = torch.empty(1, 3, 6, 6)
+        weight = graph.get_attr("weight")
+        conv2d = graph.call_function(
+            torch.ops.aten.conv2d.default,
+            args=(tensor, weight, None, [0, 1], [0, 0], [1, 1], 1),
+        )
+        graph.output(conv2d)
+        graph_module = torch.fx.GraphModule(
+            {"weight": torch.randn(4, 3, 3, 3)}, graph
+        )
+        report = vulkan_graph.lower_static_conv2d_to_vulkan_contexts(
+            graph_module,
+            {"weight": torch.randn(4, 3, 3, 3)},
+        )
+        self.assertEqual(report.conv2d_node_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].reason, "stride_outside_supported_range")
+
+    def test_changed_conv2d_state_uses_a_distinct_program_key_and_context(self):
+        class Conv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 4, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv(tensor)
+
+        torch.manual_seed(9)
+        model = Conv().eval()
+        tensor = torch.randn(1, 3, 6, 6)
+        expected_first = model(tensor)
+        first = torch.vulkan.export_and_lower(model, tensor)
+        with torch.no_grad():
+            model.conv.weight.add_(1.0)
+        expected_second = model(tensor)
+        second = torch.vulkan.export_and_lower(model, tensor)
+        first_attr = next(iter(_conv2d_context_attrs(first)))
+        second_attr = next(iter(_conv2d_context_attrs(second)))
+        self.assertNotEqual(first.key.state_fingerprint, second.key.state_fingerprint)
+        self.assertIsNot(
+            getattr(first.graph_module, first_attr),
+            getattr(second.graph_module, second_attr),
+        )
+        self.assertEqual(first(tensor).cpu(), expected_first)
+        self.assertEqual(second(tensor).cpu(), expected_second)
+
     def test_export_and_lower_matches_cpu_and_preserves_model(self):
         class LinearRelu(torch.nn.Module):
             def __init__(self):

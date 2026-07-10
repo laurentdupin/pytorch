@@ -87,7 +87,9 @@ class Conv2dPackedContext final : public torch::jit::CustomClassHolder {
       const std::optional<Scalar>& output_max = std::nullopt,
       const Tensor& cache_weight = Tensor(),
       const std::optional<Tensor>& cache_bias = std::nullopt,
-      const bool force_legacy_image_pack = false);
+      const bool force_legacy_image_pack = false,
+      const bool retain_unpacked = true,
+      const bool use_packed_weight_cache = true);
 
   /*
    * Assigns a name to each index in the unpacked list.
@@ -178,6 +180,14 @@ c10::intrusive_ptr<Conv2dPackedContext> create_conv2d_context(
     const int64_t groups,
     const std::optional<Scalar>& output_min = std::nullopt,
     const std::optional<Scalar>& output_max = std::nullopt);
+
+c10::intrusive_ptr<Conv2dPackedContext> create_graph_conv2d_context(
+    Tensor&& weight,
+    std::optional<Tensor>&& bias,
+    std::vector<int64_t>&& stride,
+    std::vector<int64_t>&& padding,
+    std::vector<int64_t>&& dilation,
+    const int64_t groups);
 
 Tensor run_conv2d_context(
     const Tensor& input,

@@ -4677,7 +4677,9 @@ Conv2dPackedContext::Conv2dPackedContext(
     const std::optional<Scalar>& output_max,
     const Tensor& cache_weight_arg,
     const std::optional<Tensor>& cache_bias_arg,
-    const bool force_legacy_image_pack)
+    const bool force_legacy_image_pack,
+    const bool retain_unpacked,
+    const bool use_packed_weight_cache)
     : unpacked_{c10::AnyType::get()} {
   const auto stride = expand_param_if_needed(stride_arg, "stride", 2);
   const auto padding = expand_param_if_needed(padding_arg, "padding", 2);
@@ -4724,13 +4726,17 @@ Conv2dPackedContext::Conv2dPackedContext(
   const uint64_t pack_options =
       (transposed ? kConvTransposedPackOption : 0u) |
       (use_float_buffer_packing ? kConvBufferPackOption : 0u);
-  if (const auto cached_packed_weight = utils::lookup_packed_weight_handle(
-          cache_weight,
-          normalized_cache_bias,
-          logical_weight_sizes,
-          packed_weight_kind,
-          quantized,
-          pack_options)) {
+  std::optional<PackedWeightHandle> cached_packed_weight;
+  if (use_packed_weight_cache) {
+    cached_packed_weight = utils::lookup_packed_weight_handle(
+        cache_weight,
+        normalized_cache_bias,
+        logical_weight_sizes,
+        packed_weight_kind,
+        quantized,
+        pack_options);
+  }
+  if (cached_packed_weight) {
     packed_weight_ = *cached_packed_weight;
   } else {
     if (use_float_buffer_packing) {
@@ -4752,7 +4758,7 @@ Conv2dPackedContext::Conv2dPackedContext(
           bias && bias->defined(),
           quantized);
     }
-    if (should_cache_float_buffer_conv2d_handle(
+    if (use_packed_weight_cache && should_cache_float_buffer_conv2d_handle(
             packed_weight_, packed_weight_kind, pack_options)) {
       utils::store_packed_weight_handle(
           cache_weight,
@@ -4784,7 +4790,7 @@ Conv2dPackedContext::Conv2dPackedContext(
   compute_shader_ = conv2d::get_shader(
       weight.sizes(), stride, padding, dilation, method, transposed, quantized);
 
-  if (!at::globalContext().releaseWeightsWhenPrepacking()) {
+  if (retain_unpacked && !at::globalContext().releaseWeightsWhenPrepacking()) {
     unpacked_.reserve(Unpacked::NumArgs);
     unpacked_.emplace_back(weight);
     unpacked_.emplace_back(normalized_bias);
@@ -4836,6 +4842,32 @@ c10::intrusive_ptr<Conv2dPackedContext> create_conv2d_context(
       groups,
       output_min,
       output_max));
+}
+
+c10::intrusive_ptr<Conv2dPackedContext> create_graph_conv2d_context(
+    Tensor&& weight,
+    std::optional<Tensor>&& bias,
+    std::vector<int64_t>&& stride,
+    std::vector<int64_t>&& padding,
+    std::vector<int64_t>&& dilation,
+    const int64_t groups) {
+  return c10::make_intrusive<Conv2dPackedContext>(Conv2dPackedContext(
+      weight,
+      bias,
+      stride,
+      padding,
+      dilation,
+      /* transposed = */ false,
+      /* quantized = */ false,
+      /* output_padding_arg = */ {0},
+      groups,
+      std::nullopt,
+      std::nullopt,
+      Tensor(),
+      std::nullopt,
+      /* force_legacy_image_pack = */ false,
+      /* retain_unpacked = */ false,
+      /* use_packed_weight_cache = */ false));
 }
 
 c10::intrusive_ptr<Conv2dPackedContext> create_tconv2d_context(

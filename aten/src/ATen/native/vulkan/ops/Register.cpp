@@ -1436,6 +1436,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "int[2] padding, int[2] dilation, int groups, "
       "Scalar? output_min=None, Scalar? output_max=None) "
       "-> __torch__.torch.classes.vulkan.Conv2dPackedContext"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_graph_conv2d_context(Tensor W, Tensor? B, "
+      "int[2] stride, int[2] padding, int[2] dilation, int groups) "
+      "-> __torch__.torch.classes.vulkan.Conv2dPackedContext"));
   m.def(TORCH_SELECTIVE_SCHEMA( // Backwards compatibility
       "vulkan_prepack::conv2d_clamp_prepack(Tensor W, Tensor? B, int[2] stride, "
       "int[2] padding, int[2] dilation, int groups, "
@@ -2380,6 +2384,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_conv2d_context"),
       TORCH_FN(create_conv2d_context));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_conv2d_context"),
+      TORCH_FN(create_graph_conv2d_context));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv2d_clamp_prepack"),
       TORCH_FN(conv2d_clamp_prepack)); // Backwards compatibility

@@ -14,7 +14,9 @@ import torch
 import torch.utils._pytree as pytree
 
 from ._graph_lowering import (
+    VulkanConv2dLoweringReport,
     VulkanLinearLoweringReport,
+    lower_static_conv2d_to_vulkan_contexts,
     lower_static_linear_to_vulkan_contexts,
 )
 
@@ -135,6 +137,21 @@ def _is_graph_owned_linear_context(
     )
 
 
+def _is_graph_owned_conv2d_context(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> bool:
+    if len(node.args) != 2:
+        return False
+    context_node = node.args[1]
+    if not isinstance(context_node, torch.fx.Node) or context_node.op != "get_attr":
+        return False
+    context_attr = str(context_node.target)
+    return context_attr.startswith("_vulkan_conv2d_context_") and hasattr(
+        graph_module, context_attr
+    )
+
+
 def _classify_node(
     graph_module: torch.fx.GraphModule,
     index: int,
@@ -198,6 +215,24 @@ def _classify_node(
                 operator_name,
                 "lowered_vulkan",
                 "graph_owned_linear_context",
+            )
+        if operator_name == "vulkan_prepack::run_conv2d_context":
+            if not _is_graph_owned_conv2d_context(graph_module, node):
+                return VulkanGraphNodeRecord(
+                    index,
+                    node.name,
+                    node.op,
+                    operator_name,
+                    "unsupported",
+                    "run_conv2d_context_missing_graph_owned_context",
+                )
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                operator_name,
+                "lowered_vulkan",
+                "graph_owned_conv2d_context",
             )
         if _has_dispatch_kernel(operator_name, "Vulkan"):
             return VulkanGraphNodeRecord(
@@ -440,6 +475,16 @@ def _linear_lowering_rejection_message(
     )
 
 
+def _conv2d_lowering_rejection_message(
+    report: VulkanConv2dLoweringReport,
+) -> str:
+    rejected = [node for node in report.nodes if node.status == "rejected"]
+    return "\n".join(
+        f"{node.node_name}: {node.reason}"
+        for node in rejected
+    )
+
+
 def _tensor_leaves(value: Any) -> tuple[torch.Tensor, ...]:
     return tuple(
         leaf
@@ -483,12 +528,14 @@ class VulkanGraphProgram:
         key: VulkanGraphProgramKey,
         census: VulkanGraphCensus,
         linear_lowering: VulkanLinearLoweringReport,
+        conv2d_lowering: VulkanConv2dLoweringReport,
     ) -> None:
         self._graph_module = graph_module
         self._device = device
         self._key = key
         self._census = census
         self._linear_lowering = linear_lowering
+        self._conv2d_lowering = conv2d_lowering
         self._run_count = 0
         self._last_executed_nodes: tuple[str, ...] = ()
         self._last_cpu_fallback_count = 0
@@ -515,6 +562,10 @@ class VulkanGraphProgram:
     @property
     def linear_lowering(self) -> VulkanLinearLoweringReport:
         return self._linear_lowering
+
+    @property
+    def conv2d_lowering(self) -> VulkanConv2dLoweringReport:
+        return self._conv2d_lowering
 
     @property
     def run_count(self) -> int:
@@ -633,10 +684,22 @@ def export_and_lower(
         linear_lowering = lower_static_linear_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
         )
+        conv2d_lowering = lower_static_conv2d_to_vulkan_contexts(
+            graph_module, cpu_state_snapshot
+        )
+    lowering_rejections: list[str] = []
     if linear_lowering.rejected_count:
+        lowering_rejections.append(
+            "linear:\n" + _linear_lowering_rejection_message(linear_lowering)
+        )
+    if conv2d_lowering.rejected_count:
+        lowering_rejections.append(
+            "conv2d:\n" + _conv2d_lowering_rejection_message(conv2d_lowering)
+        )
+    if lowering_rejections:
         raise VulkanGraphExecutionError(
-            "Exported graph contains rejected static linear lowerings:\n"
-            + _linear_lowering_rejection_message(linear_lowering)
+            "Exported graph contains rejected static lowerings:\n"
+            + "\n".join(lowering_rejections)
         )
 
     graph_fingerprint = "\n".join(
@@ -645,6 +708,7 @@ def export_and_lower(
             str(exported_program.graph_signature),
             str(exported_program.range_constraints),
             repr(linear_lowering),
+            repr(conv2d_lowering),
         )
     )
     properties = torch.vulkan.get_device_properties(target_device)
@@ -675,6 +739,7 @@ def export_and_lower(
         key,
         census,
         linear_lowering,
+        conv2d_lowering,
     )
 
 
@@ -684,6 +749,7 @@ __all__ = [
     "VulkanGraphNodeRecord",
     "VulkanGraphProgram",
     "VulkanGraphProgramKey",
+    "VulkanConv2dLoweringReport",
     "VulkanLinearLoweringReport",
     "export_and_lower",
 ]
