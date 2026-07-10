@@ -1485,76 +1485,6 @@ Tensor reshape_linear_output_if_needed(
   return reshaped_output;
 }
 
-utils::LinearGeluBridgeTensorInfo linear_gelu_bridge_tensor_info(
-    const Tensor& input_arg,
-    const Tensor& input_arg_2d) {
-  utils::LinearGeluBridgeTensorInfo info;
-  info.input_rank = input_arg.dim();
-  if (input_arg.dim() == 2) {
-    info.input_rows = input_arg.size(0);
-    info.input_features = input_arg.size(1);
-  } else if (input_arg.dim() == 3) {
-    info.input_batch = input_arg.size(0);
-    info.input_rows = input_arg.size(1);
-    info.input_features = input_arg.size(2);
-  }
-  info.flattened_rank = input_arg_2d.dim();
-  if (input_arg_2d.dim() == 2) {
-    info.flattened_rows = input_arg_2d.size(0);
-    info.flattened_features = input_arg_2d.size(1);
-  }
-  return info;
-}
-
-utils::LinearGeluBridgeMatch match_linear_gelu_bridge_candidate(
-    const Tensor& input_arg,
-    const Tensor& input_arg_2d,
-    const LinearPackedRunState& packed_state,
-    const float alpha,
-    const float beta,
-    const LinearPostOp post_op,
-    const Tensor* output_opt) {
-  const Tensor& packed_weight_tensor = packed_state.packed_weight.weight();
-  const std::optional<Tensor> packed_bias_tensor = packed_state.bias_defined
-      ? std::optional<Tensor>(packed_state.packed_weight.bias())
-      : std::nullopt;
-  const utils::LinearGeluBridgePackedInfo packed_info{
-      packed_state.logical_weight_sizes[Layout::Parameter::height],
-      packed_state.logical_weight_sizes[Layout::Parameter::width],
-      packed_state.bias_defined,
-      can_run_float_buffer_linear(
-          input_arg_2d, packed_weight_tensor, packed_bias_tensor)};
-  const utils::LinearGeluBridgeOptions options{
-      c10::InferenceMode::is_enabled(),
-      output_opt != nullptr,
-      post_op == LinearPostOp::None,
-      alpha == 1.0f,
-      beta == 1.0f};
-  return utils::match_linear_gelu_bridge_contract(
-      linear_gelu_bridge_tensor_info(input_arg, input_arg_2d),
-      packed_info,
-      options);
-}
-
-Tensor make_deferred_linear_gelu_placeholder(
-    const Tensor& input_arg,
-    const Tensor& input_arg_2d,
-    const LinearPackedRunState& packed_state) {
-  Tensor output_2d = utils::mark_tensor_execution(
-      convert(vTensor{
-          api::context(),
-          {
-              input_arg_2d.size(Layout::Parameter::height),
-              packed_state.logical_weight_sizes[Layout::Parameter::width],
-          },
-          api::kFloat,
-          api::StorageType::BUFFER,
-          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-      }),
-      api::ExecutionLayout::BUFFER_DIRECT);
-  return reshape_linear_output_if_needed(output_2d, input_arg);
-}
-
 Tensor reshape_deferred_linear_gelu_output_if_needed(
     const Tensor& output,
     const DeferredLinearGeluCandidate& candidate) {
@@ -3832,44 +3762,6 @@ Tensor run_addmm_context(
             buffer_input,
             packed_state.packed_weight.weight(),
             packed_bias_tensor)) {
-      const utils::LinearGeluBridgeMatch bridge_match =
-          match_linear_gelu_bridge_candidate(
-              input_for_compute,
-              buffer_input,
-              packed_state,
-              alpha,
-              beta,
-              post_op,
-              output_opt);
-      if (bridge_match.matched && bridge_match.may_defer) {
-        Tensor placeholder = make_deferred_linear_gelu_placeholder(
-            input_for_compute, buffer_input, packed_state);
-        DeferredLinearGeluCandidate candidate;
-        candidate.input_arg = input_for_compute;
-        candidate.buffer_input = buffer_input;
-        candidate.linear_context = linear_context;
-        candidate.runtime_policy = runtime_policy;
-        candidate.output_sizes = placeholder.sizes().vec();
-        candidate.alpha = alpha;
-        candidate.beta = beta;
-        register_deferred_linear_gelu_candidate(
-            placeholder, std::move(candidate));
-        std::ostringstream bridge_stream;
-        bridge_stream << "aten::linear_gelu_bridge.defer"
-                      << " contract="
-                      << (bridge_match.metadata
-                              ? bridge_match.metadata->contract_name
-                              : "none")
-                      << " contract_family="
-                      << (bridge_match.metadata
-                              ? bridge_match.metadata->family_name
-                              : "none")
-                      << " contract_tuple="
-                      << (bridge_match.tuple_id ? bridge_match.tuple_id
-                                                : "none");
-        utils::log_vulkan_op_hit(bridge_stream.str());
-        return placeholder;
-      }
       return run_float_buffer_linear(
           input_for_compute,
           buffer_input,

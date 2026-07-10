@@ -16188,13 +16188,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
             self.assertIn("op=aten::linear.family_unified_buffer_view", op_hit_text)
             self.assertIn("op=aten::linear.buffer_float", op_hit_text)
-            self.assertIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
-            self.assertIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
-            self.assertRegex(
-                op_hit_text,
-                r"op=aten::linear\.buffer_float(?:_tiled)?_bias(?:_vec2)?_gelu",
-            )
-            self.assertNotIn("op=aten::gelu.buffer_float", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
+            self.assertNotIn(
+                "op=aten::linear_gelu_bridge.materialize", op_hit_text)
+            self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
 
             if os.path.exists(materialize_log_path):
                 with open(materialize_log_path, "r", encoding="utf-8") as log_file:
@@ -43298,30 +43296,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         approximate=case["gelu_approximate"],
                     )
 
-                def expect_dynamic_bridge(case):
-                    input_shape = case["input_shape"]
-                    weight_shape = case["weight_shape"]
-                    if len(weight_shape) != 2:
-                        return False
-                    if len(input_shape) == 2:
-                        rows, features = input_shape
-                    elif len(input_shape) == 3:
-                        batch, row_count, features = input_shape
-                        rows = batch * row_count
-                    else:
-                        return False
-                    return (
-                        rows > 0
-                        and features > 0
-                        and weight_shape[0] > 0
-                        and weight_shape[1] == features
-                        and case["bias_defined"]
-                        and not case["has_output"]
-                        and case["post_op_is_none"]
-                        and case["alpha_is_one"]
-                        and case["beta_is_one"]
-                    )
-
                 def run_with_mode(case, tensors):
                     with torch.inference_mode():
                         return run_linear_gelu(case, tensors)
@@ -43344,7 +43318,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         bias.requires_grad_()
                     return x, weight, bias
 
-                def run_case(case, expect_native_route):
+                def run_case(case):
                     if not case.get("runtime_supported", True):
                         return
                     log_name = contract_spec_utils.contract_log_name(
@@ -43370,40 +43344,25 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     )
 
                     op_hit_text = read_text(log_path)
-                    if expect_native_route:
-                        assert "op=aten::linear_gelu_bridge.defer" in op_hit_text, (
+                    for bridge_op in (
+                        "op=aten::linear_gelu_bridge.defer",
+                        "op=aten::linear_gelu_bridge.hit",
+                        "op=aten::linear_gelu_bridge.materialize",
+                    ):
+                        assert bridge_op not in op_hit_text, (
                             case,
+                            bridge_op,
                             op_hit_text,
                         )
-                        assert "op=aten::linear_gelu_bridge.hit" in op_hit_text, (
-                            case,
-                            op_hit_text,
-                        )
-                        assert (
-                            "op=aten::linear_gelu_bridge.materialize"
-                            not in op_hit_text
-                        ), (case, op_hit_text)
-                        assert re.search(
-                            r"op=aten::linear\\.buffer_float"
-                            r"(?:_tiled)?_bias(?:_vec2)?_gelu",
-                            op_hit_text,
-                        ), (case, op_hit_text)
-                    else:
-                        for bridge_op in (
-                            "op=aten::linear_gelu_bridge.defer",
-                            "op=aten::linear_gelu_bridge.hit",
-                            "op=aten::linear_gelu_bridge.materialize",
-                        ):
-                            assert bridge_op not in op_hit_text, (
-                                case,
-                                bridge_op,
-                                op_hit_text,
-                            )
+                    assert "op=aten::gelu.buffer_float" in op_hit_text, (
+                        case,
+                        op_hit_text,
+                    )
 
-                for _, case, expect_native_route in (
+                for _, case, _ in (
                     contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
-                    run_case(case, expect_native_route or expect_dynamic_bridge(case))
+                    run_case(case)
             """
             self._run_repo_python_subprocess(
                 script,
@@ -43483,16 +43442,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         rtol=3e-3)
                     with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                         op_hit_text = log_file.read()
-                    self.assertIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
-                    self.assertIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
-                    self.assertIn("GenericRuntimeShape", op_hit_text)
-                    self.assertRegex(
-                        op_hit_text,
-                        r"op=aten::linear\.buffer_float"
-                        r"(?:_tiled)?_bias(?:_vec2)?_gelu")
+                    self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+                    self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
                     self.assertNotIn(
                         "op=aten::linear_gelu_bridge.materialize",
                         op_hit_text)
+                    self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
         finally:
             if previous_op_hit_log is None:
                 os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
@@ -43575,8 +43530,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(op_hit_log_path):
                 os.remove(op_hit_log_path)
 
-    def test_linear_gelu_bridge_materialized_input_uses_plain_gelu(self):
-        op_hit_log_name = "linear_gelu_bridge_materialize_before_gelu_op_hit_test.log"
+    def test_linear_eager_output_materializes_before_arbitrary_consumers(self):
+        op_hit_log_name = "linear_eager_output_consumers_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
         if os.path.exists(op_hit_log_path):
@@ -43588,47 +43543,54 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 import torch.nn.functional as F
 
                 torch.manual_seed(0)
-                x = torch.randn(1, 601, 384, dtype=torch.float32) * 0.1
-                weight = torch.randn(1536, 384, dtype=torch.float32) * 0.1
-                bias = torch.randn(1536, dtype=torch.float32) * 0.1
+                x = torch.randn(1, 7, 8, dtype=torch.float32) * 0.1
+                weight = torch.randn(12, 8, dtype=torch.float32) * 0.1
+                bias = torch.randn(12, dtype=torch.float32) * 0.1
                 bias.requires_grad_()
 
                 with torch.inference_mode():
-                    expected = F.gelu(
-                        F.linear(x, weight, bias) + 0.0,
-                        approximate="tanh",
+                    linear_expected = F.linear(x, weight, bias)
+                    expected = F.gelu(linear_expected, approximate="tanh")
+                    expected_parts = (
+                        linear_expected.reshape(1, 7, 3, 4)
+                        .permute(0, 2, 1, 3)
+                        .unbind(1)
                     )
+                    expected_matmul = expected_parts[0] @ expected_parts[1].transpose(-2, -1)
                     x_vulkan = x.to("vulkan")
                     weight_vulkan = weight.to("vulkan")
                     bias_vulkan = bias.to("vulkan")
                     linear = F.linear(x_vulkan, weight_vulkan, bias_vulkan)
-                    materialized = linear + 0.0
-                    actual = F.gelu(materialized, approximate="tanh").cpu()
+                    direct = linear.cpu()
+                    parts = linear.reshape(1, 7, 3, 4).permute(0, 2, 1, 3).unbind(1)
+                    actual_matmul = (parts[0] @ parts[1].transpose(-2, -1)).cpu()
+                    actual = F.gelu(linear, approximate="tanh").cpu()
 
                 torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-3)
+                torch.testing.assert_close(direct, linear_expected, atol=3e-4, rtol=3e-3)
+                torch.testing.assert_close(actual_matmul, expected_matmul, atol=3e-4, rtol=3e-3)
                 print(float(actual.sum()))
             """
 
             self._run_repo_python_subprocess(
                 script,
                 extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
-                error_prefix="linear GELU bridge materialized input subprocess failed.",
+                error_prefix="linear eager output consumer subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(op_hit_log_path))
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::binary_op.buffer_float", op_hit_text)
             self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
-            self.assertIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
-            self.assertIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
             self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
         finally:
             if os.path.exists(op_hit_log_path):
                 os.remove(op_hit_log_path)
 
-    def test_dav2_mlp_linear_gelu_bridge_uses_fused_shader(self):
+    def test_dav2_mlp_linear_gelu_default_eager_uses_plain_gelu(self):
         materialize_log_name = "dav2_mlp_linear_gelu_bridge_materialize_test.log"
         op_hit_log_name = "dav2_mlp_linear_gelu_bridge_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -43683,14 +43645,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
-            self.assertIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
-            self.assertRegex(
-                op_hit_text,
-                r"op=aten::linear\.buffer_float(?:_tiled)?_bias(?:_vec2)?_gelu",
-            )
-            self.assertNotIn("op=aten::gelu.buffer_float", op_hit_text)
-            self.assertNotIn("op=aten::linear_gelu_bridge.materialize", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::linear_gelu_bridge.hit", op_hit_text)
+            self.assertNotIn(
+                "op=aten::linear_gelu_bridge.materialize", op_hit_text)
+            self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
 
             if os.path.exists(materialize_log_path):
                 with open(materialize_log_path, "r", encoding="utf-8") as log_file:
