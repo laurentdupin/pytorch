@@ -317,7 +317,7 @@ def _begin_graph_execution_scope() -> int:
         ) from error
 
 
-def _end_graph_execution_scope(token: int) -> tuple[int, int]:
+def _end_graph_execution_scope(token: int) -> tuple[int, int, int]:
     try:
         counters = tuple(
             int(value)
@@ -327,7 +327,7 @@ def _end_graph_execution_scope(token: int) -> tuple[int, int]:
         raise VulkanGraphExecutionError(
             f"Vulkan graph execution scope end failed: {error}"
         ) from error
-    if len(counters) != 2 or any(value < 0 for value in counters):
+    if len(counters) != 3 or any(value < 0 for value in counters):
         raise VulkanGraphExecutionError(
             "Vulkan graph execution scope returned invalid fallback counters: "
             f"{counters}"
@@ -435,6 +435,7 @@ class VulkanGraphProgram:
         self._last_executed_nodes: tuple[str, ...] = ()
         self._last_cpu_fallback_count = 0
         self._last_sync_readback_count = 0
+        self._last_deferred_values_created = 0
         self._execution_lock = threading.RLock()
 
     @property
@@ -473,6 +474,10 @@ class VulkanGraphProgram:
     def last_sync_readback_count(self) -> int:
         return self._last_sync_readback_count
 
+    @property
+    def last_deferred_values_created(self) -> int:
+        return self._last_deferred_values_created
+
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
         moved_args = pytree.tree_map(
@@ -488,15 +493,21 @@ class VulkanGraphProgram:
                 (
                     self._last_cpu_fallback_count,
                     self._last_sync_readback_count,
+                    self._last_deferred_values_created,
                 ) = _end_graph_execution_scope(scope_token)
                 self._last_executed_nodes = tuple(interpreter.executed_nodes)
 
-            if self._last_cpu_fallback_count or self._last_sync_readback_count:
+            if (
+                self._last_cpu_fallback_count
+                or self._last_sync_readback_count
+                or self._last_deferred_values_created
+            ):
                 raise VulkanGraphExecutionError(
                     "Vulkan graph execution crossed an implicit host boundary: "
                     f"cpu_fallback={self._last_cpu_fallback_count}, "
-                    f"sync_readback={self._last_sync_readback_count}. Explicit CPU "
-                    "partitions are not implemented"
+                    f"sync_readback={self._last_sync_readback_count}, "
+                    f"deferred_values_created={self._last_deferred_values_created}. "
+                    "Explicit CPU partitions and deferred values are not implemented"
                 )
             output_tensors = _tensor_leaves(output)
             if not output_tensors:

@@ -149,6 +149,7 @@ take_deferred_add_layer_norm_candidate(const Tensor& tensor) {
 void register_deferred_add_layer_norm_candidate(
     const Tensor& tensor,
     DeferredAddLayerNormCandidate candidate) {
+  guard_vulkan_deferred_value_registration("add_layer_norm_bridge");
   std::lock_guard<std::mutex> lock(
       deferred_add_layer_norm_candidate_mutex());
   auto& candidates = deferred_add_layer_norm_candidates();
@@ -200,6 +201,7 @@ take_deferred_layer_scale_candidate(const Tensor& tensor) {
 void register_deferred_layer_scale_candidate(
     const Tensor& tensor,
     DeferredLayerScaleCandidate candidate) {
+  guard_vulkan_deferred_value_registration("layer_scale_bridge");
   std::lock_guard<std::mutex> lock(deferred_layer_scale_candidate_mutex());
   auto& candidates = deferred_layer_scale_candidates();
   if (candidates.size() >= kMaxDeferredLayerScaleCandidates) {

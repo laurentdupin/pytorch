@@ -2195,6 +2195,7 @@ lookup_runtime_elementwise_deferred_candidate(const Tensor& tensor) {
 void register_runtime_elementwise_deferred_candidate(
     const Tensor& output,
     RuntimeElementwiseDeferredCandidate candidate) {
+  guard_vulkan_deferred_value_registration("runtime_elementwise_chain");
   RuntimeElementwiseDeferredState& state =
       runtime_elementwise_deferred_state();
   candidate.stack_planned_recording_active_at_register =
@@ -2548,6 +2549,7 @@ take_deferred_image_normalize_candidate(const Tensor& tensor) {
 void register_deferred_image_normalize_candidate(
     const Tensor& tensor,
     DeferredImageNormalizeCandidate candidate) {
+  guard_vulkan_deferred_value_registration("image_normalize_bridge");
   std::lock_guard<std::mutex> lock(
       deferred_image_normalize_candidate_mutex());
   auto& candidates = deferred_image_normalize_candidates();
@@ -4291,19 +4293,6 @@ static Tensor binary_op_scalar(
   const Tensor self_runtime_materialized =
       materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
   api::Context* const context = api::context();
-  if (!alpha_arg.has_value()) {
-    if (auto deferred = try_start_deferred_image_normalize_scalar(
-            self_runtime_materialized, other, op_kind)) {
-      return *deferred;
-    }
-    if (op_kind == BinaryOpKind::Mul) {
-      if (auto deferred =
-              try_start_deferred_attention_query_scale(
-                  self_runtime_materialized, other)) {
-        return *deferred;
-      }
-    }
-  }
   const Tensor self_materialized =
       materialize_decomposed_attention_candidate_if_needed(
           self_runtime_materialized);
@@ -4689,34 +4678,6 @@ static Tensor binary_op_tensor(
       materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
   const Tensor other_runtime_materialized =
       materialize_deferred_runtime_elementwise_candidate_if_needed(other_arg);
-  if (auto deferred_scale = try_start_deferred_image_normalize_tensor_scale(
-          self_runtime_materialized,
-          other_runtime_materialized,
-          alpha_arg,
-          op_kind)) {
-    return *deferred_scale;
-  }
-  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
-          self_runtime_materialized,
-          other_runtime_materialized,
-          alpha_arg,
-          op_kind)) {
-    return *deferred_scale;
-  }
-  if (auto deferred_scale = try_start_deferred_attention_query_scale_tensor(
-          other_runtime_materialized,
-          self_runtime_materialized,
-          alpha_arg,
-          op_kind)) {
-    return *deferred_scale;
-  }
-  if (auto deferred = try_update_deferred_image_normalize_tensor(
-          self_runtime_materialized,
-          other_runtime_materialized,
-          alpha_arg,
-          op_kind)) {
-    return *deferred;
-  }
   const Tensor self_attention_materialized =
       materialize_decomposed_attention_candidate_if_needed(
           self_runtime_materialized);
@@ -4784,24 +4745,6 @@ static Tensor binary_op_tensor(
   }
 
   if (should_run_buffer_binary_tensor(self, other)) {
-    if (op_kind == BinaryOpKind::Mul && !alpha_arg.has_value()) {
-      if (auto deferred = try_start_deferred_layer_scale(self, other)) {
-        return *deferred;
-      }
-      if (auto deferred = try_start_deferred_layer_scale(other, self)) {
-        return *deferred;
-      }
-    }
-
-    const bool can_defer_add_layer_norm =
-        op_kind == BinaryOpKind::Add &&
-        (!alpha_arg.has_value() || alpha_arg->to<float>() == 1.0f) &&
-        self.sizes().equals(other.sizes());
-    if (can_defer_add_layer_norm) {
-      if (auto deferred = try_start_deferred_add_layer_norm(self, other)) {
-        return *deferred;
-      }
-    }
     return binary_op_tensor_buffer(
         self, other, alpha_arg, buffer_shader_descriptor, op_kind);
   }

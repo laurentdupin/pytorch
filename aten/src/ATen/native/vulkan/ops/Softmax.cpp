@@ -948,6 +948,7 @@ take_decomposed_attention_candidate(const Tensor& tensor) {
 void register_decomposed_attention_candidate(
     const Tensor& tensor,
     DecomposedAttentionCandidate candidate) {
+  guard_vulkan_deferred_value_registration("decomposed_attention_bridge");
   std::lock_guard<std::mutex> lock(decomposed_attention_candidate_mutex());
   auto& candidates = decomposed_attention_candidates();
   if (candidates.size() >= kMaxDecomposedAttentionCandidates) {
@@ -1012,6 +1013,7 @@ take_deferred_attention_query_scale_candidate(const Tensor& tensor) {
 void register_deferred_attention_query_scale_candidate(
     const Tensor& tensor,
     DeferredAttentionQueryScaleCandidate candidate) {
+  guard_vulkan_deferred_value_registration("attention_query_scale_bridge");
   std::lock_guard<std::mutex> lock(
       deferred_attention_query_scale_candidate_mutex());
   auto& candidates = deferred_attention_query_scale_candidates();

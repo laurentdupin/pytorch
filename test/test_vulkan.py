@@ -15875,6 +15875,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 bias = torch.randn(384, dtype=torch.float32) * 0.1
 
                 with torch.no_grad():
+                    deferred_before = (
+                        torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    )
                     expected_residual = residual + addend
                     expected_norm = F.layer_norm(
                         expected_residual,
@@ -15899,6 +15902,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     )
                     actual_residual = fused_residual.cpu()
                     actual_norm = fused_norm.cpu()
+
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
 
                 torch.testing.assert_close(
                     actual_residual,
@@ -15928,14 +15936,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::add_layer_norm_bridge.defer", op_hit_text)
-            self.assertIn("op=aten::add_layer_norm_bridge.hit", op_hit_text)
-            self.assertIn("op=aten::add_layer_norm.buffer_width", op_hit_text)
-            self.assertNotIn("op=aten::binary_op.buffer_float", op_hit_text)
-            self.assertNotIn("op=aten::native_layer_norm.buffer_width", op_hit_text)
+            self.assertNotIn("op=aten::add_layer_norm_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::add_layer_norm_bridge.hit", op_hit_text)
             self.assertNotIn(
-                "op=aten::add_layer_norm_bridge.materialize",
-                op_hit_text,
+                "op=aten::add_layer_norm_bridge.materialize", op_hit_text
             )
         finally:
             for path in (materialize_log_path, op_hit_log_path):
@@ -15965,6 +15969,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 bias = torch.randn(384, dtype=torch.float32) * 0.1
 
                 with torch.no_grad():
+                    deferred_before = (
+                        torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    )
                     expected_residual = residual + addend * scale
                     expected_norm = F.layer_norm(
                         expected_residual,
@@ -15990,6 +15997,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     )
                     actual_residual = fused_residual.cpu()
                     actual_norm = fused_norm.cpu()
+
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
 
                 torch.testing.assert_close(
                     actual_residual,
@@ -16019,22 +16031,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::layer_scale_bridge.defer", op_hit_text)
-            self.assertIn(
-                "op=aten::add_layer_norm_bridge.defer_scaled_addend",
-                op_hit_text,
-            )
-            self.assertIn("op=aten::add_layer_norm_bridge.hit", op_hit_text)
-            self.assertIn(
-                "op=aten::add_scaled_layer_norm.buffer_width",
-                op_hit_text,
-            )
-            self.assertNotIn("op=aten::binary_op.buffer_float", op_hit_text)
-            self.assertNotIn("op=aten::layer_scale_bridge.materialize", op_hit_text)
+            self.assertNotIn("op=aten::layer_scale_bridge.defer", op_hit_text)
             self.assertNotIn(
                 "op=aten::add_layer_norm_bridge.materialize",
                 op_hit_text,
             )
+            self.assertNotIn("op=aten::add_layer_norm_bridge.defer", op_hit_text)
+            self.assertNotIn("op=aten::add_layer_norm_bridge.hit", op_hit_text)
+            self.assertNotIn("op=aten::layer_scale_bridge.materialize", op_hit_text)
         finally:
             for path in (materialize_log_path, op_hit_log_path):
                 if os.path.exists(path):
@@ -16061,9 +16065,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 image = image_cpu.to("vulkan").float()
                 mean = mean_cpu.to("vulkan")
                 std = std_cpu.to("vulkan")
+                deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
                 normalized = image / 255.0
                 normalized = (normalized - mean) / std
                 actual = normalized.permute((2, 0, 1)).unsqueeze(0).cpu()
+
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
 
                 expected = (
                     (image_cpu.float() / 255.0 - mean_cpu) / std_cpu
@@ -16082,16 +16092,16 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn(
+            self.assertNotIn(
                 "op=aten::image_normalize_bridge.defer_scale", op_hit_text
             )
-            self.assertIn(
+            self.assertNotIn(
                 "op=aten::image_normalize_bridge.defer_mean", op_hit_text
             )
-            self.assertIn(
+            self.assertNotIn(
                 "op=aten::image_normalize_bridge.defer_std", op_hit_text
             )
-            self.assertIn("op=aten::image_normalize_bridge.fused", op_hit_text)
+            self.assertNotIn("op=aten::image_normalize_bridge.fused", op_hit_text)
             self.assertNotIn(
                 "op=aten::image_normalize_bridge.materialize", op_hit_text
             )
@@ -42288,9 +42298,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 q = q_cpu.to("vulkan") * scale
                 k = k_cpu.to("vulkan")
                 v = v_cpu.to("vulkan")
+                deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
                 actual0 = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
                 actual1 = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
 
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
                 torch.testing.assert_close(actual0, expected, atol=1e-4, rtol=1e-4)
                 torch.testing.assert_close(actual1, expected, atol=1e-4, rtol=1e-4)
                 print(float(actual1.sum()))
@@ -42306,29 +42321,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn("op=aten::decomposed_attention_bridge.hit", log_text)
-            self.assertIn("op=aten::attention_query_scale_bridge.defer", log_text)
-            self.assertIn(
+            for label in (
+                "op=aten::decomposed_attention_bridge.hit",
                 "op=aten::decomposed_attention_bridge.consume_query_scale",
-                log_text,
-            )
-            self.assertIn(
-                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused",
-                log_text,
-            )
-            self.assertIn(
-                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4",
-                log_text,
-            )
-            self.assertNotIn("op=aten::binary_op.buffer_float", log_text)
-            self.assertNotIn(
-                "op=aten::attention_query_scale_bridge.materialize",
-                log_text,
-            )
-            self.assertNotIn(
                 "op=aten::decomposed_attention_bridge.materialize_probs",
-                log_text,
-            )
+                "op=aten::attention_query_scale_bridge.defer",
+                "op=aten::attention_query_scale_bridge.materialize",
+            ):
+                self.assertNotIn(label, log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
@@ -42362,8 +42362,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                 q = q_cpu.to("vulkan") * scale
                 k = k_cpu.to("vulkan")
+                deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
                 actual = (q @ k.transpose(-2, -1)).cpu()
 
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
                 torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
                 print(float(actual.sum()))
             """
@@ -42378,33 +42383,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_text = log_file.read()
 
-            self.assertIn(
+            for label in (
                 "op=aten::decomposed_attention_bridge.materialize_scores",
-                log_text,
-            )
-            self.assertIn("op=aten::attention_query_scale_bridge.defer", log_text)
-            self.assertIn(
+                "op=aten::decomposed_attention_bridge.hit",
                 "op=aten::decomposed_attention_bridge.consume_query_scale",
-                log_text,
-            )
-            self.assertNotIn(
+                "op=aten::attention_query_scale_bridge.defer",
                 "op=aten::attention_query_scale_bridge.materialize",
-                log_text,
-            )
-            self.assertNotIn("op=aten::decomposed_attention_bridge.hit", log_text)
+            ):
+                self.assertNotIn(label, log_text)
         finally:
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_dinov2_attention_qtile_default_matches_numpy_reference(self):
-        op_log_name = "dinov2_attention_qtile_op_hit_test.log"
-        plan_log_name = "dinov2_attention_qtile_plan_test.log"
+    def test_dinov2_attention_default_matches_numpy_reference(self):
+        op_log_name = "dinov2_attention_default_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         op_log_path = os.path.join(repo_root, op_log_name)
-        plan_log_path = os.path.join(repo_root, plan_log_name)
-        for path in (op_log_path, plan_log_path):
-            if os.path.exists(path):
-                os.remove(path)
+        if os.path.exists(op_log_path):
+            os.remove(op_log_path)
 
         try:
             script = """
@@ -42428,59 +42424,46 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 expected = torch.from_numpy(np.matmul(probs, v_ref).copy())
 
                 torch.ops.vulkan_prepack.reset_fallback_counters()
+                deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
                 q = q_cpu.to("vulkan") * scale
                 k = k_cpu.to("vulkan")
                 v = v_cpu.to("vulkan")
                 actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
 
-                counters = torch.ops.vulkan_prepack.attention_plan_counters()
-                caps = torch.ops.vulkan_prepack.attention_subgroup_capabilities()
                 sync_counters = torch.ops.vulkan_prepack.sync_counters()
                 torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
-                assert counters[2] > 0, counters
-                assert counters[10] > 0, counters
-                if caps[4]:
-                    assert counters[12] > 0, (counters, caps)
-                else:
-                    assert counters[11] > 0, (counters, caps)
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
                 assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
                 assert sync_counters[6] == 0, sync_counters
-                print(counters)
-                print(caps)
             """
 
             self._run_repo_python_subprocess(
                 script,
                 extra_env={
                     "PYTORCH_VULKAN_OP_HIT_LOG": op_log_name,
-                    "PYTORCH_VULKAN_ATTENTION_PLAN_LOG": plan_log_name,
                 },
-                error_prefix="DINOv2 qtile attention subprocess failed.",
+                error_prefix="DINOv2 attention subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(op_log_path))
             with open(op_log_path, "r", encoding="utf-8") as log_file:
                 op_log_text = log_file.read()
-            self.assertIn(
-                "op=aten::scaled_dot_product_attention."
-                "runtime_program_buffer_fused_head64_q4",
-                op_log_text,
-            )
-
-            self.assertTrue(os.path.exists(plan_log_path))
-            with open(plan_log_path, "r", encoding="utf-8") as log_file:
-                plan_log_text = log_file.read()
-            self.assertIn("selected=2", plan_log_text)
-            self.assertIn("target_len=601", plan_log_text)
-            self.assertIn("source_len=601", plan_log_text)
-            self.assertIn("query_tile=4", plan_log_text)
+            for label in (
+                "op=aten::decomposed_attention_bridge.hit",
+                "op=aten::decomposed_attention_bridge.consume_query_scale",
+                "op=aten::attention_query_scale_bridge.defer",
+                "op=aten::attention_query_scale_bridge.materialize",
+            ):
+                self.assertNotIn(label, op_log_text)
         finally:
-            for path in (op_log_path, plan_log_path):
-                if os.path.exists(path):
-                    os.remove(path)
+            if os.path.exists(op_log_path):
+                os.remove(op_log_path)
 
-    def test_vulkan_capability_profile_minimum_forces_sdpa_qtile_shared_path(self):
-        op_log_name = "vulkan_capability_profile_min_qtile_op_hit_test.log"
+    def test_vulkan_capability_profile_minimum_preserves_attention_parity(self):
+        op_log_name = "vulkan_capability_profile_min_attention_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         op_log_path = os.path.join(repo_root, op_log_name)
         if os.path.exists(op_log_path):
@@ -42513,16 +42496,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 v = v_cpu.to("vulkan")
                 actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
 
-                counters = list(torch.ops.vulkan_prepack.attention_plan_counters())
                 sync_counters = list(torch.ops.vulkan_prepack.sync_counters())
                 torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
-                assert counters[2] > 0, counters
-                assert counters[10] > 0, counters
-                assert counters[11] > 0, counters
-                assert counters[12] == 0, counters
                 assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
                 assert sync_counters[6] == 0, sync_counters
-                print(counters)
             """
 
             self._run_repo_python_subprocess(
@@ -42531,24 +42508,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "PYTORCH_VULKAN_CAPABILITY_PROFILE": "vk_min_1_1_compute",
                     "PYTORCH_VULKAN_OP_HIT_LOG": op_log_name,
                 },
-                error_prefix=(
-                    "Minimum-profile qtile SDPA admission subprocess failed."
-                ),
+                error_prefix="Minimum-profile attention subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(op_log_path))
             with open(op_log_path, "r", encoding="utf-8") as log_file:
                 op_log_text = log_file.read()
-            self.assertIn(
-                "op=aten::scaled_dot_product_attention."
-                "runtime_program_buffer_fused_head64_q4",
-                op_log_text,
+            self.assertNotIn(
+                "op=aten::decomposed_attention_bridge.hit", op_log_text
             )
         finally:
             if os.path.exists(op_log_path):
                 os.remove(op_log_path)
 
-    def test_dinov2_attention_qtile_tail_rows_match_numpy_reference(self):
+    def test_dinov2_attention_tail_rows_match_numpy_reference(self):
         script = """
             import math
             import numpy as np
@@ -42575,20 +42548,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             v = v_cpu.to("vulkan")
             actual = (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v).cpu()
 
-            counters = torch.ops.vulkan_prepack.attention_plan_counters()
-            caps = torch.ops.vulkan_prepack.attention_subgroup_capabilities()
             torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
-            assert counters[10] > 0, counters
-            if caps[4]:
-                assert counters[12] > 0, (counters, caps)
-            else:
-                assert counters[11] > 0, (counters, caps)
             assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
         """
 
         self._run_repo_python_subprocess(
             script,
-            error_prefix="DINOv2 qtile tail-row attention subprocess failed.",
+            error_prefix="DINOv2 tail-row attention subprocess failed.",
         )
 
     def test_dinov2_decomposed_attention_bridge_avoids_post_attention_clone(
@@ -42672,13 +42638,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertIn("op=aten::decomposed_attention_bridge.hit", op_hit_text)
-            self.assertIn(
-                "op=aten::decomposed_attention_bridge.merge_friendly_output",
-                op_hit_text,
+            self.assertNotIn(
+                "op=aten::decomposed_attention_bridge.hit", op_hit_text
             )
-            self.assertIn(
-                "op=aten::scaled_dot_product_attention.runtime_program_buffer_fused_head64_q4",
+            self.assertNotIn(
+                "op=aten::decomposed_attention_bridge.merge_friendly_output",
                 op_hit_text,
             )
             self.assertIn("op=aten::view.buffer_metadata_direct", op_hit_text)
@@ -43615,6 +43579,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 bias_vulkan = bias.to("vulkan")
 
                 with torch.inference_mode():
+                    deferred_before = (
+                        torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    )
                     expected = F.gelu(
                         F.linear(x, weight, bias),
                         approximate="tanh",
@@ -43627,6 +43594,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         ),
                         approximate="tanh",
                     ).cpu()
+
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
 
                 torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-3)
                 print(float(actual.sum()))

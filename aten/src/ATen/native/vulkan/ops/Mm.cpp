@@ -182,6 +182,7 @@ bool retain_pending_linear_flush_deferral_context(
   if (!linear_context) {
     return false;
   }
+  guard_vulkan_deferred_value_registration("linear_pending_flush_deferral");
   std::lock_guard<std::mutex> lock(
       pending_linear_flush_deferral_context_mutex());
   auto& contexts = pending_linear_flush_deferral_contexts();
@@ -1294,6 +1295,7 @@ take_deferred_linear_gelu_candidate(const Tensor& tensor) {
 void register_deferred_linear_gelu_candidate(
     const Tensor& tensor,
     DeferredLinearGeluCandidate candidate) {
+  guard_vulkan_deferred_value_registration("linear_gelu_bridge");
   std::lock_guard<std::mutex> lock(deferred_linear_gelu_candidate_mutex());
   auto& candidates = deferred_linear_gelu_candidates();
   if (candidates.size() >= kMaxDeferredLinearGeluCandidates) {
@@ -4273,9 +4275,6 @@ Tensor bmm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
   utils::log_vulkan_op_hit("aten::bmm");
   Tensor mat1 = mat1_arg.is_vulkan() ? mat1_arg : mat1_arg.vulkan();
   Tensor mat2 = mat2_arg.is_vulkan() ? mat2_arg : mat2_arg.vulkan();
-  if (auto fused = try_consume_decomposed_attention_probs(mat1, mat2)) {
-    return *fused;
-  }
   mat1 = materialize_decomposed_attention_candidate_if_needed(mat1);
   mat2 = materialize_decomposed_attention_candidate_if_needed(mat2);
   if (can_run_half_buffer_bmm(mat1, mat2)) {
@@ -4283,9 +4282,6 @@ Tensor bmm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
     return run_half_buffer_bmm(mat1, mat2, 1.0f, 1.0f);
   }
   if (can_run_float_buffer_bmm(mat1, mat2)) {
-    if (auto scores = try_start_decomposed_attention_scores(mat1, mat2)) {
-      return *scores;
-    }
     mat1 = materialize_deferred_attention_query_scale_candidate_if_needed(mat1);
     mat2 = materialize_deferred_attention_query_scale_candidate_if_needed(mat2);
     utils::log_vulkan_op_hit("aten::bmm.buffer_float");

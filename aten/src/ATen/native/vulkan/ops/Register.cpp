@@ -331,6 +331,10 @@ int64_t sync_readback_count_runtime() {
   return static_cast<int64_t>(vulkan_sync_readback_count());
 }
 
+int64_t deferred_value_creation_count_runtime() {
+  return static_cast<int64_t>(vulkan_deferred_value_creation_count());
+}
+
 int64_t begin_graph_execution_scope_runtime() {
   return begin_vulkan_graph_execution_scope();
 }
@@ -1709,6 +1713,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_readback_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::deferred_value_creation_count() -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::begin_graph_execution_scope() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::end_graph_execution_scope(int token) -> int[]"));
@@ -2011,6 +2017,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_readback_count"),
       TORCH_FN(sync_readback_count_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::deferred_value_creation_count"),
+      TORCH_FN(deferred_value_creation_count_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::begin_graph_execution_scope"),
       TORCH_FN(begin_graph_execution_scope_runtime));

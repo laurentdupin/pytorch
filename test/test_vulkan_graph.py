@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest.mock import patch
 
 import torch
 from torch.testing._internal.common_utils import run_tests, TestCase
@@ -38,6 +40,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.run_count, 1)
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
         self.assertGreater(len(program.last_executed_nodes), 0)
         self.assertEqual(program.census.unsupported_node_count, 0)
         self.assertGreater(program.census.direct_vulkan_node_count, 0)
@@ -224,12 +227,30 @@ class TestVulkanGraph(TestCase):
             torch.ops.vulkan_prepack.end_graph_execution_scope(outer)
         self.assertEqual(
             torch.ops.vulkan_prepack.end_graph_execution_scope(inner),
-            [0, 0],
+            [0, 0, 0],
         )
         self.assertEqual(
             torch.ops.vulkan_prepack.end_graph_execution_scope(outer),
-            [0, 0],
+            [0, 0, 0],
         )
+
+    def test_graph_rejects_deferred_value_registration(self):
+        class Add(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor + tensor
+
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(Add().eval(), tensor)
+        with patch.dict(
+            os.environ,
+            {"PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER": "1"},
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "cannot register a deferred value",
+            ):
+                program(tensor)
+        self.assertEqual(program.last_deferred_values_created, 0)
 
 
 if __name__ == "__main__":
