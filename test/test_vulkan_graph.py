@@ -1,8 +1,10 @@
 import os
+import operator
 import unittest
 from unittest.mock import patch
 
 import torch
+import torch.vulkan._graph as vulkan_graph
 from torch.testing._internal.common_utils import run_tests, TestCase
 
 
@@ -95,6 +97,47 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program(tensor).cpu(), model(tensor))
         self.assertEqual(program.run_count, 4)
         self.assertEqual(_linear_context_attrs(program), context_attrs)
+
+    def test_dynamic_shape_scalar_arithmetic_is_graph_bookkeeping(self):
+        class DynamicReshape(torch.nn.Module):
+            def forward(self, tensor):
+                rows = tensor.shape[1] * tensor.shape[2]
+                return tensor.reshape(tensor.shape[0], rows, tensor.shape[3])
+
+        example = torch.randn(2, 3, 4, 5)
+        batch = torch.export.Dim("batch", min=1, max=4)
+        height = torch.export.Dim("height", min=2, max=8)
+        width = torch.export.Dim("width", min=2, max=8)
+        program = torch.vulkan.export_and_lower(
+            DynamicReshape().eval(),
+            example,
+            dynamic_shapes=({0: batch, 1: height, 2: width},),
+        )
+        for shape in ((1, 2, 7, 5), (4, 8, 2, 5)):
+            tensor = torch.randn(shape)
+            self.assertEqual(program(tensor).cpu(), tensor.reshape(shape[0], -1, 5))
+        scalar_nodes = [
+            node
+            for node in program.census.nodes
+            if node.reason == "python_scalar_shape_arithmetic"
+        ]
+        self.assertTrue(scalar_nodes)
+        self.assertTrue(all(node.classification == "graph" for node in scalar_nodes))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_python_tensor_arithmetic_stays_unsupported(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        tensor.meta["val"] = torch.empty(2)
+        add = graph.call_function(operator.add, args=(tensor, 1))
+        add.meta["val"] = torch.empty(2)
+        graph.output(add)
+        graph_module = torch.fx.GraphModule({}, graph)
+        record = vulkan_graph._classify_node(graph_module, 1, add)
+        self.assertEqual(record.classification, "unsupported")
+        self.assertEqual(record.reason, "unsupported_graph_node_kind")
 
     def test_binds_runtime_kwargs_in_graph_placeholder_order(self):
         class LinearResidual(torch.nn.Module):

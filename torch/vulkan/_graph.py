@@ -60,6 +60,20 @@ class VulkanGraphExecutionError(RuntimeError):
     pass
 
 
+_PYTHON_SCALAR_ARITHMETIC_TARGETS = frozenset(
+    (operator.add, operator.sub, operator.mul, operator.floordiv)
+)
+_SYMBOLIC_SCALAR_TYPES = tuple(
+    scalar_type
+    for scalar_type in (
+        getattr(torch, "SymInt", None),
+        getattr(torch, "SymFloat", None),
+        getattr(torch, "SymBool", None),
+    )
+    if isinstance(scalar_type, type)
+)
+
+
 def _target_name(target: Any) -> str:
     name = getattr(target, "name", None)
     if callable(name):
@@ -69,6 +83,32 @@ def _target_name(target: Any) -> str:
     if module and qualname:
         return f"{module}.{qualname}"
     return str(target)
+
+
+def _is_python_scalar_or_symbolic(value: Any) -> bool:
+    return isinstance(value, (bool, int, float, complex, *_SYMBOLIC_SCALAR_TYPES))
+
+
+def _node_argument_is_python_scalar_or_symbolic(value: Any) -> bool:
+    if isinstance(value, torch.fx.Node):
+        return "val" in value.meta and _is_python_scalar_or_symbolic(
+            value.meta["val"]
+        )
+    if isinstance(value, tuple | list):
+        return all(_node_argument_is_python_scalar_or_symbolic(item) for item in value)
+    return _is_python_scalar_or_symbolic(value)
+
+
+def _is_python_scalar_arithmetic_node(node: torch.fx.Node) -> bool:
+    return (
+        node.target in _PYTHON_SCALAR_ARITHMETIC_TARGETS
+        and "val" in node.meta
+        and _is_python_scalar_or_symbolic(node.meta["val"])
+        and all(
+            _node_argument_is_python_scalar_or_symbolic(value)
+            for value in (*node.args, *node.kwargs.values())
+        )
+    )
 
 
 def _has_dispatch_kernel(operator_name: str, dispatch_key: str) -> bool:
@@ -119,10 +159,28 @@ def _classify_node(
             "graph",
             "python_graph_bookkeeping",
         )
+    if node.op == "call_function" and _is_python_scalar_arithmetic_node(node):
+        return VulkanGraphNodeRecord(
+            index,
+            node.name,
+            node.op,
+            target,
+            "graph",
+            "python_scalar_shape_arithmetic",
+        )
     if node.op == "call_function" and isinstance(
         node.target, torch._ops.OpOverload
     ):
         operator_name = node.target.name()
+        if operator_name == "aten::sym_size.int":
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                operator_name,
+                "graph",
+                "symbolic_shape_query",
+            )
         if operator_name == "vulkan_prepack::run_linear_context":
             if not _is_graph_owned_linear_context(graph_module, node):
                 return VulkanGraphNodeRecord(
