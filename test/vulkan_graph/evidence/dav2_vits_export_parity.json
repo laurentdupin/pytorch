@@ -1,0 +1,12 @@
+{
+  "artifact_type": "parity",
+  "cases": [],
+  "external_assets": {
+    "adapter": null,
+    "checkpoint": null
+  },
+  "not_measured_reason": "external_assets_and_device_measurement_required",
+  "schema": "VulkanGraphExportEvidence.v1",
+  "source_git_sha": null,
+  "status": "template_not_measured"
+}
