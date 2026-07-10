@@ -1,5 +1,7 @@
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 from torch.testing._internal.common_utils import run_tests, TestCase
@@ -13,11 +15,59 @@ from torch.vulkan._graph_evidence import (
 )
 from scripts.benchmarks.vulkan_graph_export_evidence import (
     _adapter_identity,
+    _graph_counts,
     _is_export_guard_rejection,
+    _lowering_reports,
 )
 
 
+@dataclass(frozen=True)
+class _FakeLoweringReport:
+    created_context_count: int
+
+
 class TestVulkanGraphEvidence(TestCase):
+    def test_graph_counts_include_all_graph_owned_lowering_families(self):
+        census = SimpleNamespace(
+            captured_node_count=100,
+            call_function_node_count=80,
+            lowered_vulkan_node_count=79,
+            direct_vulkan_node_count=10,
+            composite_node_count=5,
+            unsupported_node_count=0,
+            nodes=(),
+        )
+        program = SimpleNamespace(
+            census=census,
+            linear_lowering=_FakeLoweringReport(created_context_count=48),
+            conv2d_lowering=_FakeLoweringReport(created_context_count=31),
+        )
+        counts = _graph_counts(program)
+        self.assertEqual(counts["statically_lowered"], 79)
+        self.assertEqual(counts["graph_owned_prepacked_contexts"], 79)
+
+    def test_lowering_reports_keep_single_family_programs_additive(self):
+        linear_only = SimpleNamespace(
+            linear_lowering=_FakeLoweringReport(created_context_count=2),
+        )
+        conv2d_only = SimpleNamespace(
+            conv2d_lowering=_FakeLoweringReport(created_context_count=3),
+        )
+        self.assertEqual(
+            _lowering_reports(linear_only),
+            {
+                "linear_lowering": {"created_context_count": 2},
+                "conv2d_lowering": None,
+            },
+        )
+        self.assertEqual(
+            _lowering_reports(conv2d_only),
+            {
+                "linear_lowering": None,
+                "conv2d_lowering": {"created_context_count": 3},
+            },
+        )
+
     def test_checked_in_dav2_evidence_is_schema_valid_and_measured(self):
         evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"
         for name, artifact_type in (

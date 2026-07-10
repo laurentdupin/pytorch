@@ -159,8 +159,10 @@ def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
         "captured_node_count": census.captured_node_count,
         "call_function_node_count": census.call_function_node_count,
         "statically_lowered": census.lowered_vulkan_node_count,
-        "graph_owned_prepacked_contexts": (
-            program.linear_lowering.created_context_count
+        "graph_owned_prepacked_contexts": sum(
+            getattr(report, "created_context_count", 0)
+            for report in _lowering_report_objects(program).values()
+            if report is not None
         ),
         "eager_vulkan_dispatch": census.direct_vulkan_node_count,
         "composite_runtime_verified": census.composite_node_count,
@@ -171,6 +173,22 @@ def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
             "status": "not_planned_python_correctness_executor",
             "vulkan_only_candidate_count": 0,
         },
+    }
+
+
+def _lowering_report_objects(
+    program: torch.vulkan.VulkanGraphProgram,
+) -> dict[str, Any]:
+    return {
+        "linear_lowering": getattr(program, "linear_lowering", None),
+        "conv2d_lowering": getattr(program, "conv2d_lowering", None),
+    }
+
+
+def _lowering_reports(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
+    return {
+        name: _jsonable(report)
+        for name, report in _lowering_report_objects(program).items()
     }
 
 
@@ -416,6 +434,7 @@ def main() -> int:
     lower_seconds = time.perf_counter() - lower_start
     if out_of_range_guard["status"] == "unexpectedly_accepted":
         raise RuntimeError("Out-of-range input was accepted by exported guards")
+    lowering_reports = _lowering_reports(program)
     common = {
         "schema": "VulkanGraphExportEvidence.v1",
         "status": MEASURED_STATUS,
@@ -431,7 +450,7 @@ def main() -> int:
         "program_key": _jsonable(program.key),
         "graph_structure": _graph_structure(program),
         "graph_census": _graph_counts(program),
-        "linear_lowering": _jsonable(program.linear_lowering),
+        **lowering_reports,
     }
     census = {
         **common,
