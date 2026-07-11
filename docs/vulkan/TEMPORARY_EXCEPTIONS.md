@@ -17,6 +17,34 @@ condition and migration target.
 - Migration target: explicit planning-scope API and lane selection independent
   of model-name string matching.
 
+### Runtime Elementwise Deferred Chain
+
+- Location: `aten/src/ATen/native/vulkan/ops/BinaryOp.cpp`
+- Status: explicit experimental opt-in, default off
+- Reason: `PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` is the sole
+  remaining Tensor placeholder canary. It is not a default eager route.
+  `guard_vulkan_deferred_value_registration` rejects registration during graph
+  execution before placeholder allocation or registry mutation. No recursive
+  materialization or submission may be added to `convert()`, resource lookup,
+  descriptor binding, or another locked low-level accessor.
+- Expiry: graph-owned elementwise fusion/codegen has corpus parity, dynamic
+  shape coverage, repeated-run lifetime safety, and zero CPU fallback/readback.
+- Migration target: Vulkan graph-region elementwise instructions with
+  program-owned value lifetime and execution.
+
+### Linear Pending-Flush Deferral
+
+- Location: `aten/src/ATen/native/vulkan/ops/Mm.cpp`
+- Status: explicit experimental opt-in, default off
+- Reason: `PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL=1` retains a
+  `LinearPackedContext` through the normal pending-command flush. The linear
+  output is already concrete; this policy exposes no public Tensor placeholder.
+  Graph execution is rejected by the common deferred-registration guard.
+- Expiry: graph programs own packed contexts and their completion retirement,
+  with coverage-corpus graph parity and repeated-run lifetime safety.
+- Migration target: graph-program packed-context ownership and timeline-gated
+  retirement.
+
 ### Exact Tuple Rows In Contract Tables
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`
@@ -467,30 +495,6 @@ condition and migration target.
 - Migration target: generated `SafeViewReshapeContract` tables with positive
   and negative tests.
 
-### Linear GELU Bridge Evidence Envelope
-
-- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
-  `aten/src/ATen/native/vulkan/ops/Mm.cpp`
-- Status: temporary, contract-named
-- Reason: the deferred linear/GELU bridge now admits legal runtime shapes by
-  semantic `GenericRuntimeShape` guards. The finite
-  `BackboneMlpHidden384To1536` envelope remains as evidence for the original
-  Backbone MLP hidden projection shape and adjacent negative coverage.
-- Generated spec coverage: `test/vulkan_contract_specs/linear_gelu_bridge_contract.json`
-  covers the `BackboneMlpHidden384To1536` slice with ShapeEnvelope-backed
-  checked-in positive and adjacent negative runtime cases plus generic
-  ShapeEnvelope C++ simple-bound helper output in
-  `generated/ExecutionContractsLinearGeluBridgeSpec.h`. Tensor-info
-  extraction, rank-3 equality, deferred candidate registry ownership, alias
-  retargeting, materialization on non-GELU consumers, fused-GELU execution,
-  op-hit labels, and match-result assembly remain handwritten.
-- Expiry: once the generic runtime bridge has enough random-shape and
-  region-level coverage, retire the finite row as redundant evidence or keep it
-  only as a performance regression fixture.
-- Migration target: generated `LinearGeluBridgeContract` semantic family tables
-  with positive and negative tests plus a reviewed side-effect boundary for
-  deferred registry and materialization behavior.
-
 ### Small Metadata Padded Conv2D Exact Tuple
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
@@ -698,6 +702,19 @@ condition and migration target.
   semantics with transition/fallback budgets.
 - Migration target: `MaskedTinySDPAContract` runtime mask families or a
   reviewed mask field in a broader SDPA contract.
+
+## Retired Historical Records
+
+### Linear GELU Deferred Bridge
+
+- Status: retired; not an active exception.
+- Default eager execution now produces concrete linear output followed by
+  concrete GELU. The speculative candidate registry, alias propagation, and
+  consumer materialization bridge were removed.
+- `test/vulkan_contract_specs/linear_gelu_bridge_contract.json` remains
+  graph-lowering evidence only. It must never authorize an eager deferred
+  route.
+- Migration target: graph-owned linear/GELU lowering and region execution.
 
 ## Rules For New Exceptions
 
