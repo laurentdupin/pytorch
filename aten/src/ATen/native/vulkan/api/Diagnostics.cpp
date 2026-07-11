@@ -220,7 +220,6 @@ bool match_deferred_bridge_op(
     const char* family;
   };
   static constexpr BridgePrefix kPrefixes[] = {
-      {"aten::image_normalize_bridge.", "ImageNormalizeDeferredBridge"},
       {"aten::attention_query_scale_bridge.", "AttentionQueryScaleDeferredBridge"},
       {"aten::decomposed_attention_bridge.", "DecomposedAttentionDeferredBridge"},
   };

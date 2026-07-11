@@ -3195,9 +3195,6 @@ Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
   Tensor input = input_arg.is_vulkan()
       ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
       : input_arg.vulkan();
-  input = input.is_vulkan()
-      ? materialize_deferred_image_normalize_candidate_if_needed(input)
-      : input;
   if (input.scalar_type() == kHalf) {
     input = utils::cast_vulkan_tensor_dtype(input, kFloat);
   }
@@ -4241,10 +4238,6 @@ Tensor run_bfloat16_buffer_conv2d(
       Tensor compute_input = input.is_vulkan()
           ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
           : input;
-      compute_input = compute_input.is_vulkan()
-          ? materialize_deferred_image_normalize_candidate_if_needed(
-                compute_input)
-          : compute_input;
       if (can_run_bfloat16_buffer_conv2d(
               compute_input, weight, bias, transposed, false, output_padding)) {
         return run_bfloat16_buffer_conv2d(

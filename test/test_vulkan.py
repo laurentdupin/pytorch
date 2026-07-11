@@ -16106,8 +16106,8 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         ):
             self.assertNotIn(symbol, source_text)
 
-    def test_deepdesktop_rgb_normalize_bridge_fuses_mean_std_chain(self):
-        op_hit_log_name = "deepdesktop_rgb_normalize_bridge_op_hit_test.log"
+    def test_concrete_rgb_normalization_has_no_deferred_bridge(self):
+        op_hit_log_name = "concrete_rgb_normalization_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
         if os.path.exists(op_hit_log_path):
@@ -16127,15 +16127,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 image = image_cpu.to("vulkan").float()
                 mean = mean_cpu.to("vulkan")
                 std = std_cpu.to("vulkan")
+                torch.ops.vulkan_prepack.reset_fallback_counters()
                 deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
                 normalized = image / 255.0
                 normalized = (normalized - mean) / std
-                actual = normalized.permute((2, 0, 1)).unsqueeze(0).cpu()
+                consumed = normalized.permute((2, 0, 1)).unsqueeze(0)
 
                 assert (
                     torch.ops.vulkan_prepack.deferred_value_creation_count()
                     == deferred_before
                 )
+                assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+                assert torch.ops.vulkan_prepack.sync_readback_count() == 0
+                actual = consumed.cpu()
 
                 expected = (
                     (image_cpu.float() / 255.0 - mean_cpu) / std_cpu
@@ -16147,29 +16151,43 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self._run_repo_python_subprocess(
                 script,
                 extra_env={"PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name},
-                error_prefix="Deep Desktop RGB normalize bridge subprocess failed.",
+                error_prefix="Concrete RGB normalization subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(op_hit_log_path))
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertNotIn(
-                "op=aten::image_normalize_bridge.defer_scale", op_hit_text
-            )
-            self.assertNotIn(
-                "op=aten::image_normalize_bridge.defer_mean", op_hit_text
-            )
-            self.assertNotIn(
-                "op=aten::image_normalize_bridge.defer_std", op_hit_text
-            )
-            self.assertNotIn("op=aten::image_normalize_bridge.fused", op_hit_text)
-            self.assertNotIn(
-                "op=aten::image_normalize_bridge.materialize", op_hit_text
-            )
+            self.assertNotIn("image_normalize_bridge", op_hit_text)
         finally:
             if os.path.exists(op_hit_log_path):
                 os.remove(op_hit_log_path)
+
+    def test_image_normalize_dead_bridge_sources_are_absent(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source_paths = (
+            "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
+            "aten/src/ATen/native/vulkan/ops/BinaryOp.h",
+            "aten/src/ATen/native/vulkan/ops/Copy.cpp",
+            "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
+            "aten/src/ATen/native/vulkan/ops/Shape.cpp",
+            "aten/src/ATen/native/vulkan/ops/Permute.cpp",
+            "aten/src/ATen/native/vulkan/ops/Unsqueeze.cpp",
+            "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
+        )
+        source_parts = []
+        for path in source_paths:
+            with open(os.path.join(repo_root, path), encoding="utf-8") as handle:
+                source_parts.append(handle.read())
+        source_text = "\n".join(source_parts)
+        for symbol in (
+            "DeferredImageNormalizeCandidate",
+            "try_start_deferred_image_normalize",
+            "materialize_deferred_image_normalize",
+            "move_deferred_image_normalize",
+            "image_normalize_bridge",
+        ):
+            self.assertNotIn(symbol, source_text)
 
     def test_float_buffer_backbone_mlp_views_feed_linear_without_buffer_relayout(self):
         materialize_log_name = "float_buffer_backbone_mlp_linear_relayout_test.log"

@@ -59,7 +59,6 @@ Tensor permute_buffer_view(const Tensor& self, IntArrayRef dims) {
       output_physical_strides,
       v_self.storage_offset(),
       "aten::permute");
-  move_deferred_image_normalize_candidate_to_alias(self, output);
   return output;
 }
 

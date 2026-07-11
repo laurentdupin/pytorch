@@ -54,7 +54,6 @@ Tensor unsqueeze_buffer_view(const at::Tensor& self, int64_t dim) {
       output_physical_strides,
       v_self.storage_offset(),
       "aten::unsqueeze");
-  move_deferred_image_normalize_candidate_to_alias(self, output);
   return output;
 }
 

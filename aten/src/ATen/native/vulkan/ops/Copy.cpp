@@ -2346,10 +2346,6 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   src_to_copy = src_to_copy.is_vulkan()
       ? materialize_deferred_attention_query_scale_candidate_if_needed(src_to_copy)
       : src_to_copy;
-  src_to_copy = src_to_copy.is_vulkan()
-      ? materialize_deferred_image_normalize_candidate_if_needed(src_to_copy)
-      : src_to_copy;
-
   // X -> Vulkan
   if (at::kVulkan == dst.device().type()) {
     vTensor& v_self = convert(dst);

@@ -67,9 +67,6 @@ std::optional<std::pair<Tensor, Tensor>> try_add_relu_buffer_out_vulkan(
     Tensor& add_output,
     Tensor& relu_output);
 
-Tensor materialize_deferred_image_normalize_candidate_if_needed(
-    const Tensor& tensor);
-
 Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
     const Tensor& tensor);
 
@@ -80,10 +77,6 @@ Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
 std::optional<Tensor> try_defer_runtime_elementwise_unary_candidate(
     const Tensor& tensor,
     const char* op_name);
-
-void move_deferred_image_normalize_candidate_to_alias(
-    const Tensor& source,
-    const Tensor& alias);
 
 } // namespace ops
 } // namespace vulkan
