@@ -113,6 +113,44 @@ class VulkanStaticConv2dReluRegionReport:
     nodes: tuple[VulkanStaticConv2dReluRegionNodeReport, ...]
 
 
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticConv2dReluConv2dRegionNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    first_conv2d_node_name: str | None
+    relu_node_name: str | None
+    second_conv2d_node_name: str | None
+    first_context_attr: str | None
+    second_context_attr: str | None
+    plan_attr: str | None
+    program_name: str | None
+    program_version: str | None
+    instruction_count: int
+    input_ssa: int | None
+    intermediate_ssa: int | None
+    output_ssa: int | None
+    input_use_count: int | None
+    input_last_use: int | None
+    intermediate_use_count: int | None
+    intermediate_last_use: int | None
+    first_static_context_slot: int | None
+    second_static_context_slot: int | None
+    direct_transition_only: bool | None
+    replay_state_empty: bool | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticConv2dReluConv2dRegionReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    plan_factory: str
+    nodes: tuple[VulkanStaticConv2dReluConv2dRegionNodeReport, ...]
+    excluded_relu_node_names: tuple[str, ...] = ()
+
+
 def _get_attr_target(value: Any) -> str | None:
     if isinstance(value, torch.fx.Node) and value.op == "get_attr":
         return str(value.target)
@@ -181,6 +219,23 @@ def _static_conv2d_relu_plan_attr_name(
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"_vulkan_static_conv2d_relu_plan_{digest}"
+
+
+def _static_conv2d_relu_conv2d_plan_attr_name(
+    first_context_attr: str,
+    second_context_attr: str,
+    second_conv2d_node_name: str,
+) -> str:
+    identity = "\x00".join(
+        (
+            first_context_attr,
+            second_context_attr,
+            second_conv2d_node_name,
+            "StaticConv2dReluConv2dRegion.v1",
+        )
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"_vulkan_static_conv2d_relu_conv2d_plan_{digest}"
 
 
 def _snapshot_for_context(tensor: torch.Tensor) -> torch.Tensor:
@@ -1048,8 +1103,303 @@ def lower_static_conv2d_to_vulkan_contexts(
     )
 
 
+def lower_static_conv2d_relu_conv2d_regions(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticConv2dReluConv2dRegionReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticConv2dReluConv2dRegionNodeReport] = []
+    removed_context_attrs: set[str] = set()
+    candidate_count = 0
+    lowered_count = 0
+    rejected_count = 0
+    skipped_count = 0
+    excluded_relu_node_names: set[str] = set()
+
+    def append_report(
+        *,
+        node_name: str,
+        status: str,
+        reason: str,
+        first_conv2d_node: torch.fx.Node | None,
+        relu_node: torch.fx.Node | None,
+        second_conv2d_node: torch.fx.Node | None,
+        first_context_attr: str | None,
+        second_context_attr: str | None,
+        plan_attr: str | None,
+        has_plan_schema: bool,
+    ) -> None:
+        reports.append(
+            VulkanStaticConv2dReluConv2dRegionNodeReport(
+                node_name=node_name,
+                status=status,
+                reason=reason,
+                first_conv2d_node_name=(
+                    first_conv2d_node.name if first_conv2d_node else None
+                ),
+                relu_node_name=relu_node.name if relu_node else None,
+                second_conv2d_node_name=(
+                    second_conv2d_node.name if second_conv2d_node else None
+                ),
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=plan_attr,
+                program_name=(
+                    "StaticConv2dReluConv2dRegion" if has_plan_schema else None
+                ),
+                program_version="v1" if has_plan_schema else None,
+                instruction_count=2 if has_plan_schema else 0,
+                input_ssa=0 if has_plan_schema else None,
+                intermediate_ssa=1 if has_plan_schema else None,
+                output_ssa=2 if has_plan_schema else None,
+                input_use_count=1 if has_plan_schema else None,
+                input_last_use=0 if has_plan_schema else None,
+                intermediate_use_count=1 if has_plan_schema else None,
+                intermediate_last_use=1 if has_plan_schema else None,
+                first_static_context_slot=0 if has_plan_schema else None,
+                second_static_context_slot=1 if has_plan_schema else None,
+                direct_transition_only=True if has_plan_schema else None,
+                replay_state_empty=True if has_plan_schema else None,
+            )
+        )
+
+    for relu_node in tuple(graph.nodes):
+        if not _is_relu(relu_node):
+            continue
+        first_conv2d_node = relu_node.args[0]
+        if not isinstance(first_conv2d_node, torch.fx.Node):
+            continue
+        first_context_attr = _graph_owned_conv2d_context_attr(
+            graph_module, first_conv2d_node
+        )
+        if first_context_attr is None:
+            continue
+        second_conv2d_node = next(
+            (
+                node
+                for node in relu_node.users
+                if _graph_owned_conv2d_context_attr(graph_module, node) is not None
+            ),
+            None,
+        )
+        second_context_attr = (
+            _graph_owned_conv2d_context_attr(graph_module, second_conv2d_node)
+            if second_conv2d_node is not None
+            else None
+        )
+        is_three_node_candidate = second_conv2d_node is not None
+        if len(first_conv2d_node.users) != 1:
+            append_report(
+                node_name=relu_node.name,
+                status="skipped",
+                reason="first_conv2d_output_has_multiple_users",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=None,
+                has_plan_schema=False,
+            )
+            if is_three_node_candidate:
+                excluded_relu_node_names.add(relu_node.name)
+            skipped_count += 1
+            continue
+        if len(relu_node.users) != 1:
+            append_report(
+                node_name=relu_node.name,
+                status="skipped",
+                reason="relu_output_has_multiple_users",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=None,
+                has_plan_schema=False,
+            )
+            if is_three_node_candidate:
+                excluded_relu_node_names.add(relu_node.name)
+            skipped_count += 1
+            continue
+        if second_context_attr is None:
+            append_report(
+                node_name=relu_node.name,
+                status="skipped",
+                reason="relu_output_not_graph_owned_conv2d",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=None,
+                plan_attr=None,
+                has_plan_schema=False,
+            )
+            skipped_count += 1
+            continue
+        if first_context_attr == second_context_attr or (
+            getattr(graph_module, first_context_attr)
+            is getattr(graph_module, second_context_attr)
+        ):
+            append_report(
+                node_name=relu_node.name,
+                status="skipped",
+                reason="conv2d_contexts_must_be_distinct",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=None,
+                has_plan_schema=False,
+            )
+            excluded_relu_node_names.add(relu_node.name)
+            skipped_count += 1
+            continue
+        first_context_reference_count = sum(
+            node.op == "get_attr" and str(node.target) == first_context_attr
+            for node in graph.nodes
+        )
+        second_context_reference_count = sum(
+            node.op == "get_attr" and str(node.target) == second_context_attr
+            for node in graph.nodes
+        )
+        if first_context_reference_count != 1:
+            append_report(
+                node_name=relu_node.name,
+                status="skipped",
+                reason="first_context_attr_has_multiple_references",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=None,
+                has_plan_schema=False,
+            )
+            excluded_relu_node_names.add(relu_node.name)
+            skipped_count += 1
+            continue
+        if second_context_reference_count != 1:
+            append_report(
+                node_name=relu_node.name,
+                status="skipped",
+                reason="second_context_attr_has_multiple_references",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=None,
+                has_plan_schema=False,
+            )
+            excluded_relu_node_names.add(relu_node.name)
+            skipped_count += 1
+            continue
+
+        candidate_count += 1
+        plan_attr = _static_conv2d_relu_conv2d_plan_attr_name(
+            first_context_attr,
+            second_context_attr,
+            second_conv2d_node.name,
+        )
+        if hasattr(graph_module, plan_attr):
+            append_report(
+                node_name=relu_node.name,
+                status="rejected",
+                reason="deterministic_plan_attribute_collision",
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=plan_attr,
+                has_plan_schema=True,
+            )
+            excluded_relu_node_names.add(relu_node.name)
+            rejected_count += 1
+            continue
+        try:
+            plan = (
+                torch.ops.vulkan_prepack.create_graph_conv2d_relu_conv2d_plan.default(
+                    getattr(graph_module, first_context_attr),
+                    getattr(graph_module, second_context_attr),
+                )
+            )
+            setattr(graph_module, plan_attr, plan)
+        except (RuntimeError, TypeError, AttributeError) as error:
+            append_report(
+                node_name=relu_node.name,
+                status="rejected",
+                reason=(
+                    "static_conv2d_relu_conv2d_plan_creation_failed:"
+                    f"{type(error).__name__}"
+                ),
+                first_conv2d_node=first_conv2d_node,
+                relu_node=relu_node,
+                second_conv2d_node=second_conv2d_node,
+                first_context_attr=first_context_attr,
+                second_context_attr=second_context_attr,
+                plan_attr=plan_attr,
+                has_plan_schema=True,
+            )
+            excluded_relu_node_names.add(relu_node.name)
+            rejected_count += 1
+            continue
+
+        first_context_node = first_conv2d_node.args[1]
+        second_context_node = second_conv2d_node.args[1]
+        with graph.inserting_before(second_conv2d_node):
+            plan_node = graph.create_node("get_attr", plan_attr, (), {})
+            lowered_node = graph.call_function(
+                torch.ops.vulkan_prepack.run_graph_conv2d_relu_conv2d_plan.default,
+                args=(first_conv2d_node.args[0], plan_node),
+            )
+        lowered_node.meta = dict(second_conv2d_node.meta)
+        second_conv2d_node.replace_all_uses_with(lowered_node)
+        graph.erase_node(second_conv2d_node)
+        graph.erase_node(relu_node)
+        graph.erase_node(first_conv2d_node)
+        graph.erase_node(second_context_node)
+        graph.erase_node(first_context_node)
+        removed_context_attrs.add(first_context_attr)
+        removed_context_attrs.add(second_context_attr)
+        append_report(
+            node_name=lowered_node.name,
+            status="lowered",
+            reason="graph_owned_static_conv2d_relu_conv2d",
+            first_conv2d_node=first_conv2d_node,
+            relu_node=relu_node,
+            second_conv2d_node=second_conv2d_node,
+            first_context_attr=first_context_attr,
+            second_context_attr=second_context_attr,
+            plan_attr=plan_attr,
+            has_plan_schema=True,
+        )
+        lowered_count += 1
+
+    if lowered_count:
+        graph.eliminate_dead_code()
+        for context_attr in removed_context_attrs:
+            if hasattr(graph_module, context_attr):
+                delattr(graph_module, context_attr)
+        graph_module.delete_all_unused_submodules()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticConv2dReluConv2dRegionReport(
+        candidate_count=candidate_count,
+        lowered_count=lowered_count,
+        rejected_count=rejected_count,
+        skipped_count=skipped_count,
+        plan_factory="vulkan_prepack::create_graph_conv2d_relu_conv2d_plan",
+        nodes=tuple(reports),
+        excluded_relu_node_names=tuple(sorted(excluded_relu_node_names)),
+    )
+
+
 def lower_static_conv2d_relu_regions(
     graph_module: torch.fx.GraphModule,
+    excluded_relu_node_names: frozenset[str] | set[str] | tuple[str, ...] = (),
 ) -> VulkanStaticConv2dReluRegionReport:
     graph = graph_module.graph
     reports: list[VulkanStaticConv2dReluRegionNodeReport] = []
@@ -1058,6 +1408,7 @@ def lower_static_conv2d_relu_regions(
     lowered_count = 0
     rejected_count = 0
     skipped_count = 0
+    excluded_relu_node_names = frozenset(excluded_relu_node_names)
 
     for relu_node in tuple(graph.nodes):
         if not _is_relu(relu_node):
@@ -1069,6 +1420,29 @@ def lower_static_conv2d_relu_regions(
             graph_module, conv2d_node
         )
         if context_attr is None:
+            continue
+        if relu_node.name in excluded_relu_node_names:
+            reports.append(
+                VulkanStaticConv2dReluRegionNodeReport(
+                    node_name=relu_node.name,
+                    status="skipped",
+                    reason="excluded_by_static_conv2d_relu_conv2d_region",
+                    conv2d_node_name=conv2d_node.name,
+                    context_attr=context_attr,
+                    plan_attr=None,
+                    program_name=None,
+                    program_version=None,
+                    instruction_count=0,
+                    input_ssa=None,
+                    output_ssa=None,
+                    input_use_count=None,
+                    input_last_use=None,
+                    static_context_slot=None,
+                    direct_transition_only=None,
+                    replay_state_empty=None,
+                )
+            )
+            skipped_count += 1
             continue
         context_node = conv2d_node.args[1]
         context_attr_reference_count = sum(
@@ -1239,10 +1613,13 @@ __all__ = [
     "VulkanLinearLoweringReport",
     "VulkanStaticConv2dReluRegionNodeReport",
     "VulkanStaticConv2dReluRegionReport",
+    "VulkanStaticConv2dReluConv2dRegionNodeReport",
+    "VulkanStaticConv2dReluConv2dRegionReport",
     "VulkanStaticLinearGeluRegionNodeReport",
     "VulkanStaticLinearGeluRegionReport",
     "lower_static_conv2d_to_vulkan_contexts",
     "lower_static_conv2d_relu_regions",
+    "lower_static_conv2d_relu_conv2d_regions",
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",
 ]
