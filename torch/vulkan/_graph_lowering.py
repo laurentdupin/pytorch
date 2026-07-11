@@ -485,9 +485,12 @@ def _is_export_guard_user(node: torch.fx.Node, value: torch.fx.Node) -> bool:
     return (
         node.op == "call_module"
         and node.target == "_guards_fn"
-        and len(node.args) == 1
-        and node.args[0] is value
         and not node.kwargs
+        and any(argument is value for argument in node.args)
+        and all(
+            isinstance(argument, torch.fx.Node) and argument.op == "placeholder"
+            for argument in node.args
+        )
     )
 
 

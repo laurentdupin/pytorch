@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import torch
 import torch.vulkan._graph as vulkan_graph
+import torch.vulkan._graph_lowering as vulkan_graph_lowering
 from torch.testing._internal.common_utils import run_tests, TestCase
 
 
@@ -1990,6 +1991,69 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_normalizes_identity_expand_with_multiplaceholder_export_guard(self):
+        class NormalizeTimestep(torch.nn.Module):
+            def forward(self, timestep, other):
+                return (
+                    timestep.expand([1]).unsqueeze(1).to(torch.float32) + other
+                )
+
+        timestep = torch.tensor([3], dtype=torch.int64)
+        other = torch.ones(1, 1)
+        model = NormalizeTimestep().eval()
+        program = torch.vulkan.export_and_lower(model, (timestep, other))
+        with torch.inference_mode():
+            cpu_output = model(timestep, other)
+            eager_vulkan_output = model(
+                timestep.to("vulkan"), other.to("vulkan")
+            ).cpu()
+            graph_output = program(timestep, other).cpu()
+        torch.testing.assert_close(graph_output, cpu_output)
+        torch.testing.assert_close(graph_output, eager_vulkan_output)
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.nodes[0].chain_node_names, ("expand", "unsqueeze"))
+        self.assertNotIn("aten.to.dtype", program.graph_module.code)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_graph_input_normalization_export_guard_accepts_only_placeholders(self):
+        graph = torch.fx.Graph()
+        timestep = graph.placeholder("timestep")
+        other = graph.placeholder("other")
+        valid_guard = graph.call_module("_guards_fn", (timestep, other))
+        self.assertTrue(
+            vulkan_graph_lowering._is_export_guard_user(valid_guard, timestep)
+        )
+
+        arbitrary_consumer = graph.call_module("other_module", (timestep, other))
+        self.assertFalse(
+            vulkan_graph_lowering._is_export_guard_user(
+                arbitrary_consumer, timestep
+            )
+        )
+        view = graph.call_function(
+            torch.ops.aten.unsqueeze.default,
+            (other, 0),
+        )
+        invalid_guard = graph.call_module("_guards_fn", (timestep, view))
+        self.assertFalse(
+            vulkan_graph_lowering._is_export_guard_user(invalid_guard, timestep)
+        )
+        guard_with_kwargs = graph.call_module(
+            "_guards_fn",
+            (timestep, other),
+            {"invalid": True},
+        )
+        self.assertFalse(
+            vulkan_graph_lowering._is_export_guard_user(
+                guard_with_kwargs, timestep
+            )
+        )
 
     def test_rejects_graph_input_normalization_nonidentity_expand(self):
         class NonIdentityExpand(torch.nn.Module):
