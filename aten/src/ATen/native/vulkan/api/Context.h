@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -134,6 +135,39 @@ class TORCH_API Context final {
     Context* context_{nullptr};
   };
 
+  class TORCH_API GraphProgramInvocationScope final {
+   public:
+    enum class State : uint8_t {
+      Active,
+      Submitted,
+      Aborted,
+    };
+
+    explicit GraphProgramInvocationScope(Context&);
+
+    GraphProgramInvocationScope(const GraphProgramInvocationScope&) = delete;
+    GraphProgramInvocationScope& operator=(
+        const GraphProgramInvocationScope&) = delete;
+
+    GraphProgramInvocationScope(GraphProgramInvocationScope&&) = delete;
+    GraphProgramInvocationScope& operator=(
+        GraphProgramInvocationScope&&) = delete;
+
+    ~GraphProgramInvocationScope() noexcept;
+
+    VulkanSubmission submit();
+    void abort();
+    bool active() const;
+    State state() const;
+    const VulkanSubmission& submission() const;
+
+   private:
+    Context* context_{nullptr};
+    std::unique_lock<std::mutex> lock_;
+    VulkanSubmission submission_{};
+    State state_{State::Active};
+  };
+
   explicit Context(c10::DeviceIndex device_index, const ContextConfig&);
 
   Context(const Context&) = delete;
@@ -186,6 +220,7 @@ class TORCH_API Context final {
   QueryPool querypool_;
   // Command buffers submission
   std::mutex cmd_mutex_;
+  std::atomic<bool> graph_program_invocation_active_{false};
   CommandBuffer cmd_;
   CommandBuffer stack_region_owned_cmd_;
   uint32_t submit_count_;
@@ -396,6 +431,8 @@ class TORCH_API Context final {
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
   bool is_inside_owned_program_recording() const;
+  bool graph_program_invocation_active_for_current_thread() const;
+  bool graph_program_invocation_active() const;
   bool stack_planned_recording_owned_by_current_thread() const;
   DescriptorPool& active_descriptor_pool();
   CommandBuffer& active_cmd();
@@ -1160,11 +1197,22 @@ inline bool Context::submit_copy(
     VkFence fence_handle,
     VulkanSubmitOrigin origin) {
   const bool external_recording = external_recording_cmd() != nullptr;
+  const bool graph_program_invocation =
+      graph_program_invocation_active_for_current_thread();
+  VK_CHECK_COND(
+      !graph_program_invocation_active() || graph_program_invocation,
+      "Vulkan graph program invocation is active on another thread");
   const bool stack_planned_recording =
       is_stack_planned_recording_active() && !external_recording;
   VK_CHECK_COND(
       !stack_planned_recording || stack_planned_recording_owned_by_current_thread(),
       "Vulkan stack planned recording used from the wrong thread");
+  VK_CHECK_COND(
+      !graph_program_invocation ||
+          (!external_recording && !stack_planned_recording &&
+           fence_handle == VK_NULL_HANDLE),
+      "Vulkan graph program invocation requires normal unfenced Context "
+      "recording");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -1205,7 +1253,8 @@ inline bool Context::submit_copy(
   // mutex just yet, since in some cases it will be externally managed.
   std::unique_lock<std::mutex> cmd_lock;
   // Refer to comments in submit_compute_job for explanation.
-  if (!external_recording && fence_handle == VK_NULL_HANDLE) {
+  if (!external_recording && !graph_program_invocation &&
+      fence_handle == VK_NULL_HANDLE) {
     cmd_lock = std::unique_lock<std::mutex>(cmd_mutex_);
   }
 
@@ -1250,6 +1299,7 @@ inline bool Context::submit_copy(
   bool submitted = false;
   if (fence_handle != VK_NULL_HANDLE ||
       (!stack_planned_recording &&
+       !graph_program_invocation &&
        submit_count_ >= config_.cmdSubmitFrequency)) {
     submit_cmd_to_gpu(
         fence_handle,
@@ -1291,12 +1341,23 @@ inline bool Context::submit_compute_job(
     VkFence fence_handle,
     Arguments&&... arguments) {
   const bool external_recording = external_recording_cmd() != nullptr;
+  const bool graph_program_invocation =
+      graph_program_invocation_active_for_current_thread();
+  VK_CHECK_COND(
+      !graph_program_invocation_active() || graph_program_invocation,
+      "Vulkan graph program invocation is active on another thread");
   const bool stack_planned_recording =
       is_stack_planned_recording_active() && !external_recording;
   VK_CHECK_COND(
       !stack_planned_recording ||
           stack_planned_recording_owned_by_current_thread(),
       "Vulkan stack planned recording used from the wrong thread");
+  VK_CHECK_COND(
+      !graph_program_invocation ||
+          (!external_recording && !stack_planned_recording &&
+           fence_handle == VK_NULL_HANDLE),
+      "Vulkan graph program invocation requires normal unfenced Context "
+      "recording");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -1344,7 +1405,8 @@ inline bool Context::submit_compute_job(
   // and will release the mutex manually after calling flush(). This will
   // prevent more dispatches from being recorded until we have flushed the
   // Context.
-  if (!external_recording && fence_handle == VK_NULL_HANDLE) {
+  if (!external_recording && !graph_program_invocation &&
+      fence_handle == VK_NULL_HANDLE) {
     cmd_lock = std::unique_lock<std::mutex>(cmd_mutex_);
   }
 
@@ -1446,6 +1508,7 @@ inline bool Context::submit_compute_job(
   bool submitted = false;
   if (fence_handle != VK_NULL_HANDLE ||
       (!stack_planned_recording &&
+       !graph_program_invocation &&
        submit_count_ >= config_.cmdSubmitFrequency)) {
     if (stack_planned_recording) {
       stack_planned_recording_stats_.premature_submits++;

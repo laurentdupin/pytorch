@@ -27240,6 +27240,12 @@ VulkanSyncCounters& vulkan_sync_counters() {
   return counters;
 }
 
+VulkanGraphProgramInvocationCounters&
+vulkan_graph_program_invocation_counters() {
+  static VulkanGraphProgramInvocationCounters counters;
+  return counters;
+}
+
 VulkanSubmitOriginCounters& vulkan_submit_origin_counters() {
   static VulkanSubmitOriginCounters counters;
   return counters;
@@ -28370,6 +28376,32 @@ void reset_vulkan_sync_counters() {
   counters.forced_sync_fallback_policy_readback_count.store(
       0u, std::memory_order_relaxed);
   counters.forced_sync_unknown_count.store(0u, std::memory_order_relaxed);
+}
+
+void reset_vulkan_graph_program_invocation_counters() {
+  VulkanGraphProgramInvocationCounters& counters =
+      vulkan_graph_program_invocation_counters();
+  counters.scope_begun_count.store(0u, std::memory_order_relaxed);
+  counters.normal_submit_token_capture_count.store(
+      0u, std::memory_order_relaxed);
+  counters.aborted_submit_count.store(0u, std::memory_order_relaxed);
+  counters.rejected_incompatible_state_count.store(
+      0u, std::memory_order_relaxed);
+}
+
+std::vector<int64_t> graph_program_invocation_counters_snapshot() {
+  const VulkanGraphProgramInvocationCounters& counters =
+      vulkan_graph_program_invocation_counters();
+  return {
+      static_cast<int64_t>(
+          counters.scope_begun_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.normal_submit_token_capture_count.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.aborted_submit_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.rejected_incompatible_state_count.load(
+          std::memory_order_relaxed)),
+  };
 }
 
 void reset_vulkan_submit_origin_counters() {

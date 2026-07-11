@@ -477,13 +477,22 @@ Tensor utils::run_graph_conv2d_relu_conv2d_plan(
           plan->schema().intermediate_last_use == 1u &&
           plan->schema().first_static_context_slot == 0u &&
           plan->schema().second_static_context_slot == 1u &&
+          plan->schema().bounded_submission_owned &&
           plan->schema().direct_transition_only &&
           plan->schema().replay_state_empty,
-      "StaticConv2dReluConv2dRegion.v1 has an invalid plan schema");
+      "StaticConv2dReluConv2dRegion.v2 has an invalid plan schema");
   GraphConv2dReluConv2dInvocation invocation(*plan);
-  Tensor intermediate =
-      run_conv2d_context_relu(input, plan->first_conv_context());
-  return run_conv2d_context(intermediate, plan->second_conv_context());
+  api::Context::GraphProgramInvocationScope scope(*api::context());
+  try {
+    Tensor intermediate =
+        run_conv2d_context_relu(input, plan->first_conv_context());
+    Tensor output = run_conv2d_context(intermediate, plan->second_conv_context());
+    scope.submit();
+    return output;
+  } catch (...) {
+    scope.abort();
+    throw;
+  }
 }
 
 int register_vulkan_layernorm_packed_context() {
@@ -795,6 +804,10 @@ std::vector<int64_t> sync_counters_runtime() {
       static_cast<int64_t>(counters.retire_cleanup_callback_count.load(
           std::memory_order_relaxed)),
   };
+}
+
+std::vector<int64_t> graph_program_invocation_counters_runtime() {
+  return api::graph_program_invocation_counters_snapshot();
 }
 
 std::vector<int64_t> submit_origin_counters_runtime() {
@@ -2125,6 +2138,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::graph_program_invocation_counters() -> int[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::reset_graph_program_invocation_counters() -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::submit_origin_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_origin_counters() -> ()"));
@@ -2468,6 +2485,14 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_counters"),
       TORCH_FN(sync_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::graph_program_invocation_counters"),
+      TORCH_FN(graph_program_invocation_counters_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::reset_graph_program_invocation_counters"),
+      TORCH_FN(api::reset_vulkan_graph_program_invocation_counters));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::submit_origin_counters"),
       TORCH_FN(submit_origin_counters_runtime));

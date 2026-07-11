@@ -120,6 +120,13 @@ struct VulkanSyncCounters final {
   std::atomic<uint64_t> forced_sync_unknown_count{0u};
 };
 
+struct VulkanGraphProgramInvocationCounters final {
+  std::atomic<uint64_t> scope_begun_count{0u};
+  std::atomic<uint64_t> normal_submit_token_capture_count{0u};
+  std::atomic<uint64_t> aborted_submit_count{0u};
+  std::atomic<uint64_t> rejected_incompatible_state_count{0u};
+};
+
 enum class VulkanSubmitOrigin : uint8_t {
   Unknown = 0,
   NormalCmdSubmitFrequency,
@@ -2185,6 +2192,10 @@ class VulkanRetiredResourceScope final {
 
 TORCH_API VulkanSyncCounters& vulkan_sync_counters();
 TORCH_API void reset_vulkan_sync_counters();
+TORCH_API VulkanGraphProgramInvocationCounters&
+vulkan_graph_program_invocation_counters();
+TORCH_API void reset_vulkan_graph_program_invocation_counters();
+TORCH_API std::vector<int64_t> graph_program_invocation_counters_snapshot();
 TORCH_API VulkanSubmitOriginCounters& vulkan_submit_origin_counters();
 TORCH_API void reset_vulkan_submit_origin_counters();
 TORCH_API void note_vulkan_queue_submit(VulkanSubmitOrigin origin);

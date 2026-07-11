@@ -108,6 +108,10 @@ def _static_conv2d_relu_conv2d_plan_attrs_from_module(graph_module):
     }
 
 
+def _graph_program_invocation_counters():
+    return list(torch.ops.vulkan_prepack.graph_program_invocation_counters())
+
+
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
     def test_static_linear_tanh_gelu_region_matches_cpu_and_transfers_context(self):
@@ -898,7 +902,10 @@ class TestVulkanGraph(TestCase):
             eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
             with torch.inference_mode():
                 eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+            torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
             graph_output = program(tensor).cpu()
+            with torch.inference_mode():
+                normal_context_output = torch.relu(tensor.to("vulkan")).cpu()
             torch.testing.assert_close(
                 eager_vulkan_output, expected, rtol=1e-4, atol=1e-4
             )
@@ -908,6 +915,7 @@ class TestVulkanGraph(TestCase):
             torch.testing.assert_close(
                 graph_output, eager_vulkan_output, rtol=1e-4, atol=1e-4
             )
+            torch.testing.assert_close(normal_context_output, torch.relu(tensor))
             self.assertTrue(torch.any(graph_output > 0))
             self.assertEqual(program.conv2d_lowering.lowered_count, 2)
             self.assertEqual(
@@ -924,7 +932,7 @@ class TestVulkanGraph(TestCase):
             )
             node = program.static_conv2d_relu_conv2d_regions.nodes[0]
             self.assertEqual(node.program_name, "StaticConv2dReluConv2dRegion")
-            self.assertEqual(node.program_version, "v1")
+            self.assertEqual(node.program_version, "v2")
             self.assertEqual(node.instruction_count, 2)
             self.assertEqual(node.input_ssa, 0)
             self.assertEqual(node.intermediate_ssa, 1)
@@ -935,6 +943,7 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(node.intermediate_last_use, 1)
             self.assertEqual(node.first_static_context_slot, 0)
             self.assertEqual(node.second_static_context_slot, 1)
+            self.assertTrue(node.bounded_submission_owned)
             self.assertTrue(node.direct_transition_only)
             self.assertTrue(node.replay_state_empty)
             self.assertEqual(program.static_conv2d_relu_regions.lowered_count, 0)
@@ -953,6 +962,11 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(program.last_cpu_fallback_count, 0)
             self.assertEqual(program.last_sync_readback_count, 0)
             self.assertEqual(program.last_deferred_values_created, 0)
+            counters = _graph_program_invocation_counters()
+            self.assertEqual(len(counters), 4)
+            self.assertGreaterEqual(counters[0], 1)
+            self.assertGreaterEqual(counters[1], 1)
+            self.assertEqual(counters[2:], [0, 0])
 
     def test_static_conv2d_relu_conv2d_region_reuses_dynamic_shapes(self):
         class ConvReluConv(torch.nn.Module):
@@ -977,6 +991,7 @@ class TestVulkanGraph(TestCase):
         )
         plan_attrs = _static_conv2d_relu_conv2d_plan_attrs(program)
         self.assertEqual(len(plan_attrs), 1)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
         for shape in ((1, 3, 5, 11), (4, 3, 12, 5)):
             tensor = torch.randn(shape)
             torch.testing.assert_close(
@@ -989,6 +1004,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertEqual(_graph_program_invocation_counters(), [2, 2, 0, 0])
 
     def test_static_conv2d_lowering_matches_cpu_and_releases_weights(self):
         class ConvRelu(torch.nn.Module):

@@ -1340,6 +1340,7 @@ thread_local uint32_t g_submit_cmd_to_gpu_depth = 0u;
 thread_local uint32_t g_submit_pending_work_and_poll_retire_depth = 0u;
 thread_local uint32_t g_retire_deferred_cleanup_depth = 0u;
 thread_local uint32_t g_external_recording_cleanup_depth = 0u;
+thread_local Context* g_graph_program_invocation_context = nullptr;
 
 void append_stack_region_recording_depth_guard_log_line(
     const std::string& line) {
@@ -1641,6 +1642,123 @@ Context::ScopedExternalCommandRecording::~ScopedExternalCommandRecording() {
   }
 }
 
+Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
+    Context& context)
+    : context_(&context) {
+  VulkanGraphProgramInvocationCounters& counters =
+      vulkan_graph_program_invocation_counters();
+  if (
+      g_graph_program_invocation_context != nullptr ||
+      context_->graph_program_invocation_active_.load(
+          std::memory_order_acquire)) {
+    counters.rejected_incompatible_state_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    TORCH_CHECK(
+        false,
+        "GraphProgramInvocationScope is already active for this Vulkan "
+        "Context");
+  }
+  lock_ = context.dispatch_lock();
+  if (
+      g_graph_program_invocation_context != nullptr ||
+      context_->graph_program_invocation_active_.load(
+          std::memory_order_acquire) ||
+      context_->is_inside_owned_program_recording() ||
+      context_->is_stack_planned_recording_active()) {
+    counters.rejected_incompatible_state_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    TORCH_CHECK(
+        false,
+        "GraphProgramInvocationScope requires an idle normal Vulkan Context");
+  }
+  if (context_->cmd_) {
+    context_->submit_cmd_to_gpu(
+        VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+  }
+  if (context_->cmd_ || context_->submit_count_ != 0u) {
+    counters.rejected_incompatible_state_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    TORCH_CHECK(
+        false,
+        "GraphProgramInvocationScope could not isolate pending Context work");
+  }
+  g_graph_program_invocation_context = context_;
+  context_->graph_program_invocation_active_.store(
+      true, std::memory_order_release);
+  counters.scope_begun_count.fetch_add(1u, std::memory_order_relaxed);
+}
+
+Context::GraphProgramInvocationScope::~GraphProgramInvocationScope() noexcept {
+  if (active()) {
+    try {
+      abort();
+    } catch (...) {
+    }
+  }
+}
+
+VulkanSubmission Context::GraphProgramInvocationScope::submit() {
+  TORCH_CHECK(active(), "GraphProgramInvocationScope is not active");
+  submission_ = context_->submit_cmd_to_gpu(
+      VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+  TORCH_CHECK(
+      submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
+      "GraphProgramInvocationScope requires a normal submission token");
+  lock_.unlock();
+  g_graph_program_invocation_context = nullptr;
+  context_->graph_program_invocation_active_.store(
+      false, std::memory_order_release);
+  state_ = State::Submitted;
+  vulkan_graph_program_invocation_counters()
+      .normal_submit_token_capture_count.fetch_add(1u, std::memory_order_relaxed);
+  return submission_;
+}
+
+void Context::GraphProgramInvocationScope::abort() {
+  if (!active()) {
+    return;
+  }
+  try {
+    if (context_->cmd_) {
+      submission_ = context_->submit_cmd_to_gpu(
+          VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+      TORCH_CHECK(
+          submission_.timeline != VK_NULL_HANDLE &&
+              submission_.timeline_value > 0u,
+          "GraphProgramInvocationScope abort lost submission ownership");
+      vulkan_graph_program_invocation_counters()
+          .aborted_submit_count.fetch_add(1u, std::memory_order_relaxed);
+    }
+  } catch (...) {
+    lock_.unlock();
+    g_graph_program_invocation_context = nullptr;
+    context_->graph_program_invocation_active_.store(
+        false, std::memory_order_release);
+    state_ = State::Aborted;
+    throw;
+  }
+  lock_.unlock();
+  g_graph_program_invocation_context = nullptr;
+  context_->graph_program_invocation_active_.store(
+      false, std::memory_order_release);
+  state_ = State::Aborted;
+}
+
+bool Context::GraphProgramInvocationScope::active() const {
+  return state_ == State::Active &&
+      g_graph_program_invocation_context == context_;
+}
+
+Context::GraphProgramInvocationScope::State
+Context::GraphProgramInvocationScope::state() const {
+  return state_;
+}
+
+const VulkanSubmission& Context::GraphProgramInvocationScope::submission()
+    const {
+  return submission_;
+}
+
 CommandBuffer* Context::external_recording_cmd() {
   return g_external_command_recording_state.cmd;
 }
@@ -1651,6 +1769,14 @@ const CommandBuffer* Context::external_recording_cmd() const {
 
 bool Context::is_inside_owned_program_recording() const {
   return external_recording_cmd() != nullptr;
+}
+
+bool Context::graph_program_invocation_active_for_current_thread() const {
+  return g_graph_program_invocation_context == this;
+}
+
+bool Context::graph_program_invocation_active() const {
+  return graph_program_invocation_active_.load(std::memory_order_acquire);
 }
 
 bool Context::is_stack_planned_recording_active() const {
@@ -3110,6 +3236,9 @@ bool Context::has_pending_work_for_current_stream() const {
 }
 
 void Context::flush_if_current_stream(const c10::Stream& stream) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids stream flush");
   VK_CHECK_COND(
       stream.device_type() == c10::DeviceType::Vulkan,
       "Expected a Vulkan stream, got ",
@@ -3133,6 +3262,9 @@ void Context::flush_if_current_stream(const c10::Stream& stream) {
 }
 
 c10::Stream Context::exchange_stream(c10::Stream stream) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids stream exchange");
   VK_CHECK_COND(
       stream.device_type() == c10::DeviceType::Vulkan,
       "Expected a Vulkan stream, got ",
@@ -3163,6 +3295,9 @@ bool Context::query_stream(const c10::Stream& stream) {
 }
 
 void Context::synchronize_stream(const c10::Stream& stream) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids stream synchronization");
   flush_vulkan_lazy_chain_boundary("synchronize_stream", "explicit_stream_wait");
   bool synchronized_current_stream = false;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
@@ -3205,6 +3340,9 @@ void Context::synchronize_stream(const c10::Stream& stream) {
 }
 
 void Context::synchronize_device() {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids device synchronization");
   flush_vulkan_lazy_chain_boundary("synchronize_device", "explicit_device_wait");
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
@@ -3611,6 +3749,9 @@ void Context::poll_retire_queue() {
 
 void Context::submit_pending_work_and_poll_retire(
     const PendingWorkRetireDrainPolicy policy) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids pending-work retirement");
   StackRegionControlPlaneDepthScope depth_scope(
       "submit_pending_work_and_poll_retire",
       this,
@@ -4681,6 +4822,9 @@ const char* pending_command_flush_reason_name(
 void Context::flush_pending_cmds(
     const PendingCommandFlushReason reason,
     VkFence fence_handle) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids pending command flush");
   const char* const reason_name = pending_command_flush_reason_name(reason);
   flush_vulkan_lazy_chain_boundary("flush_pending_cmds", reason_name);
   const bool cpu_timeline = cpu_timeline_logging_enabled();
@@ -4701,6 +4845,9 @@ void Context::flush_pending_cmds(
 
 void Context::begin_stack_planned_recording(
     const bool allow_stack_owned_command_buffer_canary) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids stack planned recording");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   const bool external_recording_active = is_inside_owned_program_recording();
   const bool stack_planned_recording_active =
@@ -5103,6 +5250,9 @@ Context::execute_stack_region_exit_work_batch_locked(
 }
 
 StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids stack planned recording submit");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   const bool stack_planned_recording_active =
       is_stack_planned_recording_active();
@@ -5150,6 +5300,9 @@ StackPlannedRecordingStats Context::end_stack_planned_recording_and_submit() {
 }
 
 StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids stack planned recording cancel");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   const bool stack_planned_recording_active =
       is_stack_planned_recording_active();
@@ -5246,6 +5399,9 @@ void Context::submit_prepared_command_buffer(
     VkFence fence_handle,
     const bool final_use,
     const char* profile_label) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids prepared command submission");
   VK_CHECK_COND(
       !is_inside_owned_program_recording(),
       "submit_prepared_command_buffer cannot be called from inside an owned "
@@ -6000,6 +6156,9 @@ void Context::retire_bridge_private_capture_pending_retire_handoff_batch_locked(
 }
 
 void Context::flush() {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids Context flush");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -6021,6 +6180,9 @@ void Context::flush() {
 }
 
 void Context::retire_after_fence_wait(const bool flush_descriptor_pool) {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids fence-wait retirement");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -6060,6 +6222,9 @@ void Context::retire_after_fence_wait(const bool flush_descriptor_pool) {
 }
 
 void Context::flush_after_fence_wait() {
+  TORCH_CHECK(
+      !graph_program_invocation_active_for_current_thread(),
+      "GraphProgramInvocationScope forbids fence-wait flush");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;

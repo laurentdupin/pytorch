@@ -139,7 +139,7 @@ Tensor run_graph_conv2d_relu_plan(
 
 struct StaticConv2dReluConv2dPlanSchema final {
   const char* program_name{"StaticConv2dReluConv2dRegion"};
-  const char* version{"v1"};
+  const char* version{"v2"};
   uint32_t instruction_count{2u};
   uint32_t input_ssa{0u};
   uint32_t intermediate_ssa{1u};
@@ -150,6 +150,7 @@ struct StaticConv2dReluConv2dPlanSchema final {
   uint32_t intermediate_last_use{1u};
   uint32_t first_static_context_slot{0u};
   uint32_t second_static_context_slot{1u};
+  bool bounded_submission_owned{true};
   bool direct_transition_only{true};
   bool replay_state_empty{true};
 };
