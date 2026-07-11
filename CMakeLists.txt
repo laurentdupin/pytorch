@@ -461,33 +461,68 @@ if(USE_CCACHE)
   endif()
 endif()
 
-# Since TensorPipe does not support Windows, set it to OFF when WIN32 detected
-# On Windows platform, if user does not install libuv in build conda env and
-# does not set libuv_ROOT environment variable. Set USE_DISTRIBUTED to OFF.
+# Since TensorPipe does not support Windows, set it to OFF when WIN32 detected.
 if(WIN32)
   set(USE_TENSORPIPE OFF)
   message(WARNING "TensorPipe cannot be used on Windows. Set it to OFF")
   set(USE_KLEIDIAI OFF)
   message(WARNING "KleidiAI cannot be used on Windows. Set it to OFF")
 
-  if(USE_DISTRIBUTED AND NOT DEFINED ENV{libuv_ROOT})
-    find_library(
-      libuv_tmp_LIBRARY
-      NAMES uv libuv
-      HINTS $ENV{CONDA_PREFIX}\\Library $ENV{PREFIX}\\Library
-      PATH_SUFFIXES lib
-      NO_DEFAULT_PATH)
-    if(NOT libuv_tmp_LIBRARY)
-      set(USE_DISTRIBUTED OFF)
-      set(USE_GLOO OFF)
-      message(
-        WARNING
-          "Libuv is not installed in current conda env. Set USE_DISTRIBUTED to OFF. "
-          "Please run command 'conda install -c conda-forge libuv=1.51' to install libuv."
-      )
+  if(USE_DISTRIBUTED)
+    if(DEFINED libuv_ROOT AND NOT "${libuv_ROOT}" STREQUAL "")
+      set(_libuv_root "${libuv_ROOT}")
+    elseif(DEFINED ENV{libuv_ROOT} AND NOT "$ENV{libuv_ROOT}" STREQUAL "")
+      set(_libuv_root "$ENV{libuv_ROOT}")
     else()
-      set(ENV{libuv_ROOT} ${libuv_tmp_LIBRARY}/../../)
+      unset(_libuv_conda_LIBRARY CACHE)
+      unset(_libuv_conda_LIBRARY)
+      find_library(
+        _libuv_conda_LIBRARY
+        NAMES uv libuv
+        HINTS $ENV{CONDA_PREFIX}\\Library $ENV{PREFIX}\\Library
+        PATH_SUFFIXES lib
+        NO_DEFAULT_PATH)
+      if(_libuv_conda_LIBRARY)
+        get_filename_component(_libuv_library_dir "${_libuv_conda_LIBRARY}" DIRECTORY)
+        get_filename_component(_libuv_root "${_libuv_library_dir}/.." ABSOLUTE)
+      endif()
     endif()
+
+    unset(_libuv_probe_LIBRARY CACHE)
+    unset(_libuv_probe_LIBRARY)
+    find_library(
+      _libuv_probe_LIBRARY
+      NAMES uv libuv
+      HINTS "${_libuv_root}"
+      PATH_SUFFIXES lib/release lib/debug lib
+      NO_DEFAULT_PATH)
+    unset(_libuv_probe_DLL CACHE)
+    unset(_libuv_probe_DLL)
+    find_file(
+      _libuv_probe_DLL
+      NAMES uv.dll
+      HINTS "${_libuv_root}"
+      PATH_SUFFIXES lib/release lib/debug bin
+      NO_DEFAULT_PATH)
+    unset(_libuv_probe_INCLUDE_DIR CACHE)
+    unset(_libuv_probe_INCLUDE_DIR)
+    find_path(
+      _libuv_probe_INCLUDE_DIR
+      NAMES uv.h
+      HINTS "${_libuv_root}"
+      PATH_SUFFIXES include
+      NO_DEFAULT_PATH)
+    if(NOT _libuv_probe_LIBRARY OR NOT _libuv_probe_DLL OR NOT _libuv_probe_INCLUDE_DIR)
+      message(
+        FATAL_ERROR
+          "USE_DISTRIBUTED=ON on Windows requires a complete libuv installation. Set "
+          "libuv_ROOT (as a CMake variable or environment variable) to a directory containing "
+          "include/uv.h, uv.dll, and the libuv library, or install libuv in the active conda "
+          "environment, for example: conda install -c conda-forge libuv=1.51. Set "
+          "USE_DISTRIBUTED=OFF to build without distributed and DTensor bindings."
+      )
+    endif()
+    set(libuv_ROOT "${_libuv_root}")
   endif()
 endif()
 
