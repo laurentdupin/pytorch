@@ -1958,6 +1958,56 @@ class TestVulkanGraph(TestCase):
         ):
             program(tensor.to("vulkan"))
 
+    def test_normalizes_isolated_int64_identity_expand_unsqueeze_to_float32(
+        self,
+    ):
+        class NormalizeTimestep(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.expand([1]).unsqueeze(1).to(torch.float32) * 0.5
+
+        tensor = torch.tensor([3], dtype=torch.int64)
+        model = NormalizeTimestep().eval()
+        program = torch.vulkan.export_and_lower(model, tensor)
+        with torch.inference_mode():
+            cpu_output = model(tensor)
+            eager_vulkan_output = model(tensor.to("vulkan")).cpu()
+            graph_output = program(tensor).cpu()
+        torch.testing.assert_close(graph_output, cpu_output)
+        torch.testing.assert_close(graph_output, eager_vulkan_output)
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        node = report.nodes[0]
+        self.assertEqual(node.status, "lowered")
+        self.assertEqual(node.placeholder_name, "tensor")
+        self.assertEqual(node.source_dtype, torch.int64)
+        self.assertEqual(node.target_dtype, torch.float32)
+        self.assertEqual(node.erased_node_name, "to")
+        self.assertEqual(node.chain_node_names, ("expand", "unsqueeze"))
+        self.assertNotIn("aten.to.dtype", program.graph_module.code)
+        self.assertIn("dtype=torch.int64", program.key.input_signature[0])
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_rejects_graph_input_normalization_nonidentity_expand(self):
+        class NonIdentityExpand(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.expand([2]).unsqueeze(1).to(torch.float32)
+
+        program = torch.vulkan.export_and_lower(
+            NonIdentityExpand().eval(),
+            torch.tensor([1], dtype=torch.int64),
+        )
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].reason, "expand_not_identity")
+        self.assertEqual(report.nodes[0].chain_node_names, ("unsqueeze",))
+        self.assertIn("aten.to.dtype", program.graph_module.code)
+
     def test_rejects_graph_input_normalization_with_observable_view_consumer(self):
         class ObservableView(torch.nn.Module):
             def forward(self, tensor):

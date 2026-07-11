@@ -426,6 +426,46 @@ def _is_static_unsqueeze(node: torch.fx.Node) -> bool:
     )
 
 
+def _node_static_tensor_shape(node: torch.fx.Node) -> tuple[int, ...] | None:
+    value = node.meta.get("val")
+    shape = value.shape if isinstance(value, torch.Tensor) else None
+    if shape is None:
+        tensor_meta = node.meta.get("tensor_meta")
+        shape = getattr(tensor_meta, "shape", None)
+    if shape is None:
+        return None
+    static_shape: list[int] = []
+    for size in shape:
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            return None
+        static_shape.append(size)
+    return tuple(static_shape)
+
+
+def _static_identity_expand_rejection_reason(node: torch.fx.Node) -> str | None:
+    if (
+        node.op != "call_function"
+        or node.target != torch.ops.aten.expand.default
+        or len(node.args) != 2
+        or node.kwargs
+        or not isinstance(node.args[0], torch.fx.Node)
+    ):
+        return "expand_signature_not_static_default"
+    requested_shape = node.args[1]
+    if not isinstance(requested_shape, (list, tuple)) or any(
+        not isinstance(size, int) or isinstance(size, bool) or size < 0
+        for size in requested_shape
+    ):
+        return "expand_shape_not_static"
+    input_shape = _node_static_tensor_shape(node.args[0])
+    output_shape = _node_static_tensor_shape(node)
+    if input_shape is None or output_shape is None:
+        return "expand_tensor_metadata_not_static"
+    if tuple(requested_shape) != input_shape or output_shape != input_shape:
+        return "expand_not_identity"
+    return None
+
+
 def _is_metadata_assertion(
     node: torch.fx.Node,
     value: torch.fx.Node,
@@ -521,9 +561,41 @@ def lower_graph_input_dtype_normalizations(
 
         chain_reversed: list[torch.fx.Node] = []
         current = input_node
-        while _is_static_unsqueeze(current):
-            chain_reversed.append(current)
-            current = current.args[0]
+        seen_path_nodes: set[torch.fx.Node] = set()
+        path_rejection_reason: str | None = None
+        while isinstance(current, torch.fx.Node):
+            if current in seen_path_nodes:
+                path_rejection_reason = "placeholder_path_cycle"
+                break
+            seen_path_nodes.add(current)
+            if _is_static_unsqueeze(current):
+                chain_reversed.append(current)
+                current = current.args[0]
+                continue
+            if (
+                current.op == "call_function"
+                and current.target == torch.ops.aten.expand.default
+            ):
+                path_rejection_reason = _static_identity_expand_rejection_reason(
+                    current
+                )
+                if path_rejection_reason is not None:
+                    break
+                chain_reversed.append(current)
+                current = current.args[0]
+                continue
+            break
+        if path_rejection_reason is not None:
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    path_rejection_reason,
+                    target_dtype=target_dtype,
+                    chain=tuple(reversed(chain_reversed)),
+                )
+            )
+            continue
         if current.op != "placeholder" or not chain_reversed:
             reports.append(
                 _input_normalization_report(
@@ -606,7 +678,7 @@ def lower_graph_input_dtype_normalizations(
             _input_normalization_report(
                 node,
                 "lowered",
-                "isolated_int64_placeholder_unsqueeze_to_float32",
+                "isolated_int64_placeholder_view_chain_to_float32",
                 placeholder,
                 source_dtype,
                 target_dtype,
