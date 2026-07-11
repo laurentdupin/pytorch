@@ -25,8 +25,8 @@
       ],
       "name": "normal",
       "timing": {
-        "first_run_seconds": 0.08380849999957718,
-        "repeated_run_seconds_reference_only": 0.0632977999994182
+        "first_run_seconds": 0.09787489999962418,
+        "repeated_run_seconds_reference_only": 0.1079967000000579
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -53,13 +53,13 @@
       "guard": {
         "rejected_program_message": "Vulkan graph node '_guards_fn' (_guards_fn) failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1\n\nWhile executing %_guards_fn : [num_users=0] = call_module[target=_guards_fn](args = (%x,), kwargs = {})\nOriginal traceback:\nNone\nUse tlparse to see full graph. (https://github.com/pytorch/tlparse?tab=readme-ov-file#tlparse-parse-structured-pt2-logs)",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.708067300001858,
+        "variant_compile_seconds": 4.211528799999996,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "3c83f907789f44fce3dfd2e0ec27e59e9e5014118db77cd07ec91116cce44d8b",
+          "graph_hash": "86cdff132aaf9df35186dbfbe93459bdc6dcf1ef91052b14ac62e8846f6019b3",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -77,8 +77,8 @@
       ],
       "name": "alternate",
       "timing": {
-        "first_run_seconds": 0.06951630000548903,
-        "repeated_run_seconds_reference_only": 0.062467600000672974
+        "first_run_seconds": 0.0923518999998123,
+        "repeated_run_seconds_reference_only": 0.10658149999972011
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -1270,7 +1270,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "27b82f164852bcced2255cac17132bb4abe2ed74fe3adad6a9a68b0ee2ef17fb",
+    "graph_hash": "37be765936b6034092b0ba60f201ae392c04862cac9c2697aad9142cb3025fa9",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1289,13 +1289,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "c2c061e1e636fd5ae83994db863a60bd53285a2a32fdfe28a908e1357eef7d0c"
+        "sha256": "0d701a3d2b2d15fe3a3a43c7bf2d934361c70a372ca894639d48e8039edaf0b5"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "752d144c3842a83e73716bf1ca318d0e94aa37d9",
+  "source_git_sha": "e91f10a9ccb93f01b322e04a9dad32f555e6de0d",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,
