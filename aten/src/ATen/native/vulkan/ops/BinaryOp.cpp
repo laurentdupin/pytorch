@@ -2276,6 +2276,9 @@ std::optional<Tensor> try_defer_runtime_elementwise_chain(
       !runtime_live_chain_same_shape(self, step.rhs, self)) {
     return std::nullopt;
   }
+  if (vulkan_graph_execution_scope_active()) {
+    guard_vulkan_deferred_value_registration("runtime_elementwise_chain");
+  }
 
   RuntimeElementwiseMixedChain chain;
   if (auto existing = lookup_runtime_elementwise_deferred_candidate(self)) {

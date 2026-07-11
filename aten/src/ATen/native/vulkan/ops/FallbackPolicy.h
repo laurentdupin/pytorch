@@ -35,6 +35,7 @@ uint64_t vulkan_sync_readback_count();
 uint64_t vulkan_deferred_value_creation_count();
 int64_t begin_vulkan_graph_execution_scope();
 std::vector<int64_t> end_vulkan_graph_execution_scope(int64_t token);
+bool vulkan_graph_execution_scope_active();
 void guard_vulkan_deferred_value_registration(const char* producer);
 void reset_vulkan_fallback_counters();
 std::vector<int64_t> vulkan_fallback_phase_counters_snapshot();

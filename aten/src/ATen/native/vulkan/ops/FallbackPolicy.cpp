@@ -479,6 +479,10 @@ std::vector<int64_t> end_vulkan_graph_execution_scope(const int64_t token) {
   return counts;
 }
 
+bool vulkan_graph_execution_scope_active() {
+  return !graph_execution_scopes_tls().empty();
+}
+
 void guard_vulkan_deferred_value_registration(const char* producer) {
   std::vector<VulkanGraphExecutionScope>& scopes = graph_execution_scopes_tls();
   TORCH_CHECK(
