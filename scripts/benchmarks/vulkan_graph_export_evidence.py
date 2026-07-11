@@ -227,6 +227,7 @@ def _lowering_report_objects(
         "static_conv2d_relu_regions": getattr(
             program, "static_conv2d_relu_regions", None
         ),
+        "vulkan_graph_regions": getattr(program, "vulkan_graph_regions", None),
     }
 
 

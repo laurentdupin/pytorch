@@ -137,6 +137,10 @@ class VulkanStaticLinearGeluRegionNodeReport:
     static_context_slot: int | None
     direct_transition_only: bool | None
     replay_state_empty: bool | None
+    region_family: str | None = None
+    intermediate_ssa: int | None = None
+    intermediate_use_count: int | None = None
+    intermediate_last_use: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -147,6 +151,24 @@ class VulkanStaticLinearGeluRegionReport:
     skipped_count: int
     plan_factory: str
     nodes: tuple[VulkanStaticLinearGeluRegionNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphRegionFamilyDiagnostics:
+    family: str
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    plan_factory: str
+    nodes: tuple[Any, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphRegionLoweringReport:
+    plan_class: str
+    plan_version: str
+    families: tuple[VulkanGraphRegionFamilyDiagnostics, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -330,15 +352,13 @@ def _static_add_layernorm_plan_attr_name(
     return f"_vulkan_static_add_layernorm_plan_{digest}"
 
 
-def _static_linear_gelu_plan_attr_name(
-    context_attr: str,
-    gelu_node_name: str,
+def _vulkan_graph_region_plan_attr_name(
+    family: str,
+    *identity_parts: str,
 ) -> str:
-    identity = "\x00".join(
-        (context_attr, gelu_node_name, "StaticLinearGeluRegion.v1")
-    )
+    identity = "\x00".join((*identity_parts, family, "VulkanGraphRegionPlan.v1"))
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
-    return f"_vulkan_static_linear_gelu_plan_{digest}"
+    return f"_vulkan_graph_region_plan_{digest}"
 
 
 def _static_conv2d_relu_plan_attr_name(
@@ -350,23 +370,6 @@ def _static_conv2d_relu_plan_attr_name(
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"_vulkan_static_conv2d_relu_plan_{digest}"
-
-
-def _static_conv2d_relu_conv2d_plan_attr_name(
-    first_context_attr: str,
-    second_context_attr: str,
-    second_conv2d_node_name: str,
-) -> str:
-    identity = "\x00".join(
-        (
-            first_context_attr,
-            second_context_attr,
-            second_conv2d_node_name,
-            "StaticConv2dReluConv2dRegion.v3",
-        )
-    )
-    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
-    return f"_vulkan_static_conv2d_relu_conv2d_plan_{digest}"
 
 
 def _snapshot_for_context(tensor: torch.Tensor) -> torch.Tensor:
@@ -805,7 +808,9 @@ def lower_static_linear_gelu_regions(
             continue
 
         candidate_count += 1
-        plan_attr = _static_linear_gelu_plan_attr_name(context_attr, gelu_node.name)
+        plan_attr = _vulkan_graph_region_plan_attr_name(
+            "linear_gelu_tanh", context_attr, gelu_node.name
+        )
         if hasattr(graph_module, plan_attr):
             reports.append(
                 VulkanStaticLinearGeluRegionNodeReport(
@@ -815,22 +820,26 @@ def lower_static_linear_gelu_regions(
                     linear_node_name=linear_node.name,
                     context_attr=context_attr,
                     plan_attr=plan_attr,
-                    program_name="StaticLinearGeluRegion",
+                    program_name="VulkanGraphRegionPlan",
                     program_version="v1",
-                    instruction_count=1,
+                    instruction_count=2,
                     input_ssa=0,
-                    output_ssa=1,
+                    output_ssa=2,
                     input_use_count=1,
                     input_last_use=0,
                     static_context_slot=0,
                     direct_transition_only=True,
                     replay_state_empty=True,
+                    region_family="linear_gelu_tanh",
+                    intermediate_ssa=1,
+                    intermediate_use_count=1,
+                    intermediate_last_use=1,
                 )
             )
             rejected_count += 1
             continue
         try:
-            plan = torch.ops.vulkan_prepack.create_graph_linear_gelu_plan.default(
+            plan = torch.ops.vulkan_prepack.create_vulkan_graph_region_plan_linear_gelu.default(
                 getattr(graph_module, context_attr)
             )
             setattr(graph_module, plan_attr, plan)
@@ -840,22 +849,26 @@ def lower_static_linear_gelu_regions(
                     node_name=gelu_node.name,
                     status="rejected",
                     reason=(
-                        "static_linear_gelu_plan_creation_failed:"
+                        "vulkan_graph_region_plan_creation_failed:"
                         f"{type(error).__name__}"
                     ),
                     linear_node_name=linear_node.name,
                     context_attr=context_attr,
                     plan_attr=plan_attr,
-                    program_name="StaticLinearGeluRegion",
+                    program_name="VulkanGraphRegionPlan",
                     program_version="v1",
-                    instruction_count=1,
+                    instruction_count=2,
                     input_ssa=0,
-                    output_ssa=1,
+                    output_ssa=2,
                     input_use_count=1,
                     input_last_use=0,
                     static_context_slot=0,
                     direct_transition_only=True,
                     replay_state_empty=True,
+                    region_family="linear_gelu_tanh",
+                    intermediate_ssa=1,
+                    intermediate_use_count=1,
+                    intermediate_last_use=1,
                 )
             )
             rejected_count += 1
@@ -863,10 +876,11 @@ def lower_static_linear_gelu_regions(
 
         with graph.inserting_before(gelu_node):
             plan_node = graph.create_node("get_attr", plan_attr, (), {})
-            lowered_node = graph.call_function(
-                torch.ops.vulkan_prepack.run_graph_linear_gelu_plan.default,
-                args=(linear_node.args[0], plan_node),
+            region_node = graph.call_function(
+                torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default,
+                args=([linear_node.args[0]], plan_node),
             )
+            lowered_node = graph.call_function(operator.getitem, (region_node, 0))
         lowered_node.meta = dict(gelu_node.meta)
         gelu_node.replace_all_uses_with(lowered_node)
         graph.erase_node(gelu_node)
@@ -881,16 +895,20 @@ def lower_static_linear_gelu_regions(
                 linear_node_name=linear_node.name,
                 context_attr=context_attr,
                 plan_attr=plan_attr,
-                program_name="StaticLinearGeluRegion",
+                program_name="VulkanGraphRegionPlan",
                 program_version="v1",
-                instruction_count=1,
+                instruction_count=2,
                 input_ssa=0,
-                output_ssa=1,
+                output_ssa=2,
                 input_use_count=1,
                 input_last_use=0,
                 static_context_slot=0,
                 direct_transition_only=True,
                 replay_state_empty=True,
+                region_family="linear_gelu_tanh",
+                intermediate_ssa=1,
+                intermediate_use_count=1,
+                intermediate_last_use=1,
             )
         )
         lowered_count += 1
@@ -909,7 +927,7 @@ def lower_static_linear_gelu_regions(
         lowered_count=lowered_count,
         rejected_count=rejected_count,
         skipped_count=skipped_count,
-        plan_factory="vulkan_prepack::create_graph_linear_gelu_plan",
+        plan_factory="vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
         nodes=tuple(reports),
     )
 
@@ -2029,10 +2047,8 @@ def lower_static_conv2d_relu_conv2d_regions(
                 first_context_attr=first_context_attr,
                 second_context_attr=second_context_attr,
                 plan_attr=plan_attr,
-                program_name=(
-                    "StaticConv2dReluConv2dRegion" if has_plan_schema else None
-                ),
-                program_version="v3" if has_plan_schema else None,
+                program_name="VulkanGraphRegionPlan" if has_plan_schema else None,
+                program_version="v1" if has_plan_schema else None,
                 instruction_count=2 if has_plan_schema else 0,
                 input_ssa=0 if has_plan_schema else None,
                 intermediate_ssa=1 if has_plan_schema else None,
@@ -2187,7 +2203,8 @@ def lower_static_conv2d_relu_conv2d_regions(
             continue
 
         candidate_count += 1
-        plan_attr = _static_conv2d_relu_conv2d_plan_attr_name(
+        plan_attr = _vulkan_graph_region_plan_attr_name(
+            "conv2d_relu_conv2d",
             first_context_attr,
             second_context_attr,
             second_conv2d_node.name,
@@ -2210,7 +2227,7 @@ def lower_static_conv2d_relu_conv2d_regions(
             continue
         try:
             plan = (
-                torch.ops.vulkan_prepack.create_graph_conv2d_relu_conv2d_plan.default(
+                torch.ops.vulkan_prepack.create_vulkan_graph_region_plan_conv2d_relu_conv2d.default(
                     getattr(graph_module, first_context_attr),
                     getattr(graph_module, second_context_attr),
                 )
@@ -2221,7 +2238,7 @@ def lower_static_conv2d_relu_conv2d_regions(
                 node_name=relu_node.name,
                 status="rejected",
                 reason=(
-                    "static_conv2d_relu_conv2d_plan_creation_failed:"
+                    "vulkan_graph_region_plan_creation_failed:"
                     f"{type(error).__name__}"
                 ),
                 first_conv2d_node=first_conv2d_node,
@@ -2240,10 +2257,11 @@ def lower_static_conv2d_relu_conv2d_regions(
         second_context_node = second_conv2d_node.args[1]
         with graph.inserting_before(second_conv2d_node):
             plan_node = graph.create_node("get_attr", plan_attr, (), {})
-            lowered_node = graph.call_function(
-                torch.ops.vulkan_prepack.run_graph_conv2d_relu_conv2d_plan.default,
-                args=(first_conv2d_node.args[0], plan_node),
+            region_node = graph.call_function(
+                torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default,
+                args=([first_conv2d_node.args[0]], plan_node),
             )
+            lowered_node = graph.call_function(operator.getitem, (region_node, 0))
         lowered_node.meta = dict(second_conv2d_node.meta)
         second_conv2d_node.replace_all_uses_with(lowered_node)
         graph.erase_node(second_conv2d_node)
@@ -2281,7 +2299,9 @@ def lower_static_conv2d_relu_conv2d_regions(
         lowered_count=lowered_count,
         rejected_count=rejected_count,
         skipped_count=skipped_count,
-        plan_factory="vulkan_prepack::create_graph_conv2d_relu_conv2d_plan",
+        plan_factory=(
+            "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d"
+        ),
         nodes=tuple(reports),
         excluded_relu_node_names=tuple(sorted(excluded_relu_node_names)),
     )
@@ -2496,6 +2516,36 @@ def lower_static_conv2d_relu_regions(
     )
 
 
+def make_vulkan_graph_region_lowering_report(
+    static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
+    static_conv2d_relu_conv2d_regions: VulkanStaticConv2dReluConv2dRegionReport,
+) -> VulkanGraphRegionLoweringReport:
+    return VulkanGraphRegionLoweringReport(
+        plan_class="VulkanGraphRegionPlan",
+        plan_version="v1",
+        families=(
+            VulkanGraphRegionFamilyDiagnostics(
+                family="linear_gelu_tanh",
+                candidate_count=static_linear_gelu_regions.candidate_count,
+                lowered_count=static_linear_gelu_regions.lowered_count,
+                rejected_count=static_linear_gelu_regions.rejected_count,
+                skipped_count=static_linear_gelu_regions.skipped_count,
+                plan_factory=static_linear_gelu_regions.plan_factory,
+                nodes=static_linear_gelu_regions.nodes,
+            ),
+            VulkanGraphRegionFamilyDiagnostics(
+                family="conv2d_relu_conv2d",
+                candidate_count=static_conv2d_relu_conv2d_regions.candidate_count,
+                lowered_count=static_conv2d_relu_conv2d_regions.lowered_count,
+                rejected_count=static_conv2d_relu_conv2d_regions.rejected_count,
+                skipped_count=static_conv2d_relu_conv2d_regions.skipped_count,
+                plan_factory=static_conv2d_relu_conv2d_regions.plan_factory,
+                nodes=static_conv2d_relu_conv2d_regions.nodes,
+            ),
+        ),
+    )
+
+
 __all__ = [
     "VulkanConv2dLoweringNodeReport",
     "VulkanConv2dLoweringReport",
@@ -2511,6 +2561,9 @@ __all__ = [
     "VulkanStaticConv2dReluConv2dRegionReport",
     "VulkanStaticLinearGeluRegionNodeReport",
     "VulkanStaticLinearGeluRegionReport",
+    "VulkanGraphRegionFamilyDiagnostics",
+    "VulkanGraphRegionLoweringReport",
+    "make_vulkan_graph_region_lowering_report",
     "lower_static_conv2d_to_vulkan_contexts",
     "lower_static_conv2d_relu_regions",
     "lower_static_conv2d_relu_conv2d_regions",

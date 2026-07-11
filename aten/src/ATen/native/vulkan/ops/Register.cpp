@@ -123,10 +123,10 @@ int register_vulkan_linear_packed_context() {
   return 0;
 }
 
-int register_vulkan_graph_linear_gelu_plan() {
-  static auto register_vulkan_graph_linear_gelu_plan =
-      torch::selective_class_<utils::GraphLinearGeluPlan>(
-          "vulkan", TORCH_SELECTIVE_CLASS("GraphLinearGeluPlan"));
+int register_vulkan_graph_region_plan() {
+  static auto register_vulkan_graph_region_plan =
+      torch::selective_class_<utils::VulkanGraphRegionPlan>(
+          "vulkan", TORCH_SELECTIVE_CLASS("VulkanGraphRegionPlan"));
   return 0;
 }
 
@@ -144,28 +144,21 @@ int register_vulkan_graph_conv2d_relu_plan() {
   return 0;
 }
 
-int register_vulkan_graph_conv2d_relu_conv2d_plan() {
-  static auto register_vulkan_graph_conv2d_relu_conv2d_plan =
-      torch::selective_class_<utils::GraphConv2dReluConv2dPlan>(
-          "vulkan", TORCH_SELECTIVE_CLASS("GraphConv2dReluConv2dPlan"));
-  return 0;
-}
-
 namespace {
 
-class GraphLinearGeluInvocation final {
+class VulkanGraphRegionInvocation final {
  private:
-  utils::GraphLinearGeluPlan& plan_;
+  utils::VulkanGraphRegionPlan& plan_;
 
  public:
-  explicit GraphLinearGeluInvocation(utils::GraphLinearGeluPlan& plan)
+  explicit VulkanGraphRegionInvocation(utils::VulkanGraphRegionPlan& plan)
       : plan_(plan) {
     TORCH_CHECK(
         plan_.try_begin_invocation(),
-        "StaticLinearGeluRegion.v1 rejects concurrent invocation");
+        "VulkanGraphRegionPlan.v1 rejects concurrent invocation");
   }
 
-  ~GraphLinearGeluInvocation() {
+  ~VulkanGraphRegionInvocation() {
     plan_.end_invocation();
   }
 };
@@ -204,26 +197,8 @@ class GraphConv2dReluInvocation final {
   }
 };
 
-class GraphConv2dReluConv2dInvocation final {
- private:
-  utils::GraphConv2dReluConv2dPlan& plan_;
-
- public:
-  explicit GraphConv2dReluConv2dInvocation(
-      utils::GraphConv2dReluConv2dPlan& plan)
-      : plan_(plan) {
-    TORCH_CHECK(
-        plan_.try_begin_invocation(),
-        "StaticConv2dReluConv2dRegion.v3 rejects concurrent invocation");
-  }
-
-  ~GraphConv2dReluConv2dInvocation() {
-    plan_.end_invocation();
-  }
-};
-
-std::optional<utils::GraphConv2dReluConv2dScratchDescriptor>
-graph_conv2d_relu_conv2d_scratch_descriptor(
+std::optional<utils::VulkanGraphRegionScratchDescriptor>
+vulkan_graph_region_conv2d_scratch_descriptor(
     const Tensor& input,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
   if (
@@ -262,7 +237,7 @@ graph_conv2d_relu_conv2d_scratch_descriptor(
           [](const int64_t value) { return value > 0; })) {
     return std::nullopt;
   }
-  return utils::GraphConv2dReluConv2dScratchDescriptor{
+  return utils::VulkanGraphRegionScratchDescriptor{
       std::move(output_sizes),
       kFloat,
       api::StorageType::BUFFER,
@@ -274,52 +249,176 @@ graph_conv2d_relu_conv2d_scratch_descriptor(
 
 } // namespace
 
-utils::GraphLinearGeluPlan::GraphLinearGeluPlan(
-    c10::intrusive_ptr<LinearPackedContext> linear_context)
-    : linear_context_(std::move(linear_context)) {
-  TORCH_CHECK(
-      linear_context_,
-      "StaticLinearGeluRegion.v1 requires a static LinearPackedContext");
+utils::VulkanGraphRegionPlan::VulkanGraphRegionPlan(
+    VulkanGraphRegionPlanSchema schema,
+    std::vector<VulkanGraphRegionValueSchema> values,
+    std::vector<VulkanGraphRegionInstructionSchema> instructions,
+    std::vector<VulkanGraphRegionStaticContext> static_contexts)
+    : schema_(std::move(schema)),
+      values_(std::move(values)),
+      instructions_(std::move(instructions)),
+      static_contexts_(std::move(static_contexts)) {
+  TORCH_CHECK(valid(), "VulkanGraphRegionPlan.v1 has an invalid schema");
 }
 
-const utils::StaticLinearGeluPlanSchema&
-utils::GraphLinearGeluPlan::schema() const {
+utils::VulkanGraphRegionPlan::~VulkanGraphRegionPlan() noexcept {
+  for (VulkanGraphRegionScratchSlot& slot : scratch_slots_) {
+    if (!slot.tensor.defined()) {
+      continue;
+    }
+    Tensor tensor = std::move(slot.tensor);
+    if (
+        slot.submission.timeline == VK_NULL_HANDLE ||
+        slot.submission.timeline_value == 0u) {
+      (void)tensor.unsafeReleaseTensorImpl();
+      continue;
+    }
+    std::vector<api::VulkanBuffer>* retired_buffers = nullptr;
+    try {
+      api::Context* const context = convert(tensor).context();
+      if (context->graph_program_submission_complete(slot.submission)) {
+        (void)convert(tensor).release_graph_program_owned_buffers();
+        api::vulkan_graph_program_invocation_counters()
+            .scratch_immediate_release_count.fetch_add(
+                1u, std::memory_order_relaxed);
+        continue;
+      }
+      retired_buffers = new std::vector<api::VulkanBuffer>();
+      std::vector<api::VulkanBuffer> buffers =
+          convert(tensor).release_graph_program_owned_buffers();
+      retired_buffers->swap(buffers);
+      context->retire_graph_program_resource(
+          slot.submission, [retired_buffers]() { delete retired_buffers; });
+      api::vulkan_graph_program_invocation_counters()
+          .scratch_retire_enqueued_count.fetch_add(
+              1u, std::memory_order_relaxed);
+    } catch (...) {
+      if (retired_buffers && retired_buffers->empty()) {
+        delete retired_buffers;
+      }
+      (void)tensor.unsafeReleaseTensorImpl();
+    }
+  }
+}
+
+const utils::VulkanGraphRegionPlanSchema&
+utils::VulkanGraphRegionPlan::schema() const {
   return schema_;
 }
 
+const std::vector<utils::VulkanGraphRegionValueSchema>&
+utils::VulkanGraphRegionPlan::values() const {
+  return values_;
+}
+
+const std::vector<utils::VulkanGraphRegionInstructionSchema>&
+utils::VulkanGraphRegionPlan::instructions() const {
+  return instructions_;
+}
+
 const c10::intrusive_ptr<LinearPackedContext>&
-utils::GraphLinearGeluPlan::linear_context() const {
-  return linear_context_;
+utils::VulkanGraphRegionPlan::linear_context(const size_t slot) const {
+  TORCH_CHECK(
+      slot < static_contexts_.size() &&
+          static_contexts_[slot].kind == VulkanGraphRegionStaticContextKind::Linear &&
+          static_contexts_[slot].linear_context,
+      "VulkanGraphRegionPlan.v1 has an invalid LinearPackedContext slot");
+  return static_contexts_[slot].linear_context;
 }
 
-bool utils::GraphLinearGeluPlan::try_begin_invocation() {
-  return !invocation_active_.test_and_set(std::memory_order_acquire);
+const c10::intrusive_ptr<Conv2dPackedContext>&
+utils::VulkanGraphRegionPlan::conv2d_context(const size_t slot) const {
+  TORCH_CHECK(
+      slot < static_contexts_.size() &&
+          static_contexts_[slot].kind == VulkanGraphRegionStaticContextKind::Conv2d &&
+          static_contexts_[slot].conv2d_context,
+      "VulkanGraphRegionPlan.v1 has an invalid Conv2dPackedContext slot");
+  return static_contexts_[slot].conv2d_context;
 }
 
-void utils::GraphLinearGeluPlan::end_invocation() {
-  invocation_active_.clear(std::memory_order_release);
+bool utils::VulkanGraphRegionPlan::valid() const {
+  if (
+      schema_.instruction_count != instructions_.size() ||
+      !schema_.direct_transition_only ||
+      schema_.replay_state.persistent_command_buffer ||
+      schema_.replay_state.persistent_descriptor_pool ||
+      schema_.replay_state.reusable_outputs ||
+      schema_.replay_state.recorded_dispatches != 0u || values_.size() != 3u ||
+      values_[0].id != 0u || values_[0].kind != VulkanGraphRegionValueKind::Input ||
+      values_[1].id != 1u ||
+      values_[1].kind != VulkanGraphRegionValueKind::Temporary ||
+      values_[2].id != 2u || values_[2].kind != VulkanGraphRegionValueKind::Output ||
+      values_[0].use_count != 1u || values_[0].last_use_instruction != 0u ||
+      values_[1].use_count != 1u || values_[1].last_use_instruction != 1u ||
+      values_[2].use_count != 0u || values_[2].last_use_instruction != 1u ||
+      !values_[2].escapes_region) {
+    return false;
+  }
+  if (schema_.family == VulkanGraphRegionFamily::LinearGeluTanh) {
+    return schema_.input_count == 1u && schema_.output_count == 1u &&
+        instructions_.size() == 2u && static_contexts_.size() == 1u &&
+        instructions_[0].opcode == VulkanGraphRegionOpcode::LinearContext &&
+        instructions_[0].input_value == 0u && instructions_[0].output_value == 1u &&
+        instructions_[0].static_context_slot == 0 &&
+        instructions_[0].transition == VulkanGraphRegionTransition::Direct &&
+        instructions_[1].opcode == VulkanGraphRegionOpcode::GeluTanh &&
+        instructions_[1].input_value == 1u && instructions_[1].output_value == 2u &&
+        instructions_[1].static_context_slot == -1 &&
+        instructions_[1].transition == VulkanGraphRegionTransition::Direct &&
+        !schema_.bounded_submission_owned && !schema_.program_private_scratch &&
+        schema_.scratch_ring_capacity == 0u && !schema_.timeline_gated_release &&
+        static_contexts_[0].kind == VulkanGraphRegionStaticContextKind::Linear &&
+        static_contexts_[0].linear_context;
+  }
+  return schema_.family == VulkanGraphRegionFamily::Conv2dReluConv2d &&
+      schema_.input_count == 1u && schema_.output_count == 1u &&
+      instructions_.size() == 2u && static_contexts_.size() == 2u &&
+      instructions_[0].opcode == VulkanGraphRegionOpcode::Conv2dReluContext &&
+      instructions_[0].input_value == 0u && instructions_[0].output_value == 1u &&
+      instructions_[0].static_context_slot == 0 &&
+      instructions_[0].transition == VulkanGraphRegionTransition::RequireDirectBuffer &&
+      instructions_[1].opcode == VulkanGraphRegionOpcode::Conv2dContext &&
+      instructions_[1].input_value == 1u && instructions_[1].output_value == 2u &&
+      instructions_[1].static_context_slot == 1 &&
+      instructions_[1].transition == VulkanGraphRegionTransition::Direct &&
+      schema_.bounded_submission_owned && schema_.program_private_scratch &&
+      schema_.scratch_ring_capacity == 2u && schema_.timeline_gated_release &&
+      static_contexts_[0].kind == VulkanGraphRegionStaticContextKind::Conv2d &&
+      static_contexts_[0].conv2d_context &&
+      static_contexts_[1].kind == VulkanGraphRegionStaticContextKind::Conv2d &&
+      static_contexts_[1].conv2d_context &&
+      static_contexts_[0].conv2d_context.get() !=
+          static_contexts_[1].conv2d_context.get();
 }
 
-c10::intrusive_ptr<utils::GraphLinearGeluPlan>
-utils::create_graph_linear_gelu_plan(
+c10::intrusive_ptr<utils::VulkanGraphRegionPlan>
+utils::create_vulkan_graph_region_plan_linear_gelu(
     const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
-  return c10::make_intrusive<utils::GraphLinearGeluPlan>(linear_context);
-}
-
-Tensor utils::run_graph_linear_gelu_plan(
-    const Tensor& input,
-    const c10::intrusive_ptr<utils::GraphLinearGeluPlan>& plan) {
-  TORCH_CHECK(plan, "StaticLinearGeluRegion.v1 requires a plan");
-  TORCH_CHECK(
-      input.is_vulkan(),
-      "StaticLinearGeluRegion.v1 requires a Vulkan input tensor");
-  TORCH_CHECK(
-      plan->schema().instruction_count == 1u &&
-          plan->schema().direct_transition_only &&
-          plan->schema().replay_state_empty,
-      "StaticLinearGeluRegion.v1 has an invalid plan schema");
-  GraphLinearGeluInvocation invocation(*plan);
-  return at::gelu(run_linear_context(input, plan->linear_context()), "tanh");
+  VulkanGraphRegionPlanSchema schema;
+  schema.family = VulkanGraphRegionFamily::LinearGeluTanh;
+  schema.instruction_count = 2u;
+  return c10::make_intrusive<VulkanGraphRegionPlan>(
+      schema,
+      std::vector<VulkanGraphRegionValueSchema>{
+          {0u, VulkanGraphRegionValueKind::Input, 1u, 0u, false},
+          {1u, VulkanGraphRegionValueKind::Temporary, 1u, 1u, false},
+          {2u, VulkanGraphRegionValueKind::Output, 0u, 1u, true},
+      },
+      std::vector<VulkanGraphRegionInstructionSchema>{
+          {VulkanGraphRegionOpcode::LinearContext,
+           0u,
+           1u,
+           0,
+           VulkanGraphRegionTransition::Direct},
+          {VulkanGraphRegionOpcode::GeluTanh,
+           1u,
+           2u,
+           -1,
+           VulkanGraphRegionTransition::Direct},
+      },
+      std::vector<VulkanGraphRegionStaticContext>{
+          {VulkanGraphRegionStaticContextKind::Linear, linear_context, nullptr},
+      });
 }
 
 utils::GraphAddLayernormPlan::GraphAddLayernormPlan(
@@ -466,92 +565,19 @@ Tensor utils::run_graph_conv2d_relu_plan(
   return run_conv2d_context_relu(input, plan->conv_context());
 }
 
-utils::GraphConv2dReluConv2dPlan::GraphConv2dReluConv2dPlan(
-    c10::intrusive_ptr<Conv2dPackedContext> first_conv_context,
-    c10::intrusive_ptr<Conv2dPackedContext> second_conv_context)
-    : first_conv_context_(std::move(first_conv_context)),
-      second_conv_context_(std::move(second_conv_context)) {
-  TORCH_CHECK(
-      first_conv_context_ && second_conv_context_,
-      "StaticConv2dReluConv2dRegion.v3 requires two static "
-      "Conv2dPackedContext values");
-  TORCH_CHECK(
-      first_conv_context_.get() != second_conv_context_.get(),
-      "StaticConv2dReluConv2dRegion.v3 requires distinct static contexts");
-}
-
-utils::GraphConv2dReluConv2dPlan::~GraphConv2dReluConv2dPlan() noexcept {
-  for (GraphConv2dReluConv2dScratchSlot& slot : scratch_slots_) {
-    if (!slot.tensor.defined()) {
-      continue;
-    }
-    Tensor tensor = std::move(slot.tensor);
-    if (
-        slot.submission.timeline == VK_NULL_HANDLE ||
-        slot.submission.timeline_value == 0u) {
-      // Retain storage with unknown completion ownership.
-      (void)tensor.unsafeReleaseTensorImpl();
-      continue;
-    }
-    std::vector<api::VulkanBuffer>* retired_buffers = nullptr;
-    try {
-      api::Context* const context = convert(tensor).context();
-      if (context->graph_program_submission_complete(slot.submission)) {
-        std::vector<api::VulkanBuffer> buffers =
-            convert(tensor).release_graph_program_owned_buffers();
-        api::vulkan_graph_program_invocation_counters()
-            .scratch_immediate_release_count.fetch_add(
-                1u, std::memory_order_relaxed);
-        continue;
-      }
-      retired_buffers = new std::vector<api::VulkanBuffer>();
-      std::vector<api::VulkanBuffer> buffers =
-          convert(tensor).release_graph_program_owned_buffers();
-      retired_buffers->swap(buffers);
-      context->retire_graph_program_resource(
-          slot.submission,
-          [retired_buffers]() { delete retired_buffers; });
-      api::vulkan_graph_program_invocation_counters()
-          .scratch_retire_enqueued_count.fetch_add(
-              1u, std::memory_order_relaxed);
-    } catch (...) {
-      if (retired_buffers && retired_buffers->empty()) {
-        delete retired_buffers;
-      }
-      // Retain uncertain in-flight storage rather than releasing it early.
-      (void)tensor.unsafeReleaseTensorImpl();
-    }
-  }
-}
-
-bool utils::GraphConv2dReluConv2dScratchDescriptor::matches(
-    const GraphConv2dReluConv2dScratchDescriptor& other) const {
+bool utils::VulkanGraphRegionScratchDescriptor::matches(
+    const VulkanGraphRegionScratchDescriptor& other) const {
   return sizes == other.sizes && dtype == other.dtype &&
       storage_type == other.storage_type && memory_layout == other.memory_layout &&
       execution_layout == other.execution_layout &&
       direct_buffer == other.direct_buffer;
 }
 
-const utils::StaticConv2dReluConv2dPlanSchema&
-utils::GraphConv2dReluConv2dPlan::schema() const {
-  return schema_;
-}
-
-const c10::intrusive_ptr<Conv2dPackedContext>&
-utils::GraphConv2dReluConv2dPlan::first_conv_context() const {
-  return first_conv_context_;
-}
-
-const c10::intrusive_ptr<Conv2dPackedContext>&
-utils::GraphConv2dReluConv2dPlan::second_conv_context() const {
-  return second_conv_context_;
-}
-
-int64_t utils::GraphConv2dReluConv2dPlan::find_reusable_scratch_slot(
-    const GraphConv2dReluConv2dScratchDescriptor& descriptor,
+int64_t utils::VulkanGraphRegionPlan::find_reusable_scratch_slot(
+    const VulkanGraphRegionScratchDescriptor& descriptor,
     api::Context& context) {
   for (size_t index = 0; index < scratch_slots_.size(); ++index) {
-    GraphConv2dReluConv2dScratchSlot& slot = scratch_slots_[index];
+    VulkanGraphRegionScratchSlot& slot = scratch_slots_[index];
     if (
         slot.tensor.defined() && slot.descriptor.matches(descriptor) &&
         context.graph_program_submission_complete(slot.submission)) {
@@ -561,16 +587,16 @@ int64_t utils::GraphConv2dReluConv2dPlan::find_reusable_scratch_slot(
   return -1;
 }
 
-int64_t utils::GraphConv2dReluConv2dPlan::find_capture_scratch_slot(
+int64_t utils::VulkanGraphRegionPlan::find_capture_scratch_slot(
     api::Context& context) {
   for (size_t index = 0; index < scratch_slots_.size(); ++index) {
-    GraphConv2dReluConv2dScratchSlot& slot = scratch_slots_[index];
+    VulkanGraphRegionScratchSlot& slot = scratch_slots_[index];
     if (!slot.tensor.defined()) {
       return static_cast<int64_t>(index);
     }
   }
   for (size_t index = 0; index < scratch_slots_.size(); ++index) {
-    GraphConv2dReluConv2dScratchSlot& slot = scratch_slots_[index];
+    VulkanGraphRegionScratchSlot& slot = scratch_slots_[index];
     if (context.graph_program_submission_complete(slot.submission)) {
       try {
         std::vector<api::VulkanBuffer> buffers =
@@ -578,7 +604,7 @@ int64_t utils::GraphConv2dReluConv2dPlan::find_capture_scratch_slot(
       } catch (...) {
         continue;
       }
-      slot = GraphConv2dReluConv2dScratchSlot{};
+      slot = VulkanGraphRegionScratchSlot{};
       api::vulkan_graph_program_invocation_counters()
           .scratch_immediate_release_count.fetch_add(
               1u, std::memory_order_relaxed);
@@ -588,98 +614,145 @@ int64_t utils::GraphConv2dReluConv2dPlan::find_capture_scratch_slot(
   return -1;
 }
 
-Tensor& utils::GraphConv2dReluConv2dPlan::scratch_tensor(const size_t index) {
+Tensor& utils::VulkanGraphRegionPlan::scratch_tensor(const size_t index) {
   TORCH_CHECK(
       index < scratch_slots_.size(),
-      "StaticConv2dReluConv2dRegion.v3 scratch slot is out of range");
+      "VulkanGraphRegionPlan.v1 scratch slot is out of range");
   return scratch_slots_[index].tensor;
 }
 
-void utils::GraphConv2dReluConv2dPlan::adopt_scratch_tensor(
+void utils::VulkanGraphRegionPlan::adopt_scratch_tensor(
     const size_t index,
     Tensor tensor,
-    GraphConv2dReluConv2dScratchDescriptor descriptor,
+    VulkanGraphRegionScratchDescriptor descriptor,
     const api::VulkanSubmission submission) {
   TORCH_CHECK(
       index < scratch_slots_.size() && tensor.defined() &&
           submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
-      "StaticConv2dReluConv2dRegion.v3 cannot adopt invalid scratch state");
-  scratch_slots_[index] = GraphConv2dReluConv2dScratchSlot{
+      "VulkanGraphRegionPlan.v1 cannot adopt invalid scratch state");
+  scratch_slots_[index] = VulkanGraphRegionScratchSlot{
       std::move(tensor), std::move(descriptor), submission};
 }
 
-void utils::GraphConv2dReluConv2dPlan::mark_scratch_submission(
+void utils::VulkanGraphRegionPlan::mark_scratch_submission(
     const size_t index,
     const api::VulkanSubmission submission) {
   TORCH_CHECK(
       index < scratch_slots_.size() &&
           submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
-      "StaticConv2dReluConv2dRegion.v3 cannot mark invalid scratch submission");
+      "VulkanGraphRegionPlan.v1 cannot mark invalid scratch submission");
   scratch_slots_[index].submission = submission;
 }
 
-bool utils::GraphConv2dReluConv2dPlan::try_begin_invocation() {
+bool utils::VulkanGraphRegionPlan::try_begin_invocation() {
   return !invocation_active_.test_and_set(std::memory_order_acquire);
 }
 
-void utils::GraphConv2dReluConv2dPlan::end_invocation() {
+void utils::VulkanGraphRegionPlan::end_invocation() {
   invocation_active_.clear(std::memory_order_release);
 }
 
-c10::intrusive_ptr<utils::GraphConv2dReluConv2dPlan>
-utils::create_graph_conv2d_relu_conv2d_plan(
+namespace {
+
+class RegionMemoryTransaction final {
+ private:
+  api::Context::GraphProgramInvocationScope scope_;
+
+ public:
+  explicit RegionMemoryTransaction(api::Context& context) : scope_(context) {}
+
+  api::VulkanSubmission submit() {
+    return scope_.submit();
+  }
+
+  void abort() {
+    scope_.abort();
+  }
+
+  const api::VulkanSubmission& submission() const {
+    return scope_.submission();
+  }
+};
+
+} // namespace
+
+c10::intrusive_ptr<utils::VulkanGraphRegionPlan>
+utils::create_vulkan_graph_region_plan_conv2d_relu_conv2d(
     const c10::intrusive_ptr<Conv2dPackedContext>& first_conv_context,
     const c10::intrusive_ptr<Conv2dPackedContext>& second_conv_context) {
-  return c10::make_intrusive<utils::GraphConv2dReluConv2dPlan>(
-      first_conv_context, second_conv_context);
+  VulkanGraphRegionPlanSchema schema;
+  schema.family = VulkanGraphRegionFamily::Conv2dReluConv2d;
+  schema.instruction_count = 2u;
+  schema.bounded_submission_owned = true;
+  schema.program_private_scratch = true;
+  schema.scratch_ring_capacity = 2u;
+  schema.timeline_gated_release = true;
+  return c10::make_intrusive<VulkanGraphRegionPlan>(
+      schema,
+      std::vector<VulkanGraphRegionValueSchema>{
+          {0u, VulkanGraphRegionValueKind::Input, 1u, 0u, false},
+          {1u, VulkanGraphRegionValueKind::Temporary, 1u, 1u, false},
+          {2u, VulkanGraphRegionValueKind::Output, 0u, 1u, true},
+      },
+      std::vector<VulkanGraphRegionInstructionSchema>{
+          {VulkanGraphRegionOpcode::Conv2dReluContext,
+           0u,
+           1u,
+           0,
+           VulkanGraphRegionTransition::RequireDirectBuffer},
+          {VulkanGraphRegionOpcode::Conv2dContext,
+           1u,
+           2u,
+           1,
+           VulkanGraphRegionTransition::Direct},
+      },
+      std::vector<VulkanGraphRegionStaticContext>{
+          {VulkanGraphRegionStaticContextKind::Conv2d,
+           nullptr,
+           first_conv_context},
+          {VulkanGraphRegionStaticContextKind::Conv2d,
+           nullptr,
+           second_conv_context},
+      });
 }
 
-Tensor utils::run_graph_conv2d_relu_conv2d_plan(
-    const Tensor& input,
-    const c10::intrusive_ptr<utils::GraphConv2dReluConv2dPlan>& plan) {
-  TORCH_CHECK(plan, "StaticConv2dReluConv2dRegion.v3 requires a plan");
+std::vector<Tensor> utils::run_vulkan_graph_region_plan(
+    const std::vector<Tensor>& inputs,
+    const c10::intrusive_ptr<VulkanGraphRegionPlan>& plan) {
+  TORCH_CHECK(plan, "VulkanGraphRegionPlan.v1 requires a plan");
+  TORCH_CHECK(
+      inputs.size() == 1u,
+      "VulkanGraphRegionPlan.v1 requires exactly one input tensor");
+  const Tensor& input = inputs[0];
   TORCH_CHECK(
       input.is_vulkan(),
-      "StaticConv2dReluConv2dRegion.v3 requires a Vulkan input tensor");
-  TORCH_CHECK(
-      plan->schema().instruction_count == 2u &&
-          plan->schema().input_ssa == 0u &&
-          plan->schema().intermediate_ssa == 1u &&
-          plan->schema().output_ssa == 2u &&
-          plan->schema().input_use_count == 1u &&
-          plan->schema().input_last_use == 0u &&
-          plan->schema().intermediate_use_count == 1u &&
-          plan->schema().intermediate_last_use == 1u &&
-          plan->schema().first_static_context_slot == 0u &&
-          plan->schema().second_static_context_slot == 1u &&
-          plan->schema().bounded_submission_owned &&
-          plan->schema().program_private_scratch &&
-          plan->schema().scratch_ring_capacity == 2u &&
-          plan->schema().timeline_gated_release &&
-          plan->schema().direct_transition_only &&
-          plan->schema().replay_state_empty,
-      "StaticConv2dReluConv2dRegion.v3 has an invalid plan schema");
-  GraphConv2dReluConv2dInvocation invocation(*plan);
+      "VulkanGraphRegionPlan.v1 requires Vulkan input tensors");
+  TORCH_CHECK(plan->valid(), "VulkanGraphRegionPlan.v1 has an invalid schema");
+  VulkanGraphRegionInvocation invocation(*plan);
+  if (plan->schema().family == VulkanGraphRegionFamily::LinearGeluTanh) {
+    return {at::gelu(run_linear_context(input, plan->linear_context(0u)), "tanh")};
+  }
+  const c10::intrusive_ptr<Conv2dPackedContext>& first_context =
+      plan->conv2d_context(0u);
+  const c10::intrusive_ptr<Conv2dPackedContext>& second_context =
+      plan->conv2d_context(1u);
   const auto expected_descriptor =
-      graph_conv2d_relu_conv2d_scratch_descriptor(
-          input, plan->first_conv_context());
+      vulkan_graph_region_conv2d_scratch_descriptor(input, first_context);
   const std::vector<int64_t> intermediate_sizes = conv_output_size(
       input.sizes(),
-      plan->first_conv_context()->packed_weight().logical_weight_sizes(),
-      plan->first_conv_context()->padding(),
-      plan->first_conv_context()->stride(),
-      plan->first_conv_context()->dilation());
+      first_context->packed_weight().logical_weight_sizes(),
+      first_context->padding(),
+      first_context->stride(),
+      first_context->dilation());
   if (
-      conv2d_context_may_require_host_sync(
-          input.sizes(), plan->first_conv_context()) ||
-      conv2d_context_may_require_host_sync(
-          intermediate_sizes, plan->second_conv_context())) {
+      conv2d_context_may_require_host_sync(input.sizes(), first_context) ||
+      conv2d_context_may_require_host_sync(intermediate_sizes, second_context)) {
     Tensor intermediate =
-        run_conv2d_context_relu(input, plan->first_conv_context());
-    return run_conv2d_context(intermediate, plan->second_conv_context());
+        run_conv2d_context_relu(input, first_context);
+    return {run_conv2d_context(intermediate, second_context)};
   }
-  api::Context::GraphProgramInvocationScope scope(*api::context());
   api::Context& context = *api::context();
+  RegionMemoryTransaction transaction(context);
   int64_t scratch_slot = -1;
   bool reused_scratch = false;
   bool created_scratch = false;
@@ -691,7 +764,7 @@ Tensor utils::run_graph_conv2d_relu_conv2d_plan(
       if (scratch_slot >= 0) {
         if (auto scratch_intermediate = try_run_conv2d_context_relu_out(
                 input,
-                plan->first_conv_context(),
+                first_context,
                 plan->scratch_tensor(static_cast<size_t>(scratch_slot)))) {
           intermediate = std::move(*scratch_intermediate);
           reused_scratch = true;
@@ -715,7 +788,7 @@ Tensor utils::run_graph_conv2d_relu_conv2d_plan(
           }
           if (scratch_slot >= 0) {
             if (auto scratch_intermediate = try_run_conv2d_context_relu_out(
-                    input, plan->first_conv_context(), scratch)) {
+                    input, first_context, scratch)) {
               intermediate = std::move(*scratch_intermediate);
               created_scratch = true;
             } else {
@@ -726,10 +799,10 @@ Tensor utils::run_graph_conv2d_relu_conv2d_plan(
       }
     }
     if (!reused_scratch && !created_scratch) {
-      intermediate = run_conv2d_context_relu(input, plan->first_conv_context());
+      intermediate = run_conv2d_context_relu(input, first_context);
     }
-    Tensor output = run_conv2d_context(intermediate, plan->second_conv_context());
-    const api::VulkanSubmission submission = scope.submit();
+    Tensor output = run_conv2d_context(intermediate, second_context);
+    const api::VulkanSubmission submission = transaction.submit();
     if (reused_scratch) {
       utils::mark_tensor_execution(
           plan->scratch_tensor(static_cast<size_t>(scratch_slot)),
@@ -749,12 +822,12 @@ Tensor utils::run_graph_conv2d_relu_conv2d_plan(
       api::vulkan_graph_program_invocation_counters()
           .scratch_captured_count.fetch_add(1u, std::memory_order_relaxed);
     }
-    return output;
+    return {output};
   } catch (...) {
-    scope.abort();
-    if (reused_scratch && scope.submission().timeline != VK_NULL_HANDLE) {
+    transaction.abort();
+    if (reused_scratch && transaction.submission().timeline != VK_NULL_HANDLE) {
       plan->mark_scratch_submission(
-          static_cast<size_t>(scratch_slot), scope.submission());
+          static_cast<size_t>(scratch_slot), transaction.submission());
     }
     throw;
   }
@@ -2058,10 +2131,9 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_conv2d_packed_context();
   register_vulkan_conv1d_packed_context();
   register_vulkan_linear_packed_context();
-  register_vulkan_graph_linear_gelu_plan();
+  register_vulkan_graph_region_plan();
   register_vulkan_graph_add_layernorm_plan();
   register_vulkan_graph_conv2d_relu_plan();
-  register_vulkan_graph_conv2d_relu_conv2d_plan();
   register_vulkan_layernorm_packed_context();
   register_vulkan_qwen_linear_attention_prefill_packed_context();
   register_vulkan_vision_backbone_block_packed_context();
@@ -2108,14 +2180,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_graph_conv2d_relu_plan(Tensor X, "
       "__torch__.torch.classes.vulkan.GraphConv2dReluPlan plan) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::create_graph_conv2d_relu_conv2d_plan("
+      "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d("
       "__torch__.torch.classes.vulkan.Conv2dPackedContext first_context, "
       "__torch__.torch.classes.vulkan.Conv2dPackedContext second_context) "
-      "-> __torch__.torch.classes.vulkan.GraphConv2dReluConv2dPlan"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_graph_conv2d_relu_conv2d_plan(Tensor X, "
-      "__torch__.torch.classes.vulkan.GraphConv2dReluConv2dPlan plan) "
-      "-> Tensor Y"));
+      "-> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA( // Backwards compatibility
       "vulkan_prepack::conv2d_clamp_run(Tensor X, "
       "__torch__.torch.classes.vulkan.Conv2dOpContext W_prepack) -> Tensor Y"));
@@ -2615,12 +2683,12 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_linear_gelu_context(Tensor X, "
       "__torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::create_graph_linear_gelu_plan("
+      "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu("
       "__torch__.torch.classes.vulkan.LinearPackedContext context) "
-      "-> __torch__.torch.classes.vulkan.GraphLinearGeluPlan"));
+      "-> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_graph_linear_gelu_plan(Tensor X, "
-      "__torch__.torch.classes.vulkan.GraphLinearGeluPlan plan) -> Tensor Y"));
+      "vulkan_prepack::run_vulkan_graph_region_plan(Tensor[] inputs, "
+      "__torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_graph_add_layernorm_plan("
       "__torch__.torch.classes.vulkan.LayernormPackedContext context, "
@@ -2726,8 +2794,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::timed_fallback_phase_counters"),
       TORCH_FN(timed_fallback_phase_counters_runtime));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_linear_gelu_plan"),
-      TORCH_FN(utils::create_graph_linear_gelu_plan));
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu"),
+      TORCH_FN(utils::create_vulkan_graph_region_plan_linear_gelu));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_add_layernorm_plan"),
       TORCH_FN(utils::create_graph_add_layernorm_plan));
@@ -2736,8 +2805,8 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_FN(utils::create_graph_conv2d_relu_plan));
   m.impl(
       TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::create_graph_conv2d_relu_conv2d_plan"),
-      TORCH_FN(utils::create_graph_conv2d_relu_conv2d_plan));
+          "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d"),
+      TORCH_FN(utils::create_vulkan_graph_region_plan_conv2d_relu_conv2d));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_phase_counters"),
       TORCH_FN(reset_fallback_phase_counters_runtime));
@@ -3433,8 +3502,8 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_conv2d_relu_plan"),
       TORCH_FN(utils::run_graph_conv2d_relu_plan));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_conv2d_relu_conv2d_plan"),
-      TORCH_FN(utils::run_graph_conv2d_relu_conv2d_plan));
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_vulkan_graph_region_plan"),
+      TORCH_FN(utils::run_vulkan_graph_region_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv2d_clamp_run"),
       TORCH_FN(conv2d_clamp_run)); // Backwards compatibility
@@ -3453,9 +3522,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_linear_gelu_context"),
       TORCH_FN(run_linear_gelu_context));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_linear_gelu_plan"),
-      TORCH_FN(utils::run_graph_linear_gelu_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_add_layernorm_plan"),
       TORCH_FN(utils::run_graph_add_layernorm_plan));

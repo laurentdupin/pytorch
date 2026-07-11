@@ -51,7 +51,7 @@ def _static_linear_gelu_plan_attrs(program):
         str(node.target)
         for node in program.graph_module.graph.nodes
         if node.op == "get_attr"
-        and str(node.target).startswith("_vulkan_static_linear_gelu_plan_")
+        and str(node.target).startswith("_vulkan_graph_region_plan_")
     }
 
 
@@ -96,7 +96,7 @@ def _static_conv2d_relu_conv2d_plan_attrs(program):
         str(node.target)
         for node in program.graph_module.graph.nodes
         if node.op == "get_attr"
-        and str(node.target).startswith("_vulkan_static_conv2d_relu_conv2d_plan_")
+        and str(node.target).startswith("_vulkan_graph_region_plan_")
     }
 
 
@@ -105,7 +105,7 @@ def _static_conv2d_relu_conv2d_plan_attrs_from_module(graph_module):
         str(node.target)
         for node in graph_module.graph.nodes
         if node.op == "get_attr"
-        and str(node.target).startswith("_vulkan_static_conv2d_relu_conv2d_plan_")
+        and str(node.target).startswith("_vulkan_graph_region_plan_")
     }
 
 
@@ -147,14 +147,14 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.skipped_count, 0)
         self.assertEqual(
             report.plan_factory,
-            "vulkan_prepack::create_graph_linear_gelu_plan",
+            "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
         )
         node = report.nodes[0]
-        self.assertEqual(node.program_name, "StaticLinearGeluRegion")
+        self.assertEqual(node.program_name, "VulkanGraphRegionPlan")
         self.assertEqual(node.program_version, "v1")
-        self.assertEqual(node.instruction_count, 1)
+        self.assertEqual(node.instruction_count, 2)
         self.assertEqual(node.input_ssa, 0)
-        self.assertEqual(node.output_ssa, 1)
+        self.assertEqual(node.output_ssa, 2)
         self.assertEqual(node.input_use_count, 1)
         self.assertEqual(node.input_last_use, 0)
         self.assertEqual(node.static_context_slot, 0)
@@ -163,10 +163,16 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(len(_static_linear_gelu_plan_attrs(program)), 1)
         self.assertFalse(_linear_context_attrs(program))
         self.assertFalse(program.graph_module.state_dict())
+        self.assertEqual(program.vulkan_graph_regions.plan_class, "VulkanGraphRegionPlan")
+        self.assertEqual(program.vulkan_graph_regions.plan_version, "v1")
+        self.assertEqual(
+            program.vulkan_graph_regions.families[0].family,
+            "linear_gelu_tanh",
+        )
         lowered = [
             node
             for node in program.census.nodes
-            if node.reason == "graph_owned_static_linear_gelu_plan"
+            if node.reason == "graph_owned_vulkan_graph_region_plan"
         ]
         self.assertEqual(len(lowered), 1)
         self.assertEqual(lowered[0].classification, "lowered_vulkan")
@@ -344,7 +350,8 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.lowered_count, 0)
         self.assertFalse(
             any(
-                str(node.target) == "vulkan_prepack.run_graph_linear_gelu_plan.default"
+                str(node.target)
+                == "vulkan_prepack.run_vulkan_graph_region_plan.default"
                 for node in graph_module.graph.nodes
             )
         )
@@ -370,7 +377,8 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.lowered_count, 0)
         self.assertFalse(
             any(
-                str(node.target) == "vulkan_prepack.run_graph_linear_gelu_plan.default"
+                str(node.target)
+                == "vulkan_prepack.run_vulkan_graph_region_plan.default"
                 for node in graph_module.graph.nodes
             )
         )
@@ -878,6 +886,51 @@ class TestVulkanGraph(TestCase):
                 "run_graph_add_layernorm_plan_missing_graph_owned_plan",
             )
 
+    def test_forged_missing_or_nonprivate_graph_region_plan_is_unsupported(self):
+        for plan_attr, missing in (
+            ("_vulkan_graph_region_plan_forged", False),
+            ("_vulkan_graph_region_plan_missing", True),
+            ("not_private_graph_region_plan", False),
+        ):
+            graph = torch.fx.Graph()
+            tensor = graph.placeholder("tensor")
+            plan = graph.get_attr(plan_attr)
+            region = graph.call_function(
+                torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default,
+                args=([tensor], plan),
+            )
+            graph.output(graph.call_function(operator.getitem, (region, 0)))
+            root = torch.nn.Module()
+            setattr(
+                root,
+                plan_attr,
+                torch.ops.vulkan_prepack.create_layernorm_context.default(
+                    torch.ones(4), torch.zeros(4), 1e-5
+                ),
+            )
+            graph_module = torch.fx.GraphModule(root, graph)
+            if missing:
+                delattr(graph_module, plan_attr)
+            census = vulkan_graph._build_census(graph_module)
+            record = next(
+                node
+                for node in census.nodes
+                if node.target == "vulkan_prepack::run_vulkan_graph_region_plan"
+            )
+            self.assertEqual(record.classification, "unsupported")
+            self.assertEqual(
+                record.reason,
+                "run_vulkan_graph_region_plan_missing_graph_owned_plan",
+            )
+        for operator_name in (
+            "vulkan_prepack::create_graph_linear_gelu_plan",
+            "vulkan_prepack::run_graph_linear_gelu_plan",
+            "vulkan_prepack::create_graph_conv2d_relu_conv2d_plan",
+            "vulkan_prepack::run_graph_conv2d_relu_conv2d_plan",
+        ):
+            with self.assertRaises(RuntimeError):
+                torch._C._dispatch_find_schema_or_throw(operator_name, "")
+
     def test_static_conv2d_relu_conv2d_region_matches_cpu_and_eager_vulkan(self):
         class ConvReluConv(torch.nn.Module):
             def __init__(self, bias):
@@ -932,8 +985,8 @@ class TestVulkanGraph(TestCase):
                 program.static_conv2d_relu_conv2d_regions.skipped_count, 0
             )
             node = program.static_conv2d_relu_conv2d_regions.nodes[0]
-            self.assertEqual(node.program_name, "StaticConv2dReluConv2dRegion")
-            self.assertEqual(node.program_version, "v3")
+            self.assertEqual(node.program_name, "VulkanGraphRegionPlan")
+            self.assertEqual(node.program_version, "v1")
             self.assertEqual(node.instruction_count, 2)
             self.assertEqual(node.input_ssa, 0)
             self.assertEqual(node.intermediate_ssa, 1)
@@ -959,7 +1012,7 @@ class TestVulkanGraph(TestCase):
             lowered = [
                 node
                 for node in program.census.nodes
-                if node.reason == "graph_owned_static_conv2d_relu_conv2d_plan"
+            if node.reason == "graph_owned_vulkan_graph_region_plan"
             ]
             self.assertEqual(len(lowered), 1)
             self.assertEqual(lowered[0].classification, "lowered_vulkan")
