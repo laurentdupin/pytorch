@@ -9,7 +9,6 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
-#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
@@ -416,8 +415,6 @@ Tensor view_internal(
             output, api::ExecutionLayout::BUFFER_DIRECT);
         utils::log_vulkan_op_hit("aten::view.buffer_metadata_direct");
       }
-      move_decomposed_attention_candidate_to_alias(self_arg, output);
-      move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       return output;
     }
 
@@ -447,8 +444,6 @@ Tensor view_internal(
         utils::log_vulkan_op_hit(
             "aten::view.buffer_preserve_padded_reshape_direct");
       }
-      move_decomposed_attention_candidate_to_alias(self_arg, output);
-      move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       return output;
     }
 
@@ -461,8 +456,6 @@ Tensor view_internal(
           output_stride.vec(),
           vTensor::PreservePhysicalView{},
       });
-      move_decomposed_attention_candidate_to_alias(self_arg, output);
-      move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
       return output;
     }
 
@@ -498,18 +491,16 @@ Tensor view_internal(
       "aten::view", "cpu_as_strided_materialize", {self_arg});
   c10::impl::ExcludeDispatchKeyGuard no_vulkan(c10::DispatchKey::Vulkan);
   c10::InferenceMode inference_mode_guard(false);
-  Tensor materialized_self =
-      materialize_decomposed_attention_candidate_if_needed(self_arg);
-  Tensor cpu = materialized_self.cpu();
+  Tensor cpu = self_arg.cpu();
   Tensor cpu_view = storage_offset.has_value()
       ? cpu.as_strided(output_size.vec(), output_stride.vec(), *storage_offset)
       : cpu.as_strided(output_size.vec(), output_stride.vec());
   Tensor out = at::empty(
       output_size.vec(),
-      materialized_self.options().device(materialized_self.device()));
+      self_arg.options().device(self_arg.device()));
   ops::copy_(out, cpu_view);
   return record_tensor_write_and_return(
-      out, "aten::view", "cpu_as_strided_materialize", {materialized_self});
+      out, "aten::view", "cpu_as_strided_materialize", {self_arg});
 }
 
 } // namespace
@@ -547,7 +538,7 @@ static Tensor contiguous(
     return self_arg.contiguous(memory_format);
   }
 
-  Tensor self = materialize_decomposed_attention_candidate_if_needed(self_arg);
+  const Tensor& self = self_arg;
 
   if (memory_format == c10::MemoryFormat::Preserve ||
       is_vulkan_logically_contiguous(self)) {

@@ -16189,6 +16189,38 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         ):
             self.assertNotIn(symbol, source_text)
 
+    def test_attention_dead_bridge_sources_are_absent(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source_paths = (
+            "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
+            "aten/src/ATen/native/vulkan/ops/Softmax.h",
+            "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
+            "aten/src/ATen/native/vulkan/ops/Copy.cpp",
+            "aten/src/ATen/native/vulkan/ops/Mm.cpp",
+            "aten/src/ATen/native/vulkan/ops/Shape.cpp",
+            "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
+        )
+        source_parts = []
+        for path in source_paths:
+            with open(os.path.join(repo_root, path), encoding="utf-8") as handle:
+                source_parts.append(handle.read())
+        source_text = "\n".join(source_parts)
+        for symbol in (
+            "DecomposedAttentionCandidate",
+            "DeferredAttentionQueryScaleCandidate",
+            "try_start_decomposed_attention",
+            "try_propagate_decomposed_attention",
+            "try_consume_decomposed_attention",
+            "materialize_decomposed_attention",
+            "try_start_deferred_attention_query_scale",
+            "materialize_deferred_attention_query_scale",
+            "move_decomposed_attention",
+            "move_deferred_attention_query_scale",
+            "decomposed_attention_bridge",
+            "attention_query_scale_bridge",
+        ):
+            self.assertNotIn(symbol, source_text)
+
     def test_float_buffer_backbone_mlp_views_feed_linear_without_buffer_relayout(self):
         materialize_log_name = "float_buffer_backbone_mlp_linear_relayout_test.log"
         op_hit_log_name = "float_buffer_backbone_mlp_linear_relayout_op_hit_test.log"
@@ -42792,21 +42824,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 )
                 expected = F.linear(expected, proj_weight_cpu, proj_bias_cpu)
 
-                q = q_cpu.to("vulkan") * scale
-                k = k_cpu.to("vulkan")
-                v = v_cpu.to("vulkan")
-                proj_weight = proj_weight_cpu.to("vulkan")
-                proj_bias = proj_bias_cpu.to("vulkan")
-                actual = (
-                    F.linear(
-                        (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v)
-                        .transpose(1, 2)
-                        .reshape(batch, tokens, heads * head_dim),
-                        proj_weight,
-                        proj_bias,
+                with torch.inference_mode():
+                    q = q_cpu.to("vulkan") * scale
+                    k = k_cpu.to("vulkan")
+                    v = v_cpu.to("vulkan")
+                    proj_weight = proj_weight_cpu.to("vulkan")
+                    proj_bias = proj_bias_cpu.to("vulkan")
+                    actual = (
+                        F.linear(
+                            (((q @ k.transpose(-2, -1)).softmax(dim=-1)) @ v)
+                            .transpose(1, 2)
+                            .reshape(batch, tokens, heads * head_dim),
+                            proj_weight,
+                            proj_bias,
+                        )
+                        .cpu()
                     )
-                    .cpu()
-                )
 
                 torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
                 print(float(actual.sum()))

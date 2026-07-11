@@ -211,33 +211,6 @@ bool is_lazy_chain_internal_bookkeeping(const char* op_name) {
       has_prefix(op_name, "aten::copy_.release_retired_contexts");
 }
 
-bool match_deferred_bridge_op(
-    const char* op_name,
-    std::string& family,
-    std::string& action) {
-  struct BridgePrefix final {
-    const char* prefix;
-    const char* family;
-  };
-  static constexpr BridgePrefix kPrefixes[] = {
-      {"aten::attention_query_scale_bridge.", "AttentionQueryScaleDeferredBridge"},
-      {"aten::decomposed_attention_bridge.", "DecomposedAttentionDeferredBridge"},
-  };
-  for (const BridgePrefix& candidate : kPrefixes) {
-    if (!has_prefix(op_name, candidate.prefix)) {
-      continue;
-    }
-    family = candidate.family;
-    action = op_name + std::strlen(candidate.prefix);
-    const size_t space_pos = action.find(' ');
-    if (space_pos != std::string::npos) {
-      action.resize(space_pos);
-    }
-    return !action.empty();
-  }
-  return false;
-}
-
 std::string json_escape(const std::string& value) {
   std::ostringstream out;
   for (const char ch : value) {
@@ -1356,69 +1329,6 @@ void maybe_compile_runtime_shader_group(
       spv_valid);
 }
 
-void log_deferred_bridge_event(
-    const char* op_name,
-    const std::string& family,
-    const std::string& action) {
-  if (!deferred_execution_logging_enabled()) {
-    return;
-  }
-  LazyChainState& state = lazy_chain_state();
-  const uint64_t region_id = state.next_deferred_region_id;
-  ++state.pending_deferred_event_count;
-
-  std::ostringstream line;
-  bool first = true;
-  line << '{';
-  append_json_field(line, "schema", "VulkanDeferredExecutionTrace.v0", first);
-  append_json_field(line, "event", "deferred_bridge_event", first);
-  append_json_uint(line, "region_id", region_id, first);
-  append_json_uint(line, "event_id", state.next_deferred_event_id++, first);
-  append_json_uint(
-      line,
-      "pending_deferred_event_count",
-      state.pending_deferred_event_count,
-      first);
-  append_json_uint(
-      line,
-      "pending_lazy_chain_op_count",
-      static_cast<uint64_t>(state.ops.size()),
-      first);
-  append_json_field(line, "family", family, first);
-  append_json_field(line, "action", action, first);
-  append_json_field(line, "op", op_name, first);
-  append_json_field(
-      line,
-      "submit_phase",
-      submit_phase_name(current_submit_phase()),
-      first);
-  append_json_field(
-      line,
-      "recent_op",
-      recent_op_label().empty() ? "none" : recent_op_label(),
-      first);
-  if (!current_allocation_label().empty()) {
-    append_json_field(line, "caller", current_allocation_label(), first);
-  }
-  if (!current_runtime_label().empty()) {
-    append_json_field(line, "runtime", current_runtime_label(), first);
-  }
-  line << '}';
-  append_deferred_execution_log_line(line.str());
-}
-
-void maybe_log_deferred_bridge_event(const char* op_name) {
-  if (!deferred_execution_logging_enabled()) {
-    return;
-  }
-  std::string family;
-  std::string action;
-  if (!match_deferred_bridge_op(op_name, family, action)) {
-    return;
-  }
-  log_deferred_bridge_event(op_name, family, action);
-}
-
 void flush_deferred_execution_region(
     LazyChainState& state,
     const char* boundary_kind,
@@ -1779,7 +1689,6 @@ void note_vulkan_lazy_chain_op(const char* op_name) {
       op_name == nullptr || op_name[0] == '\0') {
     return;
   }
-  maybe_log_deferred_bridge_event(op_name);
   if (is_lazy_chain_internal_bookkeeping(op_name)) {
     return;
   }

@@ -44,36 +44,6 @@ Tensor run_attention_runtime_buffer_math_replay_bridge(
     const Tensor& key,
     const Tensor& value);
 
-std::optional<Tensor> try_start_decomposed_attention_scores(
-    const Tensor& query,
-    const Tensor& key_t);
-
-std::optional<Tensor> try_propagate_decomposed_attention_softmax(
-    const Tensor& input,
-    int64_t dim);
-
-std::optional<Tensor> try_consume_decomposed_attention_probs(
-    const Tensor& probs,
-    const Tensor& value);
-
-Tensor materialize_decomposed_attention_candidate_if_needed(
-    const Tensor& tensor);
-
-std::optional<Tensor> try_start_deferred_attention_query_scale(
-    const Tensor& query,
-    const Scalar& scale);
-
-Tensor materialize_deferred_attention_query_scale_candidate_if_needed(
-    const Tensor& tensor);
-
-void move_decomposed_attention_candidate_to_alias(
-    const Tensor& source,
-    const Tensor& alias);
-
-void move_deferred_attention_query_scale_candidate_to_alias(
-    const Tensor& source,
-    const Tensor& alias);
-
 std::vector<int64_t> attention_plan_counters_snapshot();
 
 std::vector<int64_t> attention_subgroup_capabilities_snapshot();

@@ -3,7 +3,6 @@
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
-#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
@@ -4041,15 +4040,11 @@ Tensor bmm(const Tensor& mat1_arg, const Tensor& mat2_arg) {
   utils::log_vulkan_op_hit("aten::bmm");
   Tensor mat1 = mat1_arg.is_vulkan() ? mat1_arg : mat1_arg.vulkan();
   Tensor mat2 = mat2_arg.is_vulkan() ? mat2_arg : mat2_arg.vulkan();
-  mat1 = materialize_decomposed_attention_candidate_if_needed(mat1);
-  mat2 = materialize_decomposed_attention_candidate_if_needed(mat2);
   if (can_run_half_buffer_bmm(mat1, mat2)) {
     utils::log_vulkan_op_hit("aten::bmm.buffer_float");
     return run_half_buffer_bmm(mat1, mat2, 1.0f, 1.0f);
   }
   if (can_run_float_buffer_bmm(mat1, mat2)) {
-    mat1 = materialize_deferred_attention_query_scale_candidate_if_needed(mat1);
-    mat2 = materialize_deferred_attention_query_scale_candidate_if_needed(mat2);
     utils::log_vulkan_op_hit("aten::bmm.buffer_float");
     return run_float_buffer_bmm(mat1, mat2, 1.0f, 1.0f);
   }

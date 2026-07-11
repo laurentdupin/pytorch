@@ -30,7 +30,6 @@
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
-#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -2427,23 +2426,6 @@ void record_runtime_elementwise_mixed_chain_step(
       output_check_max_abs);
 }
 
-std::optional<Tensor> try_start_deferred_attention_query_scale_tensor(
-    const Tensor& self_arg,
-    const Tensor& other_arg,
-    const std::optional<Scalar>& alpha_arg,
-    const BinaryOpKind op_kind) {
-  if (
-      alpha_arg.has_value() ||
-      op_kind != BinaryOpKind::Mul ||
-      other_arg.is_vulkan() ||
-      other_arg.dim() != 0 ||
-      !c10::isFloatingType(other_arg.scalar_type())) {
-    return std::nullopt;
-  }
-  return try_start_deferred_attention_query_scale(
-      self_arg, Scalar(other_arg.item<float>()));
-}
-
 const api::ShaderInfo& integral_buffer_scalar_shader(
     const api::ScalarType dtype,
     const BinaryOpKind op_kind) {
@@ -3395,13 +3377,7 @@ std::optional<Tensor> try_runtime_elementwise_chain_vulkan(
       const Tensor runtime_materialized =
           materialize_deferred_runtime_elementwise_candidate_if_needed(
               tensor, callsite);
-      const Tensor attention_materialized =
-          materialize_decomposed_attention_candidate_if_needed(
-              runtime_materialized);
-      const Tensor attention_query_scaled =
-          materialize_deferred_attention_query_scale_candidate_if_needed(
-              attention_materialized);
-      return attention_query_scaled;
+      return runtime_materialized;
     };
     const Tensor input =
         prepare_operand(input_arg, "runtime_elementwise_chain.try.input");
@@ -3435,13 +3411,7 @@ std::optional<Tensor> try_runtime_elementwise_chain_out_vulkan(
       const Tensor runtime_materialized =
           materialize_deferred_runtime_elementwise_candidate_if_needed(
               tensor, callsite);
-      const Tensor attention_materialized =
-          materialize_decomposed_attention_candidate_if_needed(
-              runtime_materialized);
-      const Tensor attention_query_scaled =
-          materialize_deferred_attention_query_scale_candidate_if_needed(
-              attention_materialized);
-      return attention_query_scaled;
+      return runtime_materialized;
     };
     RuntimeElementwiseMixedChain chain;
     chain.input =
@@ -3812,13 +3782,7 @@ static Tensor binary_op_scalar(
   const Tensor self_runtime_materialized =
       materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
   api::Context* const context = api::context();
-  const Tensor self_materialized =
-      materialize_decomposed_attention_candidate_if_needed(
-          self_runtime_materialized);
-  const Tensor self_attention_query_scaled =
-      materialize_deferred_attention_query_scale_candidate_if_needed(
-          self_materialized);
-  const Tensor self_input = self_attention_query_scaled;
+  const Tensor self_input = self_runtime_materialized;
 
   if (self_input.dim() > 4) {
     return binary_op_scalar_cpu_fallback(self_input, other, alpha_arg, op_kind);
@@ -4188,20 +4152,8 @@ static Tensor binary_op_tensor(
       materialize_deferred_runtime_elementwise_candidate_if_needed(self_arg);
   const Tensor other_runtime_materialized =
       materialize_deferred_runtime_elementwise_candidate_if_needed(other_arg);
-  const Tensor self_attention_materialized =
-      materialize_decomposed_attention_candidate_if_needed(
-          self_runtime_materialized);
-  const Tensor other_attention_materialized =
-      materialize_decomposed_attention_candidate_if_needed(
-          other_runtime_materialized);
-  const Tensor self_attention_query_scaled =
-      materialize_deferred_attention_query_scale_candidate_if_needed(
-          self_attention_materialized);
-  const Tensor other_attention_query_scaled =
-      materialize_deferred_attention_query_scale_candidate_if_needed(
-          other_attention_materialized);
-  const Tensor self_input = self_attention_query_scaled;
-  const Tensor other_input = other_attention_query_scaled;
+  const Tensor self_input = self_runtime_materialized;
+  const Tensor other_input = other_runtime_materialized;
 
   if (self_input.dim() > 4 || other_input.dim() > 4) {
     return binary_op_tensor_cpu_fallback(
