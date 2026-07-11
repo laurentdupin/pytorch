@@ -87,6 +87,86 @@ def _fake_static_linear_gelu_report() -> _FakeStaticLinearGeluRegionReport:
 
 
 @dataclass(frozen=True)
+class _FakeStaticAddLayernormNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    add_node_name: str
+    layernorm_node_name: str
+    context_attr: str
+    plan_attr: str
+    normalized_shape: tuple[int, ...]
+    program_name: str
+    program_version: str
+    fused_instruction: str
+    instruction_count: int
+    residual_input_ssa: int
+    addend_input_ssa: int
+    residual_output_ssa: int
+    normalized_output_ssa: int
+    residual_input_use_count: int
+    residual_input_last_use: int
+    addend_input_use_count: int
+    addend_input_last_use: int
+    static_context_slot: int
+    context_ownership_outcome: str
+    direct_transition_only: bool
+    replay_state_empty: bool
+    persistent_output_state: bool
+
+
+@dataclass(frozen=True)
+class _FakeStaticAddLayernormRegionReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    plan_factory: str
+    nodes: tuple[_FakeStaticAddLayernormNodeReport, ...]
+
+
+def _fake_static_add_layernorm_report() -> _FakeStaticAddLayernormRegionReport:
+    return _FakeStaticAddLayernormRegionReport(
+        candidate_count=1,
+        lowered_count=1,
+        rejected_count=0,
+        skipped_count=0,
+        plan_factory="vulkan_prepack::create_graph_add_layernorm_plan",
+        nodes=(
+            _FakeStaticAddLayernormNodeReport(
+                node_name="run_graph_add_layernorm_plan",
+                status="lowered",
+                reason="graph_owned_static_add_layernorm",
+                add_node_name="add",
+                layernorm_node_name="run_layernorm_context",
+                context_attr="_vulkan_layernorm_context_a",
+                plan_attr="_vulkan_static_add_layernorm_plan_a",
+                normalized_shape=(4,),
+                program_name="StaticAddLayernormRegion",
+                program_version="v1",
+                fused_instruction="add_layernorm_fused_or_composed_vulkan",
+                instruction_count=1,
+                residual_input_ssa=0,
+                addend_input_ssa=1,
+                residual_output_ssa=2,
+                normalized_output_ssa=3,
+                residual_input_use_count=1,
+                residual_input_last_use=0,
+                addend_input_use_count=1,
+                addend_input_last_use=0,
+                static_context_slot=0,
+                context_ownership_outcome=(
+                    "transferred_removed_original_context_attr"
+                ),
+                direct_transition_only=True,
+                replay_state_empty=True,
+                persistent_output_state=False,
+            ),
+        ),
+    )
+
+
+@dataclass(frozen=True)
 class _FakeStaticConv2dReluNodeReport:
     node_name: str
     status: str
@@ -261,6 +341,7 @@ class TestVulkanGraphEvidence(TestCase):
             static_linear_gelu_regions=_fake_static_linear_gelu_report(),
             conv2d_lowering=_FakeLoweringReport(created_context_count=31),
             layernorm_lowering=_FakeLoweringReport(created_context_count=28),
+            static_add_layernorm_regions=_fake_static_add_layernorm_report(),
             static_conv2d_relu_conv2d_regions=(
                 _fake_static_conv2d_relu_conv2d_report()
             ),
@@ -298,6 +379,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": None,
                 "layernorm_lowering": None,
+                "static_add_layernorm_regions": None,
                 "static_conv2d_relu_conv2d_regions": None,
                 "static_conv2d_relu_regions": None,
             },
@@ -309,6 +391,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": {"created_context_count": 3},
                 "layernorm_lowering": None,
+                "static_add_layernorm_regions": None,
                 "static_conv2d_relu_conv2d_regions": None,
                 "static_conv2d_relu_regions": None,
             },
@@ -332,6 +415,7 @@ class TestVulkanGraphEvidence(TestCase):
             static_linear_gelu_regions=_fake_static_linear_gelu_report(),
             conv2d_lowering=_FakeLoweringReport(created_context_count=1),
             layernorm_lowering=_FakeLoweringReport(created_context_count=0),
+            static_add_layernorm_regions=_fake_static_add_layernorm_report(),
             static_conv2d_relu_conv2d_regions=(
                 _fake_static_conv2d_relu_conv2d_report()
             ),
@@ -340,6 +424,7 @@ class TestVulkanGraphEvidence(TestCase):
         reports = _lowering_reports(program)
         static_report = reports["static_linear_gelu_regions"]
         layernorm_report = reports["layernorm_lowering"]
+        static_add_layernorm_report = reports["static_add_layernorm_regions"]
         static_multi_conv_report = reports["static_conv2d_relu_conv2d_regions"]
         static_conv_report = reports["static_conv2d_relu_regions"]
         self.assertEqual(_graph_counts(program)["graph_owned_prepacked_contexts"], 2)
@@ -370,6 +455,45 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(node["static_context_slot"], 0)
         self.assertTrue(node["direct_transition_only"])
         self.assertTrue(node["replay_state_empty"])
+        self.assertEqual(static_add_layernorm_report["candidate_count"], 1)
+        self.assertEqual(static_add_layernorm_report["lowered_count"], 1)
+        self.assertEqual(static_add_layernorm_report["rejected_count"], 0)
+        self.assertEqual(static_add_layernorm_report["skipped_count"], 0)
+        self.assertEqual(
+            static_add_layernorm_report["plan_factory"],
+            "vulkan_prepack::create_graph_add_layernorm_plan",
+        )
+        add_layernorm_node = static_add_layernorm_report["nodes"][0]
+        self.assertEqual(add_layernorm_node["status"], "lowered")
+        self.assertEqual(
+            add_layernorm_node["reason"],
+            "graph_owned_static_add_layernorm",
+        )
+        self.assertEqual(add_layernorm_node["add_node_name"], "add")
+        self.assertEqual(
+            add_layernorm_node["layernorm_node_name"],
+            "run_layernorm_context",
+        )
+        self.assertEqual(
+            add_layernorm_node["program_name"],
+            "StaticAddLayernormRegion",
+        )
+        self.assertEqual(add_layernorm_node["program_version"], "v1")
+        self.assertEqual(
+            add_layernorm_node["fused_instruction"],
+            "add_layernorm_fused_or_composed_vulkan",
+        )
+        self.assertEqual(add_layernorm_node["residual_input_ssa"], 0)
+        self.assertEqual(add_layernorm_node["addend_input_ssa"], 1)
+        self.assertEqual(add_layernorm_node["residual_output_ssa"], 2)
+        self.assertEqual(add_layernorm_node["normalized_output_ssa"], 3)
+        self.assertEqual(
+            add_layernorm_node["context_ownership_outcome"],
+            "transferred_removed_original_context_attr",
+        )
+        self.assertTrue(add_layernorm_node["direct_transition_only"])
+        self.assertTrue(add_layernorm_node["replay_state_empty"])
+        self.assertFalse(add_layernorm_node["persistent_output_state"])
         self.assertEqual(static_multi_conv_report["candidate_count"], 1)
         self.assertEqual(static_multi_conv_report["lowered_count"], 1)
         self.assertEqual(static_multi_conv_report["rejected_count"], 0)

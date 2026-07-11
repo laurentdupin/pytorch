@@ -128,6 +128,13 @@ int register_vulkan_graph_linear_gelu_plan() {
   return 0;
 }
 
+int register_vulkan_graph_add_layernorm_plan() {
+  static auto register_vulkan_graph_add_layernorm_plan =
+      torch::selective_class_<utils::GraphAddLayernormPlan>(
+          "vulkan", TORCH_SELECTIVE_CLASS("GraphAddLayernormPlan"));
+  return 0;
+}
+
 int register_vulkan_graph_conv2d_relu_plan() {
   static auto register_vulkan_graph_conv2d_relu_plan =
       torch::selective_class_<utils::GraphConv2dReluPlan>(
@@ -157,6 +164,23 @@ class GraphLinearGeluInvocation final {
   }
 
   ~GraphLinearGeluInvocation() {
+    plan_.end_invocation();
+  }
+};
+
+class GraphAddLayernormInvocation final {
+ private:
+  utils::GraphAddLayernormPlan& plan_;
+
+ public:
+  explicit GraphAddLayernormInvocation(utils::GraphAddLayernormPlan& plan)
+      : plan_(plan) {
+    TORCH_CHECK(
+        plan_.try_begin_invocation(),
+        "StaticAddLayernormRegion.v1 rejects concurrent invocation");
+  }
+
+  ~GraphAddLayernormInvocation() {
     plan_.end_invocation();
   }
 };
@@ -244,6 +268,102 @@ Tensor utils::run_graph_linear_gelu_plan(
       "StaticLinearGeluRegion.v1 has an invalid plan schema");
   GraphLinearGeluInvocation invocation(*plan);
   return at::gelu(run_linear_context(input, plan->linear_context()), "tanh");
+}
+
+utils::GraphAddLayernormPlan::GraphAddLayernormPlan(
+    c10::intrusive_ptr<LayernormPackedContext> layernorm_context,
+    std::vector<int64_t> normalized_shape)
+    : layernorm_context_(std::move(layernorm_context)),
+      normalized_shape_(std::move(normalized_shape)) {
+  TORCH_CHECK(
+      layernorm_context_,
+      "StaticAddLayernormRegion.v1 requires a static LayernormPackedContext");
+  TORCH_CHECK(
+      !normalized_shape_.empty() &&
+          std::all_of(
+              normalized_shape_.cbegin(),
+              normalized_shape_.cend(),
+              [](const int64_t size) { return size > 0; }),
+      "StaticAddLayernormRegion.v1 requires a static positive normalized shape");
+}
+
+const utils::StaticAddLayernormPlanSchema&
+utils::GraphAddLayernormPlan::schema() const {
+  return schema_;
+}
+
+const c10::intrusive_ptr<LayernormPackedContext>&
+utils::GraphAddLayernormPlan::layernorm_context() const {
+  return layernorm_context_;
+}
+
+const std::vector<int64_t>& utils::GraphAddLayernormPlan::normalized_shape()
+    const {
+  return normalized_shape_;
+}
+
+bool utils::GraphAddLayernormPlan::try_begin_invocation() {
+  return !invocation_active_.test_and_set(std::memory_order_acquire);
+}
+
+void utils::GraphAddLayernormPlan::end_invocation() {
+  invocation_active_.clear(std::memory_order_release);
+}
+
+c10::intrusive_ptr<utils::GraphAddLayernormPlan>
+utils::create_graph_add_layernorm_plan(
+    const c10::intrusive_ptr<LayernormPackedContext>& layernorm_context,
+    IntArrayRef normalized_shape) {
+  return c10::make_intrusive<utils::GraphAddLayernormPlan>(
+      layernorm_context,
+      std::vector<int64_t>(normalized_shape.begin(), normalized_shape.end()));
+}
+
+std::tuple<Tensor, Tensor> utils::run_graph_add_layernorm_plan(
+    const Tensor& residual,
+    const Tensor& addend,
+    const c10::intrusive_ptr<utils::GraphAddLayernormPlan>& plan) {
+  TORCH_CHECK(plan, "StaticAddLayernormRegion.v1 requires a plan");
+  TORCH_CHECK(
+      residual.is_vulkan() && addend.is_vulkan(),
+      "StaticAddLayernormRegion.v1 requires Vulkan input tensors");
+  TORCH_CHECK(
+      plan->schema().instruction_count == 1u &&
+          plan->schema().residual_input_ssa == 0u &&
+          plan->schema().addend_input_ssa == 1u &&
+          plan->schema().residual_output_ssa == 2u &&
+          plan->schema().normalized_output_ssa == 3u &&
+          plan->schema().residual_input_use_count == 1u &&
+          plan->schema().residual_input_last_use == 0u &&
+          plan->schema().addend_input_use_count == 1u &&
+          plan->schema().addend_input_last_use == 0u &&
+          plan->schema().static_context_slot == 0u &&
+          plan->schema().direct_transition_only &&
+          plan->schema().replay_state_empty &&
+          !plan->schema().persistent_output_state,
+      "StaticAddLayernormRegion.v1 has an invalid plan schema");
+  GraphAddLayernormInvocation invocation(*plan);
+  Tensor residual_output =
+      utils::create_buffer_tensor(residual.sizes(), residual.scalar_type());
+  Tensor normalized_output =
+      utils::create_buffer_tensor(residual.sizes(), residual.scalar_type());
+  if (auto fused = try_run_add_layernorm_context_out(
+          residual,
+          addend,
+          plan->normalized_shape(),
+          plan->layernorm_context(),
+          residual_output,
+          normalized_output)) {
+    utils::log_vulkan_op_hit(
+        "vulkan_prepack::run_graph_add_layernorm_plan.fused_vulkan");
+    return std::make_tuple(fused->first, fused->second);
+  }
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::run_graph_add_layernorm_plan.composed_vulkan");
+  Tensor composed_residual = at::add(residual, addend);
+  Tensor composed_normalized = run_layernorm_context(
+      composed_residual, plan->normalized_shape(), plan->layernorm_context());
+  return std::make_tuple(composed_residual, composed_normalized);
 }
 
 utils::GraphConv2dReluPlan::GraphConv2dReluPlan(
@@ -1661,6 +1781,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_conv1d_packed_context();
   register_vulkan_linear_packed_context();
   register_vulkan_graph_linear_gelu_plan();
+  register_vulkan_graph_add_layernorm_plan();
   register_vulkan_graph_conv2d_relu_plan();
   register_vulkan_graph_conv2d_relu_conv2d_plan();
   register_vulkan_layernorm_packed_context();
@@ -2219,6 +2340,16 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_graph_linear_gelu_plan(Tensor X, "
       "__torch__.torch.classes.vulkan.GraphLinearGeluPlan plan) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_graph_add_layernorm_plan("
+      "__torch__.torch.classes.vulkan.LayernormPackedContext context, "
+      "SymInt[] normalized_shape) "
+      "-> __torch__.torch.classes.vulkan.GraphAddLayernormPlan"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_graph_add_layernorm_plan("
+      "Tensor residual, Tensor addend, "
+      "__torch__.torch.classes.vulkan.GraphAddLayernormPlan plan) "
+      "-> (Tensor residual_output, Tensor normalized_output)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_qlinear_context(Tensor X, float scale, int zero_point, "
       "__torch__.torch.classes.vulkan.LinearPackedContext vk_context) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2315,6 +2446,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_linear_gelu_plan"),
       TORCH_FN(utils::create_graph_linear_gelu_plan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_add_layernorm_plan"),
+      TORCH_FN(utils::create_graph_add_layernorm_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_conv2d_relu_plan"),
       TORCH_FN(utils::create_graph_conv2d_relu_plan));
@@ -3032,6 +3166,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_linear_gelu_plan"),
       TORCH_FN(utils::run_graph_linear_gelu_plan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_add_layernorm_plan"),
+      TORCH_FN(utils::run_graph_add_layernorm_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_layernorm_context"),
       TORCH_FN(run_layernorm_context));

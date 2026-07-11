@@ -194,6 +194,9 @@ def _lowering_report_objects(
         ),
         "conv2d_lowering": getattr(program, "conv2d_lowering", None),
         "layernorm_lowering": getattr(program, "layernorm_lowering", None),
+        "static_add_layernorm_regions": getattr(
+            program, "static_add_layernorm_regions", None
+        ),
         "static_conv2d_relu_conv2d_regions": getattr(
             program, "static_conv2d_relu_conv2d_regions", None
         ),

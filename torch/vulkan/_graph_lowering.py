@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import math
+import operator
 from collections.abc import Mapping
 from typing import Any
 
@@ -77,6 +78,45 @@ class VulkanLayernormLoweringReport:
     reused_context_count: int
     context_factory: str
     nodes: tuple[VulkanLayernormLoweringNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticAddLayernormRegionNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    add_node_name: str | None
+    layernorm_node_name: str | None
+    context_attr: str | None
+    plan_attr: str | None
+    normalized_shape: tuple[int, ...] | None
+    program_name: str | None
+    program_version: str | None
+    fused_instruction: str | None
+    instruction_count: int
+    residual_input_ssa: int | None
+    addend_input_ssa: int | None
+    residual_output_ssa: int | None
+    normalized_output_ssa: int | None
+    residual_input_use_count: int | None
+    residual_input_last_use: int | None
+    addend_input_use_count: int | None
+    addend_input_last_use: int | None
+    static_context_slot: int | None
+    context_ownership_outcome: str | None
+    direct_transition_only: bool | None
+    replay_state_empty: bool | None
+    persistent_output_state: bool | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticAddLayernormRegionReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    plan_factory: str
+    nodes: tuple[VulkanStaticAddLayernormRegionNodeReport, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -267,6 +307,25 @@ def _layernorm_context_attr_name(
     return f"_vulkan_layernorm_context_{digest}"
 
 
+def _static_add_layernorm_plan_attr_name(
+    context_attr: str,
+    add_node_name: str,
+    layernorm_node_name: str,
+    normalized_shape: tuple[int, ...],
+) -> str:
+    identity = "\x00".join(
+        (
+            context_attr,
+            add_node_name,
+            layernorm_node_name,
+            repr(normalized_shape),
+            "StaticAddLayernormRegion.v1",
+        )
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"_vulkan_static_add_layernorm_plan_{digest}"
+
+
 def _static_linear_gelu_plan_attr_name(
     context_attr: str,
     gelu_node_name: str,
@@ -389,6 +448,21 @@ def _is_relu(node: torch.fx.Node) -> bool:
         and len(node.args) == 1
         and not node.kwargs
     )
+
+
+def _is_add_tensor_alpha_one(node: torch.fx.Node) -> tuple[bool, str]:
+    if node.op != "call_function" or node.target != torch.ops.aten.add.Tensor:
+        return False, "input_not_aten_add_tensor"
+    if len(node.args) not in (2, 3) or set(node.kwargs).difference({"alpha"}):
+        return False, "unsupported_add_tensor_signature"
+    if len(node.args) == 3 and "alpha" in node.kwargs:
+        return False, "unsupported_add_tensor_signature"
+    alpha = node.args[2] if len(node.args) == 3 else node.kwargs.get("alpha", 1)
+    if not isinstance(alpha, (int, float)) or isinstance(alpha, bool):
+        return False, "add_alpha_not_static_one"
+    if float(alpha) != 1.0:
+        return False, "add_alpha_not_one"
+    return True, ""
 
 
 def _graph_owned_linear_context_attr(
@@ -1645,6 +1719,272 @@ def lower_static_layernorm_to_vulkan_contexts(
     )
 
 
+def lower_static_add_layernorm_regions(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticAddLayernormRegionReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticAddLayernormRegionNodeReport] = []
+    replaced_context_attrs: set[str] = set()
+    candidate_count = 0
+    lowered_count = 0
+    rejected_count = 0
+    skipped_count = 0
+
+    def append_report(
+        *,
+        node_name: str,
+        status: str,
+        reason: str,
+        add_node: torch.fx.Node | None,
+        layernorm_node: torch.fx.Node,
+        context_attr: str | None,
+        plan_attr: str | None,
+        normalized_shape: tuple[int, ...] | None,
+        context_ownership_outcome: str | None,
+        has_plan_schema: bool,
+    ) -> None:
+        reports.append(
+            VulkanStaticAddLayernormRegionNodeReport(
+                node_name=node_name,
+                status=status,
+                reason=reason,
+                add_node_name=add_node.name if add_node is not None else None,
+                layernorm_node_name=layernorm_node.name,
+                context_attr=context_attr,
+                plan_attr=plan_attr,
+                normalized_shape=normalized_shape,
+                program_name=(
+                    "StaticAddLayernormRegion" if has_plan_schema else None
+                ),
+                program_version="v1" if has_plan_schema else None,
+                fused_instruction=(
+                    "add_layernorm_fused_or_composed_vulkan"
+                    if has_plan_schema
+                    else None
+                ),
+                instruction_count=1 if has_plan_schema else 0,
+                residual_input_ssa=0 if has_plan_schema else None,
+                addend_input_ssa=1 if has_plan_schema else None,
+                residual_output_ssa=2 if has_plan_schema else None,
+                normalized_output_ssa=3 if has_plan_schema else None,
+                residual_input_use_count=1 if has_plan_schema else None,
+                residual_input_last_use=0 if has_plan_schema else None,
+                addend_input_use_count=1 if has_plan_schema else None,
+                addend_input_last_use=0 if has_plan_schema else None,
+                static_context_slot=0 if has_plan_schema else None,
+                context_ownership_outcome=context_ownership_outcome,
+                direct_transition_only=True if has_plan_schema else None,
+                replay_state_empty=True if has_plan_schema else None,
+                persistent_output_state=False if has_plan_schema else None,
+            )
+        )
+
+    for layernorm_node in tuple(graph.nodes):
+        if (
+            layernorm_node.op != "call_function"
+            or layernorm_node.target
+            != torch.ops.vulkan_prepack.run_layernorm_context.default
+        ):
+            continue
+        context_attr = _graph_owned_layernorm_context_attr(
+            graph_module, layernorm_node
+        )
+        add_node = layernorm_node.args[0]
+        if context_attr is None:
+            append_report(
+                node_name=layernorm_node.name,
+                status="skipped",
+                reason="layernorm_context_not_graph_owned",
+                add_node=add_node if isinstance(add_node, torch.fx.Node) else None,
+                layernorm_node=layernorm_node,
+                context_attr=None,
+                plan_attr=None,
+                normalized_shape=None,
+                context_ownership_outcome=None,
+                has_plan_schema=False,
+            )
+            skipped_count += 1
+            continue
+        normalized_shape, normalized_shape_error = _static_positive_int_sequence(
+            layernorm_node.args[1], "normalized_shape"
+        )
+        if normalized_shape_error is not None:
+            append_report(
+                node_name=layernorm_node.name,
+                status="skipped",
+                reason=normalized_shape_error,
+                add_node=add_node if isinstance(add_node, torch.fx.Node) else None,
+                layernorm_node=layernorm_node,
+                context_attr=context_attr,
+                plan_attr=None,
+                normalized_shape=None,
+                context_ownership_outcome=None,
+                has_plan_schema=False,
+            )
+            skipped_count += 1
+            continue
+        if not isinstance(add_node, torch.fx.Node):
+            append_report(
+                node_name=layernorm_node.name,
+                status="skipped",
+                reason="layernorm_input_not_graph_add",
+                add_node=None,
+                layernorm_node=layernorm_node,
+                context_attr=context_attr,
+                plan_attr=None,
+                normalized_shape=normalized_shape,
+                context_ownership_outcome=None,
+                has_plan_schema=False,
+            )
+            skipped_count += 1
+            continue
+        add_is_legal, add_reason = _is_add_tensor_alpha_one(add_node)
+        if not add_is_legal:
+            append_report(
+                node_name=layernorm_node.name,
+                status="skipped",
+                reason=add_reason,
+                add_node=add_node,
+                layernorm_node=layernorm_node,
+                context_attr=context_attr,
+                plan_attr=None,
+                normalized_shape=normalized_shape,
+                context_ownership_outcome=None,
+                has_plan_schema=False,
+            )
+            skipped_count += 1
+            continue
+        layernorm_consumers = [
+            user
+            for user in add_node.users
+            if user.op == "call_function"
+            and user.target == torch.ops.vulkan_prepack.run_layernorm_context.default
+        ]
+        if len(layernorm_consumers) != 1:
+            append_report(
+                node_name=layernorm_node.name,
+                status="skipped",
+                reason="add_has_multiple_layernorm_consumers",
+                add_node=add_node,
+                layernorm_node=layernorm_node,
+                context_attr=context_attr,
+                plan_attr=None,
+                normalized_shape=normalized_shape,
+                context_ownership_outcome=None,
+                has_plan_schema=False,
+            )
+            skipped_count += 1
+            continue
+
+        candidate_count += 1
+        plan_attr = _static_add_layernorm_plan_attr_name(
+            context_attr,
+            add_node.name,
+            layernorm_node.name,
+            normalized_shape,
+        )
+        if hasattr(graph_module, plan_attr):
+            append_report(
+                node_name=layernorm_node.name,
+                status="rejected",
+                reason="deterministic_plan_attribute_collision",
+                add_node=add_node,
+                layernorm_node=layernorm_node,
+                context_attr=context_attr,
+                plan_attr=plan_attr,
+                normalized_shape=normalized_shape,
+                context_ownership_outcome=None,
+                has_plan_schema=True,
+            )
+            rejected_count += 1
+            continue
+        try:
+            plan = torch.ops.vulkan_prepack.create_graph_add_layernorm_plan.default(
+                getattr(graph_module, context_attr),
+                list(normalized_shape),
+            )
+            setattr(graph_module, plan_attr, plan)
+        except (RuntimeError, TypeError, AttributeError) as error:
+            append_report(
+                node_name=layernorm_node.name,
+                status="rejected",
+                reason=(
+                    "static_add_layernorm_plan_creation_failed:"
+                    f"{type(error).__name__}"
+                ),
+                add_node=add_node,
+                layernorm_node=layernorm_node,
+                context_attr=context_attr,
+                plan_attr=plan_attr,
+                normalized_shape=normalized_shape,
+                context_ownership_outcome=None,
+                has_plan_schema=True,
+            )
+            rejected_count += 1
+            continue
+
+        context_node = layernorm_node.args[2]
+        context_reference_count = sum(
+            node.op == "get_attr" and str(node.target) == context_attr
+            for node in graph.nodes
+        )
+        context_has_other_users = any(
+            user is not layernorm_node for user in context_node.users
+        )
+        context_ownership_outcome = (
+            "transferred_removed_original_context_attr"
+            if context_reference_count == 1 and not context_has_other_users
+            else "shared_context_retained_original_attr"
+        )
+        with graph.inserting_before(add_node):
+            plan_node = graph.create_node("get_attr", plan_attr, (), {})
+            region_node = graph.call_function(
+                torch.ops.vulkan_prepack.run_graph_add_layernorm_plan.default,
+                args=(add_node.args[0], add_node.args[1], plan_node),
+            )
+            residual_node = graph.call_function(operator.getitem, (region_node, 0))
+            normalized_node = graph.call_function(operator.getitem, (region_node, 1))
+        residual_node.meta = dict(add_node.meta)
+        normalized_node.meta = dict(layernorm_node.meta)
+        add_node.replace_all_uses_with(residual_node)
+        layernorm_node.replace_all_uses_with(normalized_node)
+        graph.erase_node(layernorm_node)
+        if not context_node.users:
+            graph.erase_node(context_node)
+        graph.erase_node(add_node)
+        replaced_context_attrs.add(context_attr)
+        append_report(
+            node_name=region_node.name,
+            status="lowered",
+            reason="graph_owned_static_add_layernorm",
+            add_node=add_node,
+            layernorm_node=layernorm_node,
+            context_attr=context_attr,
+            plan_attr=plan_attr,
+            normalized_shape=normalized_shape,
+            context_ownership_outcome=context_ownership_outcome,
+            has_plan_schema=True,
+        )
+        lowered_count += 1
+
+    if lowered_count:
+        graph.eliminate_dead_code()
+        for context_attr in replaced_context_attrs:
+            _delete_graph_attr_if_unreferenced(graph_module, context_attr)
+        graph_module.delete_all_unused_submodules()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticAddLayernormRegionReport(
+        candidate_count=candidate_count,
+        lowered_count=lowered_count,
+        rejected_count=rejected_count,
+        skipped_count=skipped_count,
+        plan_factory="vulkan_prepack::create_graph_add_layernorm_plan",
+        nodes=tuple(reports),
+    )
+
+
 def lower_static_conv2d_relu_conv2d_regions(
     graph_module: torch.fx.GraphModule,
 ) -> VulkanStaticConv2dReluConv2dRegionReport:
@@ -2153,6 +2493,8 @@ __all__ = [
     "VulkanConv2dLoweringReport",
     "VulkanLayernormLoweringNodeReport",
     "VulkanLayernormLoweringReport",
+    "VulkanStaticAddLayernormRegionNodeReport",
+    "VulkanStaticAddLayernormRegionReport",
     "VulkanLinearLoweringNodeReport",
     "VulkanLinearLoweringReport",
     "VulkanStaticConv2dReluRegionNodeReport",
@@ -2164,6 +2506,7 @@ __all__ = [
     "lower_static_conv2d_to_vulkan_contexts",
     "lower_static_conv2d_relu_regions",
     "lower_static_conv2d_relu_conv2d_regions",
+    "lower_static_add_layernorm_regions",
     "lower_static_layernorm_to_vulkan_contexts",
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",

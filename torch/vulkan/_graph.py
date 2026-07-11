@@ -17,12 +17,14 @@ from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanLayernormLoweringReport,
     VulkanLinearLoweringReport,
+    VulkanStaticAddLayernormRegionReport,
     VulkanStaticConv2dReluConv2dRegionReport,
     VulkanStaticConv2dReluRegionReport,
     VulkanStaticLinearGeluRegionReport,
     lower_static_conv2d_relu_regions,
     lower_static_conv2d_relu_conv2d_regions,
     lower_static_conv2d_to_vulkan_contexts,
+    lower_static_add_layernorm_regions,
     lower_static_layernorm_to_vulkan_contexts,
     lower_static_linear_to_vulkan_contexts,
     lower_static_linear_gelu_regions,
@@ -192,6 +194,23 @@ def _is_graph_owned_static_linear_gelu_plan(
     )
 
 
+def _is_graph_owned_static_add_layernorm_plan(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> bool:
+    if len(node.args) != 3 or node.kwargs:
+        return False
+    plan_node = node.args[2]
+    if not isinstance(plan_node, torch.fx.Node) or plan_node.op != "get_attr":
+        return False
+    plan_attr = str(plan_node.target)
+    if not plan_attr.startswith("_vulkan_static_add_layernorm_plan_") or not hasattr(
+        graph_module, plan_attr
+    ):
+        return False
+    return isinstance(getattr(graph_module, plan_attr), torch.ScriptObject)
+
+
 def _is_graph_owned_static_conv2d_relu_plan(
     graph_module: torch.fx.GraphModule,
     node: torch.fx.Node,
@@ -339,6 +358,26 @@ def _classify_node(
                 operator_name,
                 "lowered_vulkan",
                 "graph_owned_static_linear_gelu_plan",
+            )
+        if operator_name == "vulkan_prepack::run_graph_add_layernorm_plan":
+            if not _is_graph_owned_static_add_layernorm_plan(
+                graph_module, node
+            ):
+                return VulkanGraphNodeRecord(
+                    index,
+                    node.name,
+                    node.op,
+                    operator_name,
+                    "unsupported",
+                    "run_graph_add_layernorm_plan_missing_graph_owned_plan",
+                )
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                operator_name,
+                "lowered_vulkan",
+                "graph_owned_static_add_layernorm_plan",
             )
         if operator_name == "vulkan_prepack::run_graph_conv2d_relu_plan":
             if not _is_graph_owned_static_conv2d_relu_plan(graph_module, node):
@@ -649,6 +688,16 @@ def _static_linear_gelu_region_rejection_message(
     )
 
 
+def _static_add_layernorm_region_rejection_message(
+    report: VulkanStaticAddLayernormRegionReport,
+) -> str:
+    rejected = [node for node in report.nodes if node.status == "rejected"]
+    return "\n".join(
+        f"{node.node_name}: {node.reason}"
+        for node in rejected
+    )
+
+
 def _static_conv2d_relu_region_rejection_message(
     report: VulkanStaticConv2dReluRegionReport,
 ) -> str:
@@ -715,6 +764,7 @@ class VulkanGraphProgram:
         static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
         conv2d_lowering: VulkanConv2dLoweringReport,
         layernorm_lowering: VulkanLayernormLoweringReport,
+        static_add_layernorm_regions: VulkanStaticAddLayernormRegionReport,
         static_conv2d_relu_conv2d_regions: VulkanStaticConv2dReluConv2dRegionReport,
         static_conv2d_relu_regions: VulkanStaticConv2dReluRegionReport,
     ) -> None:
@@ -726,6 +776,7 @@ class VulkanGraphProgram:
         self._static_linear_gelu_regions = static_linear_gelu_regions
         self._conv2d_lowering = conv2d_lowering
         self._layernorm_lowering = layernorm_lowering
+        self._static_add_layernorm_regions = static_add_layernorm_regions
         self._static_conv2d_relu_conv2d_regions = (
             static_conv2d_relu_conv2d_regions
         )
@@ -768,6 +819,10 @@ class VulkanGraphProgram:
     @property
     def layernorm_lowering(self) -> VulkanLayernormLoweringReport:
         return self._layernorm_lowering
+
+    @property
+    def static_add_layernorm_regions(self) -> VulkanStaticAddLayernormRegionReport:
+        return self._static_add_layernorm_regions
 
     @property
     def static_conv2d_relu_conv2d_regions(
@@ -905,6 +960,9 @@ def export_and_lower(
         layernorm_lowering = lower_static_layernorm_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
         )
+        static_add_layernorm_regions = lower_static_add_layernorm_regions(
+            graph_module
+        )
         static_conv2d_relu_conv2d_regions = (
             lower_static_conv2d_relu_conv2d_regions(graph_module)
         )
@@ -931,6 +989,13 @@ def export_and_lower(
     if layernorm_lowering.rejected_count:
         lowering_rejections.append(
             "layernorm:\n" + _layernorm_lowering_rejection_message(layernorm_lowering)
+        )
+    if static_add_layernorm_regions.rejected_count:
+        lowering_rejections.append(
+            "static_add_layernorm_regions:\n"
+            + _static_add_layernorm_region_rejection_message(
+                static_add_layernorm_regions
+            )
         )
     if static_conv2d_relu_conv2d_regions.rejected_count:
         lowering_rejections.append(
@@ -961,6 +1026,7 @@ def export_and_lower(
             repr(static_linear_gelu_regions),
             repr(conv2d_lowering),
             repr(layernorm_lowering),
+            repr(static_add_layernorm_regions),
             repr(static_conv2d_relu_conv2d_regions),
             repr(static_conv2d_relu_regions),
         )
@@ -996,6 +1062,7 @@ def export_and_lower(
         static_linear_gelu_regions,
         conv2d_lowering,
         layernorm_lowering,
+        static_add_layernorm_regions,
         static_conv2d_relu_conv2d_regions,
         static_conv2d_relu_regions,
     )
@@ -1009,6 +1076,7 @@ __all__ = [
     "VulkanGraphProgramKey",
     "VulkanConv2dLoweringReport",
     "VulkanLayernormLoweringReport",
+    "VulkanStaticAddLayernormRegionReport",
     "VulkanLinearLoweringReport",
     "VulkanStaticConv2dReluConv2dRegionReport",
     "VulkanStaticConv2dReluRegionReport",

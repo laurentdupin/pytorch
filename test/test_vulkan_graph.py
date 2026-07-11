@@ -54,6 +54,24 @@ def _static_linear_gelu_plan_attrs(program):
     }
 
 
+def _static_add_layernorm_plan_attrs(program):
+    return {
+        str(node.target)
+        for node in program.graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_static_add_layernorm_plan_")
+    }
+
+
+def _static_add_layernorm_plan_attrs_from_module(graph_module):
+    return {
+        str(node.target)
+        for node in graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_static_add_layernorm_plan_")
+    }
+
+
 def _static_conv2d_relu_plan_attrs(program):
     return {
         str(node.target)
@@ -556,6 +574,303 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(
                 record.reason,
                 "run_layernorm_context_missing_graph_owned_context",
+            )
+
+    def test_static_add_layernorm_region_matches_cpu_and_eager_vulkan(self):
+        class AddLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(4, eps=1e-5)
+
+            def forward(self, first, second):
+                residual = first + second
+                return residual, self.norm(residual)
+
+        torch.manual_seed(36)
+        model = AddLayerNorm().eval()
+        first = torch.randn(2, 3, 4)
+        second = torch.randn(2, 3, 4)
+        expected = model(first, second)
+        program = torch.vulkan.export_and_lower(model, (first, second))
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            eager_output = eager_vulkan(
+                first.to("vulkan"), second.to("vulkan")
+            )
+            eager_output = tuple(value.cpu() for value in eager_output)
+        graph_output = tuple(value.cpu() for value in program(first, second))
+
+        for actual, reference, eager in zip(graph_output, expected, eager_output):
+            torch.testing.assert_close(actual, reference, rtol=1e-4, atol=1e-4)
+            torch.testing.assert_close(actual, eager, rtol=1e-4, atol=1e-4)
+        report = program.static_add_layernorm_regions
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertEqual(
+            report.plan_factory,
+            "vulkan_prepack::create_graph_add_layernorm_plan",
+        )
+        node = report.nodes[0]
+        self.assertEqual(node.program_name, "StaticAddLayernormRegion")
+        self.assertEqual(node.program_version, "v1")
+        self.assertEqual(
+            node.fused_instruction, "add_layernorm_fused_or_composed_vulkan"
+        )
+        self.assertEqual(node.instruction_count, 1)
+        self.assertEqual(node.residual_input_ssa, 0)
+        self.assertEqual(node.addend_input_ssa, 1)
+        self.assertEqual(node.residual_output_ssa, 2)
+        self.assertEqual(node.normalized_output_ssa, 3)
+        self.assertEqual(
+            node.context_ownership_outcome,
+            "transferred_removed_original_context_attr",
+        )
+        self.assertTrue(node.direct_transition_only)
+        self.assertTrue(node.replay_state_empty)
+        self.assertFalse(node.persistent_output_state)
+        plan_attrs = _static_add_layernorm_plan_attrs(program)
+        self.assertEqual(len(plan_attrs), 1)
+        self.assertTrue(
+            isinstance(
+                getattr(program.graph_module, next(iter(plan_attrs))),
+                torch.ScriptObject,
+            )
+        )
+        self.assertFalse(_layernorm_context_attrs(program))
+        self.assertFalse(program.graph_module.state_dict())
+        lowered = [
+            graph_node
+            for graph_node in program.census.nodes
+            if graph_node.reason == "graph_owned_static_add_layernorm_plan"
+        ]
+        self.assertEqual(len(lowered), 1)
+        self.assertEqual(lowered[0].classification, "lowered_vulkan")
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_add_layernorm_region_reuses_dynamic_shapes(self):
+        class AddLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(5)
+
+            def forward(self, first, second):
+                residual = first + second
+                return residual, self.norm(residual)
+
+        torch.manual_seed(37)
+        model = AddLayerNorm().eval()
+        batch = torch.export.Dim("batch", min=1, max=4)
+        sequence = torch.export.Dim("sequence", min=1, max=8)
+        program = torch.vulkan.export_and_lower(
+            model,
+            (torch.randn(2, 3, 5), torch.randn(2, 3, 5)),
+            dynamic_shapes=(
+                {0: batch, 1: sequence},
+                {0: batch, 1: sequence},
+            ),
+        )
+        plan_attrs = _static_add_layernorm_plan_attrs(program)
+        self.assertEqual(len(plan_attrs), 1)
+        for shape in ((1, 8, 5), (4, 1, 5)):
+            first = torch.randn(shape)
+            second = torch.randn(shape)
+            graph_output = tuple(value.cpu() for value in program(first, second))
+            for actual, reference in zip(graph_output, model(first, second)):
+                torch.testing.assert_close(actual, reference, rtol=1e-4, atol=1e-4)
+        self.assertEqual(_static_add_layernorm_plan_attrs(program), plan_attrs)
+        self.assertEqual(program.static_add_layernorm_regions.lowered_count, 1)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_add_layernorm_region_keeps_extra_residual_consumers(self):
+        class AddLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(4)
+
+            def forward(self, first, second):
+                residual = first + second
+                return residual, self.norm(residual), -residual
+
+        torch.manual_seed(38)
+        model = AddLayerNorm().eval()
+        first = torch.randn(2, 3, 4)
+        second = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, (first, second))
+        graph_output = tuple(value.cpu() for value in program(first, second))
+        for actual, reference in zip(graph_output, model(first, second)):
+            torch.testing.assert_close(actual, reference, rtol=1e-4, atol=1e-4)
+        self.assertEqual(program.static_add_layernorm_regions.lowered_count, 1)
+        self.assertEqual(len(_static_add_layernorm_plan_attrs(program)), 1)
+
+    def test_static_add_layernorm_region_retains_shared_layernorm_context(self):
+        class AddAndStandaloneLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(4)
+
+            def forward(self, first, second):
+                residual = first + second
+                return self.norm(residual), self.norm(second)
+
+        torch.manual_seed(39)
+        model = AddAndStandaloneLayerNorm().eval()
+        first = torch.randn(2, 3, 4)
+        second = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, (first, second))
+        graph_output = tuple(value.cpu() for value in program(first, second))
+        for actual, reference in zip(graph_output, model(first, second)):
+            torch.testing.assert_close(actual, reference, rtol=1e-4, atol=1e-4)
+        self.assertEqual(program.static_add_layernorm_regions.lowered_count, 1)
+        self.assertEqual(len(_static_add_layernorm_plan_attrs(program)), 1)
+        self.assertEqual(len(_layernorm_context_attrs(program)), 1)
+        self.assertEqual(
+            program.static_add_layernorm_regions.nodes[0].context_ownership_outcome,
+            "shared_context_retained_original_attr",
+        )
+
+    def test_static_add_layernorm_region_skips_dynamic_missing_and_forged_contexts(
+        self,
+    ):
+        for kind in ("dynamic", "missing", "forged"):
+            graph = torch.fx.Graph()
+            first = graph.placeholder("first")
+            second = graph.placeholder("second")
+            add = graph.call_function(
+                torch.ops.aten.add.Tensor, args=(first, second)
+            )
+            if kind == "dynamic":
+                context = graph.placeholder("context")
+                root = torch.nn.Module()
+            else:
+                context = graph.get_attr("_vulkan_layernorm_context_static")
+                root = torch.nn.Module()
+                setattr(root, "_vulkan_layernorm_context_static", object())
+            layernorm = graph.call_function(
+                torch.ops.vulkan_prepack.run_layernorm_context.default,
+                args=(add, [4], context),
+            )
+            graph.output(layernorm)
+            graph_module = torch.fx.GraphModule(root, graph)
+            if kind == "missing":
+                delattr(graph_module, "_vulkan_layernorm_context_static")
+            report = vulkan_graph.lower_static_add_layernorm_regions(graph_module)
+            self.assertEqual(report.candidate_count, 0)
+            self.assertEqual(report.lowered_count, 0)
+            self.assertEqual(report.rejected_count, 0)
+            self.assertEqual(report.skipped_count, 1)
+            self.assertEqual(
+                report.nodes[0].reason,
+                "layernorm_context_not_graph_owned",
+            )
+            self.assertFalse(_static_add_layernorm_plan_attrs_from_module(graph_module))
+
+    def test_static_add_layernorm_region_skips_nonsemantic_adds(self):
+        context = torch.ops.vulkan_prepack.create_layernorm_context.default(
+            torch.ones(4), torch.zeros(4), 1e-5
+        )
+        cases = (
+            ("alpha_not_one", torch.ops.aten.add.Tensor, ("first", "second", 2), {}),
+            ("non_tensor_add", torch.ops.aten.add.Scalar, ("first", 1), {}),
+        )
+        expected_reasons = {
+            "alpha_not_one": "add_alpha_not_one",
+            "non_tensor_add": "input_not_aten_add_tensor",
+        }
+        for kind, target, argument_names, kwargs in cases:
+            graph = torch.fx.Graph()
+            first = graph.placeholder("first")
+            second = graph.placeholder("second")
+            arguments = tuple(
+                {"first": first, "second": second}.get(value, value)
+                for value in argument_names
+            )
+            add = graph.call_function(target, args=arguments, kwargs=kwargs)
+            context_node = graph.get_attr("_vulkan_layernorm_context_static")
+            layernorm = graph.call_function(
+                torch.ops.vulkan_prepack.run_layernorm_context.default,
+                args=(add, [4], context_node),
+            )
+            graph.output(layernorm)
+            root = torch.nn.Module()
+            setattr(root, "_vulkan_layernorm_context_static", context)
+            graph_module = torch.fx.GraphModule(root, graph)
+            report = vulkan_graph.lower_static_add_layernorm_regions(graph_module)
+            self.assertEqual(report.candidate_count, 0)
+            self.assertEqual(report.lowered_count, 0)
+            self.assertEqual(report.rejected_count, 0)
+            self.assertEqual(report.skipped_count, 1)
+            self.assertEqual(report.nodes[0].reason, expected_reasons[kind])
+            self.assertFalse(_static_add_layernorm_plan_attrs_from_module(graph_module))
+
+    def test_static_add_layernorm_region_skips_multiple_layernorm_consumers(self):
+        graph = torch.fx.Graph()
+        first = graph.placeholder("first")
+        second = graph.placeholder("second")
+        add = graph.call_function(torch.ops.aten.add.Tensor, args=(first, second))
+        context = graph.get_attr("_vulkan_layernorm_context_static")
+        first_layernorm = graph.call_function(
+            torch.ops.vulkan_prepack.run_layernorm_context.default,
+            args=(add, [4], context),
+        )
+        second_layernorm = graph.call_function(
+            torch.ops.vulkan_prepack.run_layernorm_context.default,
+            args=(add, [4], context),
+        )
+        graph.output((first_layernorm, second_layernorm))
+        root = torch.nn.Module()
+        setattr(
+            root,
+            "_vulkan_layernorm_context_static",
+            torch.ops.vulkan_prepack.create_layernorm_context.default(
+                torch.ones(4), torch.zeros(4), 1e-5
+            ),
+        )
+        graph_module = torch.fx.GraphModule(root, graph)
+        report = vulkan_graph.lower_static_add_layernorm_regions(graph_module)
+        self.assertEqual(report.candidate_count, 0)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.skipped_count, 2)
+        self.assertTrue(
+            all(
+                node.reason == "add_has_multiple_layernorm_consumers"
+                for node in report.nodes
+            )
+        )
+        self.assertFalse(_static_add_layernorm_plan_attrs_from_module(graph_module))
+
+    def test_forged_or_missing_static_add_layernorm_plan_is_unsupported(self):
+        for missing in (False, True):
+            graph = torch.fx.Graph()
+            first = graph.placeholder("first")
+            second = graph.placeholder("second")
+            plan = graph.get_attr("_vulkan_static_add_layernorm_plan_forged")
+            region = graph.call_function(
+                torch.ops.vulkan_prepack.run_graph_add_layernorm_plan.default,
+                args=(first, second, plan),
+            )
+            graph.output(region)
+            root = torch.nn.Module()
+            setattr(root, "_vulkan_static_add_layernorm_plan_forged", object())
+            graph_module = torch.fx.GraphModule(root, graph)
+            if missing:
+                delattr(graph_module, "_vulkan_static_add_layernorm_plan_forged")
+            census = vulkan_graph._build_census(graph_module)
+            record = next(
+                node
+                for node in census.nodes
+                if node.target == "vulkan_prepack::run_graph_add_layernorm_plan"
+            )
+            self.assertEqual(record.classification, "unsupported")
+            self.assertEqual(
+                record.reason,
+                "run_graph_add_layernorm_plan_missing_graph_owned_plan",
             )
 
     def test_static_conv2d_relu_conv2d_region_matches_cpu_and_eager_vulkan(self):
