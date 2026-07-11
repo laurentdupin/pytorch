@@ -35,6 +35,30 @@ _DEFER_ENV_VARS = (
 )
 
 
+def _artifact_prefix(value: str) -> str:
+    if (
+        not value
+        or value != value.strip()
+        or "/" in value
+        or "\\" in value
+        or not value.isascii()
+        or not value[0].isalnum()
+        or not all(character.isalnum() or character in "_-" for character in value)
+    ):
+        raise argparse.ArgumentTypeError(
+            "--artifact-prefix must start with an ASCII letter or digit and contain "
+            "only ASCII letters, digits, underscores, or hyphens"
+        )
+    return value
+
+
+def _artifact_output_paths(output_dir: Path, prefix: str) -> tuple[Path, Path]:
+    return (
+        output_dir / f"{prefix}_export_census.json",
+        output_dir / f"{prefix}_export_parity.json",
+    )
+
+
 def _jsonable(value: Any) -> Any:
     if dataclasses.is_dataclass(value):
         return _jsonable(dataclasses.asdict(value))
@@ -336,6 +360,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--external-root", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--artifact-prefix", default="dav2_vits", type=_artifact_prefix)
     parser.add_argument("--source-git-sha", default=None)
     parser.add_argument("--eager-atol", type=float, default=0.0)
     parser.add_argument("--eager-rtol", type=float, default=0.0)
@@ -490,8 +515,11 @@ def main() -> int:
         "cases": [normal_parity, alternate_parity],
         "out_of_range_guard": out_of_range_guard,
     }
-    write_evidence(args.output_dir / "dav2_vits_export_census.json", census)
-    write_evidence(args.output_dir / "dav2_vits_export_parity.json", parity)
+    census_path, parity_path = _artifact_output_paths(
+        args.output_dir, args.artifact_prefix
+    )
+    write_evidence(census_path, census)
+    write_evidence(parity_path, parity)
     return 0
 
 

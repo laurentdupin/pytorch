@@ -1,3 +1,4 @@
+import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,8 @@ from torch.vulkan._graph_evidence import (
 )
 from scripts.benchmarks.vulkan_graph_export_evidence import (
     _adapter_identity,
+    _artifact_output_paths,
+    _artifact_prefix,
     _graph_counts,
     _is_export_guard_rejection,
     _lowering_reports,
@@ -592,6 +595,21 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(parse_input_shape("1,3,140,280"), (1, 3, 140, 280))
         with self.assertRaisesRegex(ValueError, "four positive"):
             parse_input_shape("1,3,0,280")
+
+    def test_artifact_prefix_produces_safe_corpus_specific_filenames(self):
+        output_dir = Path("artifacts")
+        self.assertEqual(_artifact_prefix("dav2_vits"), "dav2_vits")
+        self.assertEqual(_artifact_prefix("paddleocr"), "paddleocr")
+        self.assertEqual(
+            _artifact_output_paths(output_dir, "paddleocr"),
+            (
+                output_dir / "paddleocr_export_census.json",
+                output_dir / "paddleocr_export_parity.json",
+            ),
+        )
+        for prefix in ("", "../paddleocr", r"paddleocr\\run", "paddle ocr", "."):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                _artifact_prefix(prefix)
 
     def test_guard_variant_only_handles_export_guard_rejections(self):
         self.assertTrue(
