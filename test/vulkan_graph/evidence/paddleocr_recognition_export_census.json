@@ -20,8 +20,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.07651099999930011,
-        "repeated_run_seconds_reference_only": 0.07838550000087707
+        "first_run_seconds": 0.08583169999837992,
+        "repeated_run_seconds_reference_only": 0.0768988999989233
       }
     },
     {
@@ -43,8 +43,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.07477060000019264,
-        "repeated_run_seconds_reference_only": 0.09136709999802406
+        "first_run_seconds": 0.062286000000312924,
+        "repeated_run_seconds_reference_only": 0.08284500000081607
       }
     }
   ],
@@ -1067,7 +1067,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "b31aba1b42ae4db442b8b6b462b6be3b150a392c1ca10dc7466d0c9d37ba4ca0",
+    "graph_hash": "f652578b2292a706c557380d4686836fc8ed754e5050671c4980e286f31e0a46",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '48', '8*s38')"
     ],
@@ -1086,13 +1086,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "60ae5902d18b6596eae2918c091f1d4a80d0721e39be4c67f9937c5377cab9a0"
+        "sha256": "359fbd378d7ff7c067b9a0107650dbb57ddaf58519bf7d10ce723cb888a224f2"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "9b0cfea6b7048d28463bd42b3db1c120256603d0",
+  "source_git_sha": "1dcd095b12584b013116139bdf4095e17321a14d",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 4,
@@ -1253,7 +1253,7 @@
     "excluded_relu_node_names": [],
     "lowered_count": 0,
     "nodes": [],
-    "plan_factory": "vulkan_prepack::create_graph_conv2d_relu_conv2d_plan",
+    "plan_factory": "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d",
     "rejected_count": 0,
     "skipped_count": 0
   },
@@ -1269,13 +1269,37 @@
     "candidate_count": 0,
     "lowered_count": 0,
     "nodes": [],
-    "plan_factory": "vulkan_prepack::create_graph_linear_gelu_plan",
+    "plan_factory": "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
     "rejected_count": 0,
     "skipped_count": 0
   },
   "status": "measured",
   "timing": {
-    "cpu_export_seconds": 3.248309899998276,
-    "export_and_lower_seconds": 12.033900500002346
+    "cpu_export_seconds": 2.345429699998931,
+    "export_and_lower_seconds": 9.72504630000185
+  },
+  "vulkan_graph_regions": {
+    "families": [
+      {
+        "candidate_count": 0,
+        "family": "linear_gelu_tanh",
+        "lowered_count": 0,
+        "nodes": [],
+        "plan_factory": "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
+        "rejected_count": 0,
+        "skipped_count": 0
+      },
+      {
+        "candidate_count": 0,
+        "family": "conv2d_relu_conv2d",
+        "lowered_count": 0,
+        "nodes": [],
+        "plan_factory": "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d",
+        "rejected_count": 0,
+        "skipped_count": 0
+      }
+    ],
+    "plan_class": "VulkanGraphRegionPlan",
+    "plan_version": "v1"
   }
 }
