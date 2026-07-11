@@ -566,11 +566,13 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertTrue(conv_node["direct_transition_only"])
         self.assertTrue(conv_node["replay_state_empty"])
 
-    def test_checked_in_dav2_evidence_is_schema_valid_and_measured(self):
+    def test_checked_in_corpus_evidence_is_schema_valid_and_measured(self):
         evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"
         for name, artifact_type in (
             ("dav2_vits_export_census.json", "export_census"),
             ("dav2_vits_export_parity.json", "parity"),
+            ("paddleocr_recognition_export_census.json", "export_census"),
+            ("paddleocr_recognition_export_parity.json", "parity"),
         ):
             payload = json.loads((evidence_dir / name).read_text(encoding="utf-8"))
             self.assertEqual(payload["schema"], EVIDENCE_SCHEMA)
