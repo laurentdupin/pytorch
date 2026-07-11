@@ -523,6 +523,12 @@ if(WIN32)
       )
     endif()
     set(libuv_ROOT "${_libuv_root}")
+
+    # Gloo caches its Windows libuv probes. Reconfigure must not retain paths
+    # from a previous libuv_ROOT after the caller selects a different install.
+    unset(libuv_LIBRARY CACHE)
+    unset(libuv_DLL_PATH CACHE)
+    unset(uv_HEADER_PATH CACHE)
   endif()
 endif()
 
