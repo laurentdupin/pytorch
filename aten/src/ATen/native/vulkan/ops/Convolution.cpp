@@ -2425,13 +2425,21 @@ bool should_cache_float_buffer_conv2d_handle(
   return true;
 }
 
+bool requires_host_sync_after_buffer_conv_bytes(
+    const VkDeviceSize output_gpu_nbytes) {
+  constexpr size_t kGtxLargeConvSyncBytes = 128u * 1024u * 1024u;
+  return is_gtx_class_runtime_device() &&
+      output_gpu_nbytes >= kGtxLargeConvSyncBytes;
+}
+
+bool requires_host_sync_after_buffer_conv(const vTensor& v_output) {
+  return requires_host_sync_after_buffer_conv_bytes(v_output.gpu_nbytes());
+}
+
 void maybe_sync_after_gtx_large_buffer_conv(
     api::Context* const context,
     const vTensor& v_output) {
-  constexpr size_t kGtxLargeConvSyncBytes = 128u * 1024u * 1024u;
-  if (
-      is_gtx_class_runtime_device() &&
-    v_output.gpu_nbytes() >= kGtxLargeConvSyncBytes) {
+  if (requires_host_sync_after_buffer_conv(v_output)) {
     utils::log_vulkan_op_hit("aten::convolution.gtx_large_buffer_sync");
     context->synchronize_device();
   }
@@ -5174,6 +5182,115 @@ Tensor run_conv2d_context_relu_out(
     Tensor& output) {
   return run_conv2d_context_impl(
       input_arg, conv_context, 1.0f, 0u, &output, /*fuse_relu=*/true);
+}
+
+bool conv2d_context_may_require_host_sync(
+    const IntArrayRef input_sizes,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  if (
+      !conv_context || conv_context->quantized() || conv_context->transposed() ||
+      input_sizes.size() != 4 ||
+      !output_padding_is_zero(conv_context->output_padding())) {
+    return false;
+  }
+  const PackedWeightHandle& packed_weight = conv_context->packed_weight();
+  if (
+      packed_weight.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT ||
+      packed_weight.quantized() ||
+      packed_weight.logical_weight_sizes().size() != 4) {
+    return false;
+  }
+  const vTensor& v_weight = packed_weight.weight_vtensor();
+  const vTensor& v_bias = packed_weight.bias_vtensor();
+  if (
+      v_weight.storage_type() != api::StorageType::BUFFER ||
+      v_weight.dtype() != api::kFloat ||
+      v_bias.storage_type() != api::StorageType::BUFFER ||
+      v_bias.dtype() != api::kFloat) {
+    return false;
+  }
+  const std::vector<int64_t> output_sizes = conv_output_size(
+      input_sizes,
+      packed_weight.logical_weight_sizes(),
+      conv_context->padding(),
+      conv_context->stride(),
+      conv_context->dilation());
+  if (
+      output_sizes.size() != 4 ||
+      !std::all_of(
+          output_sizes.begin(),
+          output_sizes.end(),
+          [](const int64_t size) { return size > 0; })) {
+    return false;
+  }
+  std::vector<int64_t> physical_output_sizes = output_sizes;
+  physical_output_sizes.back() =
+      api::utils::align_up(physical_output_sizes.back(), INT64_C(4));
+  const VkDeviceSize output_gpu_nbytes =
+      api::element_size(api::kFloat) *
+      static_cast<VkDeviceSize>(
+          api::utils::multiply_integers(physical_output_sizes));
+  return requires_host_sync_after_buffer_conv_bytes(output_gpu_nbytes);
+}
+
+std::optional<Tensor> try_run_conv2d_context_relu_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    Tensor& output) {
+  if (
+      !conv_context || conv_context->quantized() || conv_context->transposed() ||
+      conv_context->packed_weight().execution_layout() !=
+          api::ExecutionLayout::BUFFER_DIRECT ||
+      !output.is_vulkan()) {
+    return std::nullopt;
+  }
+  const PackedWeightHandle& packed_weight = conv_context->packed_weight();
+  if (
+      !output_padding_is_zero(conv_context->output_padding()) ||
+      input_arg.device().type() != c10::DeviceType::Vulkan ||
+      input_arg.scalar_type() != kFloat || input_arg.dim() != 4) {
+    return std::nullopt;
+  }
+  Tensor input = prepare_runtime_float_buffer_conv_input(input_arg);
+  if (
+      !can_run_float_buffer_conv2d(
+          input,
+          packed_weight,
+          /*transposed=*/false,
+          /*quantized=*/false,
+          conv_context->output_padding())) {
+    return std::nullopt;
+  }
+  const std::vector<int64_t> output_size = conv_output_size(
+      convert(input).sizes(),
+      packed_weight.logical_weight_sizes(),
+      conv_context->padding(),
+      conv_context->stride(),
+      conv_context->dilation());
+  const vTensor& v_output = convert(output);
+  if (
+      v_output.storage_type() != api::StorageType::BUFFER ||
+      v_output.dtype() != api::kFloat ||
+      v_output.execution_layout() != api::ExecutionLayout::BUFFER_DIRECT ||
+      !utils::supports_buffer_view_fast_path(v_output) ||
+      output.sizes().vec() != output_size ||
+      requires_host_sync_after_buffer_conv(v_output)) {
+    return std::nullopt;
+  }
+  float output_min = conv_context->output_min();
+  float output_max = conv_context->output_max();
+  output_min = output_min > 0.0f ? output_min : 0.0f;
+  output_max = output_max > 0.0f ? output_max : 0.0f;
+  return run_float_buffer_conv2d_impl(
+      input,
+      packed_weight,
+      conv_context->stride(),
+      conv_context->padding(),
+      conv_context->dilation(),
+      conv_context->groups(),
+      output_min,
+      output_max,
+      &output);
 }
 
 std::optional<Tensor> try_run_conv2d_context_add_out(

@@ -3747,6 +3747,39 @@ void Context::poll_retire_queue() {
   retire_queue_.poll(device_);
 }
 
+bool Context::graph_program_submission_complete(
+    const VulkanSubmission& submission) const {
+  if (submission.timeline_value == 0u) {
+    return true;
+  }
+  VK_CHECK_COND(
+      submission.timeline != VK_NULL_HANDLE,
+      "Graph program submission has a null timeline");
+  VulkanStreamState& stream = vulkan_stream_pool().get_stream(
+      device_index_, submission.stream_id);
+  VK_CHECK_COND(
+      stream.timeline == submission.timeline,
+      "Graph program submission timeline does not match its stream");
+  return vulkan_stream_pool().query_complete(stream, submission.timeline_value);
+}
+
+void Context::retire_graph_program_resource(
+    VulkanSubmission submission,
+    std::function<void()> cleanup) {
+  if (!cleanup) {
+    return;
+  }
+  VK_CHECK_COND(
+      submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
+      "Graph program resource retirement requires a submission token");
+  retire_queue_.retire(RetiredResource{
+      submission.stream_id,
+      submission.timeline,
+      submission.timeline_value,
+      std::move(cleanup),
+  });
+}
+
 void Context::submit_pending_work_and_poll_retire(
     const PendingWorkRetireDrainPolicy policy) {
   TORCH_CHECK(

@@ -289,6 +289,8 @@ class vTensor final {
     return view_->buffer_;
   }
 
+  std::vector<api::VulkanBuffer> release_graph_program_owned_buffers();
+
   api::VulkanBuffer& buffer(
       api::PipelineBarrier&,
       const api::PipelineStageFlags) const&;

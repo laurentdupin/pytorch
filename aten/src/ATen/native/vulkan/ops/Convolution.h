@@ -207,6 +207,15 @@ Tensor run_conv2d_context_relu_out(
     const c10::intrusive_ptr<Conv2dPackedContext>& context,
     Tensor& output);
 
+bool conv2d_context_may_require_host_sync(
+    IntArrayRef input_sizes,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context);
+
+std::optional<Tensor> try_run_conv2d_context_relu_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& context,
+    Tensor& output);
+
 std::optional<Tensor> try_run_conv2d_context_add_out(
     const Tensor& input,
     const c10::intrusive_ptr<Conv2dPackedContext>& context,

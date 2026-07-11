@@ -20,21 +20,21 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.06665239999711048,
-        "repeated_run_seconds_reference_only": 0.07073420000233455
+        "first_run_seconds": 0.08380849999957718,
+        "repeated_run_seconds_reference_only": 0.0632977999994182
       }
     },
     {
       "guard": {
         "rejected_program_message": "Vulkan graph node '_guards_fn' (_guards_fn) failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1\n\nWhile executing %_guards_fn : [num_users=0] = call_module[target=_guards_fn](args = (%x,), kwargs = {})\nOriginal traceback:\nNone\nUse tlparse to see full graph. (https://github.com/pytorch/tlparse?tab=readme-ov-file#tlparse-parse-structured-pt2-logs)",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.7286289999974542,
+        "variant_compile_seconds": 2.708067300001858,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "5932159c8bb755c408bafcad448ae58777e53f13d29506467a5bab9726d8d4f6",
+          "graph_hash": "3c83f907789f44fce3dfd2e0ec27e59e9e5014118db77cd07ec91116cce44d8b",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -57,8 +57,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.07315740000194637,
-        "repeated_run_seconds_reference_only": 0.062382500000239816
+        "first_run_seconds": 0.06951630000548903,
+        "repeated_run_seconds_reference_only": 0.062467600000672974
       }
     }
   ],
@@ -1241,7 +1241,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "aef5bf50c2258a7170bf3c2bea1fc59c154b7ea20d9059bc079278b5432b76b8",
+    "graph_hash": "27b82f164852bcced2255cac17132bb4abe2ed74fe3adad6a9a68b0ee2ef17fb",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1260,13 +1260,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "85096e9b92b35703d287e553bbc2ec81677ee002925eb5bf4fe01aeb3ea9c173"
+        "sha256": "c2c061e1e636fd5ae83994db863a60bd53285a2a32fdfe28a908e1357eef7d0c"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "df1038e919b2233dfab4173ca71188b19cddbf77",
+  "source_git_sha": "752d144c3842a83e73716bf1ca318d0e94aa37d9",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,
@@ -2116,14 +2116,17 @@
         "output_ssa": null,
         "plan_attr": null,
         "program_name": null,
+        "program_private_scratch": null,
         "program_version": null,
         "reason": "first_conv2d_output_has_multiple_users",
         "relu_node_name": "relu",
         "replay_state_empty": null,
+        "scratch_ring_capacity": null,
         "second_context_attr": "_vulkan_conv2d_context_113e211cbb1a7185",
         "second_conv2d_node_name": "run_conv2d_context_default_10",
         "second_static_context_slot": null,
-        "status": "skipped"
+        "status": "skipped",
+        "timeline_gated_release": null
       },
       {
         "bounded_submission_owned": true,
@@ -2140,16 +2143,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_e7e00a7817cb3880",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_76dffb61c43fd7ea",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_1",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_06b3c3d099614041",
         "second_conv2d_node_name": "run_conv2d_context_default_11",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       },
       {
         "bounded_submission_owned": null,
@@ -2168,14 +2174,17 @@
         "output_ssa": null,
         "plan_attr": null,
         "program_name": null,
+        "program_private_scratch": null,
         "program_version": null,
         "reason": "first_conv2d_output_has_multiple_users",
         "relu_node_name": "relu_2",
         "replay_state_empty": null,
+        "scratch_ring_capacity": null,
         "second_context_attr": "_vulkan_conv2d_context_974e8d0234264f0e",
         "second_conv2d_node_name": "run_conv2d_context_default_13",
         "second_static_context_slot": null,
-        "status": "skipped"
+        "status": "skipped",
+        "timeline_gated_release": null
       },
       {
         "bounded_submission_owned": true,
@@ -2192,16 +2201,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default_1",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_1c661d979ebb7d12",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_81e454b586cb093d",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_3",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_d796adc37df090fa",
         "second_conv2d_node_name": "run_conv2d_context_default_14",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       },
       {
         "bounded_submission_owned": true,
@@ -2218,16 +2230,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default_2",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_064f90b3ff79c356",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_93a0bdba169008aa",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_5",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_e32de01fb87ce93b",
         "second_conv2d_node_name": "run_conv2d_context_default_16",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       },
       {
         "bounded_submission_owned": null,
@@ -2246,14 +2261,17 @@
         "output_ssa": null,
         "plan_attr": null,
         "program_name": null,
+        "program_private_scratch": null,
         "program_version": null,
         "reason": "first_conv2d_output_has_multiple_users",
         "relu_node_name": "relu_6",
         "replay_state_empty": null,
+        "scratch_ring_capacity": null,
         "second_context_attr": "_vulkan_conv2d_context_5bd32daf4259b18e",
         "second_conv2d_node_name": "run_conv2d_context_default_18",
         "second_static_context_slot": null,
-        "status": "skipped"
+        "status": "skipped",
+        "timeline_gated_release": null
       },
       {
         "bounded_submission_owned": true,
@@ -2270,16 +2288,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default_3",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_3fab252898f1ce50",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_548b6b7e4ba1b913",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_7",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_da545c0fa6047f7e",
         "second_conv2d_node_name": "run_conv2d_context_default_19",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       },
       {
         "bounded_submission_owned": true,
@@ -2296,16 +2317,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default_4",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_c6b2e12cfcd597e0",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_2875661f45caa993",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_9",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_191bd2bfc0cf7e62",
         "second_conv2d_node_name": "run_conv2d_context_default_21",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       },
       {
         "bounded_submission_owned": null,
@@ -2324,14 +2348,17 @@
         "output_ssa": null,
         "plan_attr": null,
         "program_name": null,
+        "program_private_scratch": null,
         "program_version": null,
         "reason": "first_conv2d_output_has_multiple_users",
         "relu_node_name": "relu_10",
         "replay_state_empty": null,
+        "scratch_ring_capacity": null,
         "second_context_attr": "_vulkan_conv2d_context_08a4abf65fad88a4",
         "second_conv2d_node_name": "run_conv2d_context_default_23",
         "second_static_context_slot": null,
-        "status": "skipped"
+        "status": "skipped",
+        "timeline_gated_release": null
       },
       {
         "bounded_submission_owned": true,
@@ -2348,16 +2375,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default_5",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_e0b73be1f6e4ec1d",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_b44d96b00057b80b",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_11",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_0ed9bc85d1183edb",
         "second_conv2d_node_name": "run_conv2d_context_default_24",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       },
       {
         "bounded_submission_owned": true,
@@ -2374,16 +2404,19 @@
         "intermediate_use_count": 1,
         "node_name": "run_graph_conv2d_relu_conv2d_plan_default_6",
         "output_ssa": 2,
-        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_6d21d18427974fd5",
+        "plan_attr": "_vulkan_static_conv2d_relu_conv2d_plan_fc3169bbf5d622cb",
         "program_name": "StaticConv2dReluConv2dRegion",
-        "program_version": "v2",
+        "program_private_scratch": true,
+        "program_version": "v3",
         "reason": "graph_owned_static_conv2d_relu_conv2d",
         "relu_node_name": "relu_13",
         "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_47f7e1f0304d4cc6",
         "second_conv2d_node_name": "run_conv2d_context_default_26",
         "second_static_context_slot": 1,
-        "status": "lowered"
+        "status": "lowered",
+        "timeline_gated_release": true
       }
     ],
     "plan_factory": "vulkan_prepack::create_graph_conv2d_relu_conv2d_plan",
@@ -2481,7 +2514,7 @@
   },
   "status": "measured",
   "timing": {
-    "cpu_export_seconds": 2.5526070999985677,
-    "export_and_lower_seconds": 11.02763799999957
+    "cpu_export_seconds": 2.561571099999128,
+    "export_and_lower_seconds": 11.020458200000576
   }
 }

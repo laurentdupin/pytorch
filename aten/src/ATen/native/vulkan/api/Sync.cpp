@@ -28387,6 +28387,14 @@ void reset_vulkan_graph_program_invocation_counters() {
   counters.aborted_submit_count.store(0u, std::memory_order_relaxed);
   counters.rejected_incompatible_state_count.store(
       0u, std::memory_order_relaxed);
+  counters.scratch_captured_count.store(0u, std::memory_order_relaxed);
+  counters.scratch_reused_count.store(0u, std::memory_order_relaxed);
+  counters.scratch_transient_overflow_count.store(
+      0u, std::memory_order_relaxed);
+  counters.scratch_retire_enqueued_count.store(
+      0u, std::memory_order_relaxed);
+  counters.scratch_immediate_release_count.store(
+      0u, std::memory_order_relaxed);
 }
 
 std::vector<int64_t> graph_program_invocation_counters_snapshot() {
@@ -28400,6 +28408,16 @@ std::vector<int64_t> graph_program_invocation_counters_snapshot() {
       static_cast<int64_t>(
           counters.aborted_submit_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.rejected_incompatible_state_count.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.scratch_captured_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.scratch_reused_count.load(std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.scratch_transient_overflow_count.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.scratch_retire_enqueued_count.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.scratch_immediate_release_count.load(
           std::memory_order_relaxed)),
   };
 }

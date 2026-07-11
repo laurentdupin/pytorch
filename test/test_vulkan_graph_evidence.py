@@ -250,6 +250,9 @@ class _FakeStaticConv2dReluConv2dNodeReport:
     first_static_context_slot: int
     second_static_context_slot: int
     bounded_submission_owned: bool
+    program_private_scratch: bool
+    scratch_ring_capacity: int
+    timeline_gated_release: bool
     direct_transition_only: bool
     replay_state_empty: bool
 
@@ -285,7 +288,7 @@ def _fake_static_conv2d_relu_conv2d_report(
                 second_context_attr="_vulkan_conv2d_context_b",
                 plan_attr="_vulkan_static_conv2d_relu_conv2d_plan_a",
                 program_name="StaticConv2dReluConv2dRegion",
-                program_version="v2",
+                program_version="v3",
                 instruction_count=2,
                 input_ssa=0,
                 intermediate_ssa=1,
@@ -297,6 +300,9 @@ def _fake_static_conv2d_relu_conv2d_report(
                 first_static_context_slot=0,
                 second_static_context_slot=1,
                 bounded_submission_owned=True,
+                program_private_scratch=True,
+                scratch_ring_capacity=2,
+                timeline_gated_release=True,
                 direct_transition_only=True,
                 replay_state_empty=True,
             ),
@@ -513,7 +519,7 @@ class TestVulkanGraphEvidence(TestCase):
             multi_node["reason"], "graph_owned_static_conv2d_relu_conv2d"
         )
         self.assertEqual(multi_node["program_name"], "StaticConv2dReluConv2dRegion")
-        self.assertEqual(multi_node["program_version"], "v2")
+        self.assertEqual(multi_node["program_version"], "v3")
         self.assertEqual(multi_node["instruction_count"], 2)
         self.assertEqual(multi_node["input_ssa"], 0)
         self.assertEqual(multi_node["intermediate_ssa"], 1)
@@ -525,6 +531,9 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(multi_node["first_static_context_slot"], 0)
         self.assertEqual(multi_node["second_static_context_slot"], 1)
         self.assertTrue(multi_node["bounded_submission_owned"])
+        self.assertTrue(multi_node["program_private_scratch"])
+        self.assertEqual(multi_node["scratch_ring_capacity"], 2)
+        self.assertTrue(multi_node["timeline_gated_release"])
         self.assertTrue(multi_node["direct_transition_only"])
         self.assertTrue(multi_node["replay_state_empty"])
         self.assertEqual(static_conv_report["candidate_count"], 1)

@@ -125,6 +125,11 @@ struct VulkanGraphProgramInvocationCounters final {
   std::atomic<uint64_t> normal_submit_token_capture_count{0u};
   std::atomic<uint64_t> aborted_submit_count{0u};
   std::atomic<uint64_t> rejected_incompatible_state_count{0u};
+  std::atomic<uint64_t> scratch_captured_count{0u};
+  std::atomic<uint64_t> scratch_reused_count{0u};
+  std::atomic<uint64_t> scratch_transient_overflow_count{0u};
+  std::atomic<uint64_t> scratch_retire_enqueued_count{0u};
+  std::atomic<uint64_t> scratch_immediate_release_count{0u};
 };
 
 enum class VulkanSubmitOrigin : uint8_t {

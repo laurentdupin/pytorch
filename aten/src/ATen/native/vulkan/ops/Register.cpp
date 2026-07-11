@@ -2,6 +2,7 @@
 
 #include <ATen/Functions.h>
 #include <ATen/ops/gelu.h>
+#include <ATen/native/ConvUtils.h>
 #include <ATen/native/quantized/PackedParams.h>
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
@@ -42,6 +43,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -212,13 +214,63 @@ class GraphConv2dReluConv2dInvocation final {
       : plan_(plan) {
     TORCH_CHECK(
         plan_.try_begin_invocation(),
-        "StaticConv2dReluConv2dRegion.v1 rejects concurrent invocation");
+        "StaticConv2dReluConv2dRegion.v3 rejects concurrent invocation");
   }
 
   ~GraphConv2dReluConv2dInvocation() {
     plan_.end_invocation();
   }
 };
+
+std::optional<utils::GraphConv2dReluConv2dScratchDescriptor>
+graph_conv2d_relu_conv2d_scratch_descriptor(
+    const Tensor& input,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  if (
+      !input.is_vulkan() || input.scalar_type() != kFloat || input.dim() != 4 ||
+      !conv_context || conv_context->quantized() ||
+      conv_context->transposed() ||
+      conv_context->packed_weight().execution_layout() !=
+          api::ExecutionLayout::BUFFER_DIRECT ||
+      !std::all_of(
+          conv_context->output_padding().begin(),
+          conv_context->output_padding().end(),
+          [](const int64_t value) { return value == 0; })) {
+    return std::nullopt;
+  }
+  const PackedWeightHandle& packed_weight = conv_context->packed_weight();
+  const vTensor& v_weight = packed_weight.weight_vtensor();
+  const vTensor& v_bias = packed_weight.bias_vtensor();
+  if (
+      v_weight.storage_type() != api::StorageType::BUFFER ||
+      v_weight.dtype() != api::kFloat ||
+      v_bias.storage_type() != api::StorageType::BUFFER ||
+      v_bias.dtype() != api::kFloat) {
+    return std::nullopt;
+  }
+  std::vector<int64_t> output_sizes = conv_output_size(
+      input.sizes(),
+      packed_weight.logical_weight_sizes(),
+      conv_context->padding(),
+      conv_context->stride(),
+      conv_context->dilation());
+  if (
+      output_sizes.size() != 4 ||
+      !std::all_of(
+          output_sizes.begin(),
+          output_sizes.end(),
+          [](const int64_t value) { return value > 0; })) {
+    return std::nullopt;
+  }
+  return utils::GraphConv2dReluConv2dScratchDescriptor{
+      std::move(output_sizes),
+      kFloat,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+      api::ExecutionLayout::BUFFER_DIRECT,
+      true,
+  };
+}
 
 } // namespace
 
@@ -421,11 +473,63 @@ utils::GraphConv2dReluConv2dPlan::GraphConv2dReluConv2dPlan(
       second_conv_context_(std::move(second_conv_context)) {
   TORCH_CHECK(
       first_conv_context_ && second_conv_context_,
-      "StaticConv2dReluConv2dRegion.v1 requires two static "
+      "StaticConv2dReluConv2dRegion.v3 requires two static "
       "Conv2dPackedContext values");
   TORCH_CHECK(
       first_conv_context_.get() != second_conv_context_.get(),
-      "StaticConv2dReluConv2dRegion.v1 requires distinct static contexts");
+      "StaticConv2dReluConv2dRegion.v3 requires distinct static contexts");
+}
+
+utils::GraphConv2dReluConv2dPlan::~GraphConv2dReluConv2dPlan() noexcept {
+  for (GraphConv2dReluConv2dScratchSlot& slot : scratch_slots_) {
+    if (!slot.tensor.defined()) {
+      continue;
+    }
+    Tensor tensor = std::move(slot.tensor);
+    if (
+        slot.submission.timeline == VK_NULL_HANDLE ||
+        slot.submission.timeline_value == 0u) {
+      // Retain storage with unknown completion ownership.
+      (void)tensor.unsafeReleaseTensorImpl();
+      continue;
+    }
+    std::vector<api::VulkanBuffer>* retired_buffers = nullptr;
+    try {
+      api::Context* const context = convert(tensor).context();
+      if (context->graph_program_submission_complete(slot.submission)) {
+        std::vector<api::VulkanBuffer> buffers =
+            convert(tensor).release_graph_program_owned_buffers();
+        api::vulkan_graph_program_invocation_counters()
+            .scratch_immediate_release_count.fetch_add(
+                1u, std::memory_order_relaxed);
+        continue;
+      }
+      retired_buffers = new std::vector<api::VulkanBuffer>();
+      std::vector<api::VulkanBuffer> buffers =
+          convert(tensor).release_graph_program_owned_buffers();
+      retired_buffers->swap(buffers);
+      context->retire_graph_program_resource(
+          slot.submission,
+          [retired_buffers]() { delete retired_buffers; });
+      api::vulkan_graph_program_invocation_counters()
+          .scratch_retire_enqueued_count.fetch_add(
+              1u, std::memory_order_relaxed);
+    } catch (...) {
+      if (retired_buffers && retired_buffers->empty()) {
+        delete retired_buffers;
+      }
+      // Retain uncertain in-flight storage rather than releasing it early.
+      (void)tensor.unsafeReleaseTensorImpl();
+    }
+  }
+}
+
+bool utils::GraphConv2dReluConv2dScratchDescriptor::matches(
+    const GraphConv2dReluConv2dScratchDescriptor& other) const {
+  return sizes == other.sizes && dtype == other.dtype &&
+      storage_type == other.storage_type && memory_layout == other.memory_layout &&
+      execution_layout == other.execution_layout &&
+      direct_buffer == other.direct_buffer;
 }
 
 const utils::StaticConv2dReluConv2dPlanSchema&
@@ -441,6 +545,77 @@ utils::GraphConv2dReluConv2dPlan::first_conv_context() const {
 const c10::intrusive_ptr<Conv2dPackedContext>&
 utils::GraphConv2dReluConv2dPlan::second_conv_context() const {
   return second_conv_context_;
+}
+
+int64_t utils::GraphConv2dReluConv2dPlan::find_reusable_scratch_slot(
+    const GraphConv2dReluConv2dScratchDescriptor& descriptor,
+    api::Context& context) {
+  for (size_t index = 0; index < scratch_slots_.size(); ++index) {
+    GraphConv2dReluConv2dScratchSlot& slot = scratch_slots_[index];
+    if (
+        slot.tensor.defined() && slot.descriptor.matches(descriptor) &&
+        context.graph_program_submission_complete(slot.submission)) {
+      return static_cast<int64_t>(index);
+    }
+  }
+  return -1;
+}
+
+int64_t utils::GraphConv2dReluConv2dPlan::find_capture_scratch_slot(
+    api::Context& context) {
+  for (size_t index = 0; index < scratch_slots_.size(); ++index) {
+    GraphConv2dReluConv2dScratchSlot& slot = scratch_slots_[index];
+    if (!slot.tensor.defined()) {
+      return static_cast<int64_t>(index);
+    }
+  }
+  for (size_t index = 0; index < scratch_slots_.size(); ++index) {
+    GraphConv2dReluConv2dScratchSlot& slot = scratch_slots_[index];
+    if (context.graph_program_submission_complete(slot.submission)) {
+      try {
+        std::vector<api::VulkanBuffer> buffers =
+            convert(slot.tensor).release_graph_program_owned_buffers();
+      } catch (...) {
+        continue;
+      }
+      slot = GraphConv2dReluConv2dScratchSlot{};
+      api::vulkan_graph_program_invocation_counters()
+          .scratch_immediate_release_count.fetch_add(
+              1u, std::memory_order_relaxed);
+      return static_cast<int64_t>(index);
+    }
+  }
+  return -1;
+}
+
+Tensor& utils::GraphConv2dReluConv2dPlan::scratch_tensor(const size_t index) {
+  TORCH_CHECK(
+      index < scratch_slots_.size(),
+      "StaticConv2dReluConv2dRegion.v3 scratch slot is out of range");
+  return scratch_slots_[index].tensor;
+}
+
+void utils::GraphConv2dReluConv2dPlan::adopt_scratch_tensor(
+    const size_t index,
+    Tensor tensor,
+    GraphConv2dReluConv2dScratchDescriptor descriptor,
+    const api::VulkanSubmission submission) {
+  TORCH_CHECK(
+      index < scratch_slots_.size() && tensor.defined() &&
+          submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
+      "StaticConv2dReluConv2dRegion.v3 cannot adopt invalid scratch state");
+  scratch_slots_[index] = GraphConv2dReluConv2dScratchSlot{
+      std::move(tensor), std::move(descriptor), submission};
+}
+
+void utils::GraphConv2dReluConv2dPlan::mark_scratch_submission(
+    const size_t index,
+    const api::VulkanSubmission submission) {
+  TORCH_CHECK(
+      index < scratch_slots_.size() &&
+          submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
+      "StaticConv2dReluConv2dRegion.v3 cannot mark invalid scratch submission");
+  scratch_slots_[index].submission = submission;
 }
 
 bool utils::GraphConv2dReluConv2dPlan::try_begin_invocation() {
@@ -462,10 +637,10 @@ utils::create_graph_conv2d_relu_conv2d_plan(
 Tensor utils::run_graph_conv2d_relu_conv2d_plan(
     const Tensor& input,
     const c10::intrusive_ptr<utils::GraphConv2dReluConv2dPlan>& plan) {
-  TORCH_CHECK(plan, "StaticConv2dReluConv2dRegion.v1 requires a plan");
+  TORCH_CHECK(plan, "StaticConv2dReluConv2dRegion.v3 requires a plan");
   TORCH_CHECK(
       input.is_vulkan(),
-      "StaticConv2dReluConv2dRegion.v1 requires a Vulkan input tensor");
+      "StaticConv2dReluConv2dRegion.v3 requires a Vulkan input tensor");
   TORCH_CHECK(
       plan->schema().instruction_count == 2u &&
           plan->schema().input_ssa == 0u &&
@@ -478,19 +653,109 @@ Tensor utils::run_graph_conv2d_relu_conv2d_plan(
           plan->schema().first_static_context_slot == 0u &&
           plan->schema().second_static_context_slot == 1u &&
           plan->schema().bounded_submission_owned &&
+          plan->schema().program_private_scratch &&
+          plan->schema().scratch_ring_capacity == 2u &&
+          plan->schema().timeline_gated_release &&
           plan->schema().direct_transition_only &&
           plan->schema().replay_state_empty,
-      "StaticConv2dReluConv2dRegion.v2 has an invalid plan schema");
+      "StaticConv2dReluConv2dRegion.v3 has an invalid plan schema");
   GraphConv2dReluConv2dInvocation invocation(*plan);
-  api::Context::GraphProgramInvocationScope scope(*api::context());
-  try {
+  const auto expected_descriptor =
+      graph_conv2d_relu_conv2d_scratch_descriptor(
+          input, plan->first_conv_context());
+  const std::vector<int64_t> intermediate_sizes = conv_output_size(
+      input.sizes(),
+      plan->first_conv_context()->packed_weight().logical_weight_sizes(),
+      plan->first_conv_context()->padding(),
+      plan->first_conv_context()->stride(),
+      plan->first_conv_context()->dilation());
+  if (
+      conv2d_context_may_require_host_sync(
+          input.sizes(), plan->first_conv_context()) ||
+      conv2d_context_may_require_host_sync(
+          intermediate_sizes, plan->second_conv_context())) {
     Tensor intermediate =
         run_conv2d_context_relu(input, plan->first_conv_context());
+    return run_conv2d_context(intermediate, plan->second_conv_context());
+  }
+  api::Context::GraphProgramInvocationScope scope(*api::context());
+  api::Context& context = *api::context();
+  int64_t scratch_slot = -1;
+  bool reused_scratch = false;
+  bool created_scratch = false;
+  try {
+    Tensor intermediate;
+    if (expected_descriptor) {
+      scratch_slot = plan->find_reusable_scratch_slot(
+          *expected_descriptor, context);
+      if (scratch_slot >= 0) {
+        if (auto scratch_intermediate = try_run_conv2d_context_relu_out(
+                input,
+                plan->first_conv_context(),
+                plan->scratch_tensor(static_cast<size_t>(scratch_slot)))) {
+          intermediate = std::move(*scratch_intermediate);
+          reused_scratch = true;
+        } else {
+          scratch_slot = -1;
+        }
+      }
+      if (!reused_scratch) {
+        scratch_slot = plan->find_capture_scratch_slot(context);
+        if (scratch_slot < 0) {
+          api::vulkan_graph_program_invocation_counters()
+              .scratch_transient_overflow_count.fetch_add(
+                  1u, std::memory_order_relaxed);
+        } else {
+          Tensor scratch;
+          try {
+            scratch = utils::create_buffer_tensor(
+                expected_descriptor->sizes, kFloat, /*persistent=*/true);
+          } catch (const c10::Error&) {
+            scratch_slot = -1;
+          }
+          if (scratch_slot >= 0) {
+            if (auto scratch_intermediate = try_run_conv2d_context_relu_out(
+                    input, plan->first_conv_context(), scratch)) {
+              intermediate = std::move(*scratch_intermediate);
+              created_scratch = true;
+            } else {
+              scratch_slot = -1;
+            }
+          }
+        }
+      }
+    }
+    if (!reused_scratch && !created_scratch) {
+      intermediate = run_conv2d_context_relu(input, plan->first_conv_context());
+    }
     Tensor output = run_conv2d_context(intermediate, plan->second_conv_context());
-    scope.submit();
+    const api::VulkanSubmission submission = scope.submit();
+    if (reused_scratch) {
+      utils::mark_tensor_execution(
+          plan->scratch_tensor(static_cast<size_t>(scratch_slot)),
+          api::ExecutionLayout::BUFFER_DIRECT,
+          true);
+      plan->mark_scratch_submission(
+          static_cast<size_t>(scratch_slot), submission);
+      api::vulkan_graph_program_invocation_counters()
+          .scratch_reused_count.fetch_add(1u, std::memory_order_relaxed);
+    } else if (created_scratch) {
+      plan->adopt_scratch_tensor(
+          static_cast<size_t>(scratch_slot),
+          utils::mark_tensor_execution(
+              intermediate, api::ExecutionLayout::BUFFER_DIRECT, true),
+          *expected_descriptor,
+          submission);
+      api::vulkan_graph_program_invocation_counters()
+          .scratch_captured_count.fetch_add(1u, std::memory_order_relaxed);
+    }
     return output;
   } catch (...) {
     scope.abort();
+    if (reused_scratch && scope.submission().timeline != VK_NULL_HANDLE) {
+      plan->mark_scratch_submission(
+          static_cast<size_t>(scratch_slot), scope.submission());
+    }
     throw;
   }
 }

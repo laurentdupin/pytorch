@@ -568,6 +568,45 @@ api::VulkanBuffer& vTensor::buffer(
   return view_->buffer_;
 }
 
+std::vector<api::VulkanBuffer> vTensor::release_graph_program_owned_buffers() {
+  TORCH_CHECK(
+      view_ && view_.use_count() == 1 &&
+          storage_type() == api::StorageType::BUFFER &&
+          execution_layout() == api::ExecutionLayout::BUFFER_DIRECT &&
+          !view_->image_ && view_->buffer_,
+      "Graph program resource release requires unaliased direct buffer storage");
+  TORCH_CHECK(
+      !cpu_sizes_uniform_ || cpu_sizes_uniform_.use_count() == 1,
+      "Graph program resource release requires unaliased CPU size metadata");
+  TORCH_CHECK(
+      !gpu_sizes_uniform_ || gpu_sizes_uniform_.use_count() == 1,
+      "Graph program resource release requires unaliased GPU size metadata");
+  TORCH_CHECK(
+      !extents_uniform_ || extents_uniform_.use_count() == 1,
+      "Graph program resource release requires unaliased extent metadata");
+
+  std::vector<api::VulkanBuffer> buffers;
+  buffers.reserve(5u);
+  const auto release_buffer = [&buffers](api::VulkanBuffer& buffer) {
+    if (buffer) {
+      buffers.emplace_back(std::move(buffer));
+    }
+  };
+  release_buffer(view_->buffer_);
+  release_buffer(metadata_uniform_.buffer());
+  if (cpu_sizes_uniform_) {
+    release_buffer(cpu_sizes_uniform_->buffer());
+  }
+  if (gpu_sizes_uniform_) {
+    release_buffer(gpu_sizes_uniform_->buffer());
+  }
+  if (extents_uniform_) {
+    release_buffer(extents_uniform_->buffer());
+  }
+  view_->last_access_ = {};
+  return buffers;
+}
+
 api::VulkanBuffer& vTensor::buffer_metadata() {
   if (!metadata_uniform_.buffer()) {
     metadata_uniform_ = make_metadata_uniform(

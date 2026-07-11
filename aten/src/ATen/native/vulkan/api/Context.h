@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -637,6 +638,11 @@ class TORCH_API Context final {
         pending_retire_buffers_mutex_);
     pending_retire_buffers_.push_back(std::move(pending));
   }
+
+  bool graph_program_submission_complete(const VulkanSubmission&) const;
+  void retire_graph_program_resource(
+      VulkanSubmission,
+      std::function<void()> cleanup);
 
   void register_image_cleanup(
       VulkanImage& image,

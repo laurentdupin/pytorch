@@ -6,7 +6,9 @@
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <torch/custom_class.h>
 #include <tuple>
@@ -139,7 +141,7 @@ Tensor run_graph_conv2d_relu_plan(
 
 struct StaticConv2dReluConv2dPlanSchema final {
   const char* program_name{"StaticConv2dReluConv2dRegion"};
-  const char* version{"v2"};
+  const char* version{"v3"};
   uint32_t instruction_count{2u};
   uint32_t input_ssa{0u};
   uint32_t intermediate_ssa{1u};
@@ -151,8 +153,29 @@ struct StaticConv2dReluConv2dPlanSchema final {
   uint32_t first_static_context_slot{0u};
   uint32_t second_static_context_slot{1u};
   bool bounded_submission_owned{true};
+  bool program_private_scratch{true};
+  uint32_t scratch_ring_capacity{2u};
+  bool timeline_gated_release{true};
   bool direct_transition_only{true};
   bool replay_state_empty{true};
+};
+
+struct GraphConv2dReluConv2dScratchDescriptor final {
+  std::vector<int64_t> sizes;
+  ScalarType dtype{ScalarType::Undefined};
+  api::StorageType storage_type{api::StorageType::UNKNOWN};
+  api::GPUMemoryLayout memory_layout{
+      api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED};
+  api::ExecutionLayout execution_layout{api::ExecutionLayout::TEXTURE};
+  bool direct_buffer{false};
+
+  bool matches(const GraphConv2dReluConv2dScratchDescriptor&) const;
+};
+
+struct GraphConv2dReluConv2dScratchSlot final {
+  Tensor tensor;
+  GraphConv2dReluConv2dScratchDescriptor descriptor;
+  api::VulkanSubmission submission;
 };
 
 class GraphConv2dReluConv2dPlan final
@@ -161,16 +184,29 @@ class GraphConv2dReluConv2dPlan final
   StaticConv2dReluConv2dPlanSchema schema_{};
   c10::intrusive_ptr<Conv2dPackedContext> first_conv_context_;
   c10::intrusive_ptr<Conv2dPackedContext> second_conv_context_;
+  std::array<GraphConv2dReluConv2dScratchSlot, 2u> scratch_slots_{};
   std::atomic_flag invocation_active_ = ATOMIC_FLAG_INIT;
 
  public:
   GraphConv2dReluConv2dPlan(
       c10::intrusive_ptr<Conv2dPackedContext> first_conv_context,
       c10::intrusive_ptr<Conv2dPackedContext> second_conv_context);
+  ~GraphConv2dReluConv2dPlan() noexcept;
 
   const StaticConv2dReluConv2dPlanSchema& schema() const;
   const c10::intrusive_ptr<Conv2dPackedContext>& first_conv_context() const;
   const c10::intrusive_ptr<Conv2dPackedContext>& second_conv_context() const;
+  int64_t find_reusable_scratch_slot(
+      const GraphConv2dReluConv2dScratchDescriptor&,
+      api::Context&);
+  int64_t find_capture_scratch_slot(api::Context&);
+  Tensor& scratch_tensor(size_t);
+  void adopt_scratch_tensor(
+      size_t,
+      Tensor,
+      GraphConv2dReluConv2dScratchDescriptor,
+      api::VulkanSubmission);
+  void mark_scratch_submission(size_t, api::VulkanSubmission);
   bool try_begin_invocation();
   void end_invocation();
 };

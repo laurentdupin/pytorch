@@ -1,4 +1,5 @@
 import copy
+import gc
 import os
 import operator
 import unittest
@@ -932,7 +933,7 @@ class TestVulkanGraph(TestCase):
             )
             node = program.static_conv2d_relu_conv2d_regions.nodes[0]
             self.assertEqual(node.program_name, "StaticConv2dReluConv2dRegion")
-            self.assertEqual(node.program_version, "v2")
+            self.assertEqual(node.program_version, "v3")
             self.assertEqual(node.instruction_count, 2)
             self.assertEqual(node.input_ssa, 0)
             self.assertEqual(node.intermediate_ssa, 1)
@@ -944,6 +945,9 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(node.first_static_context_slot, 0)
             self.assertEqual(node.second_static_context_slot, 1)
             self.assertTrue(node.bounded_submission_owned)
+            self.assertTrue(node.program_private_scratch)
+            self.assertEqual(node.scratch_ring_capacity, 2)
+            self.assertTrue(node.timeline_gated_release)
             self.assertTrue(node.direct_transition_only)
             self.assertTrue(node.replay_state_empty)
             self.assertEqual(program.static_conv2d_relu_regions.lowered_count, 0)
@@ -963,10 +967,12 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(program.last_sync_readback_count, 0)
             self.assertEqual(program.last_deferred_values_created, 0)
             counters = _graph_program_invocation_counters()
-            self.assertEqual(len(counters), 4)
+            self.assertEqual(len(counters), 9)
             self.assertGreaterEqual(counters[0], 1)
             self.assertGreaterEqual(counters[1], 1)
-            self.assertEqual(counters[2:], [0, 0])
+            self.assertEqual(counters[2:4], [0, 0])
+            self.assertGreaterEqual(counters[4], 1)
+            self.assertEqual(counters[5:], [0, 0, 0, 0])
 
     def test_static_conv2d_relu_conv2d_region_reuses_dynamic_shapes(self):
         class ConvReluConv(torch.nn.Module):
@@ -992,7 +998,7 @@ class TestVulkanGraph(TestCase):
         plan_attrs = _static_conv2d_relu_conv2d_plan_attrs(program)
         self.assertEqual(len(plan_attrs), 1)
         torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
-        for shape in ((1, 3, 5, 11), (4, 3, 12, 5)):
+        for shape in ((1, 3, 5, 11), (4, 3, 12, 5), (1, 3, 5, 11)):
             tensor = torch.randn(shape)
             torch.testing.assert_close(
                 program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
@@ -1004,7 +1010,98 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
-        self.assertEqual(_graph_program_invocation_counters(), [2, 2, 0, 0])
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [3, 3, 0, 0, 2, 1, 0, 0, 0],
+        )
+
+    def test_static_conv2d_relu_conv2d_region_allows_two_unread_outputs(self):
+        class ConvReluConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 4, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(4, 2, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv1(torch.relu(self.conv0(tensor)))
+
+        torch.manual_seed(23)
+        model = ConvReluConv().eval()
+        tensor = torch.randn(2, 3, 9, 11)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        first_output = program(tensor)
+        second_output = program(tensor)
+        torch.testing.assert_close(
+            first_output.cpu(), expected, rtol=1e-4, atol=1e-4
+        )
+        torch.testing.assert_close(
+            second_output.cpu(), expected, rtol=1e-4, atol=1e-4
+        )
+        counters = _graph_program_invocation_counters()
+        self.assertEqual(counters[:4], [2, 2, 0, 0])
+        self.assertEqual(sum(counters[4:7]), 2)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_conv2d_relu_conv2d_region_releases_or_retires_scratch(self):
+        class ConvReluConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 24, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(24, 12, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv1(torch.relu(self.conv0(tensor)))
+
+        torch.manual_seed(29)
+        model = ConvReluConv().eval()
+        tensor = torch.randn(2, 3, 256, 257)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        first_output = program(tensor)
+        second_output = program(tensor)
+        del program
+        gc.collect()
+        torch.testing.assert_close(
+            first_output.cpu(), expected, rtol=1e-4, atol=1e-4
+        )
+        torch.testing.assert_close(
+            second_output.cpu(), expected, rtol=1e-4, atol=1e-4
+        )
+        counters = _graph_program_invocation_counters()
+        self.assertGreaterEqual(counters[4] + counters[5], 1)
+        self.assertGreaterEqual(counters[7] + counters[8], 1)
+        if counters[7] == 0:
+            self.assertGreaterEqual(counters[8], 1)
+
+    def test_static_conv2d_relu_conv2d_region_releases_completed_scratch(self):
+        class ConvReluConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 4, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(4, 2, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv1(torch.relu(self.conv0(tensor)))
+
+        torch.manual_seed(31)
+        model = ConvReluConv().eval()
+        tensor = torch.randn(2, 3, 11, 13)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        output = program(tensor)
+        torch.testing.assert_close(output.cpu(), expected, rtol=1e-4, atol=1e-4)
+        del program
+        gc.collect()
+        counters = _graph_program_invocation_counters()
+        self.assertGreaterEqual(counters[4], 1)
+        self.assertEqual(counters[7], 0)
+        self.assertGreaterEqual(counters[8], 1)
 
     def test_static_conv2d_lowering_matches_cpu_and_releases_weights(self):
         class ConvRelu(torch.nn.Module):

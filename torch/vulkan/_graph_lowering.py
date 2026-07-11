@@ -203,6 +203,9 @@ class VulkanStaticConv2dReluConv2dRegionNodeReport:
     first_static_context_slot: int | None
     second_static_context_slot: int | None
     bounded_submission_owned: bool | None
+    program_private_scratch: bool | None
+    scratch_ring_capacity: int | None
+    timeline_gated_release: bool | None
     direct_transition_only: bool | None
     replay_state_empty: bool | None
 
@@ -359,7 +362,7 @@ def _static_conv2d_relu_conv2d_plan_attr_name(
             first_context_attr,
             second_context_attr,
             second_conv2d_node_name,
-            "StaticConv2dReluConv2dRegion.v2",
+            "StaticConv2dReluConv2dRegion.v3",
         )
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
@@ -2029,7 +2032,7 @@ def lower_static_conv2d_relu_conv2d_regions(
                 program_name=(
                     "StaticConv2dReluConv2dRegion" if has_plan_schema else None
                 ),
-                program_version="v2" if has_plan_schema else None,
+                program_version="v3" if has_plan_schema else None,
                 instruction_count=2 if has_plan_schema else 0,
                 input_ssa=0 if has_plan_schema else None,
                 intermediate_ssa=1 if has_plan_schema else None,
@@ -2041,6 +2044,9 @@ def lower_static_conv2d_relu_conv2d_regions(
                 first_static_context_slot=0 if has_plan_schema else None,
                 second_static_context_slot=1 if has_plan_schema else None,
                 bounded_submission_owned=True if has_plan_schema else None,
+                program_private_scratch=True if has_plan_schema else None,
+                scratch_ring_capacity=2 if has_plan_schema else None,
+                timeline_gated_release=True if has_plan_schema else None,
                 direct_transition_only=True if has_plan_schema else None,
                 replay_state_empty=True if has_plan_schema else None,
             )
