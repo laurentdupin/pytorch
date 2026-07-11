@@ -1914,6 +1914,107 @@ class TestVulkanGraph(TestCase):
             program()
         self.assertIsNone(program.last_implicit_boundary)
 
+    def test_normalizes_isolated_int64_unsqueeze_to_float32_at_graph_input(self):
+        class NormalizeTimestep(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.unsqueeze(0).to(torch.float32) * 0.5
+
+        tensor = torch.tensor([1, 2, 3], dtype=torch.int64)
+        model = NormalizeTimestep().eval()
+        program = torch.vulkan.export_and_lower(model, tensor)
+        with torch.inference_mode():
+            cpu_output = model(tensor)
+            eager_vulkan_output = model(tensor.to("vulkan")).cpu()
+            graph_output = program(tensor).cpu()
+        torch.testing.assert_close(graph_output, cpu_output)
+        torch.testing.assert_close(graph_output, eager_vulkan_output)
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        node = report.nodes[0]
+        self.assertEqual(node.status, "lowered")
+        self.assertEqual(node.placeholder_name, "tensor")
+        self.assertEqual(node.source_dtype, torch.int64)
+        self.assertEqual(node.target_dtype, torch.float32)
+        self.assertEqual(node.erased_node_name, "to")
+        self.assertEqual(node.chain_node_names, ("unsqueeze",))
+        self.assertNotIn("aten.to.dtype", program.graph_module.code)
+        self.assertIn("dtype=torch.int64", program.key.input_signature[0])
+        self.assertIn("dtype = torch.float32", program.graph_module.code)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "requires CPU dtype torch.int64 before graph input normalization",
+        ):
+            program(tensor.to(torch.float32))
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "Vulkan input 'tensor' requires normalized dtype torch.float32; "
+            "got torch.int64",
+        ):
+            program(tensor.to("vulkan"))
+
+    def test_rejects_graph_input_normalization_with_observable_view_consumer(self):
+        class ObservableView(torch.nn.Module):
+            def forward(self, tensor):
+                view = tensor.unsqueeze(0)
+                return view, view.to(torch.float32)
+
+        program = torch.vulkan.export_and_lower(
+            ObservableView().eval(),
+            torch.tensor([1, 2, 3], dtype=torch.int64),
+        )
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "placeholder_path_has_observable_consumer_or_alias",
+        )
+        self.assertIn("aten.to.dtype", program.graph_module.code)
+
+    def test_rejects_graph_input_normalization_unsupported_cast_dtype(self):
+        class UnsupportedCast(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.unsqueeze(0).to(torch.float16)
+
+        program = torch.vulkan.export_and_lower(
+            UnsupportedCast().eval(),
+            torch.tensor([1, 2, 3], dtype=torch.int64),
+        )
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "to_dtype_target_not_supported_floating_dtype",
+        )
+        self.assertIn("aten.to.dtype", program.graph_module.code)
+
+        class CopyCast(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.unsqueeze(0).to(torch.float32, copy=True)
+
+        copy_program = torch.vulkan.export_and_lower(
+            CopyCast().eval(),
+            torch.tensor([1, 2, 3], dtype=torch.int64),
+        )
+        copy_report = copy_program.input_normalization
+        self.assertEqual(copy_report.candidate_count, 1)
+        self.assertEqual(copy_report.lowered_count, 0)
+        self.assertEqual(copy_report.rejected_count, 1)
+        self.assertEqual(
+            copy_report.nodes[0].reason,
+            "to_dtype_signature_not_static_default",
+        )
+        self.assertIn("aten.to.dtype", copy_program.graph_module.code)
+
     def test_graph_node_scope_ends_when_dispatch_raises(self):
         graph = torch.fx.Graph()
         tensor = graph.placeholder("tensor")

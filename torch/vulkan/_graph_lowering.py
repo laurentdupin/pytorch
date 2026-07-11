@@ -243,6 +243,26 @@ class VulkanStaticConv2dReluConv2dRegionReport:
     excluded_relu_node_names: tuple[str, ...] = ()
 
 
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphInputNormalizationNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    placeholder_name: str | None
+    source_dtype: torch.dtype | None
+    target_dtype: torch.dtype | None
+    erased_node_name: str | None
+    chain_node_names: tuple[str, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphInputNormalizationReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    nodes: tuple[VulkanGraphInputNormalizationNodeReport, ...]
+
+
 def _get_attr_target(value: Any) -> str | None:
     if isinstance(value, torch.fx.Node) and value.op == "get_attr":
         return str(value.target)
@@ -374,6 +394,238 @@ def _static_conv2d_relu_plan_attr_name(
 
 def _snapshot_for_context(tensor: torch.Tensor) -> torch.Tensor:
     return tensor.detach().clone(memory_format=torch.contiguous_format)
+
+
+def _node_tensor_dtype(node: torch.fx.Node) -> torch.dtype | None:
+    value = node.meta.get("val")
+    if isinstance(value, torch.Tensor):
+        return value.dtype
+    tensor_meta = node.meta.get("tensor_meta")
+    dtype = getattr(tensor_meta, "dtype", None)
+    return dtype if isinstance(dtype, torch.dtype) else None
+
+
+def _set_node_tensor_dtype(node: torch.fx.Node, dtype: torch.dtype) -> None:
+    value = node.meta.get("val")
+    if isinstance(value, torch.Tensor):
+        node.meta["val"] = value.to(dtype=dtype)
+    tensor_meta = node.meta.get("tensor_meta")
+    if hasattr(tensor_meta, "_replace"):
+        node.meta["tensor_meta"] = tensor_meta._replace(dtype=dtype)
+
+
+def _is_static_unsqueeze(node: torch.fx.Node) -> bool:
+    return (
+        node.op == "call_function"
+        and node.target == torch.ops.aten.unsqueeze.default
+        and len(node.args) == 2
+        and not node.kwargs
+        and isinstance(node.args[0], torch.fx.Node)
+        and isinstance(node.args[1], int)
+        and not isinstance(node.args[1], bool)
+    )
+
+
+def _is_metadata_assertion(
+    node: torch.fx.Node,
+    value: torch.fx.Node,
+) -> bool:
+    return (
+        node.op == "call_function"
+        and node.target == torch.ops.aten._assert_tensor_metadata.default
+        and len(node.args) == 1
+        and node.args[0] is value
+        and "dtype" in node.kwargs
+        and set(node.kwargs).issubset({"dtype", "device", "layout"})
+        and not node.users
+    )
+
+
+def _is_export_guard_user(node: torch.fx.Node, value: torch.fx.Node) -> bool:
+    return (
+        node.op == "call_module"
+        and node.target == "_guards_fn"
+        and len(node.args) == 1
+        and node.args[0] is value
+        and not node.kwargs
+    )
+
+
+def _input_normalization_report(
+    node: torch.fx.Node,
+    status: str,
+    reason: str,
+    placeholder: torch.fx.Node | None = None,
+    source_dtype: torch.dtype | None = None,
+    target_dtype: torch.dtype | None = None,
+    chain: tuple[torch.fx.Node, ...] = (),
+) -> VulkanGraphInputNormalizationNodeReport:
+    return VulkanGraphInputNormalizationNodeReport(
+        node_name=node.name,
+        status=status,
+        reason=reason,
+        placeholder_name=None if placeholder is None else str(placeholder.target),
+        source_dtype=source_dtype,
+        target_dtype=target_dtype,
+        erased_node_name=node.name if status == "lowered" else None,
+        chain_node_names=tuple(chain_node.name for chain_node in chain),
+    )
+
+
+def lower_graph_input_dtype_normalizations(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanGraphInputNormalizationReport:
+    graph = graph_module.graph
+    reports: list[VulkanGraphInputNormalizationNodeReport] = []
+    changed = False
+    candidate_count = 0
+
+    for node in tuple(graph.nodes):
+        if node.op != "call_function" or node.target != torch.ops.aten.to.dtype:
+            continue
+        candidate_count += 1
+        if len(node.args) != 2 or node.kwargs:
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "to_dtype_signature_not_static_default",
+                )
+            )
+            continue
+        input_node, target_dtype = node.args
+        if not isinstance(input_node, torch.fx.Node):
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "to_dtype_input_not_graph_node",
+                    target_dtype=target_dtype
+                    if isinstance(target_dtype, torch.dtype)
+                    else None,
+                )
+            )
+            continue
+        if target_dtype != torch.float32:
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "to_dtype_target_not_supported_floating_dtype",
+                    target_dtype=target_dtype
+                    if isinstance(target_dtype, torch.dtype)
+                    else None,
+                )
+            )
+            continue
+
+        chain_reversed: list[torch.fx.Node] = []
+        current = input_node
+        while _is_static_unsqueeze(current):
+            chain_reversed.append(current)
+            current = current.args[0]
+        if current.op != "placeholder" or not chain_reversed:
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "to_dtype_input_not_isolated_unsqueeze_from_placeholder",
+                    target_dtype=target_dtype,
+                )
+            )
+            continue
+
+        placeholder = current
+        chain = tuple(reversed(chain_reversed))
+        source_dtype = _node_tensor_dtype(placeholder)
+        if source_dtype != torch.int64:
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "placeholder_source_dtype_not_int64",
+                    placeholder,
+                    source_dtype,
+                    target_dtype,
+                    chain,
+                )
+            )
+            continue
+
+        assertions: list[torch.fx.Node] = []
+        path = (placeholder, *chain)
+        path_isolated = True
+        for index, value in enumerate(path):
+            expected_user = chain[index] if index < len(chain) else node
+            for user in value.users:
+                if user is expected_user:
+                    continue
+                if _is_metadata_assertion(user, value):
+                    assertions.append(user)
+                    continue
+                if value is placeholder and _is_export_guard_user(user, value):
+                    continue
+                path_isolated = False
+                break
+            if not path_isolated:
+                break
+        if not path_isolated:
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "placeholder_path_has_observable_consumer_or_alias",
+                    placeholder,
+                    source_dtype,
+                    target_dtype,
+                    chain,
+                )
+            )
+            continue
+        if any(assertion.kwargs["dtype"] != source_dtype for assertion in assertions):
+            reports.append(
+                _input_normalization_report(
+                    node,
+                    "rejected",
+                    "placeholder_path_metadata_assertion_dtype_mismatch",
+                    placeholder,
+                    source_dtype,
+                    target_dtype,
+                    chain,
+                )
+            )
+            continue
+
+        for value in path:
+            _set_node_tensor_dtype(value, target_dtype)
+        for assertion in assertions:
+            assertion.kwargs = {**assertion.kwargs, "dtype": target_dtype}
+        node.replace_all_uses_with(chain[-1])
+        graph.erase_node(node)
+        reports.append(
+            _input_normalization_report(
+                node,
+                "lowered",
+                "isolated_int64_placeholder_unsqueeze_to_float32",
+                placeholder,
+                source_dtype,
+                target_dtype,
+                chain,
+            )
+        )
+        changed = True
+
+    if changed:
+        graph.eliminate_dead_code()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanGraphInputNormalizationReport(
+        candidate_count=candidate_count,
+        lowered_count=sum(report.status == "lowered" for report in reports),
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        nodes=tuple(reports),
+    )
 
 
 def _reject(
@@ -2549,6 +2801,8 @@ def make_vulkan_graph_region_lowering_report(
 __all__ = [
     "VulkanConv2dLoweringNodeReport",
     "VulkanConv2dLoweringReport",
+    "VulkanGraphInputNormalizationNodeReport",
+    "VulkanGraphInputNormalizationReport",
     "VulkanLayernormLoweringNodeReport",
     "VulkanLayernormLoweringReport",
     "VulkanStaticAddLayernormRegionNodeReport",
@@ -2571,4 +2825,5 @@ __all__ = [
     "lower_static_layernorm_to_vulkan_contexts",
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",
+    "lower_graph_input_dtype_normalizations",
 ]

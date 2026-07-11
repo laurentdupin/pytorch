@@ -15,6 +15,7 @@ import torch.utils._pytree as pytree
 
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
+    VulkanGraphInputNormalizationReport,
     VulkanGraphRegionLoweringReport,
     VulkanLayernormLoweringReport,
     VulkanLinearLoweringReport,
@@ -29,6 +30,7 @@ from ._graph_lowering import (
     lower_static_layernorm_to_vulkan_contexts,
     lower_static_linear_to_vulkan_contexts,
     lower_static_linear_gelu_regions,
+    lower_graph_input_dtype_normalizations,
     make_vulkan_graph_region_lowering_report,
 )
 
@@ -561,6 +563,59 @@ def _move_runtime_value(value: Any, device: torch.device) -> Any:
     return value.to(device)
 
 
+def _graph_placeholder_names(graph_module: torch.fx.GraphModule) -> tuple[str, ...]:
+    return tuple(
+        str(node.target)
+        for node in graph_module.graph.nodes
+        if node.op == "placeholder"
+    )
+
+
+def _normalize_graph_runtime_inputs(
+    graph_module: torch.fx.GraphModule,
+    values: tuple[Any, ...],
+    report: VulkanGraphInputNormalizationReport,
+) -> tuple[Any, ...]:
+    rules = {
+        node.placeholder_name: node
+        for node in report.nodes
+        if node.status == "lowered" and node.placeholder_name is not None
+    }
+    if not rules:
+        return values
+    normalized: list[Any] = []
+    for placeholder_name, value in zip(_graph_placeholder_names(graph_module), values):
+        rule = rules.get(placeholder_name)
+        if rule is None:
+            normalized.append(value)
+            continue
+        if (
+            not isinstance(value, torch.Tensor)
+            or rule.source_dtype is None
+            or rule.target_dtype is None
+        ):
+            raise VulkanGraphExecutionError(
+                "VulkanGraphProgram input normalization requires a tensor with "
+                f"recorded dtypes for placeholder {placeholder_name!r}"
+            )
+        if value.device.type == "cpu":
+            if value.dtype != rule.source_dtype:
+                raise VulkanGraphExecutionError(
+                    f"VulkanGraphProgram input {placeholder_name!r} requires CPU "
+                    f"dtype {rule.source_dtype} before graph input normalization to "
+                    f"{rule.target_dtype}; got {value.dtype}"
+                )
+            normalized.append(value.to(dtype=rule.target_dtype))
+            continue
+        if value.device.type == "vulkan" and value.dtype != rule.target_dtype:
+            raise VulkanGraphExecutionError(
+                f"VulkanGraphProgram Vulkan input {placeholder_name!r} requires "
+                f"normalized dtype {rule.target_dtype}; got {value.dtype}"
+            )
+        normalized.append(value)
+    return tuple(normalized)
+
+
 def _tensor_devices(value: Any) -> set[torch.device]:
     return {
         leaf.device
@@ -620,11 +675,7 @@ def _bind_runtime_inputs(
         ) from error
     bound.apply_defaults()
     parameter_names = tuple(parameter.name for parameter in parameters)
-    placeholder_names = tuple(
-        str(node.target)
-        for node in graph_module.graph.nodes
-        if node.op == "placeholder"
-    )
+    placeholder_names = _graph_placeholder_names(graph_module)
     if placeholder_names != parameter_names:
         raise VulkanGraphExecutionError(
             "VulkanGraphProgram cannot prove GraphModule placeholder order: "
@@ -779,6 +830,7 @@ class VulkanGraphProgram:
         device: torch.device,
         key: VulkanGraphProgramKey,
         census: VulkanGraphCensus,
+        input_normalization: VulkanGraphInputNormalizationReport,
         linear_lowering: VulkanLinearLoweringReport,
         static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
         conv2d_lowering: VulkanConv2dLoweringReport,
@@ -792,6 +844,7 @@ class VulkanGraphProgram:
         self._device = device
         self._key = key
         self._census = census
+        self._input_normalization = input_normalization
         self._linear_lowering = linear_lowering
         self._static_linear_gelu_regions = static_linear_gelu_regions
         self._conv2d_lowering = conv2d_lowering
@@ -827,6 +880,10 @@ class VulkanGraphProgram:
     @property
     def census(self) -> VulkanGraphCensus:
         return self._census
+
+    @property
+    def input_normalization(self) -> VulkanGraphInputNormalizationReport:
+        return self._input_normalization
 
     @property
     def linear_lowering(self) -> VulkanLinearLoweringReport:
@@ -892,8 +949,13 @@ class VulkanGraphProgram:
         with self._execution_lock:
             self._last_implicit_boundary = None
             bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
+            normalized_args = _normalize_graph_runtime_inputs(
+                self._graph_module,
+                bound_args,
+                self._input_normalization,
+            )
             moved_args = pytree.tree_map(
-                lambda value: _move_runtime_value(value, self._device), bound_args
+                lambda value: _move_runtime_value(value, self._device), normalized_args
             )
             interpreter = _VulkanGraphInterpreter(self._graph_module, self._device)
             scope_token = _begin_graph_execution_scope()
@@ -984,6 +1046,7 @@ def export_and_lower(
             exported_program, target_device
         )
         graph_module = moved_exported_program.module()
+        input_normalization = lower_graph_input_dtype_normalizations(graph_module)
         linear_lowering = lower_static_linear_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
         )
@@ -1062,6 +1125,7 @@ def export_and_lower(
             graph_module.code,
             str(exported_program.graph_signature),
             str(exported_program.range_constraints),
+            repr(input_normalization),
             repr(linear_lowering),
             repr(static_linear_gelu_regions),
             repr(conv2d_lowering),
@@ -1099,6 +1163,7 @@ def export_and_lower(
         target_device,
         key,
         census,
+        input_normalization,
         linear_lowering,
         static_linear_gelu_regions,
         conv2d_lowering,
@@ -1114,6 +1179,7 @@ __all__ = [
     "VulkanGraphCensus",
     "VulkanGraphExecutionError",
     "VulkanGraphImplicitBoundaryAttribution",
+    "VulkanGraphInputNormalizationReport",
     "VulkanGraphNodeRecord",
     "VulkanGraphProgram",
     "VulkanGraphProgramKey",
