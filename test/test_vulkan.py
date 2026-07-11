@@ -20062,6 +20062,113 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 atol=1e-4,
                 rtol=1e-4)
 
+    def test_packed_layernorm_view_permute_conv2d_materializes_buffer_view(self):
+        torch.manual_seed(7)
+        materialize_log_name = "layer_norm_view_permute_conv2d_materialize.log"
+        materialize_log_path = os.path.join(REPO_ROOT, materialize_log_name)
+        previous_materialize_log = os.environ.get("PYTORCH_VULKAN_MATERIALIZE_LOG")
+        op_hit_log_name = "layer_norm_view_permute_conv2d_op_hit.log"
+        op_hit_log_path = os.path.join(REPO_ROOT, op_hit_log_name)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        if os.path.exists(materialize_log_path):
+            os.remove(materialize_log_path)
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+
+        source_cpu = torch.randn(1, 40, 120)
+        layernorm_weight = torch.randn(120)
+        layernorm_bias = torch.randn(120)
+        layernorm_eps = 1e-5
+        normalized_cpu = F.layer_norm(
+            source_cpu,
+            (120,),
+            layernorm_weight,
+            layernorm_bias,
+            layernorm_eps,
+        )
+        conv_input_cpu = normalized_cpu.view(1, 1, 40, 120).permute(0, 3, 1, 2)
+        module_cpu = nn.Conv2d(120, 2048, kernel_size=1, bias=True).eval()
+        module_vulkan = nn.Conv2d(120, 2048, kernel_size=1, bias=True).eval()
+        module_vulkan.load_state_dict(module_cpu.state_dict())
+        module_vulkan = module_vulkan.to("vulkan")
+        direct_source_cpu = torch.randn(2, 24, 8, 7)
+        direct_module_cpu = nn.Conv2d(24, 16, kernel_size=1, bias=True).eval()
+        direct_module_vulkan = nn.Conv2d(24, 16, kernel_size=1, bias=True).eval()
+        direct_module_vulkan.load_state_dict(direct_module_cpu.state_dict())
+        direct_module_vulkan = direct_module_vulkan.to("vulkan")
+        layernorm_context = torch.ops.vulkan_prepack.create_layernorm_context.default(
+            layernorm_weight,
+            layernorm_bias,
+            layernorm_eps,
+        )
+
+        os.environ["PYTORCH_VULKAN_MATERIALIZE_LOG"] = materialize_log_path
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+        try:
+            with torch.inference_mode():
+                expected = module_cpu(conv_input_cpu)
+                source_vulkan = source_cpu.to("vulkan")
+                conv_input_vulkan = torch.ops.vulkan_prepack.run_layernorm_context.default(
+                    source_vulkan,
+                    [120],
+                    layernorm_context,
+                ).view(1, 1, 40, 120).permute(0, 3, 1, 2)
+
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                actual_vulkan = module_vulkan(conv_input_vulkan)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+                self._assert_outputs_close(
+                    expected,
+                    actual_vulkan.cpu(),
+                    atol=1e-4,
+                    rtol=1e-4)
+
+                self.assertTrue(os.path.exists(materialize_log_path))
+                with open(materialize_log_path, encoding="utf-8") as log_file:
+                    materialize_log = log_file.read()
+                self.assertIn("kind=ensure_buffer_storage", materialize_log)
+                self.assertIn("path=buffer_relayout", materialize_log)
+                self.assertIn("direct_buffer=0", materialize_log)
+
+                os.remove(materialize_log_path)
+                if os.path.exists(op_hit_log_path):
+                    os.remove(op_hit_log_path)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                direct_expected = direct_module_cpu(direct_source_cpu)
+                direct_actual_vulkan = direct_module_vulkan(direct_source_cpu.to("vulkan"))
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+                self._assert_outputs_close(
+                    direct_expected,
+                    direct_actual_vulkan.cpu(),
+                    atol=1e-4,
+                    rtol=1e-4)
+
+                direct_materialize_log = ""
+                if os.path.exists(materialize_log_path):
+                    with open(materialize_log_path, encoding="utf-8") as log_file:
+                        direct_materialize_log = log_file.read()
+                self.assertNotIn("kind=ensure_buffer_storage", direct_materialize_log)
+
+                self.assertTrue(os.path.exists(op_hit_log_path))
+                with open(op_hit_log_path, encoding="utf-8") as log_file:
+                    op_hit_log = log_file.read()
+                self.assertIn("op=aten::convolution.buffer_float_1x1", op_hit_log)
+        finally:
+            if previous_materialize_log is None:
+                os.environ.pop("PYTORCH_VULKAN_MATERIALIZE_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_MATERIALIZE_LOG"] = previous_materialize_log
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(materialize_log_path):
+                os.remove(materialize_log_path)
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+
     def test_decoder_tail_conv2d_runs_without_inference_mode(self):
         log_name = "decoder_tail_conv2d_no_inference_mode_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

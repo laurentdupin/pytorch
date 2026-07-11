@@ -2445,6 +2445,14 @@ void maybe_sync_after_gtx_large_buffer_conv(
   }
 }
 
+bool has_direct_width_packed_buffer_execution(const vTensor& v_tensor) {
+  return v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      v_tensor.execution_layout() == api::ExecutionLayout::BUFFER_DIRECT &&
+      v_tensor.storage_offset() == 0;
+}
+
 bool can_run_float_buffer_conv2d(
     const Tensor& input,
     const PackedWeightHandle& packed_weight,
@@ -2465,7 +2473,7 @@ bool can_run_float_buffer_conv2d(
   }
 
   const vTensor& v_input = convert(input);
-  if (v_input.storage_type() != api::StorageType::BUFFER) {
+  if (!has_direct_width_packed_buffer_execution(v_input)) {
     return false;
   }
 
@@ -3196,12 +3204,10 @@ Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
   if (input.is_vulkan()) {
     const vTensor& v_input = convert(input);
     if (
-        v_input.storage_type() == api::StorageType::BUFFER &&
-        v_input.gpu_memory_layout() ==
-            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+        has_direct_width_packed_buffer_execution(v_input) &&
         utils::supports_buffer_elementwise_compute(v_input)) {
       return utils::mark_tensor_execution(
-          input, utils::resolve_buffer_execution_layout(v_input), false);
+          input, api::ExecutionLayout::BUFFER_DIRECT, false);
     }
   }
   return utils::mark_tensor_execution(
