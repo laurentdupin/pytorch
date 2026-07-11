@@ -222,8 +222,6 @@ bool match_deferred_bridge_op(
   static constexpr BridgePrefix kPrefixes[] = {
       {"aten::image_normalize_bridge.", "ImageNormalizeDeferredBridge"},
       {"aten::linear_gelu_bridge.", "LinearGeluDeferredBridge"},
-      {"aten::add_layer_norm_bridge.", "AddLayerNormDeferredBridge"},
-      {"aten::layer_scale_bridge.", "LayerScaleDeferredBridge"},
       {"aten::attention_query_scale_bridge.", "AttentionQueryScaleDeferredBridge"},
       {"aten::decomposed_attention_bridge.", "DecomposedAttentionDeferredBridge"},
   };

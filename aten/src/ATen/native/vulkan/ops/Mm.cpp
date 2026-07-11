@@ -3611,8 +3611,7 @@ Tensor run_addmm_context(
   Tensor* output_opt = nullptr) {
   log_linear_context_checkpoint(
       "entry", input_arg, post_op, quantized);
-  const Tensor input_for_compute =
-      materialize_deferred_add_layer_norm_candidate_if_needed(input_arg);
+  const Tensor input_for_compute = input_arg;
   log_linear_context_checkpoint(
       "after_deferred_materialize",
       input_for_compute,

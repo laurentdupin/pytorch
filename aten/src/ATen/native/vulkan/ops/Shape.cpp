@@ -385,14 +385,6 @@ Tensor view_internal(
     const IntArrayRef output_size,
     const IntArrayRef output_stride,
     const std::optional<int64_t> storage_offset = std::nullopt) {
-  const Tensor add_layer_norm_materialized =
-      materialize_deferred_add_layer_norm_candidate_if_needed(self_arg);
-  if (add_layer_norm_materialized.unsafeGetTensorImpl() !=
-      self_arg.unsafeGetTensorImpl()) {
-    return view_internal(
-        add_layer_norm_materialized, output_size, output_stride, storage_offset);
-  }
-
   if (self_arg.is_vulkan()) {
     const vTensor& v_self = convert(self_arg);
     const int64_t resolved_storage_offset =
@@ -517,8 +509,6 @@ Tensor view_internal(
   materialized_self =
       materialize_deferred_linear_gelu_candidate_if_needed(materialized_self);
   materialized_self =
-      materialize_deferred_add_layer_norm_candidate_if_needed(materialized_self);
-  materialized_self =
       materialize_deferred_image_normalize_candidate_if_needed(materialized_self);
   Tensor cpu = materialized_self.cpu();
   Tensor cpu_view = storage_offset.has_value()
@@ -569,7 +559,6 @@ static Tensor contiguous(
 
   Tensor self = materialize_decomposed_attention_candidate_if_needed(self_arg);
   self = materialize_deferred_linear_gelu_candidate_if_needed(self);
-  self = materialize_deferred_add_layer_norm_candidate_if_needed(self);
   self = materialize_deferred_image_normalize_candidate_if_needed(self);
 
   if (memory_format == c10::MemoryFormat::Preserve ||

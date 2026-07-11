@@ -15853,9 +15853,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 if os.path.exists(path):
                     os.remove(path)
 
-    def test_dav2_residual_add_layer_norm_bridge_uses_fused_shader(self):
-        materialize_log_name = "dav2_residual_add_layer_norm_bridge_materialize_test.log"
-        op_hit_log_name = "dav2_residual_add_layer_norm_bridge_op_hit_test.log"
+    def test_concrete_residual_add_layer_norm_has_no_deferred_bridge(self):
+        materialize_log_name = "concrete_residual_add_layer_norm_materialize_test.log"
+        op_hit_log_name = "concrete_residual_add_layer_norm_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         materialize_log_path = os.path.join(repo_root, materialize_log_name)
         op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
@@ -15873,6 +15873,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 addend = torch.randn(1, 601, 384, dtype=torch.float32) * 0.1
                 weight = torch.randn(384, dtype=torch.float32) * 0.1
                 bias = torch.randn(384, dtype=torch.float32) * 0.1
+                projection = torch.randn(384, 4, dtype=torch.float32) * 0.1
 
                 with torch.no_grad():
                     deferred_before = (
@@ -15886,11 +15887,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         bias,
                         1.0e-6,
                     )
+                    expected_consumer = (
+                        expected_norm.reshape(601, 384)
+                        .permute(1, 0)
+                        .unbind(1)[0]
+                        .unsqueeze(0)
+                        .matmul(projection)
+                    )
 
                     residual_vulkan = residual.to("vulkan")
                     addend_vulkan = addend.to("vulkan")
                     weight_vulkan = weight.to("vulkan")
                     bias_vulkan = bias.to("vulkan")
+                    projection_vulkan = projection.to("vulkan")
 
                     fused_residual = residual_vulkan + addend_vulkan
                     fused_norm = F.layer_norm(
@@ -15899,6 +15908,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         weight_vulkan,
                         bias_vulkan,
                         1.0e-6,
+                    )
+                    actual_consumer = (
+                        fused_norm.reshape(601, 384)
+                        .permute(1, 0)
+                        .unbind(1)[0]
+                        .unsqueeze(0)
+                        .matmul(projection_vulkan)
+                        .cpu()
                     )
                     actual_residual = fused_residual.cpu()
                     actual_norm = fused_norm.cpu()
@@ -15920,6 +15937,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     atol=4e-4,
                     rtol=4e-3,
                 )
+                torch.testing.assert_close(
+                    actual_consumer,
+                    expected_consumer,
+                    atol=4e-4,
+                    rtol=4e-3,
+                )
                 print(float(actual_norm.sum()))
             """
 
@@ -15929,26 +15952,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "PYTORCH_VULKAN_MATERIALIZE_LOG": materialize_log_name,
                     "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
                 },
-                error_prefix="DAv2 residual add layer norm bridge subprocess failed.",
+                error_prefix="Concrete residual add layer norm subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(op_hit_log_path))
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertNotIn("op=aten::add_layer_norm_bridge.defer", op_hit_text)
-            self.assertNotIn("op=aten::add_layer_norm_bridge.hit", op_hit_text)
-            self.assertNotIn(
-                "op=aten::add_layer_norm_bridge.materialize", op_hit_text
-            )
+            self.assertNotIn("add_layer_norm_bridge", op_hit_text)
         finally:
             for path in (materialize_log_path, op_hit_log_path):
                 if os.path.exists(path):
                     os.remove(path)
 
-    def test_dav2_layer_scale_add_layer_norm_bridge_uses_fused_shader(self):
-        materialize_log_name = "dav2_layer_scale_add_layer_norm_bridge_materialize_test.log"
-        op_hit_log_name = "dav2_layer_scale_add_layer_norm_bridge_op_hit_test.log"
+    def test_concrete_layer_scale_add_layer_norm_has_no_deferred_bridge(self):
+        materialize_log_name = "concrete_layer_scale_add_layer_norm_materialize_test.log"
+        op_hit_log_name = "concrete_layer_scale_add_layer_norm_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         materialize_log_path = os.path.join(repo_root, materialize_log_name)
         op_hit_log_path = os.path.join(repo_root, op_hit_log_name)
@@ -15967,6 +15986,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 scale = torch.randn(384, dtype=torch.float32) * 0.01
                 weight = torch.randn(384, dtype=torch.float32) * 0.1
                 bias = torch.randn(384, dtype=torch.float32) * 0.1
+                projection = torch.randn(384, 4, dtype=torch.float32) * 0.1
 
                 with torch.no_grad():
                     deferred_before = (
@@ -15980,12 +16000,20 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         bias,
                         1.0e-6,
                     )
+                    expected_consumer = (
+                        expected_norm.reshape(601, 384)
+                        .permute(1, 0)
+                        .unbind(1)[0]
+                        .unsqueeze(0)
+                        .matmul(projection)
+                    )
 
                     residual_vulkan = residual.to("vulkan")
                     addend_vulkan = addend.to("vulkan")
                     scale_vulkan = scale.to("vulkan")
                     weight_vulkan = weight.to("vulkan")
                     bias_vulkan = bias.to("vulkan")
+                    projection_vulkan = projection.to("vulkan")
 
                     fused_residual = residual_vulkan + addend_vulkan * scale_vulkan
                     fused_norm = F.layer_norm(
@@ -15994,6 +16022,14 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         weight_vulkan,
                         bias_vulkan,
                         1.0e-6,
+                    )
+                    actual_consumer = (
+                        fused_norm.reshape(601, 384)
+                        .permute(1, 0)
+                        .unbind(1)[0]
+                        .unsqueeze(0)
+                        .matmul(projection_vulkan)
+                        .cpu()
                     )
                     actual_residual = fused_residual.cpu()
                     actual_norm = fused_norm.cpu()
@@ -16015,6 +16051,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     atol=4e-4,
                     rtol=4e-3,
                 )
+                torch.testing.assert_close(
+                    actual_consumer,
+                    expected_consumer,
+                    atol=4e-4,
+                    rtol=4e-3,
+                )
                 print(float(actual_norm.sum()))
             """
 
@@ -16024,25 +16066,45 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     "PYTORCH_VULKAN_MATERIALIZE_LOG": materialize_log_name,
                     "PYTORCH_VULKAN_OP_HIT_LOG": op_hit_log_name,
                 },
-                error_prefix="DAv2 layer-scale add layer norm bridge subprocess failed.",
+                error_prefix="Concrete layer-scale add layer norm subprocess failed.",
             )
 
             self.assertTrue(os.path.exists(op_hit_log_path))
             with open(op_hit_log_path, "r", encoding="utf-8") as log_file:
                 op_hit_text = log_file.read()
 
-            self.assertNotIn("op=aten::layer_scale_bridge.defer", op_hit_text)
-            self.assertNotIn(
-                "op=aten::add_layer_norm_bridge.materialize",
-                op_hit_text,
-            )
-            self.assertNotIn("op=aten::add_layer_norm_bridge.defer", op_hit_text)
-            self.assertNotIn("op=aten::add_layer_norm_bridge.hit", op_hit_text)
-            self.assertNotIn("op=aten::layer_scale_bridge.materialize", op_hit_text)
+            self.assertNotIn("add_layer_norm_bridge", op_hit_text)
+            self.assertNotIn("layer_scale_bridge", op_hit_text)
         finally:
             for path in (materialize_log_path, op_hit_log_path):
                 if os.path.exists(path):
                     os.remove(path)
+
+    def test_layernorm_dead_bridge_sources_are_absent(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source_paths = (
+            "aten/src/ATen/native/vulkan/ops/Layernorm.cpp",
+            "aten/src/ATen/native/vulkan/ops/Layernorm.h",
+            "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
+            "aten/src/ATen/native/vulkan/ops/Copy.cpp",
+            "aten/src/ATen/native/vulkan/ops/Mm.cpp",
+            "aten/src/ATen/native/vulkan/ops/Shape.cpp",
+            "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
+        )
+        source_parts = []
+        for path in source_paths:
+            with open(os.path.join(repo_root, path), encoding="utf-8") as handle:
+                source_parts.append(handle.read())
+        source_text = "\n".join(source_parts)
+        for symbol in (
+            "try_start_deferred_add_layer_norm",
+            "materialize_deferred_add_layer_norm_candidate",
+            "try_start_deferred_layer_scale",
+            "materialize_deferred_layer_scale_candidate",
+            "add_layer_norm_bridge",
+            "layer_scale_bridge",
+        ):
+            self.assertNotIn(symbol, source_text)
 
     def test_deepdesktop_rgb_normalize_bridge_fuses_mean_std_chain(self):
         op_hit_log_name = "deepdesktop_rgb_normalize_bridge_op_hit_test.log"

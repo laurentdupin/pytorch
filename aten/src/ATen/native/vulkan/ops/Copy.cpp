@@ -2350,12 +2350,6 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
       ? materialize_deferred_linear_gelu_candidate_if_needed(src_to_copy)
       : src_to_copy;
   src_to_copy = src_to_copy.is_vulkan()
-      ? materialize_deferred_add_layer_norm_candidate_if_needed(src_to_copy)
-      : src_to_copy;
-  src_to_copy = src_to_copy.is_vulkan()
-      ? materialize_deferred_layer_scale_candidate_if_needed(src_to_copy)
-      : src_to_copy;
-  src_to_copy = src_to_copy.is_vulkan()
       ? materialize_deferred_image_normalize_candidate_if_needed(src_to_copy)
       : src_to_copy;
 

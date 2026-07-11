@@ -79,20 +79,6 @@ Tensor layer_norm_impl(
     const std::optional<Tensor>& bias,
     double eps);
 
-std::optional<Tensor> try_start_deferred_add_layer_norm(
-    const Tensor& residual,
-    const Tensor& addend);
-
-Tensor materialize_deferred_add_layer_norm_candidate_if_needed(
-    const Tensor& tensor);
-
-std::optional<Tensor> try_start_deferred_layer_scale(
-    const Tensor& input,
-    const Tensor& scale);
-
-Tensor materialize_deferred_layer_scale_candidate_if_needed(
-    const Tensor& tensor);
-
 Tensor run_layernorm_context(
     const Tensor& input,
     IntArrayRef normalized_shape,
