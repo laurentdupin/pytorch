@@ -418,7 +418,6 @@ Tensor view_internal(
       }
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
-      move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
       move_deferred_image_normalize_candidate_to_alias(self_arg, output);
       return output;
     }
@@ -451,7 +450,6 @@ Tensor view_internal(
       }
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
-      move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
       move_deferred_image_normalize_candidate_to_alias(self_arg, output);
       return output;
     }
@@ -467,7 +465,6 @@ Tensor view_internal(
       });
       move_decomposed_attention_candidate_to_alias(self_arg, output);
       move_deferred_attention_query_scale_candidate_to_alias(self_arg, output);
-      move_deferred_linear_gelu_candidate_to_alias(self_arg, output);
       move_deferred_image_normalize_candidate_to_alias(self_arg, output);
       return output;
     }
@@ -506,8 +503,6 @@ Tensor view_internal(
   c10::InferenceMode inference_mode_guard(false);
   Tensor materialized_self =
       materialize_decomposed_attention_candidate_if_needed(self_arg);
-  materialized_self =
-      materialize_deferred_linear_gelu_candidate_if_needed(materialized_self);
   materialized_self =
       materialize_deferred_image_normalize_candidate_if_needed(materialized_self);
   Tensor cpu = materialized_self.cpu();
@@ -558,7 +553,6 @@ static Tensor contiguous(
   }
 
   Tensor self = materialize_decomposed_attention_candidate_if_needed(self_arg);
-  self = materialize_deferred_linear_gelu_candidate_if_needed(self);
   self = materialize_deferred_image_normalize_candidate_if_needed(self);
 
   if (memory_format == c10::MemoryFormat::Preserve ||

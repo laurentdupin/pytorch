@@ -43693,12 +43693,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     x_vulkan = x.to("vulkan")
                     weight_vulkan = weight.to("vulkan")
                     bias_vulkan = bias.to("vulkan")
+                    deferred_before = (
+                        torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    )
                     linear = F.linear(x_vulkan, weight_vulkan, bias_vulkan)
                     direct = linear.cpu()
                     parts = linear.reshape(1, 7, 3, 4).permute(0, 2, 1, 3).unbind(1)
                     actual_matmul = (parts[0] @ parts[1].transpose(-2, -1)).cpu()
                     actual = F.gelu(linear, approximate="tanh").cpu()
 
+                assert (
+                    torch.ops.vulkan_prepack.deferred_value_creation_count()
+                    == deferred_before
+                )
                 torch.testing.assert_close(actual, expected, atol=3e-4, rtol=3e-3)
                 torch.testing.assert_close(direct, linear_expected, atol=3e-4, rtol=3e-3)
                 torch.testing.assert_close(actual_matmul, expected_matmul, atol=3e-4, rtol=3e-3)
@@ -43722,6 +43729,32 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         finally:
             if os.path.exists(op_hit_log_path):
                 os.remove(op_hit_log_path)
+
+    def test_linear_gelu_dead_bridge_sources_are_absent(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source_paths = (
+            "aten/src/ATen/native/vulkan/ops/Mm.cpp",
+            "aten/src/ATen/native/vulkan/ops/Mm.h",
+            "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
+            "aten/src/ATen/native/vulkan/ops/Clamp.cpp",
+            "aten/src/ATen/native/vulkan/ops/Copy.cpp",
+            "aten/src/ATen/native/vulkan/ops/Shape.cpp",
+            "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
+            "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
+        )
+        source_parts = []
+        for path in source_paths:
+            with open(os.path.join(repo_root, path), encoding="utf-8") as handle:
+                source_parts.append(handle.read())
+        source_text = "\n".join(source_parts)
+        for symbol in (
+            "DeferredLinearGeluCandidate",
+            "try_consume_deferred_linear_gelu",
+            "materialize_deferred_linear_gelu_candidate",
+            "move_deferred_linear_gelu_candidate_to_alias",
+            "linear_gelu_bridge",
+        ):
+            self.assertNotIn(symbol, source_text)
 
     def test_dav2_mlp_linear_gelu_default_eager_uses_plain_gelu(self):
         materialize_log_name = "dav2_mlp_linear_gelu_bridge_materialize_test.log"

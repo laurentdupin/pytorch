@@ -4388,8 +4388,7 @@ Tensor softmax_internal(
     return *propagated;
   }
   const Tensor input_for_compute =
-      materialize_deferred_linear_gelu_candidate_if_needed(
-          materialize_decomposed_attention_candidate_if_needed(input_arg));
+      materialize_decomposed_attention_candidate_if_needed(input_arg);
 
   if (!half_to_float) {
     if (can_run_buffer_softmax(input_for_compute, dim)) {

@@ -839,11 +839,7 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
   TORCH_CHECK(
       approximate == "none" || approximate == "tanh",
       "Vulkan: gelu only supported for none or tanh type");
-  if (auto fused = try_consume_deferred_linear_gelu(self, approximate)) {
-    return *fused;
-  }
-  const Tensor gelu_input =
-      materialize_deferred_linear_gelu_candidate_if_needed(self);
+  const Tensor gelu_input = self;
   // The Vulkan backend only has the tanh GELU kernel today, so route the
   // default eager GELU call through the same implementation for inference.
   if (gelu_input.is_vulkan() && gelu_input.scalar_type() == at::kFloat) {

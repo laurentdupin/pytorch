@@ -5,11 +5,9 @@
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
-#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
-#include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 
@@ -28,7 +26,6 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
-#include <string_view>
 #include <unordered_map>
 
 namespace at {
@@ -1178,142 +1175,6 @@ void maybe_synchronize_after_large_linear_checkpoint(
   utils::release_retired_linear_contexts();
 }
 
-struct DeferredLinearGeluCandidate final {
-  Tensor input_arg;
-  Tensor buffer_input;
-  c10::intrusive_ptr<LinearPackedContext> linear_context;
-  utils::VulkanRuntimePolicy runtime_policy;
-  std::vector<int64_t> output_sizes;
-  uint64_t producer_storage_id{0};
-  uint64_t producer_generation{0};
-  uint64_t producer_logical_desc_hash{0};
-  float alpha{1.0f};
-  float beta{1.0f};
-};
-
-constexpr size_t kMaxDeferredLinearGeluCandidates = 128;
-
-struct TensorProducerKey final {
-  uint64_t base_storage_id{0};
-  uint64_t generation{0};
-  uint64_t logical_desc_hash{0};
-  const char* producer_op{"aten::linear"};
-};
-
-bool operator==(const TensorProducerKey& lhs, const TensorProducerKey& rhs) {
-  return lhs.base_storage_id == rhs.base_storage_id &&
-      lhs.generation == rhs.generation &&
-      lhs.logical_desc_hash == rhs.logical_desc_hash &&
-      lhs.producer_op == rhs.producer_op;
-}
-
-struct TensorProducerKeyHash final {
-  size_t operator()(const TensorProducerKey& key) const {
-    size_t seed = 0;
-    seed ^= std::hash<uint64_t>{}(key.base_storage_id) +
-        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
-    seed ^= std::hash<uint64_t>{}(key.generation) +
-        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
-    seed ^= std::hash<uint64_t>{}(key.logical_desc_hash) +
-        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
-    seed ^= std::hash<const char*>{}(key.producer_op) +
-        size_t{0x9e3779b97f4a7c15ull} + (seed << 6u) + (seed >> 2u);
-    return seed;
-  }
-};
-
-TensorProducerKey deferred_linear_gelu_key(const Tensor& tensor) {
-  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
-  return TensorProducerKey{
-      state.storage_id,
-      state.generation,
-      state.logical_desc_hash,
-      "aten::linear"};
-}
-
-std::mutex& deferred_linear_gelu_candidate_mutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-
-std::unordered_map<
-    TensorProducerKey,
-    DeferredLinearGeluCandidate,
-    TensorProducerKeyHash>&
-deferred_linear_gelu_candidates() {
-  static std::unordered_map<
-      TensorProducerKey,
-      DeferredLinearGeluCandidate,
-      TensorProducerKeyHash>
-      candidates;
-  return candidates;
-}
-
-bool can_retarget_deferred_linear_gelu_candidate(
-    const Tensor& tensor,
-    const DeferredLinearGeluCandidate& candidate) {
-  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
-  return state.storage_id == candidate.producer_storage_id &&
-      state.generation == candidate.producer_generation &&
-      state.logical_desc_hash == candidate.producer_logical_desc_hash;
-}
-
-std::optional<DeferredLinearGeluCandidate>
-lookup_deferred_linear_gelu_candidate(const Tensor& tensor) {
-  std::lock_guard<std::mutex> lock(deferred_linear_gelu_candidate_mutex());
-  auto& candidates = deferred_linear_gelu_candidates();
-  const auto it = candidates.find(deferred_linear_gelu_key(tensor));
-  if (it == candidates.end()) {
-    return std::nullopt;
-  }
-  if (!can_retarget_deferred_linear_gelu_candidate(tensor, it->second)) {
-    utils::log_vulkan_op_hit("aten::linear_gelu_bridge.stale_candidate");
-    candidates.erase(it);
-    return std::nullopt;
-  }
-  return it->second;
-}
-
-std::optional<DeferredLinearGeluCandidate>
-take_deferred_linear_gelu_candidate(const Tensor& tensor) {
-  std::lock_guard<std::mutex> lock(deferred_linear_gelu_candidate_mutex());
-  auto& candidates = deferred_linear_gelu_candidates();
-  const auto it = candidates.find(deferred_linear_gelu_key(tensor));
-  if (it == candidates.end()) {
-    return std::nullopt;
-  }
-  if (!can_retarget_deferred_linear_gelu_candidate(tensor, it->second)) {
-    utils::log_vulkan_op_hit("aten::linear_gelu_bridge.stale_candidate");
-    candidates.erase(it);
-    return std::nullopt;
-  }
-  DeferredLinearGeluCandidate candidate = it->second;
-  candidates.erase(it);
-  return candidate;
-}
-
-void register_deferred_linear_gelu_candidate(
-    const Tensor& tensor,
-    DeferredLinearGeluCandidate candidate) {
-  guard_vulkan_deferred_value_registration("linear_gelu_bridge");
-  std::lock_guard<std::mutex> lock(deferred_linear_gelu_candidate_mutex());
-  auto& candidates = deferred_linear_gelu_candidates();
-  if (candidates.size() >= kMaxDeferredLinearGeluCandidates) {
-    utils::log_vulkan_op_hit("aten::linear_gelu_bridge.registry_clear");
-    candidates.clear();
-  }
-  const VulkanTensorStateDesc state = inspect_tensor_state(tensor);
-  candidate.producer_storage_id = state.storage_id;
-  candidate.producer_generation = state.generation;
-  candidate.producer_logical_desc_hash = state.logical_desc_hash;
-  candidates[deferred_linear_gelu_key(tensor)] = std::move(candidate);
-}
-
-bool can_run_float_buffer_linear(
-    const Tensor& input,
-    const Tensor& weight,
-    const std::optional<Tensor>& bias);
-
 static Tensor reshape_to_2d(const Tensor& input_arg);
 
 LinearPackedRunState get_linear_packed_run_state(
@@ -1485,15 +1346,6 @@ Tensor reshape_linear_output_if_needed(
     reshaped_output = reshaped_output.clone();
   }
   return reshaped_output;
-}
-
-Tensor reshape_deferred_linear_gelu_output_if_needed(
-    const Tensor& output,
-    const DeferredLinearGeluCandidate& candidate) {
-  if (output.sizes().vec() == candidate.output_sizes) {
-    return output;
-  }
-  return utils::reshape_inference(output, candidate.output_sizes);
 }
 
 Tensor& ensure_linear_output_tensor(
@@ -2225,91 +2077,6 @@ Tensor run_widened_half_buffer_linear(
     output = *output_opt;
   }
   return output;
-}
-
-Tensor materialize_deferred_linear_gelu_candidate_impl(const Tensor& tensor) {
-  if (!tensor.is_vulkan()) {
-    return tensor;
-  }
-
-  auto candidate = take_deferred_linear_gelu_candidate(tensor);
-  if (!candidate.has_value()) {
-    return tensor;
-  }
-
-  const LinearPackedRunState packed_state =
-      get_linear_packed_run_state(candidate->linear_context);
-  utils::log_vulkan_op_hit("aten::linear_gelu_bridge.materialize");
-  Tensor output = run_float_buffer_linear(
-      candidate->input_arg,
-      candidate->buffer_input,
-      candidate->runtime_policy,
-      packed_state,
-      candidate->alpha,
-      candidate->beta,
-      LinearPostOp::None);
-  return reshape_deferred_linear_gelu_output_if_needed(output, *candidate);
-}
-
-void move_deferred_linear_gelu_candidate_to_alias_impl(
-    const Tensor& source,
-    const Tensor& alias) {
-  if (!source.is_vulkan() || !alias.is_vulkan()) {
-    return;
-  }
-
-  auto candidate = take_deferred_linear_gelu_candidate(source);
-  if (!candidate.has_value()) {
-    return;
-  }
-
-  candidate->output_sizes = alias.sizes().vec();
-  register_deferred_linear_gelu_candidate(alias, std::move(*candidate));
-  utils::log_vulkan_op_hit("aten::linear_gelu_bridge.alias");
-}
-
-std::optional<Tensor> try_consume_deferred_linear_gelu_impl(
-    const Tensor& input,
-    std::string_view approximate) {
-  if (!utils::matches_linear_gelu_bridge_gelu_approximation_contract(
-          approximate)) {
-    return std::nullopt;
-  }
-
-  const auto candidate = lookup_deferred_linear_gelu_candidate(input);
-  if (!candidate.has_value()) {
-    return std::nullopt;
-  }
-
-  const LinearPackedRunState packed_state =
-      get_linear_packed_run_state(candidate->linear_context);
-  const std::optional<Tensor> packed_bias_tensor = packed_state.bias_defined
-      ? std::optional<Tensor>(packed_state.packed_weight.bias())
-      : std::nullopt;
-  if (!can_run_float_buffer_linear(
-          candidate->buffer_input,
-          packed_state.packed_weight.weight(),
-          packed_bias_tensor)) {
-    return std::nullopt;
-  }
-
-  auto taken = take_deferred_linear_gelu_candidate(input);
-  if (!taken.has_value()) {
-    return std::nullopt;
-  }
-
-  const LinearPackedRunState taken_packed_state =
-      get_linear_packed_run_state(taken->linear_context);
-  utils::log_vulkan_op_hit("aten::linear_gelu_bridge.hit");
-  Tensor output = run_float_buffer_linear(
-      taken->input_arg,
-      taken->buffer_input,
-      taken->runtime_policy,
-      taken_packed_state,
-      taken->alpha,
-      taken->beta,
-      LinearPostOp::Gelu);
-  return reshape_deferred_linear_gelu_output_if_needed(output, *taken);
 }
 
 Tensor run_float_buffer_bmm(
@@ -4344,23 +4111,6 @@ TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
 #endif /* USE_VULKAN_API */
 
 } // namespace
-
-std::optional<Tensor> try_consume_deferred_linear_gelu(
-    const Tensor& input,
-    std::string_view approximate) {
-  return try_consume_deferred_linear_gelu_impl(input, approximate);
-}
-
-Tensor materialize_deferred_linear_gelu_candidate_if_needed(
-    const Tensor& tensor) {
-  return materialize_deferred_linear_gelu_candidate_impl(tensor);
-}
-
-void move_deferred_linear_gelu_candidate_to_alias(
-    const Tensor& source,
-    const Tensor& alias) {
-  move_deferred_linear_gelu_candidate_to_alias_impl(source, alias);
-}
 
 std::vector<int64_t> linear_plan_counters_snapshot() {
   const VulkanLinearPlanCounters& counters = linear_plan_counters();

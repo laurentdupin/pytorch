@@ -3878,8 +3878,7 @@ std::optional<Tensor> try_runtime_elementwise_chain_vulkan(
       const Tensor image_normalized =
           materialize_deferred_image_normalize_candidate_if_needed(
               attention_query_scaled);
-      return materialize_deferred_linear_gelu_candidate_if_needed(
-          image_normalized);
+      return image_normalized;
     };
     const Tensor input =
         prepare_operand(input_arg, "runtime_elementwise_chain.try.input");
@@ -3922,8 +3921,7 @@ std::optional<Tensor> try_runtime_elementwise_chain_out_vulkan(
       const Tensor image_normalized =
           materialize_deferred_image_normalize_candidate_if_needed(
               attention_query_scaled);
-      return materialize_deferred_linear_gelu_candidate_if_needed(
-          image_normalized);
+      return image_normalized;
     };
     RuntimeElementwiseMixedChain chain;
     chain.input =
@@ -4303,8 +4301,7 @@ static Tensor binary_op_scalar(
   const Tensor self_image_normalized =
       materialize_deferred_image_normalize_candidate_if_needed(
           self_attention_query_scaled);
-  const Tensor self_input = materialize_deferred_linear_gelu_candidate_if_needed(
-      self_image_normalized);
+  const Tensor self_input = self_image_normalized;
 
   if (self_input.dim() > 4) {
     return binary_op_scalar_cpu_fallback(self_input, other, alpha_arg, op_kind);
@@ -4692,10 +4689,8 @@ static Tensor binary_op_tensor(
   const Tensor other_image_normalized =
       materialize_deferred_image_normalize_candidate_if_needed(
           other_attention_query_scaled);
-  const Tensor self_input = materialize_deferred_linear_gelu_candidate_if_needed(
-      self_image_normalized);
-  const Tensor other_input = materialize_deferred_linear_gelu_candidate_if_needed(
-      other_image_normalized);
+  const Tensor self_input = self_image_normalized;
+  const Tensor other_input = other_image_normalized;
 
   if (self_input.dim() > 4 || other_input.dim() > 4) {
     return binary_op_tensor_cpu_fallback(
