@@ -70,6 +70,15 @@ class VulkanGraphProgramKey:
     api_version: str
 
 
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphImplicitBoundaryAttribution:
+    node_name: str
+    target: str
+    cpu_fallback_count: int
+    sync_readback_count: int
+    deferred_values_created: int
+
+
 class VulkanGraphExecutionError(RuntimeError):
     pass
 
@@ -707,16 +716,50 @@ class _VulkanGraphInterpreter(torch.fx.Interpreter):
         super().__init__(module)
         self.device = device
         self.executed_nodes: list[str] = []
+        self.last_implicit_boundary: VulkanGraphImplicitBoundaryAttribution | None = (
+            None
+        )
 
     def run_node(self, node: torch.fx.Node) -> Any:
+        is_dispatch = node.op in ("call_function", "call_method", "call_module")
+        scope_token = _begin_graph_execution_scope() if is_dispatch else None
+        node_error: Exception | None = None
+        result: Any = None
         try:
             result = super().run_node(node)
         except Exception as error:
+            node_error = error
+        finally:
+            counters = (
+                _end_graph_execution_scope(scope_token)
+                if scope_token is not None
+                else (0, 0, 0)
+            )
+        if is_dispatch and any(counters):
+            self.last_implicit_boundary = VulkanGraphImplicitBoundaryAttribution(
+                node_name=node.name,
+                target=_target_name(node.target),
+                cpu_fallback_count=counters[0],
+                sync_readback_count=counters[1],
+                deferred_values_created=counters[2],
+            )
+            error = VulkanGraphExecutionError(
+                f"Vulkan graph node {node.name!r} ({_target_name(node.target)}) "
+                "crossed an implicit host boundary: "
+                f"cpu_fallback={counters[0]}, "
+                f"sync_readback={counters[1]}, "
+                f"deferred_values_created={counters[2]}. "
+                "Explicit CPU partitions and deferred values are not implemented"
+            )
+            if node_error is not None:
+                raise error from node_error
+            raise error
+        if node_error is not None:
             raise VulkanGraphExecutionError(
                 f"Vulkan graph node {node.name!r} ({_target_name(node.target)}) "
-                f"failed: {error}"
-            ) from error
-        if node.op in ("call_function", "call_method", "call_module"):
+                f"failed: {node_error}"
+            ) from node_error
+        if is_dispatch:
             devices = _tensor_devices(result)
             non_vulkan = {device for device in devices if device.type != "vulkan"}
             if non_vulkan:
@@ -764,6 +807,9 @@ class VulkanGraphProgram:
         self._last_cpu_fallback_count = 0
         self._last_sync_readback_count = 0
         self._last_deferred_values_created = 0
+        self._last_implicit_boundary: VulkanGraphImplicitBoundaryAttribution | None = (
+            None
+        )
         self._execution_lock = threading.RLock()
 
     @property
@@ -836,13 +882,20 @@ class VulkanGraphProgram:
     def last_deferred_values_created(self) -> int:
         return self._last_deferred_values_created
 
+    @property
+    def last_implicit_boundary(
+        self,
+    ) -> VulkanGraphImplicitBoundaryAttribution | None:
+        return self._last_implicit_boundary
+
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
-        moved_args = pytree.tree_map(
-            lambda value: _move_runtime_value(value, self._device), bound_args
-        )
-        interpreter = _VulkanGraphInterpreter(self._graph_module, self._device)
         with self._execution_lock:
+            self._last_implicit_boundary = None
+            bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
+            moved_args = pytree.tree_map(
+                lambda value: _move_runtime_value(value, self._device), bound_args
+            )
+            interpreter = _VulkanGraphInterpreter(self._graph_module, self._device)
             scope_token = _begin_graph_execution_scope()
             try:
                 with torch.vulkan.device(self._device), torch.inference_mode():
@@ -854,6 +907,7 @@ class VulkanGraphProgram:
                     self._last_deferred_values_created,
                 ) = _end_graph_execution_scope(scope_token)
                 self._last_executed_nodes = tuple(interpreter.executed_nodes)
+                self._last_implicit_boundary = interpreter.last_implicit_boundary
 
             if (
                 self._last_cpu_fallback_count
@@ -1059,6 +1113,7 @@ def export_and_lower(
 __all__ = [
     "VulkanGraphCensus",
     "VulkanGraphExecutionError",
+    "VulkanGraphImplicitBoundaryAttribution",
     "VulkanGraphNodeRecord",
     "VulkanGraphProgram",
     "VulkanGraphProgramKey",

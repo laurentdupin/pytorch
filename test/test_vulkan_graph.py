@@ -113,6 +113,11 @@ def _graph_program_invocation_counters():
     return list(torch.ops.vulkan_prepack.graph_program_invocation_counters())
 
 
+def _raise_graph_node_error(tensor):
+    del tensor
+    raise RuntimeError("expected graph node failure")
+
+
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
     def test_static_linear_tanh_gelu_region_matches_cpu_and_transfers_context(self):
@@ -1889,11 +1894,48 @@ class TestVulkanGraph(TestCase):
         program = torch.vulkan.export_and_lower(IntegralCast().eval(), tensor)
         with self.assertRaisesRegex(
             torch.vulkan.VulkanGraphExecutionError,
-            "crossed an implicit host boundary.*cpu_fallback=1",
+            r"Vulkan graph node 'to' \(aten::to.dtype\) crossed an implicit "
+            "host boundary: cpu_fallback=1, sync_readback=0, "
+            "deferred_values_created=0",
         ):
             program(tensor)
         self.assertEqual(program.run_count, 0)
         self.assertEqual(program.last_cpu_fallback_count, 1)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+        attribution = program.last_implicit_boundary
+        self.assertIsNotNone(attribution)
+        self.assertEqual(attribution.node_name, "to")
+        self.assertEqual(attribution.target, "aten::to.dtype")
+        self.assertEqual(attribution.cpu_fallback_count, 1)
+        self.assertEqual(attribution.sync_readback_count, 0)
+        self.assertEqual(attribution.deferred_values_created, 0)
+        with self.assertRaises(torch.vulkan.VulkanGraphExecutionError):
+            program()
+        self.assertIsNone(program.last_implicit_boundary)
+
+    def test_graph_node_scope_ends_when_dispatch_raises(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        failure = graph.call_function(_raise_graph_node_error, (tensor,))
+        graph.output(failure)
+        graph_module = torch.fx.GraphModule(torch.nn.Module(), graph)
+        interpreter = vulkan_graph._VulkanGraphInterpreter(
+            graph_module,
+            torch.device("vulkan"),
+        )
+        outer = torch.ops.vulkan_prepack.begin_graph_execution_scope()
+        try:
+            with self.assertRaisesRegex(
+                torch.vulkan.VulkanGraphExecutionError,
+                "Vulkan graph node '.*' .*expected graph node failure",
+            ):
+                interpreter.run(torch.randn(1).to("vulkan"))
+        finally:
+            self.assertEqual(
+                torch.ops.vulkan_prepack.end_graph_execution_scope(outer),
+                [0, 0, 0],
+            )
 
     def test_graph_execution_scope_is_nested_and_lifo(self):
         outer = torch.ops.vulkan_prepack.begin_graph_execution_scope()
