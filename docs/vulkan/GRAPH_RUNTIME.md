@@ -229,6 +229,17 @@ The replacement order is:
 Do not delete a correctness fallback before its replacement has parity. Do not
 expand a legacy system while waiting for its replacement.
 
+### Legacy Sunset Gates
+
+| Legacy surface | Disable condition | Delete condition |
+| --- | --- | --- |
+| Speculative eager deferred bridges | Default eager has a concrete route and the graph executor rejects deferred registration. | Equivalent graph lowering has corpus parity, dynamic-shape coverage, repeated-run lifetime safety, and zero fallback/readback escapes. |
+| Runtime deferred elementwise placeholders and consumer hooks | Graph fusion owns the equivalent semantic chain. | Program-owned graph codegen and plan execution replace every live caller; no graph or eager default path depends on a materialization hook. |
+| Stack proof and canary machinery | Bounded graph regions own values, transitions, and output generations. | Graph programs own memory, descriptors, and completion retirement across the affected corpus paths. |
+| Quarantined replay and compiled-session bridges | Generated bounded-region execution covers the corresponding workload. | Generated command-list regions have parity, explicit replay-state handling, repeated-run lifetime safety, and no remaining callers. |
+| Obsolete performance environment toggles | Their route is replaced, explicitly rejected, or permanently default-off. | The toggle has no live production caller or its replacement is covered by a graph-plan/corpus gate. |
+| Model-oriented VisionBlocks orchestration | Export lowering covers its semantic operations without model-name routing. | DepthExtractor and relevant corpus paths use graph programs with parity and no public runtime callers remain. |
+
 ## Process Rules
 
 - The unit of work is a lowering pass, graph-plan feature, executor feature, or
