@@ -20,21 +20,21 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.06877019999956246,
-        "repeated_run_seconds_reference_only": 0.06582830000115791
+        "first_run_seconds": 0.06893030000355793,
+        "repeated_run_seconds_reference_only": 0.06691409999621101
       }
     },
     {
       "guard": {
         "rejected_program_message": "Vulkan graph node '_guards_fn' (_guards_fn) failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1\n\nWhile executing %_guards_fn : [num_users=0] = call_module[target=_guards_fn](args = (%x,), kwargs = {})\nOriginal traceback:\nNone\nUse tlparse to see full graph. (https://github.com/pytorch/tlparse?tab=readme-ov-file#tlparse-parse-structured-pt2-logs)",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.9360521999988123,
+        "variant_compile_seconds": 2.570508600001631,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "77db3ff77449d0968ea260e36b93380995eb93ae392dccc772ab0da777014726",
+          "graph_hash": "b0c985334d9043e1104a6e4e321edc6300869518e437d850350439d2250921b6",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -57,8 +57,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.06531230000109645,
-        "repeated_run_seconds_reference_only": 0.06548999999358784
+        "first_run_seconds": 0.06590890000370564,
+        "repeated_run_seconds_reference_only": 0.06545840000035241
       }
     }
   ],
@@ -359,24 +359,433 @@
   },
   "graph_census": {
     "call_function_node_count": 420,
-    "captured_node_count": 575,
-    "composite_runtime_verified": 155,
+    "captured_node_count": 553,
+    "composite_by_target": {
+      "aten::_assert_tensor_metadata": 2,
+      "aten::conv_transpose2d.input": 2,
+      "aten::dropout": 48,
+      "aten::flatten.using_ints": 1,
+      "aten::matmul": 24,
+      "aten::reshape": 29,
+      "aten::softmax.int": 12,
+      "aten::squeeze.dim": 1,
+      "aten::to.dtype": 2,
+      "aten::upsample_bilinear2d.vec": 5,
+      "aten::upsample_nearest2d.vec": 1
+    },
+    "composite_runtime_verified": 127,
     "conditionally_supported": 0,
+    "direct_vulkan_by_target": {
+      "aten::add.Tensor": 35,
+      "aten::cat": 2,
+      "aten::expand": 1,
+      "aten::gelu": 12,
+      "aten::mul.Tensor": 36,
+      "aten::permute": 18,
+      "aten::relu": 8,
+      "aten::relu_": 2,
+      "aten::select.int": 37,
+      "aten::slice.Tensor": 5,
+      "aten::transpose.int": 25,
+      "aten::unsqueeze": 1,
+      "aten::view": 1
+    },
     "eager_vulkan_dispatch": 183,
-    "graph_owned_prepacked_contexts": 79,
+    "graph_owned_prepacked_contexts": 104,
+    "lowered_vulkan_by_target": {
+      "vulkan_prepack::run_conv2d_context": 17,
+      "vulkan_prepack::run_graph_conv2d_relu_conv2d_plan": 7,
+      "vulkan_prepack::run_layernorm_context": 28,
+      "vulkan_prepack::run_linear_context": 48
+    },
     "partition_candidates": {
       "status": "not_planned_python_correctness_executor",
       "vulkan_only_candidate_count": 0
     },
-    "statically_lowered": 72,
+    "statically_lowered": 100,
     "unsupported_at_lower_time": 0,
     "unsupported_by_target": {}
   },
   "graph_structure": {
-    "graph_constants": 152,
+    "graph_constants": 130,
     "graph_inputs": 1,
     "graph_outputs": 1,
-    "normalized_node_count": 575
+    "normalized_node_count": 553
+  },
+  "layernorm_lowering": {
+    "context_factory": "vulkan_prepack::create_layernorm_context",
+    "created_context_count": 25,
+    "layer_norm_node_count": 28,
+    "lowered_count": 28,
+    "nodes": [
+      {
+        "bias_attr": "pretrained.blocks.0.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_1f4a26915fae2bdf",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.0.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.0.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_9a64c622b7215b0c",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_1",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.0.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.1.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_fb979c0a5398a19d",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_2",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.1.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.1.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_a33273b1e23b882b",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_3",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.1.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.2.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_a40fc621a9675c2e",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_4",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.2.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.2.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_98093dddbbab0e4c",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_5",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.2.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.3.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_1f355ef79f91f4b4",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_6",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.3.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.3.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_c27b3daa1e37e66d",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_7",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.3.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.4.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_95c2be31a094691d",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_8",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.4.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.4.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_d5c38d5388b57e66",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_9",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.4.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.5.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_d2940b6774fe0881",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_10",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.5.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.5.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_15e700fccdecd6b5",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_11",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.5.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.6.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_9c739637c59f8ffc",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_12",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.6.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.6.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_2c3f7b8b8bd588c7",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_13",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.6.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.7.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_5f193f7d71ca088d",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_14",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.7.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.7.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_72fcb9a8ed7a92b7",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_15",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.7.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.8.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_3599488e94b2fc81",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_16",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.8.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.8.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_7e1bb0d40ca0ea37",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_17",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.8.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.9.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_ea1e73553091bb69",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_18",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.9.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.9.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_d12282b09433464e",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_19",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.9.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.10.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_9d4fe092cb6bd4dc",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_20",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.10.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.10.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_33afdb33e63c05ca",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_21",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.10.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.11.norm1.bias",
+        "context_attr": "_vulkan_layernorm_context_ea47191aac844b9c",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_22",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.11.norm1.weight"
+      },
+      {
+        "bias_attr": "pretrained.blocks.11.norm2.bias",
+        "context_attr": "_vulkan_layernorm_context_abe0a4d5c535bf7f",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_23",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.blocks.11.norm2.weight"
+      },
+      {
+        "bias_attr": "pretrained.norm.bias",
+        "context_attr": "_vulkan_layernorm_context_ef4a07360216361a",
+        "context_status": "created",
+        "eps": 1e-06,
+        "node_name": "layer_norm_24",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.norm.weight"
+      },
+      {
+        "bias_attr": "pretrained.norm.bias",
+        "context_attr": "_vulkan_layernorm_context_ef4a07360216361a",
+        "context_status": "reused",
+        "eps": 1e-06,
+        "node_name": "layer_norm_25",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.norm.weight"
+      },
+      {
+        "bias_attr": "pretrained.norm.bias",
+        "context_attr": "_vulkan_layernorm_context_ef4a07360216361a",
+        "context_status": "reused",
+        "eps": 1e-06,
+        "node_name": "layer_norm_26",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.norm.weight"
+      },
+      {
+        "bias_attr": "pretrained.norm.bias",
+        "context_attr": "_vulkan_layernorm_context_ef4a07360216361a",
+        "context_status": "reused",
+        "eps": 1e-06,
+        "node_name": "layer_norm_27",
+        "normalized_shape": [
+          384
+        ],
+        "reason": "static_cpu_snapshot_affine_parameters",
+        "status": "lowered",
+        "weight_attr": "pretrained.norm.weight"
+      }
+    ],
+    "rejected_count": 0,
+    "reused_context_count": 3,
+    "skipped_count": 0
   },
   "linear_lowering": {
     "context_factory": "vulkan_prepack::create_graph_linear_context",
@@ -831,7 +1240,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "fc10ebb368d093987604c8afd2fbd1b9e3e4784ca79f57ca56001ed5b327ba10",
+    "graph_hash": "006539c1ab47bd8f4667e87bb216fdee1bea8f1eebc19160a2d381d14fde702a",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -856,7 +1265,7 @@
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "e9dfe046377db7f988260457865c977545fbf8f1",
+  "source_git_sha": "50e0d56b19bdf2d8b2454e9b65df22693eedd848",
   "speculative_eager_bridges": "disabled",
   "static_conv2d_relu_conv2d_regions": {
     "candidate_count": 7,
@@ -1239,7 +1648,7 @@
   },
   "status": "measured",
   "timing": {
-    "cpu_export_seconds": 2.554342399998859,
-    "export_and_lower_seconds": 10.88051870000345
+    "cpu_export_seconds": 2.5529399999941234,
+    "export_and_lower_seconds": 10.769129799999064
   }
 }
