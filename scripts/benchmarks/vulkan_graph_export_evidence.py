@@ -152,9 +152,14 @@ def _device_runtime_identity(device: torch.device) -> dict[str, Any]:
 
 def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
     census = program.census
-    grouped_unsupported: dict[str, int] = Counter(
-        node.target for node in census.nodes if node.classification == "unsupported"
-    )
+    def target_counts(classification: str) -> dict[str, int]:
+        counts: dict[str, int] = Counter(
+            node.target
+            for node in census.nodes
+            if node.classification == classification
+        )
+        return dict(sorted(counts.items()))
+
     return {
         "captured_node_count": census.captured_node_count,
         "call_function_node_count": census.call_function_node_count,
@@ -168,7 +173,10 @@ def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
         "composite_runtime_verified": census.composite_node_count,
         "conditionally_supported": 0,
         "unsupported_at_lower_time": census.unsupported_node_count,
-        "unsupported_by_target": dict(sorted(grouped_unsupported.items())),
+        "direct_vulkan_by_target": target_counts("direct_vulkan"),
+        "composite_by_target": target_counts("composite"),
+        "lowered_vulkan_by_target": target_counts("lowered_vulkan"),
+        "unsupported_by_target": target_counts("unsupported"),
         "partition_candidates": {
             "status": "not_planned_python_correctness_executor",
             "vulkan_only_candidate_count": 0,
@@ -185,6 +193,7 @@ def _lowering_report_objects(
             program, "static_linear_gelu_regions", None
         ),
         "conv2d_lowering": getattr(program, "conv2d_lowering", None),
+        "layernorm_lowering": getattr(program, "layernorm_lowering", None),
         "static_conv2d_relu_conv2d_regions": getattr(
             program, "static_conv2d_relu_conv2d_regions", None
         ),

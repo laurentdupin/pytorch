@@ -232,13 +232,35 @@ class TestVulkanGraphEvidence(TestCase):
             direct_vulkan_node_count=10,
             composite_node_count=5,
             unsupported_node_count=0,
-            nodes=(),
+            nodes=(
+                SimpleNamespace(
+                    target="aten::layer_norm",
+                    classification="lowered_vulkan",
+                ),
+                SimpleNamespace(
+                    target="aten::layer_norm",
+                    classification="lowered_vulkan",
+                ),
+                SimpleNamespace(
+                    target="aten::add",
+                    classification="direct_vulkan",
+                ),
+                SimpleNamespace(
+                    target="aten::relu",
+                    classification="direct_vulkan",
+                ),
+                SimpleNamespace(
+                    target="aten::sym_size.int",
+                    classification="composite",
+                ),
+            ),
         )
         program = SimpleNamespace(
             census=census,
             linear_lowering=_FakeLoweringReport(created_context_count=48),
             static_linear_gelu_regions=_fake_static_linear_gelu_report(),
             conv2d_lowering=_FakeLoweringReport(created_context_count=31),
+            layernorm_lowering=_FakeLoweringReport(created_context_count=28),
             static_conv2d_relu_conv2d_regions=(
                 _fake_static_conv2d_relu_conv2d_report()
             ),
@@ -246,7 +268,21 @@ class TestVulkanGraphEvidence(TestCase):
         )
         counts = _graph_counts(program)
         self.assertEqual(counts["statically_lowered"], 79)
-        self.assertEqual(counts["graph_owned_prepacked_contexts"], 79)
+        self.assertEqual(counts["graph_owned_prepacked_contexts"], 107)
+        self.assertEqual(
+            counts["direct_vulkan_by_target"],
+            {"aten::add": 1, "aten::relu": 1},
+        )
+        self.assertEqual(
+            list(counts["direct_vulkan_by_target"]),
+            ["aten::add", "aten::relu"],
+        )
+        self.assertEqual(
+            counts["composite_by_target"], {"aten::sym_size.int": 1}
+        )
+        self.assertEqual(
+            counts["lowered_vulkan_by_target"], {"aten::layer_norm": 2}
+        )
 
     def test_lowering_reports_keep_single_family_programs_additive(self):
         linear_only = SimpleNamespace(
@@ -261,6 +297,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "linear_lowering": {"created_context_count": 2},
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": None,
+                "layernorm_lowering": None,
                 "static_conv2d_relu_conv2d_regions": None,
                 "static_conv2d_relu_regions": None,
             },
@@ -271,6 +308,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "linear_lowering": None,
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": {"created_context_count": 3},
+                "layernorm_lowering": None,
                 "static_conv2d_relu_conv2d_regions": None,
                 "static_conv2d_relu_regions": None,
             },
@@ -293,6 +331,7 @@ class TestVulkanGraphEvidence(TestCase):
             linear_lowering=_FakeLoweringReport(created_context_count=1),
             static_linear_gelu_regions=_fake_static_linear_gelu_report(),
             conv2d_lowering=_FakeLoweringReport(created_context_count=1),
+            layernorm_lowering=_FakeLoweringReport(created_context_count=0),
             static_conv2d_relu_conv2d_regions=(
                 _fake_static_conv2d_relu_conv2d_report()
             ),
@@ -300,9 +339,11 @@ class TestVulkanGraphEvidence(TestCase):
         )
         reports = _lowering_reports(program)
         static_report = reports["static_linear_gelu_regions"]
+        layernorm_report = reports["layernorm_lowering"]
         static_multi_conv_report = reports["static_conv2d_relu_conv2d_regions"]
         static_conv_report = reports["static_conv2d_relu_regions"]
         self.assertEqual(_graph_counts(program)["graph_owned_prepacked_contexts"], 2)
+        self.assertEqual(layernorm_report, {"created_context_count": 0})
         self.assertEqual(static_report["candidate_count"], 1)
         self.assertEqual(static_report["lowered_count"], 1)
         self.assertEqual(static_report["rejected_count"], 0)

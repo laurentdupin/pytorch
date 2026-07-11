@@ -27,6 +27,24 @@ def _conv2d_context_attrs(program):
     }
 
 
+def _layernorm_context_attrs(program):
+    return {
+        str(node.target)
+        for node in program.graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_layernorm_context_")
+    }
+
+
+def _layernorm_context_attrs_from_module(graph_module):
+    return {
+        str(node.target)
+        for node in graph_module.graph.nodes
+        if node.op == "get_attr"
+        and str(node.target).startswith("_vulkan_layernorm_context_")
+    }
+
+
 def _static_linear_gelu_plan_attrs(program):
     return {
         str(node.target)
@@ -333,6 +351,212 @@ class TestVulkanGraph(TestCase):
                 for node in graph_module.graph.nodes
             )
         )
+
+    def test_static_layernorm_lowering_matches_cpu_and_eager_vulkan(self):
+        class AffineLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(4, eps=1e-5)
+
+            def forward(self, tensor):
+                return self.norm(tensor)
+
+        torch.manual_seed(29)
+        model = AffineLayerNorm().eval()
+        tensor = torch.randn(2, 3, 4)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+        graph_output = program(tensor).cpu()
+
+        torch.testing.assert_close(
+            eager_vulkan_output, expected, rtol=1e-4, atol=1e-4
+        )
+        torch.testing.assert_close(graph_output, expected, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(
+            graph_output, eager_vulkan_output, rtol=1e-4, atol=1e-4
+        )
+        report = program.layernorm_lowering
+        self.assertEqual(report.layer_norm_node_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertEqual(report.created_context_count, 1)
+        self.assertEqual(report.reused_context_count, 0)
+        self.assertEqual(
+            report.context_factory,
+            "vulkan_prepack::create_layernorm_context",
+        )
+        node = report.nodes[0]
+        self.assertEqual(node.reason, "static_cpu_snapshot_affine_parameters")
+        self.assertEqual(node.normalized_shape, (4,))
+        self.assertEqual(node.context_status, "created")
+        context_attrs = _layernorm_context_attrs(program)
+        self.assertEqual(len(context_attrs), 1)
+        self.assertTrue(
+            isinstance(
+                getattr(program.graph_module, next(iter(context_attrs))),
+                torch.ScriptObject,
+            )
+        )
+        self.assertNotIn("norm.weight", program.graph_module.state_dict())
+        self.assertNotIn("norm.bias", program.graph_module.state_dict())
+        self.assertFalse(program.graph_module.state_dict())
+        lowered = [
+            node
+            for node in program.census.nodes
+            if node.reason == "graph_owned_layernorm_context"
+        ]
+        self.assertEqual(len(lowered), 1)
+        self.assertEqual(lowered[0].classification, "lowered_vulkan")
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_layernorm_lowering_reuses_dynamic_shapes(self):
+        class AffineLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(4)
+
+            def forward(self, tensor):
+                return self.norm(tensor)
+
+        torch.manual_seed(30)
+        model = AffineLayerNorm().eval()
+        batch = torch.export.Dim("batch", min=1, max=4)
+        sequence = torch.export.Dim("sequence", min=1, max=8)
+        program = torch.vulkan.export_and_lower(
+            model,
+            torch.randn(2, 3, 4),
+            dynamic_shapes=({0: batch, 1: sequence},),
+        )
+        context_attrs = _layernorm_context_attrs(program)
+        self.assertEqual(len(context_attrs), 1)
+        for shape in ((1, 8, 4), (4, 1, 4)):
+            tensor = torch.randn(shape)
+            torch.testing.assert_close(
+                program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+            )
+        self.assertEqual(_layernorm_context_attrs(program), context_attrs)
+        self.assertEqual(program.layernorm_lowering.lowered_count, 1)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_layernorm_lowering_reuses_tied_affine_state(self):
+        class TiedAffineLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(4))
+                self.bias = torch.nn.Parameter(torch.randn(4))
+
+            def forward(self, first, second):
+                return torch.nn.functional.layer_norm(
+                    first, (4,), self.weight, self.bias, 1e-5
+                ) + torch.nn.functional.layer_norm(
+                    second, (4,), self.weight, self.bias, 1e-5
+                )
+
+        torch.manual_seed(32)
+        model = TiedAffineLayerNorm().eval()
+        first = torch.randn(2, 3, 4)
+        second = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, (first, second))
+        torch.testing.assert_close(
+            program(first, second).cpu(),
+            model(first, second),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+        report = program.layernorm_lowering
+        self.assertEqual(report.lowered_count, 2)
+        self.assertEqual(report.created_context_count, 1)
+        self.assertEqual(report.reused_context_count, 1)
+        self.assertEqual(len(_layernorm_context_attrs(program)), 1)
+        self.assertFalse(program.graph_module.state_dict())
+
+    def test_static_layernorm_lowering_skips_unsupported_semantics(self):
+        cases = (
+            ("dynamic_affine", [4], torch.ones(4), torch.zeros(4), {}),
+            ("missing_affine", [4], None, None, {}),
+            (
+                "malformed_normalized_shape",
+                "four",
+                torch.ones(4),
+                torch.zeros(4),
+                {},
+            ),
+            ("incompatible_affine", [4], torch.ones(3), torch.zeros(3), {}),
+        )
+        expected_reasons = {
+            "dynamic_affine": "weight_not_static_get_attr",
+            "missing_affine": "affine_weight_missing",
+            "malformed_normalized_shape": (
+                "normalized_shape_not_static_positive_int_sequence"
+            ),
+            "incompatible_affine": "affine_state_incompatible_with_normalized_shape",
+        }
+        for kind, normalized_shape, weight, bias, snapshot in cases:
+            graph = torch.fx.Graph()
+            tensor = graph.placeholder("tensor")
+            tensor.meta["val"] = torch.empty(2, 4)
+            root = torch.nn.Module()
+            if kind == "dynamic_affine":
+                weight_arg = graph.placeholder("weight")
+                bias_arg = graph.placeholder("bias")
+            elif kind == "missing_affine":
+                weight_arg = None
+                bias_arg = None
+            else:
+                root.register_buffer("weight", weight)
+                root.register_buffer("bias", bias)
+                weight_arg = graph.get_attr("weight")
+                bias_arg = graph.get_attr("bias")
+                snapshot = {"weight": weight, "bias": bias}
+            layer_norm = graph.call_function(
+                torch.ops.aten.layer_norm.default,
+                args=(tensor, normalized_shape, weight_arg, bias_arg, 1e-5, False),
+            )
+            graph.output(layer_norm)
+            graph_module = torch.fx.GraphModule(root, graph)
+            report = vulkan_graph.lower_static_layernorm_to_vulkan_contexts(
+                graph_module, snapshot
+            )
+            self.assertEqual(report.lowered_count, 0)
+            self.assertEqual(report.rejected_count, 0)
+            self.assertEqual(report.skipped_count, 1)
+            self.assertEqual(report.nodes[0].reason, expected_reasons[kind])
+            self.assertFalse(_layernorm_context_attrs_from_module(graph_module))
+
+    def test_forged_or_missing_layernorm_context_is_unsupported(self):
+        for missing in (False, True):
+            graph = torch.fx.Graph()
+            tensor = graph.placeholder("tensor")
+            context = graph.get_attr("_vulkan_layernorm_context_forged")
+            layer_norm = graph.call_function(
+                torch.ops.vulkan_prepack.run_layernorm_context.default,
+                args=(tensor, [4], context),
+            )
+            graph.output(layer_norm)
+            root = torch.nn.Module()
+            setattr(root, "_vulkan_layernorm_context_forged", object())
+            graph_module = torch.fx.GraphModule(root, graph)
+            if missing:
+                delattr(graph_module, "_vulkan_layernorm_context_forged")
+            census = vulkan_graph._build_census(graph_module)
+            record = next(
+                node
+                for node in census.nodes
+                if node.target == "vulkan_prepack::run_layernorm_context"
+            )
+            self.assertEqual(record.classification, "unsupported")
+            self.assertEqual(
+                record.reason,
+                "run_layernorm_context_missing_graph_owned_context",
+            )
 
     def test_static_conv2d_relu_conv2d_region_matches_cpu_and_eager_vulkan(self):
         class ConvReluConv(torch.nn.Module):

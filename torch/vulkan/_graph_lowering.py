@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -51,6 +52,31 @@ class VulkanConv2dLoweringReport:
     reused_context_count: int
     context_factory: str
     nodes: tuple[VulkanConv2dLoweringNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanLayernormLoweringNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    weight_attr: str | None
+    bias_attr: str | None
+    normalized_shape: tuple[int, ...] | None
+    eps: float | None
+    context_attr: str | None
+    context_status: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanLayernormLoweringReport:
+    layer_norm_node_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    created_context_count: int
+    reused_context_count: int
+    context_factory: str
+    nodes: tuple[VulkanLayernormLoweringNodeReport, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -165,6 +191,28 @@ def _snapshot_tensor(
     return value if isinstance(value, torch.Tensor) else None
 
 
+def _delete_graph_attr_if_unreferenced(
+    graph_module: torch.fx.GraphModule,
+    target: str,
+) -> None:
+    if any(
+        node.op == "get_attr" and str(node.target) == target
+        for node in graph_module.graph.nodes
+    ):
+        return
+    owner: torch.nn.Module = graph_module
+    path = target.split(".")
+    for name in path[:-1]:
+        if not hasattr(owner, name):
+            return
+        child = getattr(owner, name)
+        if not isinstance(child, torch.nn.Module):
+            return
+        owner = child
+    if hasattr(owner, path[-1]):
+        delattr(owner, path[-1])
+
+
 def _context_attr_name(
     weight_attr: str,
     bias_attr: str | None,
@@ -197,6 +245,26 @@ def _conv2d_context_attr_name(
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
     return f"_vulkan_conv2d_context_{digest}"
+
+
+def _layernorm_context_attr_name(
+    weight_attr: str,
+    bias_attr: str,
+    dtype: torch.dtype,
+    normalized_shape: tuple[int, ...],
+    eps: float,
+) -> str:
+    identity = "\x00".join(
+        (
+            weight_attr,
+            bias_attr,
+            str(dtype),
+            repr(normalized_shape),
+            repr(eps),
+        )
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"_vulkan_layernorm_context_{digest}"
 
 
 def _static_linear_gelu_plan_attr_name(
@@ -291,6 +359,20 @@ def _static_int_pair(
     return result, None
 
 
+def _static_positive_int_sequence(
+    value: Any,
+    name: str,
+) -> tuple[tuple[int, ...] | None, str | None]:
+    if not isinstance(value, (list, tuple)) or not value:
+        return None, f"{name}_not_static_positive_int_sequence"
+    if any(not isinstance(item, int) or isinstance(item, bool) for item in value):
+        return None, f"{name}_not_static_positive_int_sequence"
+    result = tuple(int(item) for item in value)
+    if any(item <= 0 for item in result):
+        return None, f"{name}_outside_supported_range"
+    return result, None
+
+
 def _is_tanh_gelu(node: torch.fx.Node) -> bool:
     return (
         node.op == "call_function"
@@ -345,6 +427,52 @@ def _graph_owned_conv2d_context_attr(
     ):
         return None
     return context_attr if hasattr(graph_module, context_attr) else None
+
+
+def _graph_owned_layernorm_context_attr(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> str | None:
+    if (
+        node.op != "call_function"
+        or node.target != torch.ops.vulkan_prepack.run_layernorm_context.default
+        or len(node.args) != 3
+        or node.kwargs
+    ):
+        return None
+    context_attr = _get_attr_target(node.args[2])
+    if context_attr is None or not context_attr.startswith(
+        "_vulkan_layernorm_context_"
+    ):
+        return None
+    if not hasattr(graph_module, context_attr):
+        return None
+    return (
+        context_attr
+        if isinstance(getattr(graph_module, context_attr), torch.ScriptObject)
+        else None
+    )
+
+
+def _skip_layernorm(
+    node: torch.fx.Node,
+    reason: str,
+    weight_attr: str | None,
+    bias_attr: str | None,
+    normalized_shape: tuple[int, ...] | None,
+    eps: float | None,
+) -> VulkanLayernormLoweringNodeReport:
+    return VulkanLayernormLoweringNodeReport(
+        node_name=node.name,
+        status="skipped",
+        reason=reason,
+        weight_attr=weight_attr,
+        bias_attr=bias_attr,
+        normalized_shape=normalized_shape,
+        eps=eps,
+        context_attr=None,
+        context_status=None,
+    )
 
 
 def lower_static_linear_to_vulkan_contexts(
@@ -1103,6 +1231,420 @@ def lower_static_conv2d_to_vulkan_contexts(
     )
 
 
+def lower_static_layernorm_to_vulkan_contexts(
+    graph_module: torch.fx.GraphModule,
+    state_dict_snapshot: Mapping[str, torch.Tensor],
+) -> VulkanLayernormLoweringReport:
+    graph = graph_module.graph
+    reports: list[VulkanLayernormLoweringNodeReport] = []
+    context_attrs: dict[
+        tuple[str, str, torch.dtype, tuple[int, ...], float], str
+    ] = {}
+    layer_norm_node_count = 0
+    created_context_count = 0
+    reused_context_count = 0
+    replaced_affine_attrs: set[str] = set()
+
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.layer_norm.default
+        ):
+            continue
+
+        layer_norm_node_count += 1
+        optional_argument_names = ("weight", "bias", "eps", "cudnn_enable")
+        if (
+            len(node.args) < 2
+            or len(node.args) > 6
+            or set(node.kwargs).difference(optional_argument_names)
+        ):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "unsupported_layer_norm_signature",
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            )
+            continue
+        positional_names = (
+            "input",
+            "normalized_shape",
+            "weight",
+            "bias",
+            "eps",
+            "cudnn_enable",
+        )
+        if any(
+            name in node.kwargs and name in positional_names[: len(node.args)]
+            for name in optional_argument_names
+        ):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "unsupported_layer_norm_signature",
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            )
+            continue
+
+        input_arg, normalized_shape_arg = node.args[:2]
+        weight_arg = (
+            node.args[2] if len(node.args) > 2 else node.kwargs.get("weight")
+        )
+        bias_arg = (
+            node.args[3] if len(node.args) > 3 else node.kwargs.get("bias")
+        )
+        eps_arg = (
+            node.args[4] if len(node.args) > 4 else node.kwargs.get("eps", 1e-5)
+        )
+        cudnn_enable_arg = (
+            node.args[5]
+            if len(node.args) > 5
+            else node.kwargs.get("cudnn_enable", True)
+        )
+        normalized_shape, normalized_shape_error = _static_positive_int_sequence(
+            normalized_shape_arg, "normalized_shape"
+        )
+        if normalized_shape_error is not None:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    normalized_shape_error,
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    None,
+                    None,
+                )
+            )
+            continue
+        if not isinstance(eps_arg, (int, float)) or isinstance(eps_arg, bool):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "eps_not_finite_nonnegative_static_float",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    None,
+                )
+            )
+            continue
+        try:
+            eps = float(eps_arg)
+        except OverflowError:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "eps_not_finite_nonnegative_static_float",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    None,
+                )
+            )
+            continue
+        if not math.isfinite(eps) or eps < 0.0:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "eps_not_finite_nonnegative_static_float",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    None,
+                )
+            )
+            continue
+        if not isinstance(cudnn_enable_arg, bool):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "cudnn_enable_not_static_bool",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+
+        input_meta = (
+            input_arg.meta.get("val")
+            if isinstance(input_arg, torch.fx.Node)
+            else None
+        )
+        if not isinstance(input_meta, torch.Tensor):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "input_meta_not_tensor",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if not torch.is_floating_point(input_meta):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "input_meta_not_floating",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if input_meta.dim() < len(normalized_shape):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "input_rank_smaller_than_normalized_shape",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        input_tail = tuple(input_meta.shape[-len(normalized_shape) :])
+        if any(
+            isinstance(actual, int) and actual != expected
+            for actual, expected in zip(input_tail, normalized_shape)
+        ):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "input_normalized_shape_mismatch",
+                    _get_attr_target(weight_arg),
+                    _get_attr_target(bias_arg),
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+
+        weight_attr = _get_attr_target(weight_arg)
+        bias_attr = _get_attr_target(bias_arg)
+        if weight_arg is None:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "affine_weight_missing",
+                    None,
+                    bias_attr,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if bias_arg is None:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "affine_bias_missing",
+                    weight_attr,
+                    None,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if weight_attr is None:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "weight_not_static_get_attr",
+                    None,
+                    bias_attr,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if bias_attr is None:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "bias_not_static_get_attr",
+                    weight_attr,
+                    None,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        weight = _snapshot_tensor(state_dict_snapshot, weight_attr)
+        bias = _snapshot_tensor(state_dict_snapshot, bias_attr)
+        if weight is None or bias is None:
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "affine_state_missing_from_cpu_snapshot",
+                    weight_attr,
+                    bias_attr,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if weight.device.type != "cpu" or bias.device.type != "cpu":
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "affine_state_snapshot_not_cpu",
+                    weight_attr,
+                    bias_attr,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if (
+            not torch.is_floating_point(weight)
+            or not torch.is_floating_point(bias)
+        ):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "affine_state_not_floating",
+                    weight_attr,
+                    bias_attr,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+        if (
+            weight.dtype != bias.dtype
+            or weight.dtype != input_meta.dtype
+            or tuple(weight.shape) != normalized_shape
+            or tuple(bias.shape) != normalized_shape
+        ):
+            reports.append(
+                _skip_layernorm(
+                    node,
+                    "affine_state_incompatible_with_normalized_shape",
+                    weight_attr,
+                    bias_attr,
+                    normalized_shape,
+                    eps,
+                )
+            )
+            continue
+
+        context_key = (
+            weight_attr,
+            bias_attr,
+            weight.dtype,
+            normalized_shape,
+            eps,
+        )
+        context_attr = context_attrs.get(context_key)
+        context_status = "reused" if context_attr is not None else "created"
+        if context_attr is None:
+            context_attr = _layernorm_context_attr_name(
+                weight_attr, bias_attr, weight.dtype, normalized_shape, eps
+            )
+            if hasattr(graph_module, context_attr):
+                reports.append(
+                    VulkanLayernormLoweringNodeReport(
+                        node_name=node.name,
+                        status="rejected",
+                        reason="deterministic_context_attribute_collision",
+                        weight_attr=weight_attr,
+                        bias_attr=bias_attr,
+                        normalized_shape=normalized_shape,
+                        eps=eps,
+                        context_attr=None,
+                        context_status=None,
+                    )
+                )
+                continue
+            try:
+                context = torch.ops.vulkan_prepack.create_layernorm_context.default(
+                    _snapshot_for_context(weight),
+                    _snapshot_for_context(bias),
+                    eps,
+                )
+                setattr(graph_module, context_attr, context)
+            except (RuntimeError, TypeError, AttributeError) as error:
+                reports.append(
+                    VulkanLayernormLoweringNodeReport(
+                        node_name=node.name,
+                        status="rejected",
+                        reason=(
+                            "layernorm_context_creation_failed:"
+                            f"{type(error).__name__}"
+                        ),
+                        weight_attr=weight_attr,
+                        bias_attr=bias_attr,
+                        normalized_shape=normalized_shape,
+                        eps=eps,
+                        context_attr=None,
+                        context_status=None,
+                    )
+                )
+                continue
+            context_attrs[context_key] = context_attr
+            created_context_count += 1
+        else:
+            reused_context_count += 1
+
+        with graph.inserting_before(node):
+            context_node = graph.create_node("get_attr", context_attr, (), {})
+            lowered_node = graph.call_function(
+                torch.ops.vulkan_prepack.run_layernorm_context.default,
+                args=(node.args[0], list(normalized_shape), context_node),
+            )
+        lowered_node.meta = dict(node.meta)
+        node.replace_all_uses_with(lowered_node)
+        graph.erase_node(node)
+        replaced_affine_attrs.add(weight_attr)
+        replaced_affine_attrs.add(bias_attr)
+        reports.append(
+            VulkanLayernormLoweringNodeReport(
+                node_name=node.name,
+                status="lowered",
+                reason="static_cpu_snapshot_affine_parameters",
+                weight_attr=weight_attr,
+                bias_attr=bias_attr,
+                normalized_shape=normalized_shape,
+                eps=eps,
+                context_attr=context_attr,
+                context_status=context_status,
+            )
+        )
+
+    if any(report.status == "lowered" for report in reports):
+        graph.eliminate_dead_code()
+        for affine_attr in replaced_affine_attrs:
+            _delete_graph_attr_if_unreferenced(graph_module, affine_attr)
+        graph_module.delete_all_unused_submodules()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanLayernormLoweringReport(
+        layer_norm_node_count=layer_norm_node_count,
+        lowered_count=sum(report.status == "lowered" for report in reports),
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        skipped_count=sum(report.status == "skipped" for report in reports),
+        created_context_count=created_context_count,
+        reused_context_count=reused_context_count,
+        context_factory="vulkan_prepack::create_layernorm_context",
+        nodes=tuple(reports),
+    )
+
+
 def lower_static_conv2d_relu_conv2d_regions(
     graph_module: torch.fx.GraphModule,
 ) -> VulkanStaticConv2dReluConv2dRegionReport:
@@ -1609,6 +2151,8 @@ def lower_static_conv2d_relu_regions(
 __all__ = [
     "VulkanConv2dLoweringNodeReport",
     "VulkanConv2dLoweringReport",
+    "VulkanLayernormLoweringNodeReport",
+    "VulkanLayernormLoweringReport",
     "VulkanLinearLoweringNodeReport",
     "VulkanLinearLoweringReport",
     "VulkanStaticConv2dReluRegionNodeReport",
@@ -1620,6 +2164,7 @@ __all__ = [
     "lower_static_conv2d_to_vulkan_contexts",
     "lower_static_conv2d_relu_regions",
     "lower_static_conv2d_relu_conv2d_regions",
+    "lower_static_layernorm_to_vulkan_contexts",
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",
 ]
