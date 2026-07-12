@@ -211,6 +211,8 @@ bool conv2d_context_may_require_host_sync(
     IntArrayRef input_sizes,
     const c10::intrusive_ptr<Conv2dPackedContext>& context);
 
+void set_graph_program_conv_host_sync_for_testing(bool enabled);
+
 std::optional<Tensor> try_run_conv2d_context_relu_out(
     const Tensor& input,
     const c10::intrusive_ptr<Conv2dPackedContext>& context,

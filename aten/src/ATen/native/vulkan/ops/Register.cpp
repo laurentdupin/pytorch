@@ -354,14 +354,20 @@ bool utils::VulkanGraphRegionPlan::valid() const {
       !values_[2].escapes_region) {
     return false;
   }
-  if (schema_.family == VulkanGraphRegionFamily::LinearGeluTanh) {
+  if (
+      schema_.family == VulkanGraphRegionFamily::LinearGeluTanh ||
+      schema_.family == VulkanGraphRegionFamily::LinearGeluNone) {
+    const VulkanGraphRegionOpcode gelu_opcode =
+        schema_.family == VulkanGraphRegionFamily::LinearGeluTanh
+            ? VulkanGraphRegionOpcode::GeluTanh
+            : VulkanGraphRegionOpcode::GeluNone;
     return schema_.input_count == 1u && schema_.output_count == 1u &&
         instructions_.size() == 2u && static_contexts_.size() == 1u &&
         instructions_[0].opcode == VulkanGraphRegionOpcode::LinearContext &&
         instructions_[0].input_value == 0u && instructions_[0].output_value == 1u &&
         instructions_[0].static_context_slot == 0 &&
         instructions_[0].transition == VulkanGraphRegionTransition::Direct &&
-        instructions_[1].opcode == VulkanGraphRegionOpcode::GeluTanh &&
+        instructions_[1].opcode == gelu_opcode &&
         instructions_[1].input_value == 1u && instructions_[1].output_value == 2u &&
         instructions_[1].static_context_slot == -1 &&
         instructions_[1].transition == VulkanGraphRegionTransition::Direct &&
@@ -411,6 +417,36 @@ utils::create_vulkan_graph_region_plan_linear_gelu(
            0,
            VulkanGraphRegionTransition::Direct},
           {VulkanGraphRegionOpcode::GeluTanh,
+           1u,
+           2u,
+           -1,
+           VulkanGraphRegionTransition::Direct},
+      },
+      std::vector<VulkanGraphRegionStaticContext>{
+          {VulkanGraphRegionStaticContextKind::Linear, linear_context, nullptr},
+      });
+}
+
+c10::intrusive_ptr<utils::VulkanGraphRegionPlan>
+utils::create_vulkan_graph_region_plan_linear_gelu_none(
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
+  VulkanGraphRegionPlanSchema schema;
+  schema.family = VulkanGraphRegionFamily::LinearGeluNone;
+  schema.instruction_count = 2u;
+  return c10::make_intrusive<VulkanGraphRegionPlan>(
+      schema,
+      std::vector<VulkanGraphRegionValueSchema>{
+          {0u, VulkanGraphRegionValueKind::Input, 1u, 0u, false},
+          {1u, VulkanGraphRegionValueKind::Temporary, 1u, 1u, false},
+          {2u, VulkanGraphRegionValueKind::Output, 0u, 1u, true},
+      },
+      std::vector<VulkanGraphRegionInstructionSchema>{
+          {VulkanGraphRegionOpcode::LinearContext,
+           0u,
+           1u,
+           0,
+           VulkanGraphRegionTransition::Direct},
+          {VulkanGraphRegionOpcode::GeluNone,
            1u,
            2u,
            -1,
@@ -732,6 +768,9 @@ std::vector<Tensor> utils::run_vulkan_graph_region_plan(
   if (plan->schema().family == VulkanGraphRegionFamily::LinearGeluTanh) {
     return {at::gelu(run_linear_context(input, plan->linear_context(0u)), "tanh")};
   }
+  if (plan->schema().family == VulkanGraphRegionFamily::LinearGeluNone) {
+    return {at::gelu(run_linear_context(input, plan->linear_context(0u)), "none")};
+  }
   const c10::intrusive_ptr<Conv2dPackedContext>& first_context =
       plan->conv2d_context(0u);
   const c10::intrusive_ptr<Conv2dPackedContext>& second_context =
@@ -747,9 +786,13 @@ std::vector<Tensor> utils::run_vulkan_graph_region_plan(
   if (
       conv2d_context_may_require_host_sync(input.sizes(), first_context) ||
       conv2d_context_may_require_host_sync(intermediate_sizes, second_context)) {
-    Tensor intermediate =
-        run_conv2d_context_relu(input, first_context);
-    return {run_conv2d_context(intermediate, second_context)};
+    api::vulkan_graph_program_invocation_counters()
+        .bounded_region_host_sync_rejected_count.fetch_add(
+            1u, std::memory_order_relaxed);
+    TORCH_CHECK(
+        false,
+        "VulkanGraphRegionPlan.v1 bounded_submission_host_sync_required: "
+        "the bounded Conv2dReluConv2d region cannot honor its ownership contract");
   }
   api::Context& context = *api::context();
   RegionMemoryTransaction transaction(context);
@@ -2475,6 +2518,9 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_graph_program_invocation_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::set_graph_program_conv_host_sync_for_testing("
+      "bool enabled) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::submit_origin_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_origin_counters() -> ()"));
@@ -2687,6 +2733,10 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "__torch__.torch.classes.vulkan.LinearPackedContext context) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none("
+      "__torch__.torch.classes.vulkan.LinearPackedContext context) "
+      "-> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vulkan_graph_region_plan(Tensor[] inputs, "
       "__torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2798,6 +2848,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
           "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu"),
       TORCH_FN(utils::create_vulkan_graph_region_plan_linear_gelu));
   m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none"),
+      TORCH_FN(utils::create_vulkan_graph_region_plan_linear_gelu_none));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_graph_add_layernorm_plan"),
       TORCH_FN(utils::create_graph_add_layernorm_plan));
   m.impl(
@@ -2827,6 +2881,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::reset_graph_program_invocation_counters"),
       TORCH_FN(api::reset_vulkan_graph_program_invocation_counters));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::set_graph_program_conv_host_sync_for_testing"),
+      TORCH_FN(set_graph_program_conv_host_sync_for_testing));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::submit_origin_counters"),
       TORCH_FN(submit_origin_counters_runtime));

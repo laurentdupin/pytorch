@@ -6,9 +6,15 @@ import unittest
 from unittest.mock import patch
 
 import torch
+from torch.export._unlift import GuardsFn
 import torch.vulkan._graph as vulkan_graph
 import torch.vulkan._graph_lowering as vulkan_graph_lowering
 from torch.testing._internal.common_utils import run_tests, TestCase
+
+
+# Vulkan aten::gelu("none") uses the tanh kernel; this covers its CPU gap.
+VULKAN_GELU_NONE_CPU_RTOL = 5e-3
+VULKAN_GELU_NONE_CPU_ATOL = 5e-4
 
 
 def _linear_context_attrs(program):
@@ -209,6 +215,8 @@ class TestVulkanGraph(TestCase):
         )
         plan_attrs = _static_linear_gelu_plan_attrs(program)
         self.assertEqual(len(plan_attrs), 1)
+        self.assertFalse(_linear_context_attrs(program))
+        self.assertFalse(program.graph_module.state_dict())
         for shape in ((1, 1, 5), (4, 8, 5)):
             tensor = torch.randn(shape)
             torch.testing.assert_close(
@@ -252,52 +260,199 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
-    def test_static_linear_gelu_none_stays_unfused(self):
+    def test_static_linear_default_gelu_region_matches_cpu_and_eager_vulkan(self):
         class LinearGelu(torch.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.linear = torch.nn.Linear(3, 4)
+                self.linear = torch.nn.Linear(4, 4)
 
             def forward(self, tensor):
-                return torch.nn.functional.gelu(
-                    self.linear(tensor), approximate="none"
-                )
+                return torch.nn.functional.gelu(self.linear(tensor))
 
         torch.manual_seed(12)
         model = LinearGelu().eval()
-        tensor = torch.randn(2, 3)
+        with torch.no_grad():
+            model.linear.weight.copy_(torch.eye(4))
+            model.linear.bias.zero_()
+        tensor = torch.tensor([[-3.0, -1.0, 1.0, 3.0]])
+        cpu_output = model(tensor)
         program = torch.vulkan.export_and_lower(model, tensor)
-        torch.testing.assert_close(
-            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+        op_hit_log_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "vulkan_graph_linear_gelu_none_op_hit_test.log",
         )
-        self.assertEqual(program.static_linear_gelu_regions.candidate_count, 0)
-        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 0)
-        self.assertFalse(_static_linear_gelu_plan_attrs(program))
-        self.assertEqual(len(_linear_context_attrs(program)), 1)
+        previous_op_hit_log = os.environ.get("PYTORCH_VULKAN_OP_HIT_LOG")
+        if os.path.exists(op_hit_log_path):
+            os.remove(op_hit_log_path)
+        os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = op_hit_log_path
+        try:
+            graph_output = program(tensor).cpu()
+            with open(op_hit_log_path, encoding="utf-8") as op_hit_file:
+                op_hit_text = op_hit_file.read()
+        finally:
+            if previous_op_hit_log is None:
+                os.environ.pop("PYTORCH_VULKAN_OP_HIT_LOG", None)
+            else:
+                os.environ["PYTORCH_VULKAN_OP_HIT_LOG"] = previous_op_hit_log
+            if os.path.exists(op_hit_log_path):
+                os.remove(op_hit_log_path)
+        torch.testing.assert_close(
+            graph_output,
+            cpu_output,
+            rtol=VULKAN_GELU_NONE_CPU_RTOL,
+            atol=VULKAN_GELU_NONE_CPU_ATOL,
+        )
+        torch.testing.assert_close(
+            graph_output, eager_vulkan_output, rtol=1e-5, atol=1e-5
+        )
+        self.assertIn("op=aten::linear.", op_hit_text)
+        self.assertIn("op=aten::gelu.buffer_float", op_hit_text)
+        self.assertIn("post=none", op_hit_text)
+        self.assertNotIn("post=gelu", op_hit_text)
+        self.assertNotIn("vulkan_prepack::run_linear_gelu_context", op_hit_text)
+        report = program.static_linear_gelu_regions
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(
+            report.plan_factory,
+            "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none",
+        )
+        self.assertEqual(len(_static_linear_gelu_plan_attrs(program)), 1)
+        self.assertFalse(_linear_context_attrs(program))
+        self.assertFalse(program.graph_module.state_dict())
+        self.assertEqual(report.nodes[0].region_family, "linear_gelu_none")
+        self.assertEqual(
+            report.nodes[0].reason,
+            "graph_owned_static_linear_none_gelu",
+        )
+        families = {
+            family.family: family for family in program.vulkan_graph_regions.families
+        }
+        self.assertEqual(families["linear_gelu_none"].lowered_count, 1)
+        self.assertEqual(families["linear_gelu_tanh"].lowered_count, 0)
+        self.assertEqual(
+            families["linear_gelu_none"].plan_factory,
+            "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none",
+        )
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_linear_none_gelu_region_reuses_dynamic_shapes(self):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(5, 7)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(self.linear(tensor))
+
+        torch.manual_seed(16)
+        model = LinearGelu().eval()
+        example = torch.randn(2, 3, 5)
+        batch = torch.export.Dim("batch", min=1, max=4)
+        tokens = torch.export.Dim("tokens", min=1, max=8)
+        program = torch.vulkan.export_and_lower(
+            model,
+            example,
+            dynamic_shapes=({0: batch, 1: tokens},),
+        )
+        plan_attrs = _static_linear_gelu_plan_attrs(program)
+        self.assertEqual(len(plan_attrs), 1)
+        self.assertFalse(_linear_context_attrs(program))
+        self.assertFalse(program.graph_module.state_dict())
+        for shape in ((1, 1, 5), (4, 8, 5)):
+            tensor = torch.randn(shape)
+            torch.testing.assert_close(
+                program(tensor).cpu(),
+                model(tensor),
+                rtol=VULKAN_GELU_NONE_CPU_RTOL,
+                atol=VULKAN_GELU_NONE_CPU_ATOL,
+            )
+        self.assertEqual(_static_linear_gelu_plan_attrs(program), plan_attrs)
+        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 1)
+        self.assertEqual(
+            program.static_linear_gelu_regions.nodes[0].region_family,
+            "linear_gelu_none",
+        )
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_static_linear_biasless_none_gelu_region_matches_cpu_and_eager_vulkan(
+        self,
+    ):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 6, bias=False)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(self.linear(tensor))
+
+        torch.manual_seed(17)
+        model = LinearGelu().eval()
+        tensor = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+        graph_output = program(tensor).cpu()
+        torch.testing.assert_close(
+            graph_output,
+            model(tensor),
+            rtol=VULKAN_GELU_NONE_CPU_RTOL,
+            atol=VULKAN_GELU_NONE_CPU_ATOL,
+        )
+        torch.testing.assert_close(
+            graph_output, eager_vulkan_output, rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 1)
+        self.assertEqual(
+            program.static_linear_gelu_regions.nodes[0].region_family,
+            "linear_gelu_none",
+        )
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
 
     def test_static_linear_gelu_multi_use_linear_output_stays_unfused(self):
         class LinearGeluResidual(torch.nn.Module):
-            def __init__(self):
+            def __init__(self, approximate):
                 super().__init__()
                 self.linear = torch.nn.Linear(3, 4)
+                self.approximate = approximate
 
             def forward(self, tensor):
                 linear = self.linear(tensor)
-                return torch.nn.functional.gelu(linear, approximate="tanh") + linear
+                return torch.nn.functional.gelu(
+                    linear, approximate=self.approximate
+                ) + linear
 
-        torch.manual_seed(13)
-        model = LinearGeluResidual().eval()
-        tensor = torch.randn(2, 3)
-        program = torch.vulkan.export_and_lower(model, tensor)
-        torch.testing.assert_close(
-            program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
-        )
-        report = program.static_linear_gelu_regions
-        self.assertEqual(report.lowered_count, 0)
-        self.assertEqual(report.skipped_count, 1)
-        self.assertEqual(report.nodes[0].reason, "linear_output_has_multiple_users")
-        self.assertFalse(_static_linear_gelu_plan_attrs(program))
-        self.assertEqual(len(_linear_context_attrs(program)), 1)
+        for approximate in ("tanh", "none"):
+            with self.subTest(approximate=approximate):
+                torch.manual_seed(13)
+                model = LinearGeluResidual(approximate).eval()
+                tensor = torch.randn(2, 3)
+                program = torch.vulkan.export_and_lower(model, tensor)
+                torch.testing.assert_close(
+                    program(tensor).cpu(), model(tensor), rtol=1e-4, atol=1e-4
+                )
+                report = program.static_linear_gelu_regions
+                self.assertEqual(report.lowered_count, 0)
+                self.assertEqual(report.skipped_count, 1)
+                self.assertEqual(
+                    report.nodes[0].reason, "linear_output_has_multiple_users"
+                )
+                self.assertEqual(
+                    report.nodes[0].region_family,
+                    f"linear_gelu_{approximate}",
+                )
+                self.assertFalse(_static_linear_gelu_plan_attrs(program))
+                self.assertEqual(len(_linear_context_attrs(program)), 1)
 
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
@@ -334,60 +489,64 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(len(_linear_context_attrs(program)), 1)
 
     def test_static_linear_gelu_nonprivate_context_stays_unfused(self):
-        graph = torch.fx.Graph()
-        tensor = graph.placeholder("tensor")
-        context = graph.get_attr("context")
-        linear = graph.call_function(
-            torch.ops.vulkan_prepack.run_linear_context.default,
-            args=(tensor, context),
-        )
-        gelu = graph.call_function(
-            torch.ops.aten.gelu.default,
-            args=(linear,),
-            kwargs={"approximate": "tanh"},
-        )
-        graph.output(gelu)
-        root = torch.nn.Module()
-        root.context = object()
-        graph_module = torch.fx.GraphModule(root, graph)
+        for approximate in ("tanh", "none"):
+            with self.subTest(approximate=approximate):
+                graph = torch.fx.Graph()
+                tensor = graph.placeholder("tensor")
+                context = graph.get_attr("context")
+                linear = graph.call_function(
+                    torch.ops.vulkan_prepack.run_linear_context.default,
+                    args=(tensor, context),
+                )
+                gelu = graph.call_function(
+                    torch.ops.aten.gelu.default,
+                    args=(linear,),
+                    kwargs={"approximate": approximate},
+                )
+                graph.output(gelu)
+                root = torch.nn.Module()
+                root.context = object()
+                graph_module = torch.fx.GraphModule(root, graph)
 
-        report = vulkan_graph.lower_static_linear_gelu_regions(graph_module)
-        self.assertEqual(report.candidate_count, 0)
-        self.assertEqual(report.lowered_count, 0)
-        self.assertFalse(
-            any(
-                str(node.target)
-                == "vulkan_prepack.run_vulkan_graph_region_plan.default"
-                for node in graph_module.graph.nodes
-            )
-        )
+                report = vulkan_graph.lower_static_linear_gelu_regions(graph_module)
+                self.assertEqual(report.candidate_count, 0)
+                self.assertEqual(report.lowered_count, 0)
+                self.assertFalse(
+                    any(
+                        str(node.target)
+                        == "vulkan_prepack.run_vulkan_graph_region_plan.default"
+                        for node in graph_module.graph.nodes
+                    )
+                )
 
     def test_static_linear_gelu_dynamic_context_stays_unfused(self):
-        graph = torch.fx.Graph()
-        tensor = graph.placeholder("tensor")
-        context = graph.placeholder("context")
-        linear = graph.call_function(
-            torch.ops.vulkan_prepack.run_linear_context.default,
-            args=(tensor, context),
-        )
-        gelu = graph.call_function(
-            torch.ops.aten.gelu.default,
-            args=(linear,),
-            kwargs={"approximate": "tanh"},
-        )
-        graph.output(gelu)
-        graph_module = torch.fx.GraphModule({}, graph)
+        for approximate in ("tanh", "none"):
+            with self.subTest(approximate=approximate):
+                graph = torch.fx.Graph()
+                tensor = graph.placeholder("tensor")
+                context = graph.placeholder("context")
+                linear = graph.call_function(
+                    torch.ops.vulkan_prepack.run_linear_context.default,
+                    args=(tensor, context),
+                )
+                gelu = graph.call_function(
+                    torch.ops.aten.gelu.default,
+                    args=(linear,),
+                    kwargs={"approximate": approximate},
+                )
+                graph.output(gelu)
+                graph_module = torch.fx.GraphModule({}, graph)
 
-        report = vulkan_graph.lower_static_linear_gelu_regions(graph_module)
-        self.assertEqual(report.candidate_count, 0)
-        self.assertEqual(report.lowered_count, 0)
-        self.assertFalse(
-            any(
-                str(node.target)
-                == "vulkan_prepack.run_vulkan_graph_region_plan.default"
-                for node in graph_module.graph.nodes
-            )
-        )
+                report = vulkan_graph.lower_static_linear_gelu_regions(graph_module)
+                self.assertEqual(report.candidate_count, 0)
+                self.assertEqual(report.lowered_count, 0)
+                self.assertFalse(
+                    any(
+                        str(node.target)
+                        == "vulkan_prepack.run_vulkan_graph_region_plan.default"
+                        for node in graph_module.graph.nodes
+                    )
+                )
 
     def test_static_layernorm_lowering_matches_cpu_and_eager_vulkan(self):
         class AffineLayerNorm(torch.nn.Module):
@@ -1026,12 +1185,66 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(program.last_sync_readback_count, 0)
             self.assertEqual(program.last_deferred_values_created, 0)
             counters = _graph_program_invocation_counters()
-            self.assertEqual(len(counters), 9)
+            self.assertEqual(len(counters), 10)
             self.assertGreaterEqual(counters[0], 1)
             self.assertGreaterEqual(counters[1], 1)
-            self.assertEqual(counters[2:4], [0, 0])
-            self.assertGreaterEqual(counters[4], 1)
-            self.assertEqual(counters[5:], [0, 0, 0, 0])
+            self.assertEqual(counters[2:5], [0, 0, 0])
+            self.assertGreaterEqual(counters[5], 1)
+            self.assertEqual(counters[6:], [0, 0, 0, 0])
+
+    def test_static_conv2d_relu_conv2d_region_rejects_host_sync_requirement(
+        self,
+    ):
+        class ConvReluConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 4, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(4, 2, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv1(torch.relu(self.conv0(tensor)))
+
+        torch.manual_seed(37)
+        model = ConvReluConv().eval()
+        tensor = torch.randn(2, 3, 8, 7)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
+
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.set_graph_program_conv_host_sync_for_testing(True)
+        try:
+            with self.assertRaisesRegex(
+                torch.vulkan.VulkanGraphExecutionError,
+                "bounded_submission_host_sync_required",
+            ):
+                program(tensor)
+        finally:
+            torch.ops.vulkan_prepack.set_graph_program_conv_host_sync_for_testing(
+                False
+            )
+
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+        )
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        graph_output = program(tensor).cpu()
+        with torch.inference_mode():
+            eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+        torch.testing.assert_close(graph_output, expected, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(
+            graph_output, eager_vulkan_output, rtol=1e-4, atol=1e-4
+        )
+        counters = _graph_program_invocation_counters()
+        self.assertGreaterEqual(counters[0], 1)
+        self.assertGreaterEqual(counters[1], 1)
+        self.assertEqual(counters[2:5], [0, 0, 0])
+        self.assertGreaterEqual(counters[5], 1)
 
     def test_static_conv2d_relu_conv2d_region_reuses_dynamic_shapes(self):
         class ConvReluConv(torch.nn.Module):
@@ -1071,7 +1284,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_deferred_values_created, 0)
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [3, 3, 0, 0, 2, 1, 0, 0, 0],
+            [3, 3, 0, 0, 0, 2, 1, 0, 0, 0],
         )
 
     def test_static_conv2d_relu_conv2d_region_allows_two_unread_outputs(self):
@@ -1099,8 +1312,8 @@ class TestVulkanGraph(TestCase):
             second_output.cpu(), expected, rtol=1e-4, atol=1e-4
         )
         counters = _graph_program_invocation_counters()
-        self.assertEqual(counters[:4], [2, 2, 0, 0])
-        self.assertEqual(sum(counters[4:7]), 2)
+        self.assertEqual(counters[:5], [2, 2, 0, 0, 0])
+        self.assertEqual(sum(counters[5:8]), 2)
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
@@ -1132,10 +1345,10 @@ class TestVulkanGraph(TestCase):
             second_output.cpu(), expected, rtol=1e-4, atol=1e-4
         )
         counters = _graph_program_invocation_counters()
-        self.assertGreaterEqual(counters[4] + counters[5], 1)
-        self.assertGreaterEqual(counters[7] + counters[8], 1)
-        if counters[7] == 0:
-            self.assertGreaterEqual(counters[8], 1)
+        self.assertGreaterEqual(counters[5] + counters[6], 1)
+        self.assertGreaterEqual(counters[8] + counters[9], 1)
+        if counters[8] == 0:
+            self.assertGreaterEqual(counters[9], 1)
 
     def test_static_conv2d_relu_conv2d_region_releases_completed_scratch(self):
         class ConvReluConv(torch.nn.Module):
@@ -1158,9 +1371,9 @@ class TestVulkanGraph(TestCase):
         del program
         gc.collect()
         counters = _graph_program_invocation_counters()
-        self.assertGreaterEqual(counters[4], 1)
-        self.assertEqual(counters[7], 0)
-        self.assertGreaterEqual(counters[8], 1)
+        self.assertGreaterEqual(counters[5], 1)
+        self.assertEqual(counters[8], 0)
+        self.assertGreaterEqual(counters[9], 1)
 
     def test_static_conv2d_lowering_matches_cpu_and_releases_weights(self):
         class ConvRelu(torch.nn.Module):
@@ -1911,8 +2124,33 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(attribution.cpu_fallback_count, 1)
         self.assertEqual(attribution.sync_readback_count, 0)
         self.assertEqual(attribution.deferred_values_created, 0)
-        with self.assertRaises(torch.vulkan.VulkanGraphExecutionError):
+        input_guard = program._exported_input_guard
+        self.assertIsInstance(input_guard, GuardsFn)
+
+        def fail_guard(*values):
+            del values
+            raise RuntimeError("expected input guard failure")
+
+        input_guard.forward = fail_guard
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "exported input guard failed",
+        ):
+            program(tensor)
+        self.assertEqual(program.last_executed_nodes, ())
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertIsNone(program.last_implicit_boundary)
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "input binding failed",
+        ):
             program()
+        self.assertEqual(program.last_executed_nodes, ())
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
         self.assertIsNone(program.last_implicit_boundary)
 
     def test_normalizes_isolated_int64_unsqueeze_to_float32_at_graph_input(self):
@@ -1954,10 +2192,14 @@ class TestVulkanGraph(TestCase):
             program(tensor.to(torch.float32))
         with self.assertRaisesRegex(
             torch.vulkan.VulkanGraphExecutionError,
-            "Vulkan input 'tensor' requires normalized dtype torch.float32; "
-            "got torch.int64",
+            "requires the original CPU dtype torch.int64",
         ):
             program(tensor.to("vulkan"))
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "requires the original CPU dtype torch.int64",
+        ):
+            program(tensor.to(torch.float32).to("vulkan"))
 
     def test_normalizes_isolated_int64_identity_expand_unsqueeze_to_float32(
         self,
@@ -1999,10 +2241,33 @@ class TestVulkanGraph(TestCase):
                     timestep.expand([1]).unsqueeze(1).to(torch.float32) + other
                 )
 
-        timestep = torch.tensor([3], dtype=torch.int64)
+        timestep_value = (1 << 40) + 1
+        timestep = torch.tensor([timestep_value], dtype=torch.int64)
         other = torch.ones(1, 1)
         model = NormalizeTimestep().eval()
         program = torch.vulkan.export_and_lower(model, (timestep, other))
+        input_guard = program._exported_input_guard
+        self.assertIsInstance(input_guard, GuardsFn)
+        seen_guard_inputs = []
+
+        def check_guard(guard_timestep, guard_other):
+            seen_guard_inputs.append(
+                (
+                    guard_timestep.device,
+                    guard_timestep.dtype,
+                    guard_timestep.item(),
+                    guard_other.device,
+                )
+            )
+            if (
+                guard_timestep.device.type != "cpu"
+                or guard_timestep.dtype != torch.int64
+                or guard_timestep.item() != timestep_value
+                or guard_other.device.type != "cpu"
+            ):
+                raise RuntimeError("input guard did not receive original inputs")
+
+        input_guard.forward = check_guard
         with torch.inference_mode():
             cpu_output = model(timestep, other)
             eager_vulkan_output = model(
@@ -2017,43 +2282,137 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.rejected_count, 0)
         self.assertEqual(report.nodes[0].chain_node_names, ("expand", "unsqueeze"))
         self.assertNotIn("aten.to.dtype", program.graph_module.code)
+        self.assertNotIn("_guards_fn", program.graph_module.code)
+        self.assertEqual(
+            seen_guard_inputs,
+            [
+                (
+                    torch.device("cpu"),
+                    torch.int64,
+                    timestep_value,
+                    torch.device("cpu"),
+                )
+            ],
+        )
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
     def test_graph_input_normalization_export_guard_accepts_only_placeholders(self):
-        graph = torch.fx.Graph()
-        timestep = graph.placeholder("timestep")
-        other = graph.placeholder("other")
-        valid_guard = graph.call_module("_guards_fn", (timestep, other))
-        self.assertTrue(
-            vulkan_graph_lowering._is_export_guard_user(valid_guard, timestep)
-        )
+        def guard_graph_module(
+            guard_module,
+            non_placeholder_argument=False,
+            guard_kwargs=None,
+            guard_output_escapes=False,
+        ):
+            graph = torch.fx.Graph()
+            timestep = graph.placeholder("timestep")
+            other = graph.placeholder("other")
+            guard_args = (timestep, other)
+            if non_placeholder_argument:
+                view = graph.call_function(
+                    torch.ops.aten.unsqueeze.default,
+                    (other, 0),
+                )
+                guard_args = (timestep, view)
+            guard = graph.call_module(
+                "_guards_fn",
+                guard_args,
+                {} if guard_kwargs is None else guard_kwargs,
+            )
+            graph.output(guard if guard_output_escapes else timestep)
+            root = torch.nn.Module()
+            root.add_module("_guards_fn", guard_module)
+            return torch.fx.GraphModule(root, graph), timestep, guard
 
-        arbitrary_consumer = graph.call_module("other_module", (timestep, other))
-        self.assertFalse(
+        graph_module, timestep, valid_guard = guard_graph_module(
+            GuardsFn(),
+        )
+        self.assertTrue(
             vulkan_graph_lowering._is_export_guard_user(
-                arbitrary_consumer, timestep
+                graph_module, valid_guard, timestep
             )
         )
-        view = graph.call_function(
-            torch.ops.aten.unsqueeze.default,
-            (other, 0),
+        extracted_guard = vulkan_graph_lowering.extract_verified_exported_input_guard(
+            graph_module
         )
-        invalid_guard = graph.call_module("_guards_fn", (timestep, view))
-        self.assertFalse(
-            vulkan_graph_lowering._is_export_guard_user(invalid_guard, timestep)
-        )
-        guard_with_kwargs = graph.call_module(
-            "_guards_fn",
-            (timestep, other),
-            {"invalid": True},
+        self.assertIsInstance(extracted_guard, GuardsFn)
+        self.assertNotIn("_guards_fn", graph_module.code)
+        self.assertFalse(hasattr(graph_module, "_guards_fn"))
+
+        class SameNamedUserModule(torch.nn.Module):
+            def forward(self, *args):
+                return args[0]
+
+        graph_module, timestep, same_named_user = guard_graph_module(
+            SameNamedUserModule(),
         )
         self.assertFalse(
             vulkan_graph_lowering._is_export_guard_user(
-                guard_with_kwargs, timestep
+                graph_module, same_named_user, timestep
             )
         )
+        self.assertIsNone(
+            vulkan_graph_lowering.extract_verified_exported_input_guard(
+                graph_module
+            )
+        )
+        self.assertIn("_guards_fn", graph_module.code)
+        record = next(
+            node
+            for node in vulkan_graph._build_census(graph_module).nodes
+            if node.name == same_named_user.name
+        )
+        self.assertEqual(record.classification, "unsupported")
+        self.assertEqual(record.reason, "unverified_exported_input_guard")
+
+        graph_module, timestep, invalid_guard = guard_graph_module(
+            GuardsFn(),
+            non_placeholder_argument=True,
+        )
+        self.assertFalse(
+            vulkan_graph_lowering._is_export_guard_user(
+                graph_module, invalid_guard, timestep
+            )
+        )
+        self.assertIsNone(
+            vulkan_graph_lowering.extract_verified_exported_input_guard(
+                graph_module
+            )
+        )
+        self.assertIn("_guards_fn", graph_module.code)
+
+        graph_module, timestep, guard_with_kwargs = guard_graph_module(
+            GuardsFn(),
+            guard_kwargs={"invalid": True},
+        )
+        self.assertFalse(
+            vulkan_graph_lowering._is_export_guard_user(
+                graph_module, guard_with_kwargs, timestep
+            )
+        )
+        self.assertIsNone(
+            vulkan_graph_lowering.extract_verified_exported_input_guard(
+                graph_module
+            )
+        )
+        self.assertIn("_guards_fn", graph_module.code)
+
+        graph_module, timestep, escaping_guard = guard_graph_module(
+            GuardsFn(),
+            guard_output_escapes=True,
+        )
+        self.assertFalse(
+            vulkan_graph_lowering._is_export_guard_user(
+                graph_module, escaping_guard, timestep
+            )
+        )
+        self.assertIsNone(
+            vulkan_graph_lowering.extract_verified_exported_input_guard(
+                graph_module
+            )
+        )
+        self.assertIn("_guards_fn", graph_module.code)
 
     def test_rejects_graph_input_normalization_nonidentity_expand(self):
         class NonIdentityExpand(torch.nn.Module):

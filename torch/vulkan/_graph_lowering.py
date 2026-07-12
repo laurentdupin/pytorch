@@ -481,16 +481,68 @@ def _is_metadata_assertion(
     )
 
 
-def _is_export_guard_user(node: torch.fx.Node, value: torch.fx.Node) -> bool:
-    return (
-        node.op == "call_module"
-        and node.target == "_guards_fn"
-        and not node.kwargs
-        and any(argument is value for argument in node.args)
-        and all(
-            isinstance(argument, torch.fx.Node) and argument.op == "placeholder"
-            for argument in node.args
+def _graph_placeholder_nodes(
+    graph_module: torch.fx.GraphModule,
+) -> tuple[torch.fx.Node, ...]:
+    return tuple(
+        node for node in graph_module.graph.nodes if node.op == "placeholder"
+    )
+
+
+def is_verified_exported_input_guard_call(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> bool:
+    placeholders = _graph_placeholder_nodes(graph_module)
+    if (
+        node.op != "call_module"
+        or node.target != "_guards_fn"
+        or node.kwargs
+        or node.users
+        or not placeholders
+        or len(node.args) != len(placeholders)
+        or any(
+            argument is not placeholder
+            for argument, placeholder in zip(node.args, placeholders)
         )
+    ):
+        return False
+    try:
+        guard_module = graph_module.get_submodule(str(node.target))
+    except AttributeError:
+        return False
+    from torch.export._unlift import GuardsFn
+
+    return type(guard_module) is GuardsFn
+
+
+def extract_verified_exported_input_guard(
+    graph_module: torch.fx.GraphModule,
+) -> torch.nn.Module | None:
+    guard_nodes = tuple(
+        node
+        for node in graph_module.graph.nodes
+        if is_verified_exported_input_guard_call(graph_module, node)
+    )
+    if len(guard_nodes) != 1:
+        return None
+    guard_node = guard_nodes[0]
+    guard_module = graph_module.get_submodule(str(guard_node.target))
+    graph_module.graph.erase_node(guard_node)
+    delattr(graph_module, str(guard_node.target))
+    graph_module.graph.lint()
+    graph_module.recompile()
+    return guard_module
+
+
+def _is_export_guard_user(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+    value: torch.fx.Node,
+) -> bool:
+    return (
+        is_verified_exported_input_guard_call(graph_module, node)
+        and any(argument is value for argument in node.args)
     )
 
 
@@ -638,7 +690,9 @@ def lower_graph_input_dtype_normalizations(
                 if _is_metadata_assertion(user, value):
                     assertions.append(user)
                     continue
-                if value is placeholder and _is_export_guard_user(user, value):
+                if value is placeholder and _is_export_guard_user(
+                    graph_module, user, value
+                ):
                     continue
                 path_isolated = False
                 break
@@ -766,13 +820,18 @@ def _static_positive_int_sequence(
     return result, None
 
 
-def _is_tanh_gelu(node: torch.fx.Node) -> bool:
-    return (
+def _gelu_approximate_mode(node: torch.fx.Node) -> str | None:
+    if not (
         node.op == "call_function"
         and node.target == torch.ops.aten.gelu.default
         and len(node.args) == 1
-        and node.kwargs == {"approximate": "tanh"}
-    )
+    ):
+        return None
+    if node.kwargs == {"approximate": "tanh"}:
+        return "tanh"
+    if node.kwargs in ({}, {"approximate": "none"}):
+        return "none"
+    return None
 
 
 def _is_relu(node: torch.fx.Node) -> bool:
@@ -1072,8 +1131,10 @@ def lower_static_linear_gelu_regions(
     skipped_count = 0
 
     for gelu_node in tuple(graph.nodes):
-        if not _is_tanh_gelu(gelu_node):
+        approximate = _gelu_approximate_mode(gelu_node)
+        if approximate is None:
             continue
+        region_family = f"linear_gelu_{approximate}"
         linear_node = gelu_node.args[0]
         if not isinstance(linear_node, torch.fx.Node):
             continue
@@ -1106,6 +1167,7 @@ def lower_static_linear_gelu_regions(
                     static_context_slot=None,
                     direct_transition_only=None,
                     replay_state_empty=None,
+                    region_family=region_family,
                 )
             )
             skipped_count += 1
@@ -1129,6 +1191,7 @@ def lower_static_linear_gelu_regions(
                     static_context_slot=None,
                     direct_transition_only=None,
                     replay_state_empty=None,
+                    region_family=region_family,
                 )
             )
             skipped_count += 1
@@ -1136,7 +1199,7 @@ def lower_static_linear_gelu_regions(
 
         candidate_count += 1
         plan_attr = _vulkan_graph_region_plan_attr_name(
-            "linear_gelu_tanh", context_attr, gelu_node.name
+            region_family, context_attr, gelu_node.name
         )
         if hasattr(graph_module, plan_attr):
             reports.append(
@@ -1157,7 +1220,7 @@ def lower_static_linear_gelu_regions(
                     static_context_slot=0,
                     direct_transition_only=True,
                     replay_state_empty=True,
-                    region_family="linear_gelu_tanh",
+                    region_family=region_family,
                     intermediate_ssa=1,
                     intermediate_use_count=1,
                     intermediate_last_use=1,
@@ -1166,8 +1229,14 @@ def lower_static_linear_gelu_regions(
             rejected_count += 1
             continue
         try:
-            plan = torch.ops.vulkan_prepack.create_vulkan_graph_region_plan_linear_gelu.default(
-                getattr(graph_module, context_attr)
+            plan = (
+                torch.ops.vulkan_prepack.create_vulkan_graph_region_plan_linear_gelu.default(
+                    getattr(graph_module, context_attr)
+                )
+                if approximate == "tanh"
+                else torch.ops.vulkan_prepack.create_vulkan_graph_region_plan_linear_gelu_none.default(
+                    getattr(graph_module, context_attr)
+                )
             )
             setattr(graph_module, plan_attr, plan)
         except (RuntimeError, TypeError, AttributeError) as error:
@@ -1192,7 +1261,7 @@ def lower_static_linear_gelu_regions(
                     static_context_slot=0,
                     direct_transition_only=True,
                     replay_state_empty=True,
-                    region_family="linear_gelu_tanh",
+                    region_family=region_family,
                     intermediate_ssa=1,
                     intermediate_use_count=1,
                     intermediate_last_use=1,
@@ -1218,7 +1287,7 @@ def lower_static_linear_gelu_regions(
             VulkanStaticLinearGeluRegionNodeReport(
                 node_name=lowered_node.name,
                 status="lowered",
-                reason="graph_owned_static_linear_tanh_gelu",
+                reason=f"graph_owned_static_linear_{approximate}_gelu",
                 linear_node_name=linear_node.name,
                 context_attr=context_attr,
                 plan_attr=plan_attr,
@@ -1232,7 +1301,7 @@ def lower_static_linear_gelu_regions(
                 static_context_slot=0,
                 direct_transition_only=True,
                 replay_state_empty=True,
-                region_family="linear_gelu_tanh",
+                region_family=region_family,
                 intermediate_ssa=1,
                 intermediate_use_count=1,
                 intermediate_last_use=1,
@@ -1249,12 +1318,26 @@ def lower_static_linear_gelu_regions(
         graph.lint()
         graph_module.recompile()
 
+    region_families = {
+        node.region_family for node in reports if node.region_family is not None
+    }
+    if region_families == {"linear_gelu_none"}:
+        plan_factory = (
+            "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none"
+        )
+    elif region_families == {"linear_gelu_tanh"} or not region_families:
+        plan_factory = "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu"
+    else:
+        plan_factory = (
+            "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu{,_none}"
+        )
+
     return VulkanStaticLinearGeluRegionReport(
         candidate_count=candidate_count,
         lowered_count=lowered_count,
         rejected_count=rejected_count,
         skipped_count=skipped_count,
-        plan_factory="vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
+        plan_factory=plan_factory,
         nodes=tuple(reports),
     )
 
@@ -2847,18 +2930,38 @@ def make_vulkan_graph_region_lowering_report(
     static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
     static_conv2d_relu_conv2d_regions: VulkanStaticConv2dReluConv2dRegionReport,
 ) -> VulkanGraphRegionLoweringReport:
+    def linear_gelu_family_diagnostics(
+        family: str,
+        plan_factory: str,
+    ) -> VulkanGraphRegionFamilyDiagnostics:
+        nodes = tuple(
+            node
+            for node in static_linear_gelu_regions.nodes
+            if node.region_family == family
+        )
+        return VulkanGraphRegionFamilyDiagnostics(
+            family=family,
+            candidate_count=sum(
+                node.status in {"lowered", "rejected"} for node in nodes
+            ),
+            lowered_count=sum(node.status == "lowered" for node in nodes),
+            rejected_count=sum(node.status == "rejected" for node in nodes),
+            skipped_count=sum(node.status == "skipped" for node in nodes),
+            plan_factory=plan_factory,
+            nodes=nodes,
+        )
+
     return VulkanGraphRegionLoweringReport(
         plan_class="VulkanGraphRegionPlan",
         plan_version="v1",
         families=(
-            VulkanGraphRegionFamilyDiagnostics(
-                family="linear_gelu_tanh",
-                candidate_count=static_linear_gelu_regions.candidate_count,
-                lowered_count=static_linear_gelu_regions.lowered_count,
-                rejected_count=static_linear_gelu_regions.rejected_count,
-                skipped_count=static_linear_gelu_regions.skipped_count,
-                plan_factory=static_linear_gelu_regions.plan_factory,
-                nodes=static_linear_gelu_regions.nodes,
+            linear_gelu_family_diagnostics(
+                "linear_gelu_tanh",
+                "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
+            ),
+            linear_gelu_family_diagnostics(
+                "linear_gelu_none",
+                "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none",
             ),
             VulkanGraphRegionFamilyDiagnostics(
                 family="conv2d_relu_conv2d",

@@ -22,12 +22,14 @@ namespace utils {
 
 enum class VulkanGraphRegionFamily : uint8_t {
   LinearGeluTanh,
+  LinearGeluNone,
   Conv2dReluConv2d,
 };
 
 enum class VulkanGraphRegionOpcode : uint8_t {
   LinearContext,
   GeluTanh,
+  GeluNone,
   Conv2dReluContext,
   Conv2dContext,
 };
@@ -151,6 +153,10 @@ class VulkanGraphRegionPlan final : public torch::jit::CustomClassHolder {
 
 c10::intrusive_ptr<VulkanGraphRegionPlan>
 create_vulkan_graph_region_plan_linear_gelu(
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context);
+
+c10::intrusive_ptr<VulkanGraphRegionPlan>
+create_vulkan_graph_region_plan_linear_gelu_none(
     const c10::intrusive_ptr<LinearPackedContext>& linear_context);
 
 c10::intrusive_ptr<VulkanGraphRegionPlan>

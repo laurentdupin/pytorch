@@ -55,6 +55,8 @@ namespace {
 
 bool output_padding_is_zero(const IntArrayRef output_padding);
 
+thread_local bool graph_program_conv_host_sync_for_testing = false;
+
 enum class VulkanConvPlanSelected : uint8_t {
   Unknown = 0,
   TextureConv,
@@ -5186,6 +5188,9 @@ Tensor run_conv2d_context_relu_out(
 bool conv2d_context_may_require_host_sync(
     const IntArrayRef input_sizes,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context) {
+  if (graph_program_conv_host_sync_for_testing) {
+    return true;
+  }
   if (
       !conv_context || conv_context->quantized() || conv_context->transposed() ||
       input_sizes.size() != 4 ||
@@ -5230,6 +5235,10 @@ bool conv2d_context_may_require_host_sync(
       static_cast<VkDeviceSize>(
           api::utils::multiply_integers(physical_output_sizes));
   return requires_host_sync_after_buffer_conv_bytes(output_gpu_nbytes);
+}
+
+void set_graph_program_conv_host_sync_for_testing(const bool enabled) {
+  graph_program_conv_host_sync_for_testing = enabled;
 }
 
 std::optional<Tensor> try_run_conv2d_context_relu_out(

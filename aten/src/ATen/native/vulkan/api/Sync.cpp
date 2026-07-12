@@ -28387,6 +28387,8 @@ void reset_vulkan_graph_program_invocation_counters() {
   counters.aborted_submit_count.store(0u, std::memory_order_relaxed);
   counters.rejected_incompatible_state_count.store(
       0u, std::memory_order_relaxed);
+  counters.bounded_region_host_sync_rejected_count.store(
+      0u, std::memory_order_relaxed);
   counters.scratch_captured_count.store(0u, std::memory_order_relaxed);
   counters.scratch_reused_count.store(0u, std::memory_order_relaxed);
   counters.scratch_transient_overflow_count.store(
@@ -28408,6 +28410,8 @@ std::vector<int64_t> graph_program_invocation_counters_snapshot() {
       static_cast<int64_t>(
           counters.aborted_submit_count.load(std::memory_order_relaxed)),
       static_cast<int64_t>(counters.rejected_incompatible_state_count.load(
+          std::memory_order_relaxed)),
+      static_cast<int64_t>(counters.bounded_region_host_sync_rejected_count.load(
           std::memory_order_relaxed)),
       static_cast<int64_t>(
           counters.scratch_captured_count.load(std::memory_order_relaxed)),

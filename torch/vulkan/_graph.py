@@ -23,6 +23,8 @@ from ._graph_lowering import (
     VulkanStaticConv2dReluConv2dRegionReport,
     VulkanStaticConv2dReluRegionReport,
     VulkanStaticLinearGeluRegionReport,
+    extract_verified_exported_input_guard,
+    is_verified_exported_input_guard_call,
     lower_static_conv2d_relu_regions,
     lower_static_conv2d_relu_conv2d_regions,
     lower_static_conv2d_to_vulkan_contexts,
@@ -436,13 +438,22 @@ def _classify_node(
             "no_vulkan_or_composite_dispatch_kernel",
         )
     if node.op == "call_module" and node.target == "_guards_fn":
+        if is_verified_exported_input_guard_call(graph_module, node):
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                target,
+                "graph",
+                "exported_input_guard",
+            )
         return VulkanGraphNodeRecord(
             index,
             node.name,
             node.op,
             target,
-            "graph",
-            "exported_input_guard",
+            "unsupported",
+            "unverified_exported_input_guard",
         )
     return VulkanGraphNodeRecord(
         index,
@@ -598,21 +609,20 @@ def _normalize_graph_runtime_inputs(
                 "VulkanGraphProgram input normalization requires a tensor with "
                 f"recorded dtypes for placeholder {placeholder_name!r}"
             )
-        if value.device.type == "cpu":
-            if value.dtype != rule.source_dtype:
-                raise VulkanGraphExecutionError(
-                    f"VulkanGraphProgram input {placeholder_name!r} requires CPU "
-                    f"dtype {rule.source_dtype} before graph input normalization to "
-                    f"{rule.target_dtype}; got {value.dtype}"
-                )
-            normalized.append(value.to(dtype=rule.target_dtype))
-            continue
-        if value.device.type == "vulkan" and value.dtype != rule.target_dtype:
+        if value.device.type != "cpu":
             raise VulkanGraphExecutionError(
-                f"VulkanGraphProgram Vulkan input {placeholder_name!r} requires "
-                f"normalized dtype {rule.target_dtype}; got {value.dtype}"
+                f"VulkanGraphProgram input {placeholder_name!r} requires the "
+                f"original CPU dtype {rule.source_dtype} before graph input "
+                f"normalization to {rule.target_dtype}; got {value.dtype} on "
+                f"{value.device}"
             )
-        normalized.append(value)
+        if value.dtype != rule.source_dtype:
+            raise VulkanGraphExecutionError(
+                f"VulkanGraphProgram input {placeholder_name!r} requires CPU "
+                f"dtype {rule.source_dtype} before graph input normalization to "
+                f"{rule.target_dtype}; got {value.dtype}"
+            )
+        normalized.append(value.to(dtype=rule.target_dtype))
     return tuple(normalized)
 
 
@@ -827,6 +837,7 @@ class VulkanGraphProgram:
     def __init__(
         self,
         graph_module: torch.fx.GraphModule,
+        exported_input_guard: torch.nn.Module | None,
         device: torch.device,
         key: VulkanGraphProgramKey,
         census: VulkanGraphCensus,
@@ -841,6 +852,7 @@ class VulkanGraphProgram:
         vulkan_graph_regions: VulkanGraphRegionLoweringReport,
     ) -> None:
         self._graph_module = graph_module
+        self._exported_input_guard = exported_input_guard
         self._device = device
         self._key = key
         self._census = census
@@ -945,10 +957,29 @@ class VulkanGraphProgram:
     ) -> VulkanGraphImplicitBoundaryAttribution | None:
         return self._last_implicit_boundary
 
+    def _reset_last_run_diagnostics(self) -> None:
+        self._last_executed_nodes = ()
+        self._last_cpu_fallback_count = 0
+        self._last_sync_readback_count = 0
+        self._last_deferred_values_created = 0
+        self._last_implicit_boundary = None
+
+    def _run_exported_input_guard(self, bound_args: tuple[Any, ...]) -> None:
+        if self._exported_input_guard is None:
+            return
+        try:
+            with torch.inference_mode():
+                self._exported_input_guard(*bound_args)
+        except Exception as error:
+            raise VulkanGraphExecutionError(
+                f"VulkanGraphProgram exported input guard failed: {error}"
+            ) from error
+
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         with self._execution_lock:
-            self._last_implicit_boundary = None
+            self._reset_last_run_diagnostics()
             bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
+            self._run_exported_input_guard(bound_args)
             normalized_args = _normalize_graph_runtime_inputs(
                 self._graph_module,
                 bound_args,
@@ -1046,6 +1077,7 @@ def export_and_lower(
             exported_program, target_device
         )
         graph_module = moved_exported_program.module()
+        exported_input_guard = extract_verified_exported_input_guard(graph_module)
         input_normalization = lower_graph_input_dtype_normalizations(graph_module)
         linear_lowering = lower_static_linear_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
@@ -1160,6 +1192,7 @@ def export_and_lower(
         )
     return VulkanGraphProgram(
         graph_module,
+        exported_input_guard,
         target_device,
         key,
         census,
