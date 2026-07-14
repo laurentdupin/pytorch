@@ -78,7 +78,6 @@ class TORCH_API InferenceReplay final {
 using ExecutionGraphProgramHandle = std::variant<
     std::monostate,
     AttentionRuntimeProgram,
-    GatedDeltaSplitProgram,
     VisionBackboneProgram,
     VisionDecoderProgram>;
 

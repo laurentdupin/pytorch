@@ -1,5 +1,6 @@
 # Owner(s): ["oncall: mobile"]
 
+import copy
 import importlib.util
 import os
 
@@ -56,6 +57,20 @@ class TestVulkanCleanupInventory(TestCase):
         inventory = self.generator.build_inventory(ledger=ledger)
         self.assertEqual("empty", ledger["compatibility_audit"]["status"])
         self.assertEqual(0, inventory["counts"]["by_state"].get("Compatibility", 0))
+
+    def test_deleted_scope_decision_rejects_restored_symbol(self):
+        ledger = copy.deepcopy(self.generator.load_ledger())
+        decision = next(
+            item
+            for item in ledger["scope_decisions"]
+            if item.get("status") == "deleted"
+        )
+        decision["forbidden_code_symbols"] = ["VulkanRuntimePolicy"]
+        with self.assertRaisesRegex(
+            self.generator.InventoryError,
+            "restored symbols",
+        ):
+            self.generator.validate_scope_decisions(ledger)
 
 
 if __name__ == "__main__":

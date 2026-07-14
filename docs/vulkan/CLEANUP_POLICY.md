@@ -34,12 +34,13 @@ template roots contain no checked-in TorchScript/ExportedProgram artifacts or
 `vulkan_prepack` references. Reopen the audit if deployment starts consuming a
 serialized TorchScript, ExportedProgram, or custom-class artifact.
 
-The current scope decision also marks Qwen/gated-delta orchestration
-Delete-ready. The deployed Qwen path uses Transformers without a Vulkan
-custom-op call site, Qwen is outside the five-model Vulkan corpus, and
-repository reachability ends in the implementation, registration, and legacy
-planning caches. If a supported caller is found, separate and classify the
-reusable generic primitive before deleting the orchestration.
+The Qwen/gated-delta scope decision is now a retired record. The deployed Qwen
+path uses Transformers without a Vulkan custom-op call site, Qwen is outside the
+five-model Vulkan corpus, and repository reachability ended in the
+implementation, registration, and dedicated planning cache. The context,
+operators, shader, tests, and `GatedDeltaSplit` cache were deleted. Generic
+`Request.cpp` label inference remains Migration under its separate
+explicit-field and allocation-lane parity gate.
 
 ## Generated Reachability Inventory
 
@@ -62,8 +63,8 @@ The generator mechanically enumerates:
 Discovery is factual and deterministic. Lifecycle state remains an explicit
 reviewed decision in the ledger. CI-style tests reject generated-file drift,
 unclassified surfaces, duplicate classifications, stale surface IDs, invalid
-state metadata, and a compatibility count that contradicts the deployment
-audit.
+state metadata, restored files or dedicated symbols from deleted scope
+decisions, and a compatibility count that contradicts the deployment audit.
 
 ## Deletion Evidence
 

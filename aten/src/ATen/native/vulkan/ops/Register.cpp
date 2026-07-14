@@ -14,12 +14,10 @@
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
-#include <ATen/native/vulkan/ops/GatedDelta.h>
 #include <ATen/native/vulkan/ops/Gru.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Lstm.h>
 #include <ATen/native/vulkan/ops/Mm.h>
-#include <ATen/native/vulkan/ops/QwenLinearAttention.h>
 #include <ATen/native/vulkan/ops/QuantizedFunctions.h>
 #include <ATen/native/vulkan/ops/Register.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
@@ -891,24 +889,6 @@ int register_vulkan_layernorm_packed_context() {
                 // state is unpacked
                 return c10::make_intrusive<LayernormPackedContext>(
                     LayernormPackedContext::pack(state));
-              });
-  return 0;
-}
-
-int register_vulkan_qwen_linear_attention_prefill_packed_context() {
-  static auto register_vulkan_qwen_linear_attention_prefill_context =
-      torch::selective_class_<QwenLinearAttentionPrefillPackedContext>(
-          "vulkan",
-          TORCH_SELECTIVE_CLASS("QwenLinearAttentionPrefillPackedContext"))
-          .def_pickle(
-              [](const c10::intrusive_ptr<
-                     QwenLinearAttentionPrefillPackedContext>& context) {
-                return context->unpack();
-              },
-              [](c10::impl::GenericList state) {
-                return c10::make_intrusive<
-                    QwenLinearAttentionPrefillPackedContext>(
-                    QwenLinearAttentionPrefillPackedContext::pack(state));
               });
   return 0;
 }
@@ -2178,7 +2158,6 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_graph_add_layernorm_plan();
   register_vulkan_graph_conv2d_relu_plan();
   register_vulkan_layernorm_packed_context();
-  register_vulkan_qwen_linear_attention_prefill_packed_context();
   register_vulkan_vision_backbone_block_packed_context();
   register_vulkan_vision_backbone_stack_packed_context();
   register_vulkan_vision_decoder_fusion_block_packed_context();
@@ -2267,20 +2246,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_linear_context_labeled(Tensor W, Tensor? B, str label) "
       "-> __torch__.torch.classes.vulkan.LinearPackedContext"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::create_qwen_linear_attention_prefill_context("
-      "Tensor qkv_weight, Tensor z_weight, Tensor a_weight, Tensor b_weight, Tensor out_weight, "
-      "Tensor conv_weight, Tensor? conv_bias, Tensor norm_weight, Tensor A_log, Tensor dt_bias, "
-      "int key_dim, int value_dim, int head_k_dim, int head_v_dim, int num_k_heads, int num_v_heads, "
-      "int chunk_size=64, float norm_eps=1e-6, str label=\"\") "
-      "-> __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_qwen_linear_attention_prefill_context("
-      "Tensor X, __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> Tensor"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_qwen_linear_attention_decode_context("
-      "Tensor X, Tensor conv_state, Tensor recurrent_state, "
-      "__torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> (Tensor, Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_vision_backbone_block_context("
       "Tensor norm1_weight, Tensor norm1_bias, float norm1_eps, "
@@ -2718,10 +2683,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::pose_encoding_to_extri_intri(Tensor pose_encoding, int height, int width) -> (Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::extri_intri_to_pose_encoding(Tensor extrinsics, Tensor intrinsics, int height, int width) -> Tensor"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_scheduled_gated_delta_rule_chunk(Tensor query, Tensor key, Tensor value, Tensor g, Tensor beta, int chunk_size=64, Tensor? initial_state=None, bool output_final_state=False, bool use_qk_l2norm_in_kernel=False) -> (Tensor, Tensor?)"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent(Tensor query, Tensor key, Tensor value, Tensor g, Tensor beta, Tensor? initial_state=None, bool output_final_state=False, bool use_qk_l2norm_in_kernel=False) -> (Tensor, Tensor?)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_linear_context(Tensor X, "
       "__torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y"));
@@ -3244,18 +3205,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_FN(create_linear_context_labeled));
   m.impl(
       TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::create_qwen_linear_attention_prefill_context"),
-      TORCH_FN(create_qwen_linear_attention_prefill_context));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::run_qwen_linear_attention_prefill_context"),
-      TORCH_FN(run_qwen_linear_attention_prefill_context));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::run_qwen_linear_attention_decode_context"),
-      TORCH_FN(run_qwen_linear_attention_decode_context));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_block_context"),
       TORCH_FN(create_vision_backbone_block_context));
   m.impl(
@@ -3344,12 +3293,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::extri_intri_to_pose_encoding"),
       TORCH_FN(extri_intri_to_pose_encoding_runtime));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_chunk"),
-      TORCH_FN(run_scheduled_gated_delta_rule_chunk));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_recurrent"),
-      TORCH_FN(run_scheduled_gated_delta_rule_recurrent));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_layernorm_context"),
       TORCH_FN(create_layernorm_context));
   m.impl(
@@ -3382,18 +3325,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_linear_context_labeled"),
       TORCH_FN(create_linear_context_labeled));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::create_qwen_linear_attention_prefill_context"),
-      TORCH_FN(create_qwen_linear_attention_prefill_context));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::run_qwen_linear_attention_prefill_context"),
-      TORCH_FN(run_qwen_linear_attention_prefill_context));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::run_qwen_linear_attention_decode_context"),
-      TORCH_FN(run_qwen_linear_attention_decode_context));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vision_backbone_block_context"),
@@ -3507,12 +3438,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::extri_intri_to_pose_encoding"),
       TORCH_FN(extri_intri_to_pose_encoding_runtime));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_chunk"),
-      TORCH_FN(run_scheduled_gated_delta_rule_chunk));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::run_scheduled_gated_delta_rule_recurrent"),
-      TORCH_FN(run_scheduled_gated_delta_rule_recurrent));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_vision_backbone_block_context"),
       TORCH_FN(run_vision_backbone_block_context));

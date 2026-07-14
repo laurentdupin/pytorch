@@ -240,16 +240,6 @@ std::optional<VulkanExecutionProgramPlanningDesc> select_execution_program_plan(
     const VulkanAttentionKernelFamily attention_kernel_family,
     const VulkanAttentionExecutionStrategy attention_execution_strategy) {
   if (
-      scheduler_decision.boundary_plan.has_value() &&
-      scheduler_decision.boundary_plan->kind ==
-          VulkanBoundaryKind::LLMLinearAttentionSplit &&
-      request.workload_class == VulkanWorkloadClass::LLMDecode &&
-      request.source_workload_class == VulkanWorkloadClass::LLMDecode) {
-    return VulkanExecutionProgramPlanningDesc{
-        VulkanExecutionProgramKind::GatedDeltaSplit, true};
-  }
-
-  if (
       request.model_domain == VulkanModelDomain::LLM &&
       request.workload_class == VulkanWorkloadClass::LLMDecode &&
       is_attention_derived_request(request) &&
@@ -801,8 +791,6 @@ const char* execution_program_kind_name(
   switch (kind) {
     case VulkanExecutionProgramKind::AttentionRuntime:
       return "AttentionRuntime";
-    case VulkanExecutionProgramKind::GatedDeltaSplit:
-      return "GatedDeltaSplit";
     case VulkanExecutionProgramKind::VisionBackbone:
       return "VisionBackbone";
     case VulkanExecutionProgramKind::VisionDecoder:

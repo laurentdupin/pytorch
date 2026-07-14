@@ -43,7 +43,6 @@ enum class VulkanAttentionExecutionStrategy : uint8_t {
 
 enum class VulkanExecutionProgramKind : uint8_t {
   AttentionRuntime = 0u,
-  GatedDeltaSplit,
   VisionBackbone,
   VisionDecoder,
 };

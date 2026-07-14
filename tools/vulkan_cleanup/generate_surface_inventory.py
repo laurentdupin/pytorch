@@ -26,6 +26,7 @@ ENV_SCAN_ROOTS = (
     Path("scripts/benchmarks"),
 )
 ENV_SOURCE_SUFFIXES = (".cpp", ".h", ".py")
+RETIRED_CODE_SUFFIXES = (".cpp", ".h", ".glsl")
 STATES = ("Active", "Migration", "Compatibility", "Delete-ready")
 ENV_NAME_RE = re.compile(r"PYTORCH_VULKAN_[A-Z0-9_]+")
 CPP_STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
@@ -427,6 +428,71 @@ def load_ledger(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
         return json.load(handle)
 
 
+def validate_scope_decisions(
+    ledger: dict[str, Any], repo_root: Path = REPO_ROOT
+) -> None:
+    decisions = ledger.get("scope_decisions")
+    if not isinstance(decisions, list):
+        raise InventoryError("Ledger scope_decisions must be a list")
+
+    for decision in decisions:
+        if decision.get("status") != "deleted":
+            continue
+        decision_id = decision.get("id")
+        removed_paths = decision.get("removed_paths")
+        scan_roots = decision.get("scan_roots")
+        forbidden_symbols = decision.get("forbidden_code_symbols")
+        if not isinstance(decision_id, str) or not decision_id:
+            raise InventoryError("Every deleted scope decision needs an id")
+        if not isinstance(removed_paths, list) or not removed_paths:
+            raise InventoryError(
+                f"Deleted scope decision {decision_id!r} needs removed_paths"
+            )
+        if not isinstance(scan_roots, list) or not scan_roots:
+            raise InventoryError(
+                f"Deleted scope decision {decision_id!r} needs scan_roots"
+            )
+        if not isinstance(forbidden_symbols, list) or not forbidden_symbols:
+            raise InventoryError(
+                f"Deleted scope decision {decision_id!r} needs "
+                "forbidden_code_symbols"
+            )
+
+        restored_paths = [
+            relative_path
+            for relative_path in removed_paths
+            if (repo_root / relative_path).exists()
+        ]
+        if restored_paths:
+            raise InventoryError(
+                f"Deleted scope decision {decision_id!r} restored paths: "
+                f"{restored_paths}"
+            )
+
+        hits = []
+        for relative_root in scan_roots:
+            root = repo_root / relative_root
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.suffix not in RETIRED_CODE_SUFFIXES:
+                    continue
+                text = path.read_text(encoding="utf-8")
+                for symbol in forbidden_symbols:
+                    offset = text.find(symbol)
+                    if offset >= 0:
+                        hits.append(
+                            {
+                                "symbol": symbol,
+                                "source": _relative(path, repo_root),
+                                "line": _line_number(text, offset),
+                            }
+                        )
+        if hits:
+            raise InventoryError(
+                f"Deleted scope decision {decision_id!r} restored symbols: "
+                f"{hits}"
+            )
+
+
 def classify_surfaces(
     surfaces: list[dict[str, Any]], ledger: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -501,6 +567,7 @@ def build_inventory(
     repo_root: Path = REPO_ROOT, ledger: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     ledger = ledger if ledger is not None else load_ledger(repo_root)
+    validate_scope_decisions(ledger, repo_root)
     surfaces = classify_surfaces(discover_surfaces(repo_root), ledger)
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for surface in surfaces:

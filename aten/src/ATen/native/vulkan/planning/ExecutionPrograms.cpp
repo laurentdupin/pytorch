@@ -233,55 +233,6 @@ attention_runtime_program_cache() {
   return *cache;
 }
 
-struct GatedDeltaSplitProgramKey final {
-  std::string allocation_label;
-  VulkanBoundaryPlan boundary_plan{};
-  std::optional<VulkanScratchArenaSpec> scratch_spec;
-  bool persistent{true};
-};
-
-bool operator==(
-    const GatedDeltaSplitProgramKey& lhs,
-    const GatedDeltaSplitProgramKey& rhs) {
-  return lhs.allocation_label == rhs.allocation_label &&
-      lhs.boundary_plan.kind == rhs.boundary_plan.kind &&
-      lhs.boundary_plan.input_transfer_layout ==
-          rhs.boundary_plan.input_transfer_layout &&
-      lhs.boundary_plan.output_transfer_layout ==
-          rhs.boundary_plan.output_transfer_layout &&
-      lhs.boundary_plan.prefer_backend_owned_execution ==
-          rhs.boundary_plan.prefer_backend_owned_execution &&
-      lhs.boundary_plan.requires_scratch_arena ==
-          rhs.boundary_plan.requires_scratch_arena &&
-      lhs.boundary_plan.preferred_cpu_threads ==
-          rhs.boundary_plan.preferred_cpu_threads &&
-      same_scratch_spec(lhs.scratch_spec, rhs.scratch_spec) &&
-      lhs.persistent == rhs.persistent;
-}
-
-size_t hash_gated_delta_split_program_key(
-    const GatedDeltaSplitProgramKey& key) {
-  size_t seed = 0u;
-  hash_combine(seed, key.allocation_label);
-  hash_combine(seed, static_cast<int>(key.boundary_plan.kind));
-  hash_combine(seed, static_cast<int>(key.boundary_plan.input_transfer_layout));
-  hash_combine(seed, static_cast<int>(key.boundary_plan.output_transfer_layout));
-  hash_combine(seed, key.boundary_plan.prefer_backend_owned_execution);
-  hash_combine(seed, key.boundary_plan.requires_scratch_arena);
-  hash_combine(seed, key.boundary_plan.preferred_cpu_threads);
-  hash_combine(seed, hash_optional_scratch_spec(key.scratch_spec));
-  hash_combine(seed, key.persistent);
-  return seed;
-}
-
-InferenceLruCache<GatedDeltaSplitProgramKey, GatedDeltaSplitProgram>&
-gated_delta_split_program_cache() {
-  static auto* cache =
-      new InferenceLruCache<GatedDeltaSplitProgramKey, GatedDeltaSplitProgram>{
-          kExecutionProgramCacheSize, execution_program_cache_limit_bytes()};
-  return *cache;
-}
-
 struct VisionBackboneProgramKey final {
   std::string allocation_label;
   ScalarType dtype{kFloat};
@@ -523,20 +474,6 @@ struct AttentionRuntimeProgram::State final {
         persistent_(persistent) {}
 };
 
-struct GatedDeltaSplitProgram::State final {
-  VulkanBoundaryPlan boundary_plan_{};
-  std::optional<ScratchArena> scratch_arena_;
-  bool persistent_{true};
-
-  State(
-      VulkanBoundaryPlan boundary_plan,
-      std::optional<ScratchArena> scratch_arena,
-      const bool persistent)
-      : boundary_plan_(std::move(boundary_plan)),
-        scratch_arena_(std::move(scratch_arena)),
-        persistent_(persistent) {}
-};
-
 struct VisionBackboneProgram::State final {
   ScalarType dtype_{kFloat};
   int64_t batch_size_{1};
@@ -742,36 +679,6 @@ void AttentionRuntimeProgram::set_sequence_lengths(
 }
 
 const void* AttentionRuntimeProgram::identity() const {
-  return state_.get();
-}
-
-bool GatedDeltaSplitProgram::defined() const {
-  return static_cast<bool>(state_);
-}
-
-const VulkanBoundaryPlan& GatedDeltaSplitProgram::boundary_plan() const {
-  TORCH_INTERNAL_ASSERT(state_, "Undefined GatedDeltaSplitProgram");
-  return state_->boundary_plan_;
-}
-
-const std::optional<ScratchArena>& GatedDeltaSplitProgram::scratch_arena()
-    const {
-  static const std::optional<ScratchArena> empty;
-  return state_ ? state_->scratch_arena_ : empty;
-}
-
-bool GatedDeltaSplitProgram::persistent() const {
-  return state_ && state_->persistent_;
-}
-
-size_t GatedDeltaSplitProgram::resident_nbytes() const {
-  if (!state_) {
-    return 0u;
-  }
-  return optional_scratch_resident_nbytes(state_->scratch_arena_);
-}
-
-const void* GatedDeltaSplitProgram::identity() const {
   return state_.get();
 }
 
@@ -1033,59 +940,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
       });
   log_execution_program_event(
       VulkanExecutionProgramKind::AttentionRuntime,
-      "store",
-      query.allocation_label,
-      created.identity(),
-      created.resident_nbytes());
-  return created;
-}
-
-std::optional<GatedDeltaSplitProgram>
-lookup_or_create_labeled_gated_delta_split_program(
-    const std::string& allocation_label,
-    const VulkanBoundaryPlan& boundary_plan,
-    const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-    const VulkanExecutionProgramPlanningDesc& program_plan) {
-  const GatedDeltaSplitProgramKey query{
-      normalize_program_label(allocation_label, "gated_delta_split"),
-      boundary_plan,
-      scratch_spec,
-      program_plan.persistent};
-  if (const auto cached = gated_delta_split_program_cache().lookup(
-          query,
-          hash_gated_delta_split_program_key,
-          [](const GatedDeltaSplitProgramKey& lhs,
-             const GatedDeltaSplitProgramKey& rhs) { return lhs == rhs; })) {
-    log_execution_program_event(
-        VulkanExecutionProgramKind::GatedDeltaSplit,
-        "hit",
-        query.allocation_label,
-        cached->identity(),
-        cached->resident_nbytes());
-    return *cached;
-  }
-
-  std::optional<ScratchArena> scratch_arena;
-  if (scratch_spec.has_value()) {
-    scratch_arena = lookup_or_create_labeled_scratch_arena(
-        program_object_label(query.allocation_label, "scratch"),
-        *scratch_spec);
-  }
-
-  GatedDeltaSplitProgram created{
-      std::make_shared<GatedDeltaSplitProgram::State>(
-          boundary_plan, std::move(scratch_arena), program_plan.persistent)};
-  gated_delta_split_program_cache().store(
-      query,
-      created,
-      hash_gated_delta_split_program_key,
-      [](const GatedDeltaSplitProgramKey& lhs,
-         const GatedDeltaSplitProgramKey& rhs) { return lhs == rhs; },
-      [](const GatedDeltaSplitProgram& program) {
-        return program.resident_nbytes();
-      });
-  log_execution_program_event(
-      VulkanExecutionProgramKind::GatedDeltaSplit,
       "store",
       query.allocation_label,
       created.identity(),

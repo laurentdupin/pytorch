@@ -52,12 +52,30 @@
     {
       "id": "qwen_gated_delta_orchestration",
       "decision": "out_of_scope",
+      "status": "deleted",
       "basis": [
         "Qwen is not in the five-model Vulkan coverage corpus.",
         "The deployed Qwen loader targets Qwen 2.5 through transformers and has no Vulkan custom-op callsite.",
         "Repository reachability outside tests ends inside the Qwen/gated-delta implementation, registration, and legacy planning caches."
       ],
-      "consequence": "The Qwen linear-attention and gated-delta orchestration is Delete-ready; reusable generic primitives must be separated before deletion if a caller is found."
+      "removed_paths": [
+        "aten/src/ATen/native/vulkan/glsl/gated_delta_recurrent_buffer.glsl",
+        "aten/src/ATen/native/vulkan/ops/GatedDelta.cpp",
+        "aten/src/ATen/native/vulkan/ops/GatedDelta.h",
+        "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.cpp",
+        "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.h"
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan"
+      ],
+      "forbidden_code_symbols": [
+        "QwenLinearAttention",
+        "GatedDeltaSplit",
+        "run_gated_delta_rule_",
+        "run_scheduled_gated_delta_rule_",
+        "gated_delta_recurrent_buffer"
+      ],
+      "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, and dedicated GatedDeltaSplit planning cache were deleted. Generic Request.cpp label inference remains Migration until its separate explicit-field and lane-parity gate is met."
     }
   ],
   "entries": [
@@ -487,30 +505,6 @@
         "operator_schema:vulkan_prepack::deferred_value_creation_count",
         "operator_schema:vulkan_prepack::runtime_elementwise_chain",
         "operator_schema:vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div"
-      ]
-    },
-    {
-      "id": "delete_ready_qwen_gated_delta_orchestration",
-      "state": "Delete-ready",
-      "summary": "Qwen linear-attention contexts, scheduled gated-delta wrappers, and their legacy planning cache support.",
-      "deletion_wave": "wave 2 after confirming no non-test caller appears in the generated inventory",
-      "preserve": [
-        "generic kernels or contracts only if they gain a named in-scope caller",
-        "a concise scope and rejection record"
-      ],
-      "paths": [
-        "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.cpp",
-        "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.h",
-        "aten/src/ATen/native/vulkan/ops/GatedDelta.cpp",
-        "aten/src/ATen/native/vulkan/ops/GatedDelta.h"
-      ],
-      "surfaces": [
-        "custom_class:vulkan::QwenLinearAttentionPrefillPackedContext",
-        "operator_schema:vulkan_prepack::create_qwen_linear_attention_prefill_context",
-        "operator_schema:vulkan_prepack::run_qwen_linear_attention_decode_context",
-        "operator_schema:vulkan_prepack::run_qwen_linear_attention_prefill_context",
-        "operator_schema:vulkan_prepack::run_scheduled_gated_delta_rule_chunk",
-        "operator_schema:vulkan_prepack::run_scheduled_gated_delta_rule_recurrent"
       ]
     }
   ]

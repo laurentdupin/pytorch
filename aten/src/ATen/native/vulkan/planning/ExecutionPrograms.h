@@ -43,26 +43,6 @@ class AttentionRuntimeProgram final {
   const void* identity() const;
 };
 
-class GatedDeltaSplitProgram final {
- public:
-  struct State;
-
- private:
-  std::shared_ptr<State> state_;
-
- public:
-  GatedDeltaSplitProgram() = default;
-  explicit GatedDeltaSplitProgram(std::shared_ptr<State> state)
-      : state_(std::move(state)) {}
-
-  bool defined() const;
-  const VulkanBoundaryPlan& boundary_plan() const;
-  const std::optional<ScratchArena>& scratch_arena() const;
-  bool persistent() const;
-  size_t resident_nbytes() const;
-  const void* identity() const;
-};
-
 class VisionBackboneProgram final {
  public:
   struct State;
@@ -134,13 +114,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     int64_t key_sequence_length,
     int64_t value_sequence_length,
-    const VulkanExecutionProgramPlanningDesc& program_plan);
-
-std::optional<GatedDeltaSplitProgram>
-lookup_or_create_labeled_gated_delta_split_program(
-    const std::string& allocation_label,
-    const VulkanBoundaryPlan& boundary_plan,
-    const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     const VulkanExecutionProgramPlanningDesc& program_plan);
 
 VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(
