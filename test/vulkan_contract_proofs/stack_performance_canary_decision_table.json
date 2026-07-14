@@ -194,16 +194,16 @@
     },
     {
       "id": "dav2_segmented_stack_wide6",
-      "status": "rejected_slower",
+      "status": "retired_rejected_slower",
       "scope": [
         "StackRegionSegmentPlan.v0",
         "segmented stack-owned external recording"
       ],
-      "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide6_to_exit",
+      "canary_or_path": "historical: PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide6_to_exit",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
       "latest_observation": "Correctness-clean and uses fewer stack-planned submits than wide4, but remained slower and kept the same retire-drain pressure.",
-      "decision": "Do not promote. Wider segments alone are not the current answer.",
-      "next_proof": "Only revisit after retire-drain ownership changes or command recording overhead is isolated.",
+      "decision": "Retired from live code. Wider segments alone are not the current answer.",
+      "next_proof": "Use the checked-in result as historical evidence; revisit only from Git after retire-drain ownership changes or command recording overhead is isolated.",
       "reusable_backend_policy": true
     },
     {

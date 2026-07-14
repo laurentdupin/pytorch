@@ -384,10 +384,11 @@ The initial catalog records the current `vits_140` performance lane:
   accepted default control-plane fix;
 - wide3 and prefix-tail segment modes: valid in the latest `vits_140`
   three-repeat sweep, but slower than wide4 on the recorded RX 9070 lane;
-- wide6 segment mode: valid and evidence-visible for `vits_140`, but not
-  promoted. After the Context canary-admission fix, a focused RX 9070
-  five-repeat run selected two full segments covering blocks 0-5 and 6-11 at
-  62/72 planned dispatches each, kept bridge sanity at max_abs
+- wide6 segment mode: retired from live production, benchmark, and test
+  orchestration after its valid but slower `vits_140` result. The historical
+  evidence remains checked in: after the Context canary-admission fix, a
+  focused RX 9070 five-repeat run selected two full segments covering blocks
+  0-5 and 6-11 at 62/72 planned dispatches each, kept bridge sanity at max_abs
   `1.6391277313232422e-06`, and kept CPU fallback, sync readback, and buffer
   copies at zero. It reduced stack-planned submits from 20 to 15 over five
   repeats versus wide4, but measured about 79.9 ms mean device-resident forward

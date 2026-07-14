@@ -540,7 +540,8 @@
         },
         {
           "mode": "segmented_stack_wide6_to_exit",
-          "status": "valid_but_slower_than_wide4_after_context_admission_fix",
+          "status": "retired_valid_but_slower_than_wide4_after_context_admission_fix",
+          "implementation_status": "retired_from_live_code",
           "device_resident_mean_ms": 79.928,
           "device_resident_median_ms": 83.857,
           "device_resident_p95_ms": 85.681,
@@ -572,7 +573,8 @@
               }
             ]
           },
-          "artifact": "agent_space/dav2_vits140_wide6_context_fix_5repeat/vits140_wide6_5repeat.json"
+          "artifact": "agent_space/dav2_vits140_wide6_context_fix_5repeat/vits140_wide6_5repeat.json",
+          "decision": "Retire the exact live canary while preserving this result. It was slower than wide4 and left retire-drain pressure unchanged."
         },
         {
           "mode": "private_bridge_capture_handoff",

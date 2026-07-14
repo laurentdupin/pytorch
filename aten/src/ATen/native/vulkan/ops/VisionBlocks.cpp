@@ -1540,7 +1540,6 @@ const char* stack_owned_command_buffer_segmented_canary_mode() {
       mode == "segmented_stack_dispatch_budget_prefix6_tail_to_exit" ||
       mode == "segmented_stack_wide3_to_exit" ||
       mode == "segmented_stack_wide4_to_exit" ||
-      mode == "segmented_stack_wide6_to_exit" ||
       mode == "segmented_stack_dispatch_budget_prefix_to_exit") {
     return env;
   }
@@ -1577,9 +1576,6 @@ constexpr uint64_t kSegmentedOwnedCommandBufferWide3DispatchLimit = 36u;
 constexpr size_t kSegmentedOwnedCommandBufferWide4BlockLimit = 4u;
 constexpr size_t kSegmentedOwnedCommandBufferWide4ScopeLimit = 3u;
 constexpr uint64_t kSegmentedOwnedCommandBufferWide4DispatchLimit = 48u;
-constexpr size_t kSegmentedOwnedCommandBufferWide6BlockLimit = 6u;
-constexpr size_t kSegmentedOwnedCommandBufferWide6ScopeLimit = 2u;
-constexpr uint64_t kSegmentedOwnedCommandBufferWide6DispatchLimit = 72u;
 constexpr size_t kStackOutputDeviceBridgeMaxProvenBlocks = 12u;
 
 bool stack_output_bridge_deep_split_native_baton_enabled() {
@@ -1637,11 +1633,6 @@ bool stack_owned_command_buffer_wide3_canary_enabled() {
 bool stack_owned_command_buffer_wide4_canary_enabled() {
   return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
       "segmented_stack_wide4_to_exit";
-}
-
-bool stack_owned_command_buffer_wide6_canary_enabled() {
-  return std::string(stack_owned_command_buffer_segmented_canary_mode()) ==
-      "segmented_stack_wide6_to_exit";
 }
 
 bool stack_owned_command_buffer_segmented_canary_enabled() {
@@ -2043,20 +2034,6 @@ StackOwnedCommandBufferSegmentPlan stack_wide4_segment_plan(
       "wide4_segment_dispatch_limit_exceeded",
       "wide4_segment_scope_limit_exceeded",
       "wide4_segment_plan_available_behavior_canary");
-}
-
-StackOwnedCommandBufferSegmentPlan stack_wide6_segment_plan(
-    const size_t block_count,
-    const VulkanVisionStackShapePlan* const plan) {
-  return stack_fixed_width_segment_plan(
-      block_count,
-      plan,
-      kSegmentedOwnedCommandBufferWide6BlockLimit,
-      kSegmentedOwnedCommandBufferWide6ScopeLimit,
-      kSegmentedOwnedCommandBufferWide6DispatchLimit,
-      "wide6_segment_dispatch_limit_exceeded",
-      "wide6_segment_scope_limit_exceeded",
-      "wide6_segment_plan_available_behavior_canary");
 }
 
 StackOwnedCommandBufferSegmentPlan
@@ -9841,8 +9818,6 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
       stack_owned_command_buffer_wide3_canary_enabled();
   const bool wide4_canary_requested =
       stack_owned_command_buffer_wide4_canary_enabled();
-  const bool wide6_canary_requested =
-      stack_owned_command_buffer_wide6_canary_enabled();
   const size_t dispatch_budget_tail_scope_limit =
       stack_owned_command_buffer_dispatch_budget_tail_scope_limit();
   const bool dispatch_budget_tail_to_exit_canary_requested =
@@ -9883,10 +9858,6 @@ std::vector<Tensor> run_vision_backbone_stack_context_impl(
               stack_shape_plan)
         : wide4_canary_requested
         ? stack_wide4_segment_plan(
-              context->blocks().size(),
-              stack_shape_plan)
-        : wide6_canary_requested
-        ? stack_wide6_segment_plan(
               context->blocks().size(),
               stack_shape_plan)
         : dispatch_budget_prefix_canary_requested

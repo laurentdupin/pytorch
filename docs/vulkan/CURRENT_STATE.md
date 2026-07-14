@@ -811,17 +811,17 @@ table; consult it before adding another segmented-recording, compiled-session,
 retire-handoff, conv-plan, or linear-plan canary.
 The latest segment-mode evidence keeps `segmented_stack_wide4_to_exit` as the
 best current `vits_140` bridge canary. The wide3 and prefix-tail modes are
-valid in the recorded three-repeat sweep but slower than wide4. The later
-`segmented_stack_wide6_to_exit` probe is also valid and contract-visible for
-`vits_140`: after the Context canary-admission fix, a focused five-repeat RX
-9070 run selected two full segments covering blocks 0-5 and 6-11 at 62/72
-planned dispatches each, kept bridge sanity clean at max_abs
+valid in the recorded three-repeat sweep but slower than wide4. The rejected
+`segmented_stack_wide6_to_exit` route has been retired from live production,
+benchmark, and test orchestration. Its historical result remains evidence: a
+focused five-repeat RX 9070 run selected two full segments covering blocks 0-5
+and 6-11 at 62/72 planned dispatches each, kept bridge sanity clean at max_abs
 `1.6391277313232422e-06`, and kept CPU fallback, sync readback, and buffer
-copies at zero. It is not promoted because reducing stack-planned submits from
-20 to 15 over five repeats did not improve latency: wide6 measured about
-79.9 ms mean device-resident forward while the matching wide4 run measured
-about 64.3 ms, with both modes still reporting 15 stack-owner retire-drain
-submits. Repeated context-owned stack-output bridge timing remains unsafe
+copies at zero. Reducing stack-planned submits from 20 to 15 over five repeats
+did not improve latency: wide6 measured about 79.9 ms mean device-resident
+forward while the matching wide4 run measured about 64.3 ms, with both modes
+still reporting 15 stack-owner retire-drain submits. Repeated context-owned
+stack-output bridge timing remains unsafe
 because it can hit Windows stack overflow after a one-repeat sanity pass.
 The DAv2 benchmark now fails this unsafe repeated context-owned bridge topology
 before native execution and writes a JSON failure artifact pointing to the

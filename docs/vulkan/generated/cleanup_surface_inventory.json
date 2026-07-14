@@ -285,6 +285,29 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The fixed-width-six route was a default-off exact environment spelling over the shared segmented stack-owned recording planner.",
+        "Focused DAv2 vits_140 evidence was correctness-clean and reduced stack-planned submits relative to the retained wide4 canary, but was slower and left retire-drain pressure unchanged; no supported default depends on the exact wide6 route.",
+        "The wide4 canary remains the current retained bounded lane, while the checked-in evidence manifest and canary decision table preserve the wide6 result and rejection reason."
+      ],
+      "consequence": "The accepted environment spelling, width-six constants and plan wrapper, selection branch, benchmark allowlist entry, and mechanism-only test were deleted. The generic fixed-width planner, retained wide3/wide4 specializations, stack recording diagnostics, and historical wide6 measurements remain.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "segmented_stack_wide6_to_exit",
+        "stack_owned_command_buffer_wide6_canary_enabled",
+        "stack_wide6_segment_plan",
+        "kSegmentedOwnedCommandBufferWide6",
+        "wide6_segment_plan_available_behavior_canary"
+      ],
+      "id": "segmented_stack_wide6_canary",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -727,7 +750,7 @@
         },
         {
           "access": "read",
-          "line": 550,
+          "line": 549,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -872,7 +895,7 @@
         },
         {
           "access": "read",
-          "line": 1807,
+          "line": 1806,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1216,38 +1239,38 @@
       "sites": [
         {
           "access": "delete",
-          "line": 1179,
+          "line": 1178,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1587,
+          "line": 1583,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         },
         {
           "access": "read",
-          "line": 1147,
+          "line": 1146,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 132,
+          "line": 131,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 141,
+          "line": 140,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1154,
+          "line": 1153,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1184,
+          "line": 1183,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1310,7 +1333,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1654,
+          "line": 1645,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         }
       ],
@@ -1336,12 +1359,12 @@
         },
         {
           "access": "read",
-          "line": 2948,
+          "line": 2947,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 2997,
+          "line": 2996,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1356,13 +1379,13 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 145,
+          "line": 144,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 154,
+          "line": 153,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1392,7 +1415,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 163,
+          "line": 162,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],

@@ -204,6 +204,29 @@
         "external_pool_lease_active"
       ],
       "consequence": "The environment branch, per-stack command/descriptor pools, timeline-retirement callback, cancellation path, and mechanism-only retained-state field were deleted. Stack-owned external recording continues to use the supported persistent pools, their global-completion reset diagnostics remain, and the accepted stack-planned descriptor-pool lease is preserved."
+    },
+    {
+      "id": "segmented_stack_wide6_canary",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The fixed-width-six route was a default-off exact environment spelling over the shared segmented stack-owned recording planner.",
+        "Focused DAv2 vits_140 evidence was correctness-clean and reduced stack-planned submits relative to the retained wide4 canary, but was slower and left retire-drain pressure unchanged; no supported default depends on the exact wide6 route.",
+        "The wide4 canary remains the current retained bounded lane, while the checked-in evidence manifest and canary decision table preserve the wide6 result and rejection reason."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "segmented_stack_wide6_to_exit",
+        "stack_owned_command_buffer_wide6_canary_enabled",
+        "stack_wide6_segment_plan",
+        "kSegmentedOwnedCommandBufferWide6",
+        "wide6_segment_plan_available_behavior_canary"
+      ],
+      "consequence": "The accepted environment spelling, width-six constants and plan wrapper, selection branch, benchmark allowlist entry, and mechanism-only test were deleted. The generic fixed-width planner, retained wide3/wide4 specializations, stack recording diagnostics, and historical wide6 measurements remain."
     }
   ],
   "entries": [

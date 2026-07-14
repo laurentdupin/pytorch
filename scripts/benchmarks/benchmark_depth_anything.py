@@ -104,7 +104,6 @@ VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES = frozenset(
         "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
         "segmented_stack_wide3_to_exit",
         "segmented_stack_wide4_to_exit",
-        "segmented_stack_wide6_to_exit",
     )
 )
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS = 12
