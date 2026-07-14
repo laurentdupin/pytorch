@@ -42085,8 +42085,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             patch_w = 4
             embed_dim = 16
             output_size = [patch_h * 14, patch_w * 14]
-            # Match the DA v2-compatible fused head shape that the supported
-            # Vulkan decoder compiled/replay path specializes for.
+            # Exercise DAv2 head geometry through the supported composed tail.
             module = DepthAnythingStyleMiniDPTHead(
                 embed_dim=embed_dim,
                 features=64,

@@ -164,6 +164,32 @@
     },
     {
       "basis": [
+        "The fused-head admission predicate returned false unconditionally because the shader was not numerically aligned with the reference DPT head across supported decoder shapes.",
+        "The supported plain eager route already executes the decoder tail as concrete conv, bilinear upsample, conv, ReLU, conv, and ReLU operations.",
+        "No VulkanGraphProgram lowering consumes the shader; the broader replay and compiled-session machinery remains fail-closed and Migration-gated."
+      ],
+      "consequence": "The inactive shader, exact DAv2 constants, admission checks, output preparation, dispatch branch, and fused-route log label were deleted. The composed decoder tail and its DAv2 behavioral coverage remain; replay and compiled-session deletion gates are unchanged.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "depth_anything_v2_head_buffer_float",
+        "can_run_depth_anything_v2_head_fusion",
+        "prepare_depth_anything_v2_head_output",
+        "run_depth_anything_v2_head_fusion_out",
+        "aten::vision_decoder_head.da_v2_fused_head",
+        "kDaV2Head"
+      ],
+      "id": "depth_anything_v2_fused_head_shader",
+      "removed_paths": [
+        "aten/src/ATen/native/vulkan/glsl/depth_anything_v2_head_buffer_float.glsl"
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
         "The canary was default-off and reachable only through explicit environment orchestration.",
         "Its DAv2 result proved that 48 plain-linear flushes could be deferred with bit-for-bit output parity, but did not establish a supported eager default or a graph-owned replacement.",
         "Supported eager linear retains its explicit pending-command flush and submit-origin accounting while graph programs pursue packed-context ownership directly."

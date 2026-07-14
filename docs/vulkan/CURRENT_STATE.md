@@ -48,6 +48,14 @@ pools reset at their existing global-completion points. The separate default
 stack-planned descriptor-pool lease remains active because it fixes a proven
 repeated-request lifetime bug.
 
+The numerically blocked DAv2 fused-head shader was retired on 2026-07-14. Its
+admission predicate returned false unconditionally because it did not match the
+reference DPT head across supported decoder shapes. The supported eager tail
+continues to use concrete conv, bilinear upsample, conv, ReLU, conv, and ReLU
+operations. The broader replay and compiled-session surfaces remain
+Migration-gated and fail closed; this deletion does not treat their historical
+timings as a supported-default baseline.
+
 Runtime elementwise eager experiments were retired on 2026-07-14. The removed
 stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,
 live eager-chain sidecar recorder, deferred tensor placeholders, and the

@@ -3641,247 +3641,11 @@ bool can_run_decoder_out_conv_before_upsample(
   return conv_output.sizes().vec() == conv_output_sizes;
 }
 
-constexpr int64_t kDaV2HeadOutputConv1Channels = 32;
-constexpr int64_t kDaV2HeadHiddenChannels = 32;
-constexpr int64_t kDaV2HeadFinalChannels = 1;
-constexpr int64_t kDaV2HeadUpsampleNumerator = 7;
-constexpr int64_t kDaV2HeadUpsampleDenominator = 4;
-constexpr uint32_t kDaV2HeadWorkGroupSizeX = 16u;
-constexpr uint32_t kDaV2HeadWorkGroupSizeY = 16u;
-constexpr uint32_t kDaV2HeadWorkGroupSizeZ = 1u;
-constexpr uint32_t kDaV2HeadOutputsPerThreadX = 2u;
-constexpr uint32_t kDaV2HeadOutputsPerThreadY = 1u;
-
-bool has_identity_output_range(
-    const c10::intrusive_ptr<Conv2dPackedContext>& context) {
-  return context && std::isinf(context->output_min()) &&
-      std::isinf(context->output_max()) && context->output_min() < 0.0f &&
-      context->output_max() > 0.0f;
-}
-
-bool is_plain_float_conv2d(
-    const c10::intrusive_ptr<Conv2dPackedContext>& context,
-    const int64_t kernel_h,
-    const int64_t kernel_w,
-    const int64_t padding_h,
-    const int64_t padding_w) {
-  if (
-      !context || context->transposed() || context->quantized() ||
-      context->groups() != 1 || !all_values_are(context->stride(), 1) ||
-      !all_values_are(context->padding(), padding_h) ||
-      !all_values_are(context->dilation(), 1) ||
-      !all_values_are(context->output_padding(), 0) ||
-      !has_identity_output_range(context)) {
-    return false;
-  }
-
-  const auto& weight_sizes = context->packed_weight().logical_weight_sizes();
-  return weight_sizes.size() == 4u && weight_sizes[2] == kernel_h &&
-      weight_sizes[3] == kernel_w &&
-      context->padding().size() >= 2u && context->padding()[0] == padding_h &&
-      context->padding()[1] == padding_w;
-}
-
-bool can_run_depth_anything_v2_head_fusion_shape(
-    IntArrayRef path1_sizes,
-    IntArrayRef output_size,
-    const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
-  // The fused DA-v2 head is not numerically aligned with the reference DPT
-  // head across the supported decoder shapes. Keep the generic Vulkan
-  // conv/upsample path as the main path until the shader has a correctness
-  // matrix behind it.
-  (void)path1_sizes;
-  (void)output_size;
-  (void)context;
-  return false;
-
-  if (!context || path1_sizes.size() != 4 || output_size.size() != 2) {
-    return false;
-  }
-
-  const auto& output_conv1 = context->output_conv1_context();
-  const auto& output_conv2_conv1 = context->output_conv2_conv1_context();
-  const auto& output_conv2_conv2 = context->output_conv2_conv2_context();
-  if (
-      !is_plain_float_conv2d(output_conv1, 3, 3, 1, 1) ||
-      !is_plain_float_conv2d(output_conv2_conv1, 3, 3, 1, 1) ||
-      !is_plain_float_conv2d(output_conv2_conv2, 1, 1, 0, 0)) {
-    return false;
-  }
-
-  const auto& conv1_weight_sizes =
-      output_conv1->packed_weight().logical_weight_sizes();
-  const auto& conv2_weight_sizes =
-      output_conv2_conv1->packed_weight().logical_weight_sizes();
-  const auto& conv3_weight_sizes =
-      output_conv2_conv2->packed_weight().logical_weight_sizes();
-  return conv1_weight_sizes[0] == kDaV2HeadOutputConv1Channels &&
-      conv2_weight_sizes[0] == kDaV2HeadHiddenChannels &&
-      conv2_weight_sizes[2] == 3 && conv2_weight_sizes[3] == 3 &&
-      conv2_weight_sizes[1] == conv1_weight_sizes[0] &&
-      conv3_weight_sizes[0] == kDaV2HeadFinalChannels &&
-      conv3_weight_sizes[1] == kDaV2HeadHiddenChannels &&
-      conv3_weight_sizes[2] == 1 && conv3_weight_sizes[3] == 1 &&
-      output_size[0] * kDaV2HeadUpsampleDenominator ==
-          path1_sizes[2] * kDaV2HeadUpsampleNumerator &&
-      output_size[1] * kDaV2HeadUpsampleDenominator ==
-          path1_sizes[3] * kDaV2HeadUpsampleNumerator;
-}
-
-bool can_run_depth_anything_v2_head_fusion(
-    const Tensor& path1,
-    IntArrayRef output_size,
-    const c10::intrusive_ptr<VisionDecoderHeadContext>& context) {
-  if (!path1.defined() || !path1.is_vulkan()) {
-    return false;
-  }
-  const vTensor& v_path1 = convert(path1);
-  if (
-      path1.dim() != 4 || v_path1.storage_type() != api::StorageType::BUFFER ||
-      !v_path1.has_direct_buffer_layout()) {
-    return false;
-  }
-  return can_run_depth_anything_v2_head_fusion_shape(
-      path1.sizes(), output_size, context);
-}
-
-Tensor prepare_depth_anything_v2_head_output(
-    Tensor output,
-    IntArrayRef expected_sizes) {
-  output = output.is_vulkan() ? output : output.vulkan();
-  output = utils::mark_tensor_execution(
-      output, utils::resolve_buffer_execution_layout(convert(output)), false);
-  const vTensor& v_output = convert(output);
-  TORCH_CHECK(
-      v_output.storage_type() == api::StorageType::BUFFER &&
-          v_output.dtype() == api::kFloat &&
-          utils::supports_buffer_view_fast_path(v_output),
-      "Depth Anything v2 fused head expects float buffer-backed output");
-  TORCH_CHECK(
-      output.sizes().equals(expected_sizes),
-      "Depth Anything v2 fused head received mismatched output shape");
-  return output;
-}
-
-Tensor run_depth_anything_v2_head_fusion_out(
-    const Tensor& path1,
-    IntArrayRef output_size,
-    const c10::intrusive_ptr<VisionDecoderHeadContext>& context,
-    Tensor* output_opt = nullptr) {
-  TORCH_INTERNAL_ASSERT(
-      can_run_depth_anything_v2_head_fusion(path1, output_size, context),
-      "Depth Anything v2 fused head expects DA v2-compatible buffer inputs");
-  api::AllocationScope allocation_scope("vision_decoder_head.da_v2");
-  utils::log_vulkan_op_hit("aten::vision_decoder_head.da_v2_fused_head");
-
-  const auto& output_conv1 = context->output_conv1_context();
-  const auto& output_conv2_conv1 = context->output_conv2_conv1_context();
-  const auto& output_conv2_conv2 = context->output_conv2_conv2_context();
-  const std::vector<int64_t> expected_output_sizes{
-      path1.size(0),
-      kDaV2HeadFinalChannels,
-      output_size[0],
-      output_size[1],
-  };
-
-  Tensor output = output_opt != nullptr
-      ? prepare_depth_anything_v2_head_output(*output_opt, expected_output_sizes)
-      : utils::create_buffer_tensor(expected_output_sizes, kFloat);
-
-  api::Context* const context_vk = api::context();
-  vTensor v_output = convert(output);
-  vTensor v_input = convert(path1);
-  vTensor v_weight1 = output_conv1->packed_weight().weight_vtensor();
-  vTensor v_bias1 = output_conv1->packed_weight().bias_vtensor();
-  vTensor v_weight2 = output_conv2_conv1->packed_weight().weight_vtensor();
-  vTensor v_bias2 = output_conv2_conv1->packed_weight().bias_vtensor();
-  vTensor v_weight3 = output_conv2_conv2->packed_weight().weight_vtensor();
-  vTensor v_bias3 = output_conv2_conv2->packed_weight().bias_vtensor();
-
-  const struct {
-    int32_t align_corners;
-    int32_t has_bias1;
-    int32_t has_bias2;
-    int32_t has_bias3;
-  } block{
-      context->align_corners() ? 1 : 0,
-      output_conv1->packed_weight().has_bias() ? 1 : 0,
-      output_conv2_conv1->packed_weight().has_bias() ? 1 : 0,
-      output_conv2_conv2->packed_weight().has_bias() ? 1 : 0,
-  };
-
-  api::UniformParamsBuffer params(context_vk, block);
-  api::UniformParamsBuffer out_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_output);
-  api::UniformParamsBuffer in_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_input);
-  api::UniformParamsBuffer weight1_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_weight1);
-  api::UniformParamsBuffer bias1_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_bias1);
-  api::UniformParamsBuffer weight2_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_weight2);
-  api::UniformParamsBuffer bias2_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_bias2);
-  api::UniformParamsBuffer weight3_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_weight3);
-  api::UniformParamsBuffer bias3_meta =
-      utils::make_buffer_compute_metadata_ubo(context_vk, v_bias3);
-  api::PipelineBarrier pipeline_barrier{};
-  const api::utils::uvec3 global_size{
-      api::utils::safe_downcast<uint32_t>(
-          (output_size[1] + kDaV2HeadOutputsPerThreadX - 1) /
-          kDaV2HeadOutputsPerThreadX),
-      api::utils::safe_downcast<uint32_t>(
-          (output_size[0] + kDaV2HeadOutputsPerThreadY - 1) /
-          kDaV2HeadOutputsPerThreadY),
-      api::utils::safe_downcast<uint32_t>(path1.size(0) * kDaV2HeadFinalChannels),
-  };
-  const api::utils::uvec3 local_size{
-      kDaV2HeadWorkGroupSizeX,
-      kDaV2HeadWorkGroupSizeY,
-      kDaV2HeadWorkGroupSizeZ,
-  };
-
-  context_vk->submit_compute_job(
-      VK_KERNEL(depth_anything_v2_head_buffer_float),
-      pipeline_barrier,
-      global_size,
-      local_size,
-      VK_NULL_HANDLE,
-      v_output.buffer(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      out_meta.buffer(),
-      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      in_meta.buffer(),
-      v_weight1.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      weight1_meta.buffer(),
-      v_bias1.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      bias1_meta.buffer(),
-      v_weight2.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      weight2_meta.buffer(),
-      v_bias2.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      bias2_meta.buffer(),
-      v_weight3.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      weight3_meta.buffer(),
-      v_bias3.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
-      bias3_meta.buffer(),
-      params.buffer());
-  return output;
-}
-
 Tensor run_vision_decoder_head_tail_context(
     const Tensor& path1,
     IntArrayRef output_size,
     const c10::intrusive_ptr<VisionDecoderHeadContext>& context,
     Tensor* output_opt = nullptr) {
-  if (can_run_depth_anything_v2_head_fusion(path1, output_size, context)) {
-    return run_depth_anything_v2_head_fusion_out(
-        path1, output_size, context, output_opt);
-  }
-
   Tensor output = run_conv2d_context(path1, context->output_conv1_context());
   output = at::upsample_bilinear2d(
       output,
@@ -4586,17 +4350,6 @@ maybe_lookup_vision_decoder_head_replay(
     return std::nullopt;
   }
 
-  const std::vector<int64_t> path1_sizes{
-      layer1_sizes[0],
-      layer1_sizes[1],
-      layer1_sizes[2] * 2,
-      layer1_sizes[3] * 2,
-  };
-  if (!can_run_depth_anything_v2_head_fusion_shape(
-          path1_sizes, output_size, context)) {
-    return std::nullopt;
-  }
-
   const int64_t output_conv1_channels =
       context->output_conv1_context()
           ->packed_weight()
@@ -4680,9 +4433,6 @@ Tensor run_vision_decoder_head_program(
       path1_target,
       context->refinenet1_context(),
       program_decoder_outputs(refinenet1_program));
-  TORCH_INTERNAL_ASSERT(
-      can_run_depth_anything_v2_head_fusion(path1, output_size, context),
-      "Vision decoder head program expects a DA v2-compatible fused head");
   return run_vision_decoder_head_tail_context(
       path1, output_size, context, &output_slot);
 }
@@ -5944,37 +5694,10 @@ bool has_compiled_decoder_head_shape(
     const utils::VulkanCompiledSession& session,
     const CompiledDecoderExecutionPlan& plan,
     const c10::intrusive_ptr<VisionDecoderHeadContext>& head_context) {
-  if (!session.defined() || !session.executable() || !head_context) {
-    return false;
-  }
-
-  const auto& values = session.ir().values();
-  const auto get_sizes = [&](const utils::VulkanValueId value_id)
-      -> std::optional<std::vector<int64_t>> {
-    if (value_id >= values.size()) {
-      return std::nullopt;
-    }
-    const auto& sizes = values[value_id].spec.logical_sizes;
-    if (sizes.size() != 4u) {
-      return std::nullopt;
-    }
-    return sizes;
-  };
-
-  const auto layer1_sizes = get_sizes(plan.head_input_values[0]);
-  const auto output_sizes = get_sizes(plan.final_output_value);
-  if (!layer1_sizes.has_value() || !output_sizes.has_value()) {
-    return false;
-  }
-
-  return can_run_depth_anything_v2_head_fusion_shape(
-      std::vector<int64_t>{
-          layer1_sizes->at(0),
-          layer1_sizes->at(1),
-          layer1_sizes->at(2) * 2,
-          layer1_sizes->at(3) * 2},
-      std::vector<int64_t>{output_sizes->at(2), output_sizes->at(3)},
-      head_context);
+  (void)session;
+  (void)plan;
+  (void)head_context;
+  return false;
 }
 
 std::optional<std::shared_ptr<CompiledDecoderHeadPrograms>>
@@ -11308,7 +11031,10 @@ Tensor run_vision_decoder_preprocess_head_context_impl(
   const std::array<bool, 4u> apply_resize{{true, true, false, true}};
   const std::vector<int64_t> final_output_sizes{
       layer_feature_sizes[0][0],
-      kDaV2HeadFinalChannels,
+      context->head_context()
+          ->output_conv2_conv2_context()
+          ->packed_weight()
+          .logical_weight_sizes()[0],
       output_size[0],
       output_size[1],
   };
@@ -11545,17 +11271,7 @@ Tensor run_vision_decoder_head_context_impl(
       layer3_buffer.dim() != 4 || layer4_buffer.dim() != 4) {
     return fallback();
   }
-
-  const std::vector<int64_t> path1_sizes{
-      layer1_buffer.size(0),
-      layer1_buffer.size(1),
-      layer1_buffer.size(2) * 2,
-      layer1_buffer.size(3) * 2,
-  };
-  if (!can_run_depth_anything_v2_head_fusion_shape(
-          path1_sizes, output_size, context)) {
-    return fallback();
-  }
+  return fallback();
 
   if (!can_use_decoder_head_replay(
           layer1_buffer, layer2_buffer, layer3_buffer, layer4_buffer)) {
@@ -11726,62 +11442,6 @@ void prime_vision_decoder_head_context_graph(
       layer3.scalar_type() != kFloat || layer4.scalar_type() != kFloat) {
     return;
   }
-  const std::vector<int64_t> path1_sizes{
-      layer1.size(0),
-      layer1.size(1),
-      layer1.size(2) * 2,
-      layer1.size(3) * 2,
-  };
-  if (!can_run_depth_anything_v2_head_fusion_shape(
-          path1_sizes, output_size, context)) {
-    return;
-  }
-
-  utils::VulkanPlanningRequestScope planning_scope(
-      utils::make_vulkan_vision_decoder_request());
-  const auto runtime_policy = utils::build_vulkan_runtime_policy(
-      utils::make_vulkan_vision_decoder_request());
-  if (
-      !runtime_policy.execution_program_plan.has_value() ||
-      runtime_policy.execution_program_plan->kind !=
-          utils::VulkanExecutionProgramKind::VisionDecoder ||
-      !has_explicit_runtime_capture_label()) {
-    return;
-  }
-
-  const int64_t output_conv1_channels =
-      context->output_conv1_context()
-          ->packed_weight()
-          .logical_weight_sizes()[0];
-  const int64_t output_conv2_channels =
-      context->output_conv2_conv1_context()
-          ->packed_weight()
-          .logical_weight_sizes()[0];
-  const int64_t final_channels =
-      context->output_conv2_conv2_context()
-          ->packed_weight()
-          .logical_weight_sizes()[0];
-  const std::vector<int64_t> output_sizes{
-      layer1.size(0), final_channels, output_size[0], output_size[1]};
-
-  auto vision_graph = utils::lookup_or_create_labeled_vision_decoder_inference_graph(
-      vision_decoder_graph_label(context->allocation_label()),
-      kFloat,
-      runtime_policy.execution_program_plan->persistent);
-  (void)vision_graph.lookup_or_create_head_replay(
-      vision_decoder_head_program_label(
-          context->allocation_label(), context.get()),
-      layer1.sizes(),
-      layer2.sizes(),
-      layer3.sizes(),
-      layer4.sizes(),
-      output_sizes,
-      output_conv1_channels,
-      output_conv2_channels,
-      final_channels,
-      *runtime_policy.execution_program_plan);
-  utils::log_vulkan_op_hit(
-      "vulkan_prepack::prime_vision_decoder_head_context_graph");
 }
 
 std::tuple<Tensor, Tensor> run_vision_backbone_decoder_replay_bundle_bridge(

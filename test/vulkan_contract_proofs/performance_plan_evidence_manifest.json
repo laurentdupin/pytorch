@@ -2099,13 +2099,14 @@
         "candidate_device_resident_mean": null
       },
       "artifacts": [
-        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
+        "git:49f93e81e81:aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
+        "docs/vulkan/cleanup_ledger.json"
       ],
-      "decision": "Do not enable or benchmark this path until a correctness matrix proves it.",
+      "decision": "Retire the inactive eager implementation. Any revisit belongs in graph lowering after a correctness matrix proves a reusable DPT head region.",
       "revisit_conditions": [
-        "Add CPU, generic Vulkan, and fused-head parity for representative vits/vitb/vitl decoder shapes.",
+        "Add CPU, generic Vulkan, and graph-region parity for representative vits/vitb/vitl decoder shapes.",
         "Include non-square lower-bound resize rows and align_corners=True coverage.",
-        "Only then create a region-fusion performance entry."
+        "Only then create a graph region-fusion performance entry."
       ]
     },
     {

@@ -82,6 +82,32 @@
       "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, dedicated GatedDeltaSplit planning cache, and residual Qwen/gated-delta label sentinels were deleted. Generic planning-label inference remains Migration in LegacyPlanningInference.* until its separate explicit-field and lane-parity gate is met."
     },
     {
+      "id": "depth_anything_v2_fused_head_shader",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The fused-head admission predicate returned false unconditionally because the shader was not numerically aligned with the reference DPT head across supported decoder shapes.",
+        "The supported plain eager route already executes the decoder tail as concrete conv, bilinear upsample, conv, ReLU, conv, and ReLU operations.",
+        "No VulkanGraphProgram lowering consumes the shader; the broader replay and compiled-session machinery remains fail-closed and Migration-gated."
+      ],
+      "removed_paths": [
+        "aten/src/ATen/native/vulkan/glsl/depth_anything_v2_head_buffer_float.glsl"
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "depth_anything_v2_head_buffer_float",
+        "can_run_depth_anything_v2_head_fusion",
+        "prepare_depth_anything_v2_head_output",
+        "run_depth_anything_v2_head_fusion_out",
+        "aten::vision_decoder_head.da_v2_fused_head",
+        "kDaV2Head"
+      ],
+      "consequence": "The inactive shader, exact DAv2 constants, admission checks, output preparation, dispatch branch, and fused-route log label were deleted. The composed decoder tail and its DAv2 behavioral coverage remain; replay and compiled-session deletion gates are unchanged."
+    },
+    {
       "id": "linear_pending_flush_deferral_canary",
       "decision": "retire_experiment",
       "status": "deleted",
