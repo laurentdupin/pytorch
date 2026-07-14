@@ -29,6 +29,7 @@
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/GraphProgramPlans.h>
+#include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
 #include <torch/custom_class.h>

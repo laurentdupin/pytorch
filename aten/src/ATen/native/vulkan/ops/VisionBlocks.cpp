@@ -20,6 +20,7 @@
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/ExecutionPrograms.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
+#include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <ATen/native/vulkan/planning/Request.h>
 #include <ATen/native/vulkan/planning/Runtime.h>

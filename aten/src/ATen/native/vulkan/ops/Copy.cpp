@@ -10,6 +10,7 @@
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsAttentionProbabilityMaterializationSpec.h>
 #include <ATen/vulkan/Context.h>

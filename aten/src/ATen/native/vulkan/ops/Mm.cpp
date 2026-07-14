@@ -8,6 +8,7 @@
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 
 #include <ATen/Context.h>

@@ -2,7 +2,7 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/api/Sync.h>
-#include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>

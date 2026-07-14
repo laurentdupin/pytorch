@@ -35,6 +35,26 @@ SYNC_PATH = os.path.join(
     "api",
     "Sync.cpp",
 )
+EXECUTION_OBJECTS_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "planning",
+    "ExecutionObjects.cpp",
+)
+PACKED_WEIGHT_CACHE_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "planning",
+    "PackedWeightCache.cpp",
+)
 
 
 def _load_generator():
@@ -124,6 +144,30 @@ class TestVulkanCleanupInventory(TestCase):
             "stack_internal_temp_retire_batch_counters()",
             counter_source,
         )
+
+    def test_packed_weight_cache_is_separate_from_legacy_execution_objects(self):
+        with open(PACKED_WEIGHT_CACHE_PATH, encoding="utf-8") as file:
+            cache_source = file.read()
+        with open(EXECUTION_OBJECTS_PATH, encoding="utf-8") as file:
+            object_source = file.read()
+
+        for definition in (
+            "class PackedWeightResidencyManager final",
+            "lookup_packed_weight_handle(",
+            "lookup_linear_context(",
+            "release_retired_packed_weight_entries()",
+        ):
+            self.assertIn(definition, cache_source)
+            self.assertNotIn(definition, object_source)
+
+        for definition in (
+            "KVCacheObject::defined()",
+            "ScratchArena::defined()",
+            "ReadbackBufferObject::defined()",
+            "prime_labeled_scratch_arena_for_request(",
+        ):
+            self.assertIn(definition, object_source)
+            self.assertNotIn(definition, cache_source)
 
 
 if __name__ == "__main__":

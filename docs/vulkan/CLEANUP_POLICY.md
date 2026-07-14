@@ -93,7 +93,10 @@ Work that can interleave with executor milestones now:
 3. keep the generic `SyncCounters.*` evidence substrate separate from the
    stack proof/canary control plane remaining in `Sync.*`, preserving
    fallback/readback, submit-origin, retire, and GPU-timestamp attribution; and
-4. split mixed subsystems only when the split reduces the next deletion unit.
+4. keep retained packed-weight and linear-context residency in
+   `PackedWeightCache.*`, separate from migration-only KV-cache, scratch-arena,
+   and readback objects in `ExecutionObjects.*`; and
+5. split mixed subsystems only when the split reduces the next deletion unit.
 
 Later cleanup is a consequence of graph progress, not scheduled prerequisite
 work. VisionBlocks, compiled-session/replay, inference-graph, and stack-era

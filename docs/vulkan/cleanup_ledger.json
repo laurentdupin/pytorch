@@ -167,13 +167,14 @@
     {
       "id": "active_graph_eager_and_diagnostics",
       "state": "Active",
-      "summary": "Graph correctness execution, generic eager kernels and contexts, public Vulkan Python APIs, and evidence-critical diagnostics including generic sync, submit, and retire attribution.",
-      "why": "These surfaces implement the supported graph program or the concrete eager correctness substrate and its explicit accounting. Generic sync, submit, and retire attribution is isolated in SyncCounters.* from migration-gated stack policy.",
+      "summary": "Graph correctness execution, generic eager kernels and contexts, retained packed-weight caches, public Vulkan Python APIs, and evidence-critical diagnostics including generic sync, submit, and retire attribution.",
+      "why": "These surfaces implement the supported graph program or the concrete eager correctness substrate and its explicit accounting. Generic sync attribution is isolated in SyncCounters.* from migration-gated stack policy, and retained packed-weight and linear-context residency is isolated in PackedWeightCache.* from legacy execution objects.",
       "paths": [
         "torch/vulkan",
         "aten/src/ATen/native/vulkan/api",
         "aten/src/ATen/native/vulkan/planning/ExecutionContracts*",
         "aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime*",
+        "aten/src/ATen/native/vulkan/planning/PackedWeightCache.*",
         "aten/src/ATen/native/vulkan/planning/Transition*"
       ],
       "surfaces": [
@@ -519,7 +520,7 @@
     {
       "id": "migration_legacy_planning_objects",
       "state": "Migration",
-      "summary": "Eager inference-graph, execution-object, execution-program, request-storage, and runtime-policy surfaces.",
+      "summary": "Eager inference-graph, KV-cache, scratch-arena, readback, execution-program, request-storage, and runtime-policy surfaces. Retained packed-weight and linear-context caches are isolated in PackedWeightCache.*.",
       "replacement": "Immutable VulkanGraphProgram planning with graph-owned SSA resources, descriptors, barriers, and completion tokens.",
       "delete_when": "The C++ executor owns the corresponding resources and no supported caller reaches the old caches or storage-request APIs.",
       "baseline": "Preserve graph/eager correctness plus fallback, readback, submit-origin, GPU timestamp, and peak-memory accounting.",

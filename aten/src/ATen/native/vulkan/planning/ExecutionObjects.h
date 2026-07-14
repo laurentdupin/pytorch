@@ -3,9 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/ops/Common.h>
-#include <ATen/native/vulkan/ops/PackedWeight.h>
 #include <ATen/native/vulkan/planning/Request.h>
-#include <c10/util/intrusive_ptr.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -19,32 +17,11 @@ namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
-
-class LinearPackedContext;
-
 namespace utils {
-
-enum class VulkanExecutionObjectKind : uint8_t {
-  PackedWeight = 0u,
-  LinearContext,
-  KVCache,
-  ScratchArena,
-  ReadbackBuffer,
-};
-
-const char* execution_object_kind_name(VulkanExecutionObjectKind);
 
 std::string make_vulkan_runtime_object_label(
     const VulkanPlanningRequest& request,
     const char* label_suffix);
-
-const std::string& resolve_vulkan_linear_runtime_label(
-    const std::string& allocation_label,
-    const char* fallback_label);
-
-std::string make_vulkan_linear_pack_label(
-    const std::string& allocation_label,
-    const char* fallback_label);
 
 struct VulkanKVCacheSpec final {
   ScalarType dtype{kFloat};
@@ -245,71 +222,6 @@ std::optional<ScratchArena> prime_labeled_scratch_arena_for_request(
     const VulkanPlanningRequest& request,
     size_t requested_bytes,
     const char* label_suffix = "scratch");
-
-PackedWeightHandle make_packed_weight_handle(
-    Tensor,
-    Tensor,
-    std::vector<int64_t>,
-    PackedWeightKind,
-    bool bias_defined,
-    bool quantized = false,
-    PackedWeightResidencyClass residency_class =
-        PackedWeightResidencyClass::PersistentInference);
-
-std::optional<PackedWeightHandle> lookup_packed_weight_handle(
-    const Tensor& source_weight,
-    const std::optional<Tensor>& source_bias,
-    IntArrayRef logical_weight_sizes,
-    PackedWeightKind kind,
-    bool quantized = false,
-    uint64_t options_key = 0u);
-
-void store_packed_weight_handle(
-    const Tensor& source_weight,
-    const std::optional<Tensor>& source_bias,
-    IntArrayRef logical_weight_sizes,
-    PackedWeightKind kind,
-    const PackedWeightHandle& handle,
-    bool quantized = false,
-    uint64_t options_key = 0u);
-
-void note_packed_weight_store_skip(
-    IntArrayRef logical_weight_sizes,
-    ScalarType dtype,
-    PackedWeightKind kind,
-    bool quantized,
-    uint64_t options_key,
-    const char* reason,
-    size_t resident_nbytes);
-
-std::vector<std::string> packed_weight_residency_snapshot();
-
-void reset_packed_weight_residency_snapshot();
-
-std::optional<c10::intrusive_ptr<LinearPackedContext>> lookup_linear_context(
-    const Tensor& weight,
-    const std::optional<Tensor>& bias);
-
-void store_linear_context(
-    const Tensor& weight,
-    const std::optional<Tensor>& bias,
-    const c10::intrusive_ptr<LinearPackedContext>& context);
-
-std::optional<c10::intrusive_ptr<LinearPackedContext>>
-lookup_labeled_linear_context(
-    const Tensor& weight,
-    const std::optional<Tensor>& bias,
-    const std::string& allocation_label);
-
-void store_labeled_linear_context(
-    const Tensor& weight,
-    const std::optional<Tensor>& bias,
-    const std::string& allocation_label,
-    const c10::intrusive_ptr<LinearPackedContext>& context);
-
-bool release_retired_linear_contexts();
-
-bool release_retired_packed_weight_entries();
 
 } // namespace utils
 } // namespace ops

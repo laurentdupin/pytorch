@@ -8,7 +8,7 @@
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/planning/DynamicProgramRuntime.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
-#include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h>
 #include <ATen/native/vulkan/ops/Common.h>

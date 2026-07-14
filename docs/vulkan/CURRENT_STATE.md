@@ -19,6 +19,12 @@ changing their schemas. This preserves fallback/readback and profiling GPU
 timestamp evidence independently of the stack proof/canary control plane that
 remains migration-gated in `Sync.*` and `Context.cpp`.
 
+Retained packed-weight and linear-context cache ownership is isolated in
+`PackedWeightCache.*`. Migration-only KV-cache, scratch-arena, readback, and
+request-storage objects remain in `ExecutionObjects.*`; deleting those objects
+after the C++ graph executor owns their replacements no longer risks deleting
+the supported packed-weight residency substrate with them.
+
 Runtime elementwise eager experiments were retired on 2026-07-14. The removed
 stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,
 live eager-chain sidecar recorder, deferred tensor placeholders, and the
