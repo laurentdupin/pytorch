@@ -226,7 +226,40 @@
         "kSegmentedOwnedCommandBufferWide6",
         "wide6_segment_plan_available_behavior_canary"
       ],
-      "consequence": "The accepted environment spelling, width-six constants and plan wrapper, selection branch, benchmark allowlist entry, and mechanism-only test were deleted. The generic fixed-width planner, retained wide3/wide4 specializations, stack recording diagnostics, and historical wide6 measurements remain."
+      "consequence": "The accepted environment spelling, width-six constants and plan wrapper, selection branch, benchmark allowlist entry, and mechanism-only test were deleted. The generic fixed-width planner, retained wide4 specialization, stack recording diagnostics, and historical wide6 measurements remain."
+    },
+    {
+      "id": "slower_segmented_stack_canaries",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "Wide3 and the prefix3-6 tail variants were default-off exact environment spellings over shared fixed-width and dispatch-budget segment planners.",
+        "The recorded DAv2 vits_140 RX 9070 sweep kept all five routes correctness-clean with zero fallback/readback, but every route was slower than the retained wide4 canary.",
+        "No supported default or VulkanGraphProgram caller selects these exact modes; the evidence manifest preserves each timing row and the shared planners remain exercised by retained wide4 and prefix3 routes."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "segmented_stack_wide3_to_exit",
+        "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix4_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix5_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
+        "stack_owned_command_buffer_wide3_canary_enabled",
+        "stack_wide3_segment_plan",
+        "kSegmentedOwnedCommandBufferWide3",
+        "wide3_segment_plan_available_behavior_canary",
+        "stack_owned_command_buffer_dispatch_budget_tail_scope_limit",
+        "stack_owned_command_buffer_dispatch_budget_tail_canary_enabled",
+        "dispatch_budget_tail_to_exit_canary_requested",
+        "kSegmentedOwnedCommandBufferPrefix4ScopeLimit",
+        "kSegmentedOwnedCommandBufferPrefix5ScopeLimit",
+        "kSegmentedOwnedCommandBufferPrefix6ScopeLimit"
+      ],
+      "consequence": "The five accepted spellings, wide3 constants and plan wrapper, prefix-tail scope ladder and tail-to-exit execution branch, benchmark allowlist entries, and mechanism-only tests were deleted. The generic fixed-width and dispatch-budget planners, prefix3 and wide4 modes, context-owned remainder recording, stack diagnostics, and historical measurements remain."
     }
   ],
   "entries": [

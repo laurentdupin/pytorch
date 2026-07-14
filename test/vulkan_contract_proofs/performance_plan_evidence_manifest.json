@@ -531,12 +531,14 @@
       "compared_candidates": [
         {
           "mode": "segmented_stack_wide3_to_exit",
-          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "status": "retired_valid_but_slower_than_wide4_in_3repeat_sweep",
+          "implementation_status": "retired_from_live_code",
           "device_resident_mean_ms": 74.004,
           "max_abs": 1.6391277313232422e-06,
           "cpu_fallback": 0,
           "sync_readback": 0,
-          "artifact": "agent_space/dav2_vits140_segment_compare_wide3_3repeat.json"
+          "artifact": "agent_space/dav2_vits140_segment_compare_wide3_3repeat.json",
+          "decision": "Retire the exact wide3 mode while preserving this valid but slower result."
         },
         {
           "mode": "segmented_stack_wide6_to_exit",
@@ -667,39 +669,47 @@
         },
         {
           "mode": "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
-          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "status": "retired_valid_but_slower_than_wide4_in_3repeat_sweep",
+          "implementation_status": "retired_from_live_code",
           "device_resident_mean_ms": 79.299,
           "max_abs": 1.6391277313232422e-06,
           "cpu_fallback": 0,
           "sync_readback": 0,
-          "artifact": "agent_space/dav2_vits140_segment_compare_prefix3_tail_3repeat.json"
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix3_tail_3repeat.json",
+          "decision": "Retire the exact prefix3-tail mode while preserving this valid but slower result."
         },
         {
           "mode": "segmented_stack_dispatch_budget_prefix4_tail_to_exit",
-          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "status": "retired_valid_but_slower_than_wide4_in_3repeat_sweep",
+          "implementation_status": "retired_from_live_code",
           "device_resident_mean_ms": 104.095,
           "max_abs": 1.6391277313232422e-06,
           "cpu_fallback": 0,
           "sync_readback": 0,
-          "artifact": "agent_space/dav2_vits140_segment_compare_prefix4_tail_3repeat.json"
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix4_tail_3repeat.json",
+          "decision": "Retire the exact prefix4-tail mode while preserving this valid but slower result."
         },
         {
           "mode": "segmented_stack_dispatch_budget_prefix5_tail_to_exit",
-          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "status": "retired_valid_but_slower_than_wide4_in_3repeat_sweep",
+          "implementation_status": "retired_from_live_code",
           "device_resident_mean_ms": 72.227,
           "max_abs": 1.6391277313232422e-06,
           "cpu_fallback": 0,
           "sync_readback": 0,
-          "artifact": "agent_space/dav2_vits140_segment_compare_prefix5_tail_3repeat.json"
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix5_tail_3repeat.json",
+          "decision": "Retire the exact prefix5-tail mode while preserving this valid but slower result."
         },
         {
           "mode": "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
-          "status": "valid_but_slower_than_wide4_in_3repeat_sweep",
+          "status": "retired_valid_but_slower_than_wide4_in_3repeat_sweep",
+          "implementation_status": "retired_from_live_code",
           "device_resident_mean_ms": 70.08,
           "max_abs": 1.6391277313232422e-06,
           "cpu_fallback": 0,
           "sync_readback": 0,
-          "artifact": "agent_space/dav2_vits140_segment_compare_prefix6_tail_3repeat.json"
+          "artifact": "agent_space/dav2_vits140_segment_compare_prefix6_tail_3repeat.json",
+          "decision": "Retire the exact prefix6-tail mode while preserving this valid but slower result."
         }
       ],
       "revisit_conditions": [

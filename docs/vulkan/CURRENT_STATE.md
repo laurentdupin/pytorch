@@ -810,8 +810,9 @@ summarizes the active DAv2-driven performance canary decisions in a compact
 table; consult it before adding another segmented-recording, compiled-session,
 retire-handoff, conv-plan, or linear-plan canary.
 The latest segment-mode evidence keeps `segmented_stack_wide4_to_exit` as the
-best current `vits_140` bridge canary. The wide3 and prefix-tail modes are
-valid in the recorded three-repeat sweep but slower than wide4. The rejected
+best current `vits_140` bridge canary. The valid but slower wide3 and
+prefix3-6 tail modes have been retired from live production, benchmark, and
+test orchestration. The rejected
 `segmented_stack_wide6_to_exit` route has been retired from live production,
 benchmark, and test orchestration. Its historical result remains evidence: a
 focused five-repeat RX 9070 run selected two full segments covering blocks 0-5
@@ -1034,14 +1035,15 @@ state at every benchmark timing boundary. The successful stream-sync path now
 also resets idle persistent external-recording command/descriptor pools after
 the current stream has completed, so segmented stack-owned recording does not
 accumulate stale recording pool state across repeated benchmark iterations.
-After the LayerNorm statistic-buffer retire proof, a matching 30-repeat
+Historical wide3 evidence after the LayerNorm statistic-buffer retire proof
+records a matching 30-repeat
 `vits_140` run with `StackScopeRetireHandoffContract.v0`, decoder bridge
-planned recording, and the `segmented_stack_wide3_to_exit` canary measured
+planned recording, and `segmented_stack_wide3_to_exit` at
 about 75.5 ms mean / 74.7 ms median / 86.0 ms p95. The bridge sanity check
 passed with max_abs `1.6391277313232422e-06`, CPU fallback stayed zero, and
 sync readback stayed zero. The comparable context-owned stack path measured
-about 92.0 ms mean / 90.2 ms median / 104.2 ms p95. This is a valid canary
-performance improvement, not a production default.
+about 92.0 ms mean / 90.2 ms median / 104.2 ms p95. The result remains useful
+evidence, but the exact slower-than-wide4 route is no longer live.
 
 The next architecture direction is a dispatch-level
 `StackRegionDependencyGraph` built before command recording. Future submit
@@ -1204,36 +1206,14 @@ override: default prefix mode remains capped at two segments, all selected
 segments still enforce the four-block and 24-dispatch budgets, tail work stays
 on the existing context-owned planned-recording path, and submit elision stays
 disabled.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix3_tail_to_exit`
-keeps the same three external prefix segments but records the remaining
-unselected tail as one context-owned planned scope to stack exit. This tests
-whether the tail can avoid extra candidate-boundary close submits without
-increasing external recording scope or changing submit-elision policy.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix4_tail_to_exit`
-is a higher-risk exact canary that selects four dispatch-budget prefix segments
-and keeps the same coalesced context-owned tail. It exists only to probe the
-next bounded external-recording scope; it is still opt-in, keeps submit elision
-disabled, and must be judged by bridge sanity plus submit/retire counters.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix5_tail_to_exit`
-extends the same exact canary to five selected dispatch-budget prefix segments
-with the coalesced context-owned tail. It is intentionally another fixed,
-opt-in evidence point rather than a numeric scope override or a general
-multi-scope owner; selected external segments still enforce the same block and
-dispatch budgets, pending-retire transfer stays disabled, and submit elision
-stays disabled.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix6_tail_to_exit`
-is the next fixed canary and may cover the full `vits_140` dispatch-budget
-prefix in practice. It remains a risk probe, not a production plan: the mode is
-exactly named, selected external segments keep the same per-segment budgets, no
-numeric scope override is exposed, and no submit elision, deferred submit, or
-pending-retire transfer is enabled.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide3_to_exit`
-is the first fixed wider-segment canary after the prefix6 cap. It records four
-three-block external segments for 12-block vision stacks when each segment
-stays under a 36-dispatch budget, so it can test whether fewer stack-owned
-segment close submits are safe without exposing a numeric scope override. The
-mode remains opt-in and keeps submit elision, deferred submit, and
-pending-retire transfer disabled.
+The former prefix3-6 tail modes coalesced unselected candidate segments into a
+single context-owned scope through stack exit, while the former wide3 mode
+recorded four three-block external segments under a 36-dispatch budget. All
+five exact modes remained correctness-clean in the recorded RX 9070 sweep but
+were slower than retained wide4. They are now retired; the checked-in evidence
+manifest preserves their timing and rejection result, while the generic
+dispatch-budget planner and live `segmented_stack_dispatch_budget_prefix3_to_exit`
+route retain the reusable planning behavior.
 `PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit`
 is the next fixed wider-segment probe. It records three four-block external
 segments for 12-block private-bridge stacks when each segment stays under a
@@ -1248,10 +1228,11 @@ and one explicit backend sync.
 The benchmark harness now emits `vulkan_measurement_phase_counters` alongside
 the existing aggregate `vulkan_phase_counters`. The new rows are deltas for
 each single-image measurement loop and keep the legacy aggregate phase intact.
-For the current `vits_140` `wide3` device-resident forward, those rows show the
+For the historical `vits_140` wide3 device-resident forward, those rows show the
 remaining per-forward structure is about 10 queue submits: five stack-planned
 submits, three retire-queue-drain submits, one pre-stack flush, and one
-explicit backend sync. This is the next structural budget to target.
+explicit backend sync. The retained wide4 lane supersedes that exact canary;
+the submit breakdown remains evidence for the next structural budget.
 External recording cleanup logical-boundary rows are also stamped with segment
 identity when a segmented stack-owned scope is active, so cleanup resource
 counts and bytes can be joined to a segment without relying on row order. The

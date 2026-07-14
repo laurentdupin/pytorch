@@ -207,6 +207,20 @@
       "reusable_backend_policy": true
     },
     {
+      "id": "dav2_slower_segmented_stack_siblings",
+      "status": "retired_rejected_slower",
+      "scope": [
+        "StackRegionSegmentPlan.v0",
+        "wide3 and prefix3-6 tail segmented recording"
+      ],
+      "canary_or_path": "historical exact PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER modes",
+      "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
+      "latest_observation": "All five modes were correctness-clean with zero fallback/readback in the recorded three-repeat sweep, but every route was slower than retained wide4.",
+      "decision": "Retired from live code. Preserve the shared planners, not the losing exact spellings and tail-specific branch.",
+      "next_proof": "Use the checked-in per-mode results as historical evidence; new segment topology work needs a bounded ownership or overhead hypothesis rather than another exact width or prefix count.",
+      "reusable_backend_policy": true
+    },
+    {
       "id": "conv_3x3_s1p1_workgroup_candidates",
       "status": "candidate_needs_policy",
       "scope": [

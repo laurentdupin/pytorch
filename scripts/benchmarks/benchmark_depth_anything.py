@@ -98,11 +98,6 @@ VULKAN_REPEATED_STACK_OUTPUT_BRIDGE_SEGMENTED_MODES = frozenset(
         "segmented_stack_dispatch_budget_single_segment_to_exit",
         "segmented_stack_dispatch_budget_prefix_to_exit",
         "segmented_stack_dispatch_budget_prefix3_to_exit",
-        "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
-        "segmented_stack_dispatch_budget_prefix4_tail_to_exit",
-        "segmented_stack_dispatch_budget_prefix5_tail_to_exit",
-        "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
-        "segmented_stack_wide3_to_exit",
         "segmented_stack_wide4_to_exit",
     )
 )

@@ -292,7 +292,7 @@
         "Focused DAv2 vits_140 evidence was correctness-clean and reduced stack-planned submits relative to the retained wide4 canary, but was slower and left retire-drain pressure unchanged; no supported default depends on the exact wide6 route.",
         "The wide4 canary remains the current retained bounded lane, while the checked-in evidence manifest and canary decision table preserve the wide6 result and rejection reason."
       ],
-      "consequence": "The accepted environment spelling, width-six constants and plan wrapper, selection branch, benchmark allowlist entry, and mechanism-only test were deleted. The generic fixed-width planner, retained wide3/wide4 specializations, stack recording diagnostics, and historical wide6 measurements remain.",
+      "consequence": "The accepted environment spelling, width-six constants and plan wrapper, selection branch, benchmark allowlist entry, and mechanism-only test were deleted. The generic fixed-width planner, retained wide4 specialization, stack recording diagnostics, and historical wide6 measurements remain.",
       "decision": "retire_experiment",
       "forbidden_code_symbols": [
         "segmented_stack_wide6_to_exit",
@@ -302,6 +302,39 @@
         "wide6_segment_plan_available_behavior_canary"
       ],
       "id": "segmented_stack_wide6_canary",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "Wide3 and the prefix3-6 tail variants were default-off exact environment spellings over shared fixed-width and dispatch-budget segment planners.",
+        "The recorded DAv2 vits_140 RX 9070 sweep kept all five routes correctness-clean with zero fallback/readback, but every route was slower than the retained wide4 canary.",
+        "No supported default or VulkanGraphProgram caller selects these exact modes; the evidence manifest preserves each timing row and the shared planners remain exercised by retained wide4 and prefix3 routes."
+      ],
+      "consequence": "The five accepted spellings, wide3 constants and plan wrapper, prefix-tail scope ladder and tail-to-exit execution branch, benchmark allowlist entries, and mechanism-only tests were deleted. The generic fixed-width and dispatch-budget planners, prefix3 and wide4 modes, context-owned remainder recording, stack diagnostics, and historical measurements remain.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "segmented_stack_wide3_to_exit",
+        "segmented_stack_dispatch_budget_prefix3_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix4_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix5_tail_to_exit",
+        "segmented_stack_dispatch_budget_prefix6_tail_to_exit",
+        "stack_owned_command_buffer_wide3_canary_enabled",
+        "stack_wide3_segment_plan",
+        "kSegmentedOwnedCommandBufferWide3",
+        "wide3_segment_plan_available_behavior_canary",
+        "stack_owned_command_buffer_dispatch_budget_tail_scope_limit",
+        "stack_owned_command_buffer_dispatch_budget_tail_canary_enabled",
+        "dispatch_budget_tail_to_exit_canary_requested",
+        "kSegmentedOwnedCommandBufferPrefix4ScopeLimit",
+        "kSegmentedOwnedCommandBufferPrefix5ScopeLimit",
+        "kSegmentedOwnedCommandBufferPrefix6ScopeLimit"
+      ],
+      "id": "slower_segmented_stack_canaries",
       "scan_roots": [
         "aten/src/ATen/native/vulkan",
         "scripts/benchmarks",
@@ -750,7 +783,7 @@
         },
         {
           "access": "read",
-          "line": 549,
+          "line": 544,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -895,7 +928,7 @@
         },
         {
           "access": "read",
-          "line": 1806,
+          "line": 1801,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1239,38 +1272,38 @@
       "sites": [
         {
           "access": "delete",
-          "line": 1178,
+          "line": 1173,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1583,
+          "line": 1568,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         },
         {
           "access": "read",
-          "line": 1146,
+          "line": 1141,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 131,
+          "line": 126,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 140,
+          "line": 135,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1153,
+          "line": 1148,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1183,
+          "line": 1178,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1333,7 +1366,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1645,
+          "line": 1600,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         }
       ],
@@ -1359,12 +1392,12 @@
         },
         {
           "access": "read",
-          "line": 2947,
+          "line": 2942,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 2996,
+          "line": 2991,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1379,13 +1412,13 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 144,
+          "line": 139,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 153,
+          "line": 148,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1415,7 +1448,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 162,
+          "line": 157,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],

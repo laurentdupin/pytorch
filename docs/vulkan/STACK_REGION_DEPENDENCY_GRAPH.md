@@ -1401,57 +1401,29 @@ override. The old prefix mode stays at two segments, selected segments still
 must satisfy the four-block and 24-dispatch budgets, remaining tail segments
 use the current context-owned planned-recording path, and the mode does not
 transfer pending retires, defer submits, or enable submit elision.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix3_tail_to_exit`
-uses the same three external prefix segments, then coalesces the unselected tail
-into a single context-owned planned-recording scope through stack exit. It is
-intended to measure candidate-tail close-submit overhead while keeping external
-recording bounded to three selected segments. It does not transfer pending
-retires, defer submits, or enable submit elision.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix4_tail_to_exit`
-extends that exact canary to four selected dispatch-budget prefix segments.
-It is intentionally not a general multi-scope owner: the external scopes remain
-bounded by the same block and dispatch budgets, the unselected tail remains
-context-owned, and the mode is still opt-in with submit elision disabled.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix5_tail_to_exit`
-extends the same exact canary to five selected dispatch-budget prefix segments
-and keeps the unselected tail context-owned. It is a bounded experiment for the
-next external-recording prefix size only: no numeric scope-limit override is
-added, selected segments remain under the same block and dispatch budgets, and
-pending-retire transfer, deferred submit, and submit elision remain disabled.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_dispatch_budget_prefix6_tail_to_exit`
-extends the exact prefix-tail series to six selected dispatch-budget prefix
-segments. This is intentionally a high-risk measurement canary because it can
-approach all-prefix external recording on small stacks; it still exposes no
-numeric override, keeps each selected segment under the same budgets, and keeps
-pending-retire transfer, deferred submit, and submit elision disabled.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide3_to_exit`
-starts the wider fixed-segment series rather than extending the prefix ladder.
-For 12-block vision stacks it selects four three-block external recording
-segments with a 36-dispatch per-segment budget, records all selected work
-through stack-owned external command buffers, and preserves the same
-fail-closed behavior for submit elision, deferred submit, and pending-retire
-transfer. `StackRegionSegmentPlan.v0` rows expose the wider block, scope, and
-dispatch budgets so benchmark artifacts can distinguish it from the six
-two-block prefix6 canary.
+The former prefix3-6 tail modes tested coalescing the unselected candidate tail
+into one context-owned scope while selecting three through six bounded external
+prefix segments. The former wide3 mode tested four fixed three-block external
+segments under a 36-dispatch budget. All five exact canaries stayed
+correctness-clean but were slower than wide4 in the recorded RX 9070 sweep, so
+their live environment spellings, tail-specific execution branch, and
+mechanism tests are retired. The evidence manifest preserves their individual
+rows; the generic dispatch-budget planner and prefix3 route remain live.
 `PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit`
 is the next fixed-width probe. For 12-block private-bridge stacks it selects
 three four-block external recording segments with a 48-dispatch per-segment
-budget. It exists only to test the next smaller segment-submit count after
-`wide3`; it does not add a numeric scope-limit override, transfer pending
+budget. It remains the retained fixed-width lane after the retired wide3
+comparison; it does not add a numeric scope-limit override, transfer pending
 retires, defer submits, or enable submit elision. Initial `vits_140` evidence
 shows it reduces the device-resident forward's stack-planned submit count by
 one versus `wide3` while keeping bridge sanity and zero fallback/readback.
-`PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide6_to_exit`
-is the wider two-segment probe for 12-block private-bridge stacks. It selects
-blocks 0-5 and 6-11 with a 72-dispatch per-segment budget and keeps submit
-elision, deferred submit, and pending-retire transfer disabled. Current
-`vits_140` RX 9070 evidence keeps it unpromoted: the mode is correct and
-copy/readback/fallback-clean, and after the Context canary-admission fix it
-does reduce stack-planned submit count versus wide4, but it still loses on
-device-resident forward time while leaving stack-owner retire-drain submits
-unchanged. Do not add a wider fixed segment mode until the remaining
-retire/capture ownership and per-segment overhead have bounded reduction
-contracts.
+The former wide6 two-segment probe is also retired. Historical `vits_140` RX
+9070 evidence remains checked in: it was correct and
+copy/readback/fallback-clean and reduced stack-planned submits versus wide4,
+but lost on device-resident forward time while leaving stack-owner retire-drain
+submits unchanged. Do not add another wider fixed segment mode until the
+remaining retire/capture ownership and per-segment overhead have bounded
+reduction contracts.
 Any non-empty segmented stack-owned command-buffer mode also enables the
 recording-domain observation rows that feed `StackRegionSegmentPlan.v0`. This
 is diagnostics only; it makes opt-in canary artifacts self-describing without

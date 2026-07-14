@@ -382,8 +382,10 @@ The initial catalog records the current `vits_140` performance lane:
   three-repeat bridge runs stack-overflow while one-repeat sanity passes;
 - benchmark preflight guard for that unsafe context-owned repeat topology:
   accepted default control-plane fix;
-- wide3 and prefix-tail segment modes: valid in the latest `vits_140`
-  three-repeat sweep, but slower than wide4 on the recorded RX 9070 lane;
+- wide3 and prefix3-6 tail segment modes: retired from live orchestration after
+  a valid `vits_140` three-repeat sweep found every exact route slower than
+  wide4 on the recorded RX 9070 lane; the manifest retains the individual
+  timings and correctness counters;
 - wide6 segment mode: retired from live production, benchmark, and test
   orchestration after its valid but slower `vits_140` result. The historical
   evidence remains checked in: after the Context canary-admission fix, a
