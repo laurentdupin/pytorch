@@ -14,47 +14,6 @@ superseded systems.
 
 Last refreshed: 2026-07-06 with materialized runtime-generated residual1 and
 residual2 stack chains:
-`PYTORCH_VULKAN_LAZY_CHAIN_LOG=<path>` is now the first behavior-neutral
-lazy-region capture observer. It does not defer or fuse execution; it records
-the eager Vulkan op-hit chain and flushes that chain when a mandatory access
-boundary is reached (`device_copy`, host upload/readback, CPU fallback,
-sync-readback, stream exchange/flush, internal pending-command flush, event
-record/block/synchronize, or explicit stream/device synchronize). This provides
-the ordered candidate region that a future runtime region compiler would need
-before any behavior-changing lazy tensor/proxy work.
-`PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG=<path>` now records the central lifecycle
-for existing deferred bridges (`image_normalize`, `linear_gelu`,
-`add_layer_norm`, `layer_scale`, attention query-scale, and decomposed
-attention). It emits `VulkanDeferredExecutionTrace.v0` bridge events and flush
-records at the same mandatory boundaries as the lazy-chain observer. This is
-still behavior-neutral; it does not introduce a broad lazy tensor executor, but
-it gives the next deferred runtime command-list task a single trace surface
-instead of parsing bridge-specific op-hit strings.
-`PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG=<path>` together with
-`PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR=<dir>` is now the first
-behavior-neutral runtime shader generation POC. At a mandatory flush boundary,
-the lazy-chain observer recognizes resident tensor-buffer `ElementwiseChain`
-groups across binary `add`/`sub`/`mul`/`div`/`floor_divide`/`pow` and unary
-`exp`/`sqrt`/`log`/`sin`/`cos`/`neg`/`rsqrt`/`silu`, writes generated GLSL into
-the cache directory, and invokes
-`PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC=<path-to-glslc>` when provided to produce
-and validate SPIR-V. The generated trace row is
-`VulkanRuntimeShaderCompileTrace.v0` with `behavior_change=0`: normal eager
-dispatch still runs, no generated pipeline is bound, and no tensor SSA executor
-exists yet. The focused live-chain test uses `add -> mul -> sub -> div -> pow`;
-the generator can emit the unary ops listed above, but current eager unary
-kernels may cut the natural chain with `tensor_to_contiguous` device-copy
-boundaries.
-`PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG=<path>` now records the matching
-behavior-neutral generated command-list plan for the same `ElementwiseChain`
-backlog. The `VulkanRuntimeCommandListPlanTrace.v0` row names the program key,
-runtime shape policy, descriptor slots, params-uniform-buffer requirement,
-push-constant support status, barriers, and command sequence
-(`bind_compute_pipeline`, `bind_descriptor_set`, `bind_params_uniform_buffer`,
-`dispatch_numel_1d`). It explicitly records `execution_enabled=0` and the
-missing execution prerequisites because the current backlog still lacks
-deferred tensor SSA handles, output allocation ownership, a generated-shader
-executor hook, params-UBO executor plumbing, and alias/escape proof.
 `PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG=<path>` now bridges the
 explicit generated-shader executor to ordinary eager elementwise chains for
 the narrow fp32 Vulkan buffer case where the root/output shape is stable and
@@ -189,38 +148,6 @@ sanity bar before any broader chain is admitted.
 `api::ShaderInfo` now also has an owned-SPIR-V construction path so future
 runtime-generated programs can hand stable bytes to the shader module cache;
 static registered shaders keep the existing pointer/size cache identity.
-The same command-list trace now recognizes `DeviceCopyChain` candidates for
-Vulkan buffer-to-buffer `copy_` work with
-`shader_family=none_copy_command_list`, so copy/materialization backlog can be
-cataloged separately from generated compute-shader chains.
-It also logs non-elementwise flush backlogs as full multi-dispatch region
-candidates such as `ConvPrepackUploadCommandListRegion`,
-`DecoderConvUpsampleCatCommandListRegion`, `LinearGeluMlpCommandListRegion`,
-`PatchEmbedFeatureMapToTokensCommandListRegion`,
-`PointwiseUpsampleCommandListRegion`, `ResidualNormCommandListRegion`,
-`TokenPrefixBackboneCommandListRegion`, `TransformerBlockCommandListRegion`,
-`UpsampleCommandListRegion`, `VisionPatchTokenPrepCommandListRegion`, and
-`ObservedMultiOpCommandListRegion`.
-Those rows describe command lists built from existing Vulkan kernels and fail
-closed on missing deferred tensor handles, producer/consumer edge capture,
-descriptor binding capture, barrier execution, region output ownership, and
-alias/escape proof. They also carry subfamily tags for copy/transfer,
-elementwise, conv/prepack, patch/token layout, upsample, attention/BMM, linear,
-GELU, norm, cat, and token-prefix content. This prevents a long mixed chain from
-being mislabeled as a small inner arithmetic shader candidate.
-`PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG=<path>` now records the first
-behavior-neutral broad deferred-region plan surface. The central tensor
-provenance writer captures `DeferredTensorHandle.v0`-style output handles and
-input value-lease counts for Vulkan writes, and mandatory access boundaries
-emit `VulkanDeferredRegionPlanTrace.v0` rows with op nodes, routes, handle
-counts, value-lease counts, alias/view counts, boundary kind, and the
-fail-closed prerequisites still blocking execution. Vulkan-to-CPU `copy_` also
-records the concrete value-access boundary that forced the flush, including
-source and destination tensor-state descriptions. Eager execution remains
-authoritative (`execution_enabled=0`, `behavior_change=0`); the row exists so
-future generated shader or generated command-list execution can lower a full
-region at the boundary with explicit value-lifetime and output-ownership
-requirements instead of relying on per-op placeholder heuristics.
 The old replay/compiled-session execution surface is now quarantined under
 `docs/vulkan/REPLAY_RETIREMENT.md`. The DAv2 benchmark no longer exposes
 `compiled_session_bridge` as a selectable stack-output bridge mode, and

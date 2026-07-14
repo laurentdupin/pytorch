@@ -204,22 +204,6 @@ void record_tensor_provenance(
       ? op_name
       : "<unknown>";
 
-  std::vector<std::string> deferred_input_states;
-  uint64_t deferred_vulkan_input_count = 0;
-  uint64_t deferred_missing_input_lease_count = 0;
-  if (api::vulkan_deferred_region_plan_logging_enabled()) {
-    deferred_input_states.reserve(inputs.size());
-    for (const Tensor& input : inputs) {
-      const VulkanTensorStateDesc input_state = inspect_tensor_state(input);
-      deferred_input_states.emplace_back(describe_tensor_state(input_state));
-      if (input_state.storage_id != 0u) {
-        ++deferred_vulkan_input_count;
-      } else {
-        ++deferred_missing_input_lease_count;
-      }
-    }
-  }
-
   {
     ProvenanceRegistry& registry = provenance_registry();
     std::lock_guard<std::mutex> lock(registry.mutex);
@@ -252,21 +236,6 @@ void record_tensor_provenance(
 
     registry.by_storage[provenance_key(output_state)] = std::move(record);
   }
-
-  api::note_vulkan_deferred_region_tensor_write(
-      writer_op,
-      route_name,
-      output_state.storage_id,
-      output_state.view_id,
-      output_state.generation,
-      output_state.logical_desc_hash,
-      output_state.storage_offset,
-      output_state.buffer_length,
-      output_state.is_view,
-      describe_tensor_state(output_state),
-      deferred_input_states,
-      deferred_vulkan_input_count,
-      deferred_missing_input_lease_count);
 
   record_tensor_value_write(output, writer_op, route_name, inputs);
 

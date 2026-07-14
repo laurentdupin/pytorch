@@ -1,5 +1,4 @@
 #include <ATen/native/vulkan/api/Context.h>
-#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <cstdlib>
 #include <cstring>
@@ -3249,7 +3248,6 @@ void Context::flush_if_current_stream(const c10::Stream& stream) {
       stream.device_index(),
       " on context for device ",
       device_index_);
-  flush_vulkan_lazy_chain_boundary("stream_flush", "flush_if_current_stream");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   // Version-one invariant: a Context owns one active command buffer, and
   // exchange_stream() flushes before switching streams. Therefore unsubmitted
@@ -3275,7 +3273,6 @@ c10::Stream Context::exchange_stream(c10::Stream stream) {
       stream.device_index(),
       " on context for device ",
       device_index_);
-  flush_vulkan_lazy_chain_boundary("stream_exchange", "exchange_stream");
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   submit_cmd_to_gpu(
       VK_NULL_HANDLE, false, VulkanSubmitOrigin::ExplicitSynchronize);
@@ -3298,7 +3295,6 @@ void Context::synchronize_stream(const c10::Stream& stream) {
   TORCH_CHECK(
       !graph_program_invocation_active_for_current_thread(),
       "GraphProgramInvocationScope forbids stream synchronization");
-  flush_vulkan_lazy_chain_boundary("synchronize_stream", "explicit_stream_wait");
   bool synchronized_current_stream = false;
   std::unique_lock<std::mutex> context_lock(dispatch_lock());
   if (sync_logging_enabled()) {
@@ -3343,7 +3339,6 @@ void Context::synchronize_device() {
   TORCH_CHECK(
       !graph_program_invocation_active_for_current_thread(),
       "GraphProgramInvocationScope forbids device synchronization");
-  flush_vulkan_lazy_chain_boundary("synchronize_device", "explicit_device_wait");
   {
     std::unique_lock<std::mutex> context_lock(dispatch_lock());
     if (sync_logging_enabled()) {
@@ -4859,7 +4854,6 @@ void Context::flush_pending_cmds(
       !graph_program_invocation_active_for_current_thread(),
       "GraphProgramInvocationScope forbids pending command flush");
   const char* const reason_name = pending_command_flush_reason_name(reason);
-  flush_vulkan_lazy_chain_boundary("flush_pending_cmds", reason_name);
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;

@@ -37,13 +37,13 @@
   "counts": {
     "by_kind": {
       "custom_class": 16,
-      "environment_variable": 77,
+      "environment_variable": 72,
       "operator_schema": 199,
       "python_entrypoint": 26
     },
     "by_state": {
       "Active": 189,
-      "Delete-ready": 15,
+      "Delete-ready": 10,
       "Migration": 114
     }
   },
@@ -126,12 +126,14 @@
       "id": "delete_ready_eager_deferred_and_codegen_pocs",
       "paths": [
         "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
-        "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
-        "aten/src/ATen/native/vulkan/ops/Mm.cpp"
+        "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp",
+        "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp",
+        "aten/src/ATen/native/vulkan/ops/Register.cpp",
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
       ],
       "state": "Delete-ready",
-      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, and command-list POCs.",
-      "surface_count": 15
+      "summary": "Runtime glslc elementwise executor sidecars and eager deferred placeholders.",
+      "surface_count": 10
     }
   ],
   "schema_version": 1,
@@ -181,6 +183,34 @@
       "scan_roots": [
         "aten/src/ATen/native/vulkan",
         "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The lazy-chain, deferred-region, runtime shader compile, and command-list surfaces were default-off behavior-neutral observers over eager op-hit backlogs.",
+        "Their own plans recorded execution_enabled=0 because they lacked tensor SSA handles, producer-consumer edges, output ownership, descriptor capture, barrier execution, and alias proof.",
+        "Graph lowering and VulkanGraphProgram now own semantic regions and command partitions directly, so retaining a second backlog-based planning model would preserve the rejected architecture rather than reusable execution code."
+      ],
+      "consequence": "The eager backlog observer state, flush-boundary hooks, behavior-neutral runtime compiler and command-list planners, provenance-only deferred handles, mechanism tests, and stack-era documentation were deleted. Failure logging, fallback/readback counters, submit-origin accounting, transition diagnostics, and GPU timestamp attribution remain active.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_LAZY_CHAIN_LOG",
+        "PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
+        "PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
+        "PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
+        "PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
+        "note_vulkan_lazy_chain_op",
+        "flush_vulkan_lazy_chain_boundary",
+        "note_vulkan_deferred_region",
+        "VulkanRuntimeShaderCompileTrace.v0",
+        "VulkanRuntimeCommandListPlanTrace.v0"
+      ],
+      "id": "eager_region_observer_pocs",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts",
         "test"
       ],
       "status": "deleted"
@@ -601,7 +631,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 58,
+          "line": 57,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -621,7 +651,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 66,
+          "line": 65,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
@@ -631,41 +661,6 @@
         }
       ],
       "state": "Active"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
-      "name": "PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
-      "registry": {
-        "coverage": "manual diagnostics and deferred-region compiler planning",
-        "kind": "Logging",
-        "reason": "record deferred bridge lifecycle events and mandatory flush boundaries"
-      },
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 50,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
-        }
-      ],
-      "state": "Delete-ready"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
-      "name": "PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 58,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
-        }
-      ],
-      "state": "Delete-ready"
     },
     {
       "id": "environment_variable:PYTORCH_VULKAN_EXECUTION_OBJECT_LOG",
@@ -761,7 +756,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 26,
+          "line": 20,
           "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
         }
       ],
@@ -801,7 +796,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 46,
+          "line": 45,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
@@ -831,26 +826,6 @@
         }
       ],
       "state": "Migration"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_LAZY_CHAIN_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
-      "name": "PYTORCH_VULKAN_LAZY_CHAIN_LOG",
-      "registry": {
-        "coverage": "manual diagnostics and lazy-region compiler planning",
-        "kind": "Logging",
-        "reason": "record eager Vulkan op chains up to mandatory access boundaries"
-      },
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 42,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
-        }
-      ],
-      "state": "Delete-ready"
     },
     {
       "id": "environment_variable:PYTORCH_VULKAN_LINEAR_CACHE_LOG",
@@ -1073,26 +1048,6 @@
       "state": "Active"
     },
     {
-      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
-      "name": "PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
-      "registry": {
-        "coverage": "runtime command-list POC tests and manual diagnostics",
-        "kind": "Logging",
-        "reason": "record generated command-list POC plans at lazy-chain flushes"
-      },
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 90,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
-        }
-      ],
-      "state": "Delete-ready"
-    },
-    {
       "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
       "kind": "environment_variable",
       "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
@@ -1233,32 +1188,6 @@
           "callee": "runtime_unary_env",
           "line": 396,
           "source": "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp"
-        },
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 74,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
-        }
-      ],
-      "state": "Delete-ready"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
-      "name": "PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
-      "registry": {
-        "coverage": "runtime shader compiler POC tests and manual diagnostics",
-        "kind": "Logging",
-        "reason": "record runtime-generated shader POC attempts at lazy-chain flushes"
-      },
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 66,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
         }
       ],
       "state": "Delete-ready"
@@ -1297,12 +1226,6 @@
           "callee": "runtime_unary_env",
           "line": 389,
           "source": "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp"
-        },
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 82,
-          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
         }
       ],
       "state": "Delete-ready"
@@ -1446,13 +1369,13 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 105,
+          "line": 104,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 114,
+          "line": 113,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
@@ -1464,7 +1387,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 94,
+          "line": 93,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1494,7 +1417,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 146,
+          "line": 145,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1509,7 +1432,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 124,
+          "line": 123,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
@@ -1540,13 +1463,13 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 157,
+          "line": 156,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 166,
+          "line": 165,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1576,7 +1499,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 175,
+          "line": 174,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1636,7 +1559,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 74,
+          "line": 73,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1671,7 +1594,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 34,
+          "line": 33,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {

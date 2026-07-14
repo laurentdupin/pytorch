@@ -3,7 +3,6 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Context.h>
-#include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 
 namespace at {
@@ -12,7 +11,6 @@ namespace vulkan {
 namespace api {
 
 void record_vulkan_event(VulkanEventState& event, const c10::Stream& stream) {
-  flush_vulkan_lazy_chain_boundary("event_record", "record_requires_stream_flush");
   if (Context* const stream_context = context(stream.device_index())) {
     stream_context->flush_if_current_stream(stream);
   }
@@ -31,7 +29,6 @@ void block_vulkan_event(VulkanEventState& event, const c10::Stream& stream) {
   if (!event.recorded || event.timeline == VK_NULL_HANDLE || event.value == 0u) {
     return;
   }
-  flush_vulkan_lazy_chain_boundary("event_block", "block_requires_stream_flush");
   if (Context* const stream_context = context(stream.device_index())) {
     stream_context->flush_if_current_stream(stream);
   }
@@ -61,7 +58,6 @@ void synchronize_vulkan_event(const VulkanEventState& event) {
   if (!event.recorded || event.timeline == VK_NULL_HANDLE || event.value == 0u) {
     return;
   }
-  flush_vulkan_lazy_chain_boundary("event_synchronize", "event_wait");
   VulkanStreamState& stream =
       vulkan_stream_pool().get_stream(event.device_index, event.stream_id);
   vulkan_sync_counters().event_wait_count.fetch_add(

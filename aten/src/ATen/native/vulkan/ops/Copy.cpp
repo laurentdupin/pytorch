@@ -424,8 +424,6 @@ utils::TransitionReason readback_transition_reason_for_phase() {
 }
 
 void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
-  api::flush_vulkan_lazy_chain_boundary(
-      "device_copy", buffer_copy_reason_name(decision.reason));
   if (!utils::transition_logging_enabled()) {
     return;
   }
@@ -473,7 +471,6 @@ void log_buffer_copy_transition(const VulkanBufferCopyDecision& decision) {
 }
 
 void log_host_upload_transition(const Tensor& src, const vTensor& dst) {
-  api::flush_vulkan_lazy_chain_boundary("host_upload", "cpu_to_vulkan_copy");
   if (!utils::transition_logging_enabled()) {
     return;
   }
@@ -512,8 +509,6 @@ void log_host_upload_transition(const Tensor& src, const vTensor& dst) {
 }
 
 void log_readback_transition(const vTensor& src, const Tensor& dst) {
-  api::flush_vulkan_lazy_chain_boundary(
-      "host_readback", "vulkan_to_cpu_copy");
   if (!utils::transition_logging_enabled()) {
     return;
   }
@@ -2413,14 +2408,6 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
 
     // Vulkan -> CPU
     if (dst.device().is_cpu()) {
-      api::note_vulkan_deferred_region_value_access_boundary(
-          "host_readback",
-          "vulkan_to_cpu_copy",
-          "copy_vulkan_to_cpu",
-          describe_tensor_state(src_to_copy),
-          describe_tensor_state(dst),
-          1u,
-          1u);
       pack_vulkan_to_cpu(v_src, dst);
       v_src.context()->submit_pending_work_and_poll_retire();
     } else {

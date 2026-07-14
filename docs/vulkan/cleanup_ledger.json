@@ -97,6 +97,34 @@
         "LinearPendingFlushDeferralContract"
       ],
       "consequence": "The canary context-retention owner, eager branch, environment registration, evidence-harness exemption, and mechanism test were deleted. The supported default linear flush and its submit-origin regression test remain."
+    },
+    {
+      "id": "eager_region_observer_pocs",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The lazy-chain, deferred-region, runtime shader compile, and command-list surfaces were default-off behavior-neutral observers over eager op-hit backlogs.",
+        "Their own plans recorded execution_enabled=0 because they lacked tensor SSA handles, producer-consumer edges, output ownership, descriptor capture, barrier execution, and alias proof.",
+        "Graph lowering and VulkanGraphProgram now own semantic regions and command partitions directly, so retaining a second backlog-based planning model would preserve the rejected architecture rather than reusable execution code."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_LAZY_CHAIN_LOG",
+        "PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
+        "PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
+        "PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
+        "PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
+        "note_vulkan_lazy_chain_op",
+        "flush_vulkan_lazy_chain_boundary",
+        "note_vulkan_deferred_region",
+        "VulkanRuntimeShaderCompileTrace.v0",
+        "VulkanRuntimeCommandListPlanTrace.v0"
+      ],
+      "consequence": "The eager backlog observer state, flush-boundary hooks, behavior-neutral runtime compiler and command-list planners, provenance-only deferred handles, mechanism tests, and stack-era documentation were deleted. Failure logging, fallback/readback counters, submit-origin accounting, transition diagnostics, and GPU timestamp attribution remain active."
     }
   ],
   "entries": [
@@ -496,31 +524,29 @@
     {
       "id": "delete_ready_eager_deferred_and_codegen_pocs",
       "state": "Delete-ready",
-      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, and command-list POCs.",
+      "summary": "Runtime glslc elementwise executor sidecars and eager deferred placeholders.",
       "deletion_wave": "wave 2 after the inventory/gates commit",
       "preserve": [
         "pure reusable shader-expression generation if it has a graph-codegen consumer",
         "the graph-execution deferred-registration rejection test",
         "behavioral tests for previously unsafe unbind/materialization bug classes",
+        "failure, fallback, readback, submit-origin, transition, and GPU timestamp diagnostics",
         "concise rejected-result records"
       ],
       "paths": [
         "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
-        "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
-        "aten/src/ATen/native/vulkan/ops/Mm.cpp"
+        "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp",
+        "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp",
+        "aten/src/ATen/native/vulkan/ops/Register.cpp",
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
       ],
       "surfaces": [
-        "environment_variable:PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
-        "environment_variable:PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
-        "environment_variable:PYTORCH_VULKAN_LAZY_CHAIN_LOG",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC",
         "operator_schema:vulkan_prepack::deferred_value_creation_count",
         "operator_schema:vulkan_prepack::runtime_elementwise_chain",

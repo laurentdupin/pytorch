@@ -331,7 +331,6 @@ std::mutex& op_hit_log_mutex() {
 
 void log_vulkan_op_hit_impl(const char* op_name) {
   api::set_recent_op_label(op_name ? std::string(op_name) : std::string());
-  api::note_vulkan_lazy_chain_op(op_name);
   if (!op_hit_logging_enabled()) {
     return;
   }
