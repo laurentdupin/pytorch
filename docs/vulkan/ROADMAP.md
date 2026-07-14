@@ -507,7 +507,14 @@ Exit criteria:
 
 ## Phase 7: Replacement Cleanup
 
-Delete only after replacement parity:
+This phase is a background track governed by
+`docs/vulkan/CLEANUP_POLICY.md` and `docs/vulkan/cleanup_ledger.json`. Inventory,
+review gates, and already-eligible deletion waves can interleave with earlier
+phases. Deletions that depend on graph evidence are consequences of Phase 5/6
+progress, not prerequisites for the C++ executor.
+
+Delete only after replacement parity against supported plain eager and graph
+defaults, with the baseline artifact recorded at deletion time:
 
 - speculative eager deferred bridges and per-consumer materialization hooks;
 - replay and compiled-session bridge APIs;

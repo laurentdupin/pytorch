@@ -23,6 +23,11 @@ surface. Do not add new speculative deferred placeholders, per-consumer
 materialization protocols, replay bridges, or model-specific orchestration to
 the eager path.
 
+Cleanup follows `docs/vulkan/CLEANUP_POLICY.md`. It runs as a background track:
+the generated four-state ledger removes code that is already eligible, while
+graph-executor progress creates the evidence needed for later migration
+deletions.
+
 Prefer three contract classes:
 
 - `KernelFamilyContract`: reusable kernel-family legality, route labels,

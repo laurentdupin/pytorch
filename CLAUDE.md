@@ -72,10 +72,8 @@ For any test that checks numerics of the on-device implementation, use `instanti
 
 Only use commands provided via `spin` for linting.
 Use `spin help` to list available commands.
-Generally, use `spin lint` as to run the lint and `spin fixlint` to apply automatic fixes.
-
-When the user asks you to commit or amend, run `lintrunner -a` before creating
-the commit. Fix any lint errors it reports, then commit.
+Generally, use `spin lint` to run lint and `spin fixlint` to apply automatic
+fixes. Do not invoke `lintrunner` directly; that workflow is obsolete.
 
 # Commit messages
 

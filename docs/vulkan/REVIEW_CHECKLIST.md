@@ -128,6 +128,25 @@ Use this checklist for Vulkan backend changes.
   claiming or raising model gates. Pure docs, spec-helper, or fixture-only
   changes do not require a matrix refresh unless they reveal stale gate claims.
 
+## Cleanup Governance
+
+- `python tools/vulkan_cleanup/generate_surface_inventory.py` passes; new or
+  removed schemas, custom classes, environment reads, and Python exports have
+  an explicit ledger change.
+- A live surface is in exactly one of Active, Migration, Compatibility, or
+  Delete-ready. There is no quarantine or implicit Active catch-all.
+- Migration entries name the replacement, deletion condition, and supported
+  baseline. Compatibility entries cite verified deployed artifacts.
+- Deletion evidence compares supported plain eager and graph defaults, not
+  opt-in canaries or harness-only replay lanes, and records the evidence fields
+  required by `docs/vulkan/CLEANUP_POLICY.md`.
+- Mechanism tests are removed with their implementation, while behavioral
+  tests that pin a bug class remain.
+- A `Sync.cpp` extraction preserves the fallback/readback, submit-origin, and
+  GPU-timestamp counters and attribution paths used by the evidence harness.
+- Stack-era and other subsystem-specific documents are removed in the same
+  deletion unit as the subsystem they describe.
+
 ## Graph Runtime
 
 - New performance work follows `docs/vulkan/GRAPH_RUNTIME.md`.

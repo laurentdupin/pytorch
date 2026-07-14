@@ -1,0 +1,4153 @@
+{
+  "baseline_policy": {
+    "comparison_surfaces": [
+      "plain concrete eager",
+      "VulkanGraphProgram"
+    ],
+    "excluded_as_deletion_bars": [
+      "opt-in canaries",
+      "benchmark-harness-only bridges",
+      "replay and compiled-session lanes"
+    ],
+    "record_at_deletion": [
+      "commit",
+      "adapter and driver",
+      "workload and inputs",
+      "supported route",
+      "correctness result",
+      "fallback and readback counters",
+      "submit-origin counters",
+      "peak memory",
+      "latency"
+    ]
+  },
+  "compatibility_audit": {
+    "checked_on": "2026-07-14",
+    "deployment": "DepthExtractor loaders in the sibling DeepDesktop deployment checkouts",
+    "evidence": [
+      "Depth Anything V2 loaders construct Python modules and load .pth state dicts with weights_only=True.",
+      "The deployed loader sources contain no torch.jit.load or vulkan_prepack references.",
+      "No .pt, .pth, .ts, .jit, or .torchscript artifacts are checked into the deployed loader/template roots outside their vendored PyTorch checkout.",
+      "TensorRT .ts cache names are produced and consumed only by TensorRT loader variants and do not establish Vulkan schema compatibility."
+    ],
+    "recheck_when": "a deployment starts loading serialized TorchScript, ExportedProgram, or custom-class artifacts",
+    "scope": "fork-owned Vulkan operator schemas and custom classes",
+    "status": "empty"
+  },
+  "counts": {
+    "by_kind": {
+      "custom_class": 17,
+      "environment_variable": 78,
+      "operator_schema": 204,
+      "python_entrypoint": 26
+    },
+    "by_state": {
+      "Active": 189,
+      "Delete-ready": 22,
+      "Migration": 114
+    }
+  },
+  "generator": "tools/vulkan_cleanup/generate_surface_inventory.py",
+  "ledger": "docs/vulkan/cleanup_ledger.json",
+  "ledger_entries": [
+    {
+      "id": "active_graph_eager_and_diagnostics",
+      "paths": [
+        "torch/vulkan",
+        "aten/src/ATen/native/vulkan/api",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContracts*",
+        "aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime*",
+        "aten/src/ATen/native/vulkan/planning/Transition*"
+      ],
+      "state": "Active",
+      "summary": "Graph correctness execution, generic eager kernels and contexts, public Vulkan Python APIs, and evidence-critical diagnostics.",
+      "surface_count": 189
+    },
+    {
+      "documents": [
+        "docs/vulkan/STACK_REGION_DEPENDENCY_GRAPH.md",
+        "docs/vulkan/STACK_BOUNDARY_VALUE_PRESERVATION.md",
+        "docs/vulkan/STACK_REGION_COMMAND_OWNERSHIP.md",
+        "aten/src/ATen/native/vulkan/ops/STACK_EXECUTION_PROGRAM.md",
+        "aten/src/ATen/native/vulkan/ops/VISION_OWNER_PATHS.md"
+      ],
+      "id": "migration_vision_stack_and_sync_control_plane",
+      "paths": [
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.h",
+        "aten/src/ATen/native/vulkan/api/Sync.cpp",
+        "aten/src/ATen/native/vulkan/api/Sync.h",
+        "aten/src/ATen/native/vulkan/api/Context.cpp"
+      ],
+      "state": "Migration",
+      "summary": "VisionBlocks model orchestration and the stack proof/canary control plane embedded in Sync and Context.",
+      "surface_count": 89
+    },
+    {
+      "documents": [
+        "docs/vulkan/REPLAY_RETIREMENT.md"
+      ],
+      "id": "migration_replay_and_compiled_session",
+      "paths": [
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp",
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.h",
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.h",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.h"
+      ],
+      "state": "Migration",
+      "summary": "Replay bundles, compiled sessions, their public bridges, and stale-output diagnostics.",
+      "surface_count": 14
+    },
+    {
+      "id": "migration_legacy_planning_objects",
+      "paths": [
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.*",
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.*",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.*",
+        "aten/src/ATen/native/vulkan/planning/Runtime.*"
+      ],
+      "state": "Migration",
+      "summary": "Eager inference-graph, execution-object, execution-program, request-storage, and runtime-policy surfaces.",
+      "surface_count": 7
+    },
+    {
+      "id": "migration_label_and_device_name_inference",
+      "paths": [
+        "aten/src/ATen/native/vulkan/planning/Request.cpp",
+        "aten/src/ATen/native/vulkan/planning/DevicePolicy.cpp"
+      ],
+      "state": "Migration",
+      "summary": "Allocation-label model-lane inference and device-name policy checks.",
+      "surface_count": 4
+    },
+    {
+      "id": "delete_ready_eager_deferred_and_codegen_pocs",
+      "paths": [
+        "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
+        "aten/src/ATen/native/vulkan/api/Diagnostics.cpp",
+        "aten/src/ATen/native/vulkan/ops/Mm.cpp"
+      ],
+      "state": "Delete-ready",
+      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, command-list POCs, and linear pending-flush deferral.",
+      "surface_count": 16
+    },
+    {
+      "id": "delete_ready_qwen_gated_delta_orchestration",
+      "paths": [
+        "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.cpp",
+        "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.h",
+        "aten/src/ATen/native/vulkan/ops/GatedDelta.cpp",
+        "aten/src/ATen/native/vulkan/ops/GatedDelta.h"
+      ],
+      "state": "Delete-ready",
+      "summary": "Qwen linear-attention contexts, scheduled gated-delta wrappers, and their legacy planning cache support.",
+      "surface_count": 6
+    }
+  ],
+  "schema_version": 1,
+  "scope_decisions": [
+    {
+      "basis": [
+        "Qwen is not in the five-model Vulkan coverage corpus.",
+        "The deployed Qwen loader targets Qwen 2.5 through transformers and has no Vulkan custom-op callsite.",
+        "Repository reachability outside tests ends inside the Qwen/gated-delta implementation, registration, and legacy planning caches."
+      ],
+      "consequence": "The Qwen linear-attention and gated-delta orchestration is Delete-ready; reusable generic primitives must be separated before deletion if a caller is found.",
+      "decision": "out_of_scope",
+      "id": "qwen_gated_delta_orchestration"
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "custom_class:vulkan::BatchNormPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2135,
+      "name": "vulkan::BatchNormPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::Conv1dPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 90,
+      "name": "vulkan::Conv1dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::Conv2dOpContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2188,
+      "name": "vulkan::Conv2dOpContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::Conv2dPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 71,
+      "name": "vulkan::Conv2dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::GraphAddLayernormPlan",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 135,
+      "name": "vulkan::GraphAddLayernormPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::GraphConv2dReluPlan",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 142,
+      "name": "vulkan::GraphConv2dReluPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::GruPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2148,
+      "name": "vulkan::GruPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::LayernormPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 881,
+      "name": "vulkan::LayernormPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::LinearPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 109,
+      "name": "vulkan::LinearPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::LstmPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2161,
+      "name": "vulkan::LstmPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "custom_class:vulkan::QwenLinearAttentionPrefillPackedContext",
+      "kind": "custom_class",
+      "ledger_entry": "delete_ready_qwen_gated_delta_orchestration",
+      "line": 900,
+      "name": "vulkan::QwenLinearAttentionPrefillPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "custom_class:vulkan::VisionBackboneBlockContext",
+      "kind": "custom_class",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 918,
+      "name": "vulkan::VisionBackboneBlockContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "custom_class:vulkan::VisionBackboneStackContext",
+      "kind": "custom_class",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 934,
+      "name": "vulkan::VisionBackboneStackContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "custom_class:vulkan::VisionDecoderFusionBlockContext",
+      "kind": "custom_class",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 942,
+      "name": "vulkan::VisionDecoderFusionBlockContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "custom_class:vulkan::VisionDecoderHeadContext",
+      "kind": "custom_class",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 957,
+      "name": "vulkan::VisionDecoderHeadContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "custom_class:vulkan::VisionDecoderPreprocessHeadContext",
+      "kind": "custom_class",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 972,
+      "name": "vulkan::VisionDecoderPreprocessHeadContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "custom_class:vulkan::VulkanGraphRegionPlan",
+      "kind": "custom_class",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 128,
+      "name": "vulkan::VulkanGraphRegionPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_ALLOC_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_ALLOC_LOG",
+      "registry": {
+        "coverage": "diagnostic log tests and manual debugging",
+        "kind": "Logging",
+        "reason": "diagnose allocator behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 211,
+          "source": "aten/src/ATen/native/vulkan/api/Resource.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_ATTENTION_PLAN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_ATTENTION_PLAN_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 558,
+          "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 202,
+          "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_BUFFER_COPY_AGGREGATE",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_BUFFER_COPY_AGGREGATE",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 184,
+          "source": "aten/src/ATen/native/vulkan/ops/Copy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_BUFFER_COPY_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_BUFFER_COPY_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 172,
+          "source": "aten/src/ATen/native/vulkan/ops/Copy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CAPABILITY_PROFILE",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CAPABILITY_PROFILE",
+      "registry": {
+        "coverage": "capability profile governance and runtime-policy tests",
+        "kind": "HardwareCapabilityGate",
+        "reason": "mask runtime planner capabilities for reduced-envelope tests"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 110,
+          "source": "aten/src/ATen/native/vulkan/planning/Capabilities.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CHECK_FINITE_AFTER_WRITE",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CHECK_FINITE_AFTER_WRITE",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "detect non-finite tensor writes while debugging kernels"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 167,
+          "source": "aten/src/ATen/native/vulkan/ops/TensorProvenance.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_COMPILED_SESSION_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "name": "PYTORCH_VULKAN_COMPILED_SESSION_LOG",
+      "registry": {
+        "coverage": "compiled-session C++ tests",
+        "kind": "Logging",
+        "reason": "diagnose compiled-session capture and replay"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 2596,
+          "source": "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CONTRACT_ADMISSION_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 17,
+          "source": "aten/src/ATen/native/vulkan/planning/ExecutionContractDiagnostics.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CONV_CACHE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CONV_CACHE_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose convolution packed-weight cache behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1490,
+          "source": "aten/src/ATen/native/vulkan/ops/Convolution.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CONV_PLAN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CONV_PLAN_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 507,
+          "source": "aten/src/ATen/native/vulkan/ops/Convolution.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CONV_PLAN_WORKGROUP_CANARY",
+      "registry": {
+        "coverage": "conv plan-key canary tests and manual profiling",
+        "kind": "ActiveImplementationGate",
+        "reason": "select opt-in convolution workgroup candidates for bounded tuning evidence"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 2920,
+          "source": "aten/src/ATen/native/vulkan/ops/Convolution.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_COPY_SYNC_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_COPY_SYNC_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose explicit copy/readback synchronization"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 155,
+          "source": "aten/src/ATen/native/vulkan/ops/Copy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CPU_FALLBACK",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CPU_FALLBACK",
+      "registry": {
+        "coverage": "fallback policy tests",
+        "kind": "ActiveImplementationGate",
+        "reason": "select CPU fallback policy for unsupported ops"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_string",
+          "line": 147,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "env_string",
+          "line": 160,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CPU_TIMELINE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CPU_TIMELINE_LOG",
+      "registry": {
+        "coverage": "manual profiling",
+        "kind": "Profiling",
+        "reason": "record per-operation CPU timeline events"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 58,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_CPU_TIMELINE_SUMMARY_LOG",
+      "registry": {
+        "coverage": "manual profiling",
+        "kind": "Profiling",
+        "reason": "record aggregated CPU timeline counters"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 66,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "line": 565,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
+      "registry": {
+        "coverage": "manual diagnostics and deferred-region compiler planning",
+        "kind": "Logging",
+        "reason": "record deferred bridge lifecycle events and mandatory flush boundaries"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 50,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 58,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_EXECUTION_OBJECT_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "name": "PYTORCH_VULKAN_EXECUTION_OBJECT_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose execution object cache behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1348,
+          "source": "aten/src/ATen/native/vulkan/planning/ExecutionObjects.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_EXECUTION_PLAN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_EXECUTION_PLAN_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose execution planning decisions"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 387,
+          "source": "aten/src/ATen/native/vulkan/planning/Execution.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_CACHE_MB",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "name": "PYTORCH_VULKAN_EXECUTION_PROGRAM_CACHE_MB",
+      "registry": {
+        "coverage": "program cache tests and manual stress",
+        "kind": "CacheLimit",
+        "reason": "bound execution-program cache memory"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 41,
+          "source": "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "name": "PYTORCH_VULKAN_EXECUTION_PROGRAM_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose execution-program cache behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 72,
+          "source": "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_FAILURE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_FAILURE_LOG",
+      "registry": {
+        "coverage": "C++ guard and route-policy tests",
+        "kind": "Logging",
+        "reason": "capture structured Vulkan failure diagnostics"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 26,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_FAIL_ON_SYNC_READBACK",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_FAIL_ON_SYNC_READBACK",
+      "registry": {
+        "coverage": "fallback policy tests",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "force blocking readbacks to fail in tests"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 157,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_GPU_TIMESTAMP_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_GPU_TIMESTAMP_LOG",
+      "registry": {
+        "coverage": "querypool tests and manual profiling",
+        "kind": "Profiling",
+        "reason": "record GPU timestamp query results"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 46,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "line": 1822,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_INFERENCE_GRAPH_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "name": "PYTORCH_VULKAN_INFERENCE_GRAPH_LOG",
+      "registry": {
+        "coverage": "inference graph C++ tests",
+        "kind": "Logging",
+        "reason": "diagnose inference graph build and replay"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 80,
+          "source": "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LAZY_CHAIN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_LAZY_CHAIN_LOG",
+      "registry": {
+        "coverage": "manual diagnostics and lazy-region compiler planning",
+        "kind": "Logging",
+        "reason": "record eager Vulkan op chains up to mandatory access boundaries"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 42,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LINEAR_CACHE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_LINEAR_CACHE_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose linear packed-context cache behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1279,
+          "source": "aten/src/ATen/native/vulkan/planning/ExecutionObjects.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
+      "registry": {
+        "coverage": "linear pending-flush deferral canary tests and manual profiling",
+        "kind": "ActiveImplementationGate",
+        "reason": "opt into plain linear pending-command flush deferral canary"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 152,
+          "source": "aten/src/ATen/native/vulkan/ops/Mm.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LINEAR_PLAN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_LINEAR_PLAN_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 315,
+          "source": "aten/src/ATen/native/vulkan/ops/Mm.cpp"
+        },
+        {
+          "access": "write",
+          "line": 2121,
+          "source": "scripts/benchmarks/benchmark_model_suite.py"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LOG_CPU_FALLBACK",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_LOG_CPU_FALLBACK",
+      "registry": {
+        "coverage": "fallback policy tests",
+        "kind": "Logging",
+        "reason": "diagnose unsupported op CPU fallback"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 140,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LOG_FALLBACK",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_LOG_FALLBACK",
+      "registry": {
+        "coverage": "fallback policy tests",
+        "kind": "Logging",
+        "reason": "diagnose fallback behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 141,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_LOG_SYNC_READBACK",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_LOG_SYNC_READBACK",
+      "registry": {
+        "coverage": "fallback policy tests",
+        "kind": "Logging",
+        "reason": "diagnose blocking readbacks"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 143,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_MATERIALIZE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_MATERIALIZE_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose layout/materialization transitions"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 218,
+          "source": "aten/src/ATen/native/vulkan/ops/Utils.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_NO_CPU_FALLBACK",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_NO_CPU_FALLBACK",
+      "registry": {
+        "coverage": "fallback policy tests",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "force unsupported ops to fail in tests"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 152,
+          "source": "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_OP_HIT_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_OP_HIT_LOG",
+      "registry": {
+        "coverage": "C++ op-hit tests",
+        "kind": "Logging",
+        "reason": "record Vulkan op dispatch hits"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 319,
+          "source": "aten/src/ATen/native/vulkan/ops/Utils.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_PACKED_WEIGHT_CACHE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_PACKED_WEIGHT_CACHE_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose packed-weight cache behavior"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 325,
+          "source": "aten/src/ATen/native/vulkan/planning/ExecutionObjects.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_REPLAY_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "name": "PYTORCH_VULKAN_REPLAY_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose replay tensor state"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 32,
+          "source": "aten/src/ATen/native/vulkan/planning/ReplayTensorState.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_ROUTE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_ROUTE_LOG",
+      "registry": {
+        "coverage": "route-policy tests",
+        "kind": "Logging",
+        "reason": "diagnose route-policy decisions"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 23,
+          "source": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
+      "registry": {
+        "coverage": "runtime command-list POC tests and manual diagnostics",
+        "kind": "Logging",
+        "reason": "record generated command-list POC plans at lazy-chain flushes"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 90,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 819,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 1808,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 1814,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 814,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_unary_env",
+          "line": 181,
+          "source": "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 825,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_unary_env",
+          "line": 186,
+          "source": "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_POLICY_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_RUNTIME_POLICY_LOG",
+      "registry": {
+        "coverage": "runtime policy C++ tests",
+        "kind": "Logging",
+        "reason": "diagnose runtime policy decisions"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 309,
+          "source": "aten/src/ATen/native/vulkan/planning/Runtime.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR",
+      "registry": {
+        "coverage": "runtime shader compiler POC tests and manual diagnostics",
+        "kind": "CacheLimit",
+        "reason": "directory for runtime-generated shader POC artifacts"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 1415,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 307,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 563,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_unary_env",
+          "line": 396,
+          "source": "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 74,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_SHADER_COMPILE_LOG",
+      "registry": {
+        "coverage": "runtime shader compiler POC tests and manual diagnostics",
+        "kind": "Logging",
+        "reason": "record runtime-generated shader POC attempts at lazy-chain flushes"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 66,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC",
+      "kind": "environment_variable",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "name": "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC",
+      "registry": {
+        "coverage": "runtime shader compiler POC tests and manual diagnostics",
+        "kind": "ActiveImplementationGate",
+        "reason": "optional glslc path for runtime-generated shader POC compilation"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 1408,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 300,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_shader_env",
+          "line": 556,
+          "source": "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "runtime_unary_env",
+          "line": 389,
+          "source": "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 82,
+          "source": "aten/src/ATen/native/vulkan/api/Diagnostics.cpp"
+        }
+      ],
+      "state": "Delete-ready"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_SDPA_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_SDPA_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose SDPA route and kernel selection"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1296,
+          "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_DEP_GRAPH",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_DEP_GRAPH",
+      "registry": {
+        "coverage": "stack-region dependency graph tests and manual diagnostics",
+        "kind": "Logging",
+        "reason": "dump behavior-neutral stack-region dependency graph diagnostics"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3108,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3136,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3113,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT",
+      "sites": [
+        {
+          "access": "delete",
+          "line": 1194,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1586,
+          "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
+        },
+        {
+          "access": "read",
+          "line": 1162,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        },
+        {
+          "access": "read",
+          "line": 136,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        },
+        {
+          "access": "read",
+          "line": 145,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        },
+        {
+          "access": "write",
+          "line": 1169,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        },
+        {
+          "access": "write",
+          "line": 1199,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3145,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 105,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 114,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3208,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 94,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1653,
+          "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 146,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 124,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 1526,
+          "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
+        },
+        {
+          "access": "read",
+          "line": 2963,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        },
+        {
+          "access": "read",
+          "line": 3012,
+          "source": "scripts/benchmarks/benchmark_depth_anything.py"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 157,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 166,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3193,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 175,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3224,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3177,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 3161,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 74,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 29846,
+          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_SYNC_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_SYNC_LOG",
+      "registry": {
+        "coverage": "sync counter tests and manual diagnostics",
+        "kind": "Logging",
+        "reason": "report synchronization counters"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 34,
+          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
+        },
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 59,
+          "source": "aten/src/ATen/native/vulkan/ops/Register.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_TENSOR_STATE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_TENSOR_STATE_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose tensor representation transitions"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 21,
+          "source": "aten/src/ATen/native/vulkan/ops/TensorState.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_TRANSITION_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_TRANSITION_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "diagnose transition and materialization decisions"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 17,
+          "source": "aten/src/ATen/native/vulkan/planning/TransitionPlanner.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VALIDATE_TENSOR_STATE",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_VALIDATE_TENSOR_STATE",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "validate tensor state invariants"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 263,
+          "source": "aten/src/ATen/native/vulkan/ops/TensorState.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VALIDATE_VALUES",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_VALIDATE_VALUES",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "validate tensor values across Vulkan paths"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 85,
+          "source": "aten/src/ATen/native/vulkan/ops/VulkanValueTrace.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VALUE_TRACE",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_VALUE_TRACE",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "trace values for accuracy debugging"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_flag_enabled",
+          "line": 86,
+          "source": "aten/src/ATen/native/vulkan/ops/VulkanValueTrace.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VALUE_TRACE_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_VALUE_TRACE_LOG",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "Logging",
+        "reason": "write value trace diagnostics"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 87,
+          "source": "aten/src/ATen/native/vulkan/ops/VulkanValueTrace.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VALUE_TRACE_MAX_ABS",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_VALUE_TRACE_MAX_ABS",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "configure value trace threshold"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_double",
+          "line": 96,
+          "source": "aten/src/ATen/native/vulkan/ops/VulkanValueTrace.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VALUE_TRACE_SAMPLES",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_VALUE_TRACE_SAMPLES",
+      "registry": {
+        "coverage": "manual diagnostics",
+        "kind": "CorrectnessDiagnostic",
+        "reason": "configure value trace sample count"
+      },
+      "sites": [
+        {
+          "access": "read",
+          "callee": "env_int64",
+          "line": 94,
+          "source": "aten/src/ATen/native/vulkan/ops/VulkanValueTrace.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_VISION_OWNER_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "name": "PYTORCH_VULKAN_VISION_OWNER_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 404,
+          "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
+        }
+      ],
+      "state": "Migration"
+    },
+    {
+      "id": "environment_variable:PYTORCH_VULKAN_ZERO_PLAN_LOG",
+      "kind": "environment_variable",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "name": "PYTORCH_VULKAN_ZERO_PLAN_LOG",
+      "sites": [
+        {
+          "access": "read",
+          "callee": "std::getenv",
+          "line": 81,
+          "source": "aten/src/ATen/native/vulkan/ops/Zero.cpp"
+        }
+      ],
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::accumulate_expert_outputs",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2469,
+      "name": "vulkan_prepack::accumulate_expert_outputs",
+      "schema": "vulkan_prepack::accumulate_expert_outputs(Tensor expert_outputs, Tensor batch_index, int total_rows) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::attention_plan_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2619,
+      "name": "vulkan_prepack::attention_plan_counters",
+      "schema": "vulkan_prepack::attention_plan_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::attention_subgroup_capabilities",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2621,
+      "name": "vulkan_prepack::attention_subgroup_capabilities",
+      "schema": "vulkan_prepack::attention_subgroup_capabilities() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::begin_graph_execution_scope",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2500,
+      "name": "vulkan_prepack::begin_graph_execution_scope",
+      "schema": "vulkan_prepack::begin_graph_execution_scope() -> int",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::buffer_copy_aggregate_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2625,
+      "name": "vulkan_prepack::buffer_copy_aggregate_snapshot",
+      "schema": "vulkan_prepack::buffer_copy_aggregate_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::buffer_copy_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2623,
+      "name": "vulkan_prepack::buffer_copy_counters",
+      "schema": "vulkan_prepack::buffer_copy_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::check_tensor_finite",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2481,
+      "name": "vulkan_prepack::check_tensor_finite",
+      "schema": "vulkan_prepack::check_tensor_finite(Tensor X, str label) -> bool",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::clone_requirement_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2627,
+      "name": "vulkan_prepack::clone_requirement_snapshot",
+      "schema": "vulkan_prepack::clone_requirement_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::compute_moe_router",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2467,
+      "name": "vulkan_prepack::compute_moe_router",
+      "schema": "vulkan_prepack::compute_moe_router(Tensor logits, int top_k, int num_experts) -> (Tensor, Tensor, Tensor)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::compute_rotary_cos_sin",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2471,
+      "name": "vulkan_prepack::compute_rotary_cos_sin",
+      "schema": "vulkan_prepack::compute_rotary_cos_sin(Tensor prototype, Tensor inv_freq, Tensor position_ids, float attention_scaling=1.0) -> (Tensor, Tensor)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::conv2d_clamp_prepack",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2210,
+      "name": "vulkan_prepack::conv2d_clamp_prepack",
+      "schema": "vulkan_prepack::conv2d_clamp_prepack(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] dilation, int groups, Scalar? output_min=None, Scalar? output_max=None) -> __torch__.torch.classes.vulkan.Conv2dOpContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::conv2d_clamp_run",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2230,
+      "name": "vulkan_prepack::conv2d_clamp_run",
+      "schema": "vulkan_prepack::conv2d_clamp_run(Tensor X, __torch__.torch.classes.vulkan.Conv2dOpContext W_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::conv_aggregate_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2613,
+      "name": "vulkan_prepack::conv_aggregate_snapshot",
+      "schema": "vulkan_prepack::conv_aggregate_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::conv_plan_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2607,
+      "name": "vulkan_prepack::conv_plan_counters",
+      "schema": "vulkan_prepack::conv_plan_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::conv_plan_key_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2615,
+      "name": "vulkan_prepack::conv_plan_key_snapshot",
+      "schema": "vulkan_prepack::conv_plan_key_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::cpu_fallback_count",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2494,
+      "name": "vulkan_prepack::cpu_fallback_count",
+      "schema": "vulkan_prepack::cpu_fallback_count() -> int",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_batchnorm_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2788,
+      "name": "vulkan_prepack::create_batchnorm_context",
+      "schema": "vulkan_prepack::create_batchnorm_context(Tensor? weight_opt, Tensor? bias_opt, Tensor? running_mean_opt, Tensor? running_var_opt, bool training, float momentum, float eps, bool cudnn_enable) -> __torch__.torch.classes.vulkan.BatchNormPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_causal_attention_mask",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2456,
+      "name": "vulkan_prepack::create_causal_attention_mask",
+      "schema": "vulkan_prepack::create_causal_attention_mask(Tensor prototype, int batch_size, int q_length, int kv_length, int q_offset=0, int kv_offset=0, bool float_mask=True) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_conv1d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2249,
+      "name": "vulkan_prepack::create_conv1d_context",
+      "schema": "vulkan_prepack::create_conv1d_context(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] dilation, int groups) -> __torch__.torch.classes.vulkan.Conv1dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_conv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2201,
+      "name": "vulkan_prepack::create_conv2d_context",
+      "schema": "vulkan_prepack::create_conv2d_context(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] dilation, int groups, Scalar? output_min=None, Scalar? output_max=None) -> __torch__.torch.classes.vulkan.Conv2dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_graph_add_layernorm_plan",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2742,
+      "name": "vulkan_prepack::create_graph_add_layernorm_plan",
+      "schema": "vulkan_prepack::create_graph_add_layernorm_plan(__torch__.torch.classes.vulkan.LayernormPackedContext context, SymInt[] normalized_shape) -> __torch__.torch.classes.vulkan.GraphAddLayernormPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_graph_conv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2206,
+      "name": "vulkan_prepack::create_graph_conv2d_context",
+      "schema": "vulkan_prepack::create_graph_conv2d_context(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] dilation, int groups) -> __torch__.torch.classes.vulkan.Conv2dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_graph_conv2d_relu_plan",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2218,
+      "name": "vulkan_prepack::create_graph_conv2d_relu_plan",
+      "schema": "vulkan_prepack::create_graph_conv2d_relu_plan(__torch__.torch.classes.vulkan.Conv2dPackedContext context) -> __torch__.torch.classes.vulkan.GraphConv2dReluPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_graph_linear_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2264,
+      "name": "vulkan_prepack::create_graph_linear_context",
+      "schema": "vulkan_prepack::create_graph_linear_context(Tensor W, Tensor? B) -> __torch__.torch.classes.vulkan.LinearPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_gru_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2761,
+      "name": "vulkan_prepack::create_gru_context",
+      "schema": "vulkan_prepack::create_gru_context(Tensor[] params_cpu, bool has_biases, int num_layers, float dropout, bool train, bool bidirectional, bool batch_first) -> __torch__.torch.classes.vulkan.GruPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_kv_cache_storage_for_request",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "line": 2713,
+      "name": "vulkan_prepack::create_kv_cache_storage_for_request",
+      "schema": "vulkan_prepack::create_kv_cache_storage_for_request(Tensor prototype, int[] sizes, int sequence_dim, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_layernorm_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2755,
+      "name": "vulkan_prepack::create_layernorm_context",
+      "schema": "vulkan_prepack::create_layernorm_context(Tensor? W, Tensor? B, float eps) -> __torch__.torch.classes.vulkan.LayernormPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_linear_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2261,
+      "name": "vulkan_prepack::create_linear_context",
+      "schema": "vulkan_prepack::create_linear_context(Tensor W, Tensor? B) -> __torch__.torch.classes.vulkan.LinearPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_linear_context_labeled",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_label_and_device_name_inference",
+      "line": 2267,
+      "name": "vulkan_prepack::create_linear_context_labeled",
+      "schema": "vulkan_prepack::create_linear_context_labeled(Tensor W, Tensor? B, str label) -> __torch__.torch.classes.vulkan.LinearPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_lstm_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2774,
+      "name": "vulkan_prepack::create_lstm_context",
+      "schema": "vulkan_prepack::create_lstm_context(Tensor[] params_cpu, bool has_biases, int num_layers, float dropout, bool train, bool bidirectional, bool batch_first) -> __torch__.torch.classes.vulkan.LstmPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_qconv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2241,
+      "name": "vulkan_prepack::create_qconv2d_context",
+      "schema": "vulkan_prepack::create_qconv2d_context(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] dilation, int groups, Scalar? output_min=None, Scalar? output_max=None) -> __torch__.torch.classes.vulkan.Conv2dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_qtconv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2256,
+      "name": "vulkan_prepack::create_qtconv2d_context",
+      "schema": "vulkan_prepack::create_qtconv2d_context(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] output_padding, int[2] dilation, int groups, Scalar? output_min=None, Scalar? output_max=None) -> __torch__.torch.classes.vulkan.Conv2dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_qwen_linear_attention_prefill_context",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_qwen_gated_delta_orchestration",
+      "line": 2270,
+      "name": "vulkan_prepack::create_qwen_linear_attention_prefill_context",
+      "schema": "vulkan_prepack::create_qwen_linear_attention_prefill_context(Tensor qkv_weight, Tensor z_weight, Tensor a_weight, Tensor b_weight, Tensor out_weight, Tensor conv_weight, Tensor? conv_bias, Tensor norm_weight, Tensor A_log, Tensor dt_bias, int key_dim, int value_dim, int head_k_dim, int head_v_dim, int num_k_heads, int num_v_heads, int chunk_size=64, float norm_eps=1e-6, str label=\"\") -> __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_scratch_arena_storage_for_request",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "line": 2715,
+      "name": "vulkan_prepack::create_scratch_arena_storage_for_request",
+      "schema": "vulkan_prepack::create_scratch_arena_storage_for_request(Tensor prototype, int num_bytes, int alignment, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_tconv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2233,
+      "name": "vulkan_prepack::create_tconv2d_context",
+      "schema": "vulkan_prepack::create_tconv2d_context(Tensor W, Tensor? B, int[2] stride, int[2] padding, int[2] output_padding, int[2] dilation, int groups, Scalar? output_min=None, Scalar? output_max=None) -> __torch__.torch.classes.vulkan.Conv2dPackedContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vision_backbone_block_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2284,
+      "name": "vulkan_prepack::create_vision_backbone_block_context",
+      "schema": "vulkan_prepack::create_vision_backbone_block_context(Tensor norm1_weight, Tensor norm1_bias, float norm1_eps, Tensor qkv_weight, Tensor? qkv_bias, int num_heads, Tensor proj_weight, Tensor? proj_bias, Tensor? ls1_gamma, Tensor norm2_weight, Tensor norm2_bias, float norm2_eps, Tensor fc1_weight, Tensor? fc1_bias, Tensor fc2_weight, Tensor? fc2_bias, Tensor? ls2_gamma, str label=\"\") -> __torch__.torch.classes.vulkan.VisionBackboneBlockContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vision_backbone_block_context_with_attention_bias",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2294,
+      "name": "vulkan_prepack::create_vision_backbone_block_context_with_attention_bias",
+      "schema": "vulkan_prepack::create_vision_backbone_block_context_with_attention_bias(Tensor norm1_weight, Tensor norm1_bias, float norm1_eps, Tensor qkv_weight, Tensor? qkv_bias, Tensor? attention_bias, int num_heads, Tensor proj_weight, Tensor? proj_bias, Tensor? ls1_gamma, Tensor norm2_weight, Tensor norm2_bias, float norm2_eps, Tensor fc1_weight, Tensor? fc1_bias, Tensor fc2_weight, Tensor? fc2_bias, Tensor? ls2_gamma, str label=\"\") -> __torch__.torch.classes.vulkan.VisionBackboneBlockContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vision_backbone_stack_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2307,
+      "name": "vulkan_prepack::create_vision_backbone_stack_context",
+      "schema": "vulkan_prepack::create_vision_backbone_stack_context(__torch__.torch.classes.vulkan.VisionBackboneBlockContext[] blocks, int num_heads, int head_dim, int hidden, int mlp_hidden) -> __torch__.torch.classes.vulkan.VisionBackboneStackContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vision_decoder_fusion_block_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2324,
+      "name": "vulkan_prepack::create_vision_decoder_fusion_block_context",
+      "schema": "vulkan_prepack::create_vision_decoder_fusion_block_context(Tensor res1_conv1_weight, Tensor? res1_conv1_bias, Tensor res1_conv2_weight, Tensor? res1_conv2_bias, Tensor res2_conv1_weight, Tensor? res2_conv1_bias, Tensor res2_conv2_weight, Tensor? res2_conv2_bias, Tensor out_conv_weight, Tensor? out_conv_bias, bool align_corners, str label=\"\") -> __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vision_decoder_head_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2341,
+      "name": "vulkan_prepack::create_vision_decoder_head_context",
+      "schema": "vulkan_prepack::create_vision_decoder_head_context(Tensor prototype, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet4_context, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet3_context, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet2_context, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext refinenet1_context, __torch__.torch.classes.vulkan.Conv2dPackedContext output_conv1_context, __torch__.torch.classes.vulkan.Conv2dPackedContext output_conv2_conv1_context, __torch__.torch.classes.vulkan.Conv2dPackedContext output_conv2_conv2_context, bool align_corners, str label=\"\") -> __torch__.torch.classes.vulkan.VisionDecoderHeadContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vision_decoder_preprocess_head_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2361,
+      "name": "vulkan_prepack::create_vision_decoder_preprocess_head_context",
+      "schema": "vulkan_prepack::create_vision_decoder_preprocess_head_context(Tensor prototype, __torch__.torch.classes.vulkan.Conv2dPackedContext project1_context, __torch__.torch.classes.vulkan.Conv2dPackedContext project2_context, __torch__.torch.classes.vulkan.Conv2dPackedContext project3_context, __torch__.torch.classes.vulkan.Conv2dPackedContext project4_context, __torch__.torch.classes.vulkan.Conv2dPackedContext resize1_context, __torch__.torch.classes.vulkan.Conv2dPackedContext resize2_context, __torch__.torch.classes.vulkan.Conv2dPackedContext resize4_context, __torch__.torch.classes.vulkan.Conv2dPackedContext layer1_rn_context, __torch__.torch.classes.vulkan.Conv2dPackedContext layer2_rn_context, __torch__.torch.classes.vulkan.Conv2dPackedContext layer3_rn_context, __torch__.torch.classes.vulkan.Conv2dPackedContext layer4_rn_context, __torch__.torch.classes.vulkan.VisionDecoderHeadContext head_context, str label=\"\") -> __torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2225,
+      "name": "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d",
+      "schema": "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d(__torch__.torch.classes.vulkan.Conv2dPackedContext first_context, __torch__.torch.classes.vulkan.Conv2dPackedContext second_context) -> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2731,
+      "name": "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu",
+      "schema": "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu(__torch__.torch.classes.vulkan.LinearPackedContext context) -> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2735,
+      "name": "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none",
+      "schema": "vulkan_prepack::create_vulkan_graph_region_plan_linear_gelu_none(__torch__.torch.classes.vulkan.LinearPackedContext context) -> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::deferred_value_creation_count",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "line": 2498,
+      "name": "vulkan_prepack::deferred_value_creation_count",
+      "schema": "vulkan_prepack::deferred_value_creation_count() -> int",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::device_policy_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_label_and_device_name_inference",
+      "line": 2492,
+      "name": "vulkan_prepack::device_policy_snapshot",
+      "schema": "vulkan_prepack::device_policy_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::dump_cpu_timeline_summary",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2479,
+      "name": "vulkan_prepack::dump_cpu_timeline_summary",
+      "schema": "vulkan_prepack::dump_cpu_timeline_summary() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::end_graph_execution_scope",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2502,
+      "name": "vulkan_prepack::end_graph_execution_scope",
+      "schema": "vulkan_prepack::end_graph_execution_scope(int token) -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::extri_intri_to_pose_encoding",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2719,
+      "name": "vulkan_prepack::extri_intri_to_pose_encoding",
+      "schema": "vulkan_prepack::extri_intri_to_pose_encoding(Tensor extrinsics, Tensor intrinsics, int height, int width) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::fallback_phase_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2504,
+      "name": "vulkan_prepack::fallback_phase_counters",
+      "schema": "vulkan_prepack::fallback_phase_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::feature_map_to_tokens",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2449,
+      "name": "vulkan_prepack::feature_map_to_tokens",
+      "schema": "vulkan_prepack::feature_map_to_tokens(Tensor X) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::find_timestep_index",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2465,
+      "name": "vulkan_prepack::find_timestep_index",
+      "schema": "vulkan_prepack::find_timestep_index(Tensor schedule_timesteps, Tensor timestep) -> int",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::gather_hidden_states_by_batch_positions",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2463,
+      "name": "vulkan_prepack::gather_hidden_states_by_batch_positions",
+      "schema": "vulkan_prepack::gather_hidden_states_by_batch_positions(Tensor hidden_states, Tensor positions) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::graph_program_invocation_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2516,
+      "name": "vulkan_prepack::graph_program_invocation_counters",
+      "schema": "vulkan_prepack::graph_program_invocation_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::index_select_hidden_states_for_logits",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2461,
+      "name": "vulkan_prepack::index_select_hidden_states_for_logits",
+      "schema": "vulkan_prepack::index_select_hidden_states_for_logits(Tensor hidden_states, Tensor index) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::last_allocation_failure_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2603,
+      "name": "vulkan_prepack::last_allocation_failure_snapshot",
+      "schema": "last_allocation_failure_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::linear_aggregate_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2593,
+      "name": "vulkan_prepack::linear_aggregate_snapshot",
+      "schema": "vulkan_prepack::linear_aggregate_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::linear_pack_residency_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2597,
+      "name": "vulkan_prepack::linear_pack_residency_snapshot",
+      "schema": "linear_pack_residency_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::linear_plan_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2591,
+      "name": "vulkan_prepack::linear_plan_counters",
+      "schema": "vulkan_prepack::linear_plan_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::linear_plan_key_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2595,
+      "name": "vulkan_prepack::linear_plan_key_snapshot",
+      "schema": "vulkan_prepack::linear_plan_key_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::log_unknown_transition_for_test",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2577,
+      "name": "vulkan_prepack::log_unknown_transition_for_test",
+      "schema": "vulkan_prepack::log_unknown_transition_for_test() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::packed_weight_residency_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2605,
+      "name": "vulkan_prepack::packed_weight_residency_snapshot",
+      "schema": "packed_weight_residency_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2451,
+      "name": "vulkan_prepack::patch_embed_feature_map_to_tokens",
+      "schema": "vulkan_prepack::patch_embed_feature_map_to_tokens(Tensor X) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::pointwise_conv_route_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2609,
+      "name": "vulkan_prepack::pointwise_conv_route_counters",
+      "schema": "vulkan_prepack::pointwise_conv_route_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::pose_encoding_to_extri_intri",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2717,
+      "name": "vulkan_prepack::pose_encoding_to_extri_intri",
+      "schema": "vulkan_prepack::pose_encoding_to_extri_intri(Tensor pose_encoding, int height, int width) -> (Tensor, Tensor)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::prime_vision_backbone_block_context_graph",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2321,
+      "name": "vulkan_prepack::prime_vision_backbone_block_context_graph",
+      "schema": "vulkan_prepack::prime_vision_backbone_block_context_graph(Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::prime_vision_decoder_fusion_block_context_graph",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2337,
+      "name": "vulkan_prepack::prime_vision_decoder_fusion_block_context_graph",
+      "schema": "vulkan_prepack::prime_vision_decoder_fusion_block_context_graph(Tensor X, Tensor? skip, int[]? size, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext context) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::prime_vision_decoder_head_context_graph",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2357,
+      "name": "vulkan_prepack::prime_vision_decoder_head_context_graph",
+      "schema": "vulkan_prepack::prime_vision_decoder_head_context_graph(Tensor layer1, Tensor layer2, Tensor layer3, Tensor layer4, int[] output_size, __torch__.torch.classes.vulkan.VisionDecoderHeadContext context) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::query_runtime_policy",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_legacy_planning_objects",
+      "line": 2711,
+      "name": "vulkan_prepack::query_runtime_policy",
+      "schema": "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::record_vision_owner_context_cache_hit",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2643,
+      "name": "vulkan_prepack::record_vision_owner_context_cache_hit",
+      "schema": "vulkan_prepack::record_vision_owner_context_cache_hit() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::region_lifetime_submit_attribution_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2559,
+      "name": "vulkan_prepack::region_lifetime_submit_attribution_snapshot",
+      "schema": "vulkan_prepack::region_lifetime_submit_attribution_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_buffer_copy_aggregate",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2631,
+      "name": "vulkan_prepack::reset_buffer_copy_aggregate",
+      "schema": "vulkan_prepack::reset_buffer_copy_aggregate() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_buffer_copy_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2629,
+      "name": "vulkan_prepack::reset_buffer_copy_counters",
+      "schema": "vulkan_prepack::reset_buffer_copy_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_clone_requirement_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2633,
+      "name": "vulkan_prepack::reset_clone_requirement_snapshot",
+      "schema": "vulkan_prepack::reset_clone_requirement_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_conv_aggregate",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2617,
+      "name": "vulkan_prepack::reset_conv_aggregate",
+      "schema": "vulkan_prepack::reset_conv_aggregate() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_fallback_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2709,
+      "name": "vulkan_prepack::reset_fallback_counters",
+      "schema": "vulkan_prepack::reset_fallback_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_fallback_phase_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2508,
+      "name": "vulkan_prepack::reset_fallback_phase_counters",
+      "schema": "vulkan_prepack::reset_fallback_phase_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_graph_program_invocation_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2518,
+      "name": "vulkan_prepack::reset_graph_program_invocation_counters",
+      "schema": "vulkan_prepack::reset_graph_program_invocation_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_last_allocation_failure_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2604,
+      "name": "vulkan_prepack::reset_last_allocation_failure_snapshot",
+      "schema": "reset_last_allocation_failure_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_linear_aggregate",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2598,
+      "name": "vulkan_prepack::reset_linear_aggregate",
+      "schema": "vulkan_prepack::reset_linear_aggregate() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_linear_pack_residency_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2600,
+      "name": "vulkan_prepack::reset_linear_pack_residency_snapshot",
+      "schema": "reset_linear_pack_residency_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_packed_weight_residency_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2606,
+      "name": "vulkan_prepack::reset_packed_weight_residency_snapshot",
+      "schema": "reset_packed_weight_residency_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_pointwise_conv_route_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2611,
+      "name": "vulkan_prepack::reset_pointwise_conv_route_counters",
+      "schema": "vulkan_prepack::reset_pointwise_conv_route_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_region_lifetime_submit_attribution",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2561,
+      "name": "vulkan_prepack::reset_region_lifetime_submit_attribution",
+      "schema": "vulkan_prepack::reset_region_lifetime_submit_attribution() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_retire_call_site_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2537,
+      "name": "vulkan_prepack::reset_retire_call_site_counters",
+      "schema": "vulkan_prepack::reset_retire_call_site_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_retire_drain_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2533,
+      "name": "vulkan_prepack::reset_retire_drain_counters",
+      "schema": "vulkan_prepack::reset_retire_drain_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_retired_resource_aggregate",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2541,
+      "name": "vulkan_prepack::reset_retired_resource_aggregate",
+      "schema": "vulkan_prepack::reset_retired_resource_aggregate() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_allocation_aggregate",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2581,
+      "name": "vulkan_prepack::reset_stack_allocation_aggregate",
+      "schema": "vulkan_prepack::reset_stack_allocation_aggregate() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_attention_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2655,
+      "name": "vulkan_prepack::reset_stack_attention_counters",
+      "schema": "vulkan_prepack::reset_stack_attention_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_descriptor_binding_table",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2683,
+      "name": "vulkan_prepack::reset_stack_descriptor_binding_table",
+      "schema": "vulkan_prepack::reset_stack_descriptor_binding_table() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_dispatch_aggregate",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2585,
+      "name": "vulkan_prepack::reset_stack_dispatch_aggregate",
+      "schema": "vulkan_prepack::reset_stack_dispatch_aggregate() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_dispatch_dependency_dry_run",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2589,
+      "name": "vulkan_prepack::reset_stack_dispatch_dependency_dry_run",
+      "schema": "vulkan_prepack::reset_stack_dispatch_dependency_dry_run() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_execution_manifest",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2659,
+      "name": "vulkan_prepack::reset_stack_execution_manifest",
+      "schema": "vulkan_prepack::reset_stack_execution_manifest() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_internal_temp_retire_batch_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2551,
+      "name": "vulkan_prepack::reset_stack_internal_temp_retire_batch_counters",
+      "schema": "vulkan_prepack::reset_stack_internal_temp_retire_batch_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_planned_recording_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2695,
+      "name": "vulkan_prepack::reset_stack_planned_recording_counters",
+      "schema": "vulkan_prepack::reset_stack_planned_recording_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_replay_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2703,
+      "name": "vulkan_prepack::reset_stack_replay_counters",
+      "schema": "vulkan_prepack::reset_stack_replay_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_resource_binding_manifest",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2677,
+      "name": "vulkan_prepack::reset_stack_resource_binding_manifest",
+      "schema": "vulkan_prepack::reset_stack_resource_binding_manifest() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_retire_drain_blocker_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2557,
+      "name": "vulkan_prepack::reset_stack_retire_drain_blocker_counters",
+      "schema": "vulkan_prepack::reset_stack_retire_drain_blocker_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2571,
+      "name": "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot",
+      "schema": "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_shape_plan_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2669,
+      "name": "vulkan_prepack::reset_stack_shape_plan_counters",
+      "schema": "vulkan_prepack::reset_stack_shape_plan_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2567,
+      "name": "vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters",
+      "schema": "vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_stack_temp_lifetime_safety_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2545,
+      "name": "vulkan_prepack::reset_stack_temp_lifetime_safety_snapshot",
+      "schema": "vulkan_prepack::reset_stack_temp_lifetime_safety_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_submit_origin_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2525,
+      "name": "vulkan_prepack::reset_submit_origin_counters",
+      "schema": "vulkan_prepack::reset_submit_origin_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_submit_origin_phase_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2529,
+      "name": "vulkan_prepack::reset_submit_origin_phase_counters",
+      "schema": "vulkan_prepack::reset_submit_origin_phase_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_submit_phase",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2575,
+      "name": "vulkan_prepack::reset_submit_phase",
+      "schema": "vulkan_prepack::reset_submit_phase() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_vision_owner_context_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2641,
+      "name": "vulkan_prepack::reset_vision_owner_context_counters",
+      "schema": "vulkan_prepack::reset_vision_owner_context_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_vision_owner_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2637,
+      "name": "vulkan_prepack::reset_vision_owner_counters",
+      "schema": "vulkan_prepack::reset_vision_owner_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_vision_owner_mlp_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2647,
+      "name": "vulkan_prepack::reset_vision_owner_mlp_counters",
+      "schema": "vulkan_prepack::reset_vision_owner_mlp_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_vision_stack_owner_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2651,
+      "name": "vulkan_prepack::reset_vision_stack_owner_counters",
+      "schema": "vulkan_prepack::reset_vision_stack_owner_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_vulkan_memory_residency_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2602,
+      "name": "vulkan_prepack::reset_vulkan_memory_residency_snapshot",
+      "schema": "reset_vulkan_memory_residency_snapshot() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::reset_zero_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2707,
+      "name": "vulkan_prepack::reset_zero_counters",
+      "schema": "vulkan_prepack::reset_zero_counters() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::retire_call_site_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2535,
+      "name": "vulkan_prepack::retire_call_site_counters",
+      "schema": "vulkan_prepack::retire_call_site_counters() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::retire_drain_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2531,
+      "name": "vulkan_prepack::retire_drain_counters",
+      "schema": "vulkan_prepack::retire_drain_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::retired_resource_aggregate_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2539,
+      "name": "vulkan_prepack::retired_resource_aggregate_snapshot",
+      "schema": "vulkan_prepack::retired_resource_aggregate_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2384,
+      "name": "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge",
+      "schema": "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge(Tensor query, Tensor key, Tensor value) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_batchnorm_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2799,
+      "name": "vulkan_prepack::run_batchnorm_context",
+      "schema": "vulkan_prepack::run_batchnorm_context(Tensor input_vk, __torch__.torch.classes.vulkan.BatchNormPackedContext context) -> Tensor out",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_conv1d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2253,
+      "name": "vulkan_prepack::run_conv1d_context",
+      "schema": "vulkan_prepack::run_conv1d_context(Tensor X, __torch__.torch.classes.vulkan.Conv1dPackedContext W_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_conv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2215,
+      "name": "vulkan_prepack::run_conv2d_context",
+      "schema": "vulkan_prepack::run_conv2d_context(Tensor X, __torch__.torch.classes.vulkan.Conv2dPackedContext W_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2427,
+      "name": "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge",
+      "schema": "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge(Tensor input, __torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, int[] capture_indices, int[] normalized_shape, __torch__.torch.classes.vulkan.LayernormPackedContext norm_context, int patch_h, int patch_w, int[] output_size, __torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext decoder_context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2436,
+      "name": "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge",
+      "schema": "vulkan_prepack::run_depth_anything_v2_image_compiled_session_bridge(Tensor input, __torch__.torch.classes.vulkan.Conv2dPackedContext patch_embed_context, Tensor prefix_token, Tensor patch_pos_encoding, __torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, int[] capture_indices, int[] normalized_shape, __torch__.torch.classes.vulkan.LayernormPackedContext norm_context, int patch_h, int patch_w, int[] output_size, __torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext decoder_context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_graph_add_layernorm_plan",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2747,
+      "name": "vulkan_prepack::run_graph_add_layernorm_plan",
+      "schema": "vulkan_prepack::run_graph_add_layernorm_plan(Tensor residual, Tensor addend, __torch__.torch.classes.vulkan.GraphAddLayernormPlan plan) -> (Tensor residual_output, Tensor normalized_output)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_graph_conv2d_relu_plan",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2222,
+      "name": "vulkan_prepack::run_graph_conv2d_relu_plan",
+      "schema": "vulkan_prepack::run_graph_conv2d_relu_plan(Tensor X, __torch__.torch.classes.vulkan.GraphConv2dReluPlan plan) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_gru_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2770,
+      "name": "vulkan_prepack::run_gru_context",
+      "schema": "vulkan_prepack::run_gru_context(Tensor input_vk, Tensor hx_vk, __torch__.torch.classes.vulkan.GruPackedContext G_prepack) -> (Tensor next_input, Tensor hidden_layer)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_layernorm_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2758,
+      "name": "vulkan_prepack::run_layernorm_context",
+      "schema": "vulkan_prepack::run_layernorm_context(Tensor X, SymInt[] normalized_shape, __torch__.torch.classes.vulkan.LayernormPackedContext BW_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_linear_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2725,
+      "name": "vulkan_prepack::run_linear_context",
+      "schema": "vulkan_prepack::run_linear_context(Tensor X, __torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_linear_gelu_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2728,
+      "name": "vulkan_prepack::run_linear_gelu_context",
+      "schema": "vulkan_prepack::run_linear_gelu_context(Tensor X, __torch__.torch.classes.vulkan.LinearPackedContext BW_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_lstm_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2783,
+      "name": "vulkan_prepack::run_lstm_context",
+      "schema": "vulkan_prepack::run_lstm_context(Tensor input_vk, Tensor hx_vk, Tensor cx_vk, __torch__.torch.classes.vulkan.LstmPackedContext L_prepack) -> (Tensor next_input, Tensor hidden_state, Tensor cell_state)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_qconv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2246,
+      "name": "vulkan_prepack::run_qconv2d_context",
+      "schema": "vulkan_prepack::run_qconv2d_context(Tensor X, float scale, int zero_point, __torch__.torch.classes.vulkan.Conv2dPackedContext vk_context) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_qlinear_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2752,
+      "name": "vulkan_prepack::run_qlinear_context",
+      "schema": "vulkan_prepack::run_qlinear_context(Tensor X, float scale, int zero_point, __torch__.torch.classes.vulkan.LinearPackedContext vk_context) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_qwen_linear_attention_decode_context",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_qwen_gated_delta_orchestration",
+      "line": 2280,
+      "name": "vulkan_prepack::run_qwen_linear_attention_decode_context",
+      "schema": "vulkan_prepack::run_qwen_linear_attention_decode_context(Tensor X, Tensor conv_state, Tensor recurrent_state, __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> (Tensor, Tensor, Tensor)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_qwen_linear_attention_prefill_context",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_qwen_gated_delta_orchestration",
+      "line": 2277,
+      "name": "vulkan_prepack::run_qwen_linear_attention_prefill_context",
+      "schema": "vulkan_prepack::run_qwen_linear_attention_prefill_context(Tensor X, __torch__.torch.classes.vulkan.QwenLinearAttentionPrefillPackedContext context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_scheduled_gated_delta_rule_chunk",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_qwen_gated_delta_orchestration",
+      "line": 2721,
+      "name": "vulkan_prepack::run_scheduled_gated_delta_rule_chunk",
+      "schema": "vulkan_prepack::run_scheduled_gated_delta_rule_chunk(Tensor query, Tensor key, Tensor value, Tensor g, Tensor beta, int chunk_size=64, Tensor? initial_state=None, bool output_final_state=False, bool use_qk_l2norm_in_kernel=False) -> (Tensor, Tensor?)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_qwen_gated_delta_orchestration",
+      "line": 2723,
+      "name": "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent",
+      "schema": "vulkan_prepack::run_scheduled_gated_delta_rule_recurrent(Tensor query, Tensor key, Tensor value, Tensor g, Tensor beta, Tensor? initial_state=None, bool output_final_state=False, bool use_qk_l2norm_in_kernel=False) -> (Tensor, Tensor?)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_tconv2d_context",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2238,
+      "name": "vulkan_prepack::run_tconv2d_context",
+      "schema": "vulkan_prepack::run_tconv2d_context(Tensor X, __torch__.torch.classes.vulkan.Conv2dPackedContext W_prepack) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_block_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2304,
+      "name": "vulkan_prepack::run_vision_backbone_block_context",
+      "schema": "vulkan_prepack::run_vision_backbone_block_context(Tensor X, __torch__.torch.classes.vulkan.VisionBackboneBlockContext context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2387,
+      "name": "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge",
+      "schema": "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge(Tensor backbone_input, __torch__.torch.classes.vulkan.VisionBackboneBlockContext backbone_context, Tensor decoder_input, Tensor? decoder_skip, int[]? decoder_size, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext decoder_context) -> (Tensor, Tensor)",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_stack_compiled_session_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2394,
+      "name": "vulkan_prepack::run_vision_backbone_stack_compiled_session_bridge",
+      "schema": "vulkan_prepack::run_vision_backbone_stack_compiled_session_bridge(Tensor input, __torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, int[] capture_indices) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_stack_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2312,
+      "name": "vulkan_prepack::run_vision_backbone_stack_context",
+      "schema": "vulkan_prepack::run_vision_backbone_stack_context(Tensor X, __torch__.torch.classes.vulkan.VisionBackboneStackContext context, int[] capture_indices) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_stack_norm_compiled_session_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2404,
+      "name": "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session_bridge",
+      "schema": "vulkan_prepack::run_vision_backbone_stack_norm_compiled_session_bridge(Tensor input, __torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, int[] capture_indices, int[] normalized_shape, __torch__.torch.classes.vulkan.LayernormPackedContext norm_context) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2411,
+      "name": "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge",
+      "schema": "vulkan_prepack::run_vision_backbone_stack_norm_replay_bundle_bridge(Tensor input, __torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, int[] capture_indices, int[] normalized_shape, __torch__.torch.classes.vulkan.LayernormPackedContext norm_context) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_stack_private_capture_debug",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2316,
+      "name": "vulkan_prepack::run_vision_backbone_stack_private_capture_debug",
+      "schema": "vulkan_prepack::run_vision_backbone_stack_private_capture_debug(Tensor X, __torch__.torch.classes.vulkan.VisionBackboneStackContext context, int[] capture_indices, bool preserve_private_captures_in_plan) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2399,
+      "name": "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge",
+      "schema": "vulkan_prepack::run_vision_backbone_stack_replay_bundle_bridge(Tensor input, __torch__.torch.classes.vulkan.VisionBackboneBlockContext[] contexts, int[] capture_indices) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_decoder_fusion_block_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2333,
+      "name": "vulkan_prepack::run_vision_decoder_fusion_block_context",
+      "schema": "vulkan_prepack::run_vision_decoder_fusion_block_context(Tensor X, Tensor? skip, int[]? size, __torch__.torch.classes.vulkan.VisionDecoderFusionBlockContext context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_decoder_head_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2353,
+      "name": "vulkan_prepack::run_vision_decoder_head_context",
+      "schema": "vulkan_prepack::run_vision_decoder_head_context(Tensor layer1, Tensor layer2, Tensor layer3, Tensor layer4, int[] output_size, __torch__.torch.classes.vulkan.VisionDecoderHeadContext context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_decoder_preprocess_head_context",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2378,
+      "name": "vulkan_prepack::run_vision_decoder_preprocess_head_context",
+      "schema": "vulkan_prepack::run_vision_decoder_preprocess_head_context(Tensor layer1_tokens, Tensor layer2_tokens, Tensor layer3_tokens, Tensor layer4_tokens, int patch_h, int patch_w, int[] output_size, __torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2418,
+      "name": "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge",
+      "schema": "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge(Tensor input, __torch__.torch.classes.vulkan.VisionBackboneStackContext context, int[] capture_indices, int[] normalized_shape, __torch__.torch.classes.vulkan.LayernormPackedContext norm_context, int strip_prefix_tokens, int patch_h, int patch_w, int[] output_size, __torch__.torch.classes.vulkan.VisionDecoderPreprocessHeadContext decoder_context) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::run_vulkan_graph_region_plan",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2739,
+      "name": "vulkan_prepack::run_vulkan_graph_region_plan",
+      "schema": "vulkan_prepack::run_vulkan_graph_region_plan(Tensor[] inputs, __torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::runtime_elementwise_chain",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "line": 2487,
+      "name": "vulkan_prepack::runtime_elementwise_chain",
+      "schema": "vulkan_prepack::runtime_elementwise_chain(Tensor input, Tensor[] rhs_tensors, str[] ops) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div",
+      "kind": "operator_schema",
+      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
+      "line": 2483,
+      "name": "vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div",
+      "schema": "vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div(Tensor input, Tensor add_rhs, Tensor mul_rhs, Tensor sub_rhs, Tensor div_rhs) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Delete-ready"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::set_benchmark_timed_region",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2512,
+      "name": "vulkan_prepack::set_benchmark_timed_region",
+      "schema": "vulkan_prepack::set_benchmark_timed_region(bool enabled) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::set_fallback_phase",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2510,
+      "name": "vulkan_prepack::set_fallback_phase",
+      "schema": "vulkan_prepack::set_fallback_phase(int phase) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::set_graph_program_conv_host_sync_for_testing",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2520,
+      "name": "vulkan_prepack::set_graph_program_conv_host_sync_for_testing",
+      "schema": "vulkan_prepack::set_graph_program_conv_host_sync_for_testing(bool enabled) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::set_submit_phase",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2573,
+      "name": "vulkan_prepack::set_submit_phase",
+      "schema": "vulkan_prepack::set_submit_phase(int phase) -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::slice_hidden_states_for_logits",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2459,
+      "name": "vulkan_prepack::slice_hidden_states_for_logits",
+      "schema": "vulkan_prepack::slice_hidden_states_for_logits(Tensor hidden_states, int logits_to_keep) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_allocation_aggregate_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2579,
+      "name": "vulkan_prepack::stack_allocation_aggregate_snapshot",
+      "schema": "vulkan_prepack::stack_allocation_aggregate_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_attention_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2653,
+      "name": "vulkan_prepack::stack_attention_counters",
+      "schema": "vulkan_prepack::stack_attention_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_capture_readiness",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2661,
+      "name": "vulkan_prepack::stack_capture_readiness",
+      "schema": "vulkan_prepack::stack_capture_readiness() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_descriptor_binding_table",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2679,
+      "name": "vulkan_prepack::stack_descriptor_binding_table",
+      "schema": "vulkan_prepack::stack_descriptor_binding_table() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_descriptor_binding_validation",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2681,
+      "name": "vulkan_prepack::stack_descriptor_binding_validation",
+      "schema": "vulkan_prepack::stack_descriptor_binding_validation() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_dispatch_aggregate_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2583,
+      "name": "vulkan_prepack::stack_dispatch_aggregate_snapshot",
+      "schema": "vulkan_prepack::stack_dispatch_aggregate_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_dispatch_dependency_dry_run_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2587,
+      "name": "vulkan_prepack::stack_dispatch_dependency_dry_run_snapshot",
+      "schema": "vulkan_prepack::stack_dispatch_dependency_dry_run_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_execution_manifest",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2657,
+      "name": "vulkan_prepack::stack_execution_manifest",
+      "schema": "vulkan_prepack::stack_execution_manifest() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_internal_temp_retire_batch_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2547,
+      "name": "vulkan_prepack::stack_internal_temp_retire_batch_counters",
+      "schema": "vulkan_prepack::stack_internal_temp_retire_batch_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_internal_temp_retire_batch_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2549,
+      "name": "vulkan_prepack::stack_internal_temp_retire_batch_snapshot",
+      "schema": "vulkan_prepack::stack_internal_temp_retire_batch_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_planned_recording_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2693,
+      "name": "vulkan_prepack::stack_planned_recording_counters",
+      "schema": "vulkan_prepack::stack_planned_recording_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_planned_recording_readiness",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2691,
+      "name": "vulkan_prepack::stack_planned_recording_readiness",
+      "schema": "vulkan_prepack::stack_planned_recording_readiness() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_program_owned_temp_live_identity",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2687,
+      "name": "vulkan_prepack::stack_program_owned_temp_live_identity",
+      "schema": "vulkan_prepack::stack_program_owned_temp_live_identity() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_program_owned_temp_slot_identity",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2689,
+      "name": "vulkan_prepack::stack_program_owned_temp_slot_identity",
+      "schema": "vulkan_prepack::stack_program_owned_temp_slot_identity() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_program_owned_temp_stability",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2685,
+      "name": "vulkan_prepack::stack_program_owned_temp_stability",
+      "schema": "vulkan_prepack::stack_program_owned_temp_stability() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_replay_binding_mode",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2699,
+      "name": "vulkan_prepack::stack_replay_binding_mode",
+      "schema": "vulkan_prepack::stack_replay_binding_mode() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_replay_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2701,
+      "name": "vulkan_prepack::stack_replay_counters",
+      "schema": "vulkan_prepack::stack_replay_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_replay_readiness",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_replay_and_compiled_session",
+      "line": 2697,
+      "name": "vulkan_prepack::stack_replay_readiness",
+      "schema": "vulkan_prepack::stack_replay_readiness() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_resource_binding_manifest",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2675,
+      "name": "vulkan_prepack::stack_resource_binding_manifest",
+      "schema": "vulkan_prepack::stack_resource_binding_manifest() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_retire_drain_blocker_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2553,
+      "name": "vulkan_prepack::stack_retire_drain_blocker_counters",
+      "schema": "vulkan_prepack::stack_retire_drain_blocker_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_retire_drain_blocker_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2555,
+      "name": "vulkan_prepack::stack_retire_drain_blocker_snapshot",
+      "schema": "vulkan_prepack::stack_retire_drain_blocker_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_scratch_arena_lifetime_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2569,
+      "name": "vulkan_prepack::stack_scratch_arena_lifetime_snapshot",
+      "schema": "vulkan_prepack::stack_scratch_arena_lifetime_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_shape_plan_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2667,
+      "name": "vulkan_prepack::stack_shape_plan_counters",
+      "schema": "vulkan_prepack::stack_shape_plan_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_shape_plan_keys",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2663,
+      "name": "vulkan_prepack::stack_shape_plan_keys",
+      "schema": "vulkan_prepack::stack_shape_plan_keys() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_shape_plan_readiness",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2665,
+      "name": "vulkan_prepack::stack_shape_plan_readiness",
+      "schema": "vulkan_prepack::stack_shape_plan_readiness() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_subresource_lifetime_dry_run_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2563,
+      "name": "vulkan_prepack::stack_subresource_lifetime_dry_run_counters",
+      "schema": "vulkan_prepack::stack_subresource_lifetime_dry_run_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_subresource_lifetime_dry_run_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2565,
+      "name": "vulkan_prepack::stack_subresource_lifetime_dry_run_snapshot",
+      "schema": "vulkan_prepack::stack_subresource_lifetime_dry_run_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::stack_temp_lifetime_safety_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2543,
+      "name": "vulkan_prepack::stack_temp_lifetime_safety_snapshot",
+      "schema": "vulkan_prepack::stack_temp_lifetime_safety_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::submit_origin_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2523,
+      "name": "vulkan_prepack::submit_origin_counters",
+      "schema": "vulkan_prepack::submit_origin_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::submit_origin_phase_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2527,
+      "name": "vulkan_prepack::submit_origin_phase_counters",
+      "schema": "vulkan_prepack::submit_origin_phase_counters() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::swap_runtime_label",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_label_and_device_name_inference",
+      "line": 2475,
+      "name": "vulkan_prepack::swap_runtime_label",
+      "schema": "vulkan_prepack::swap_runtime_label(str label) -> str",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::sync_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2514,
+      "name": "vulkan_prepack::sync_counters",
+      "schema": "vulkan_prepack::sync_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::sync_readback_count",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2496,
+      "name": "vulkan_prepack::sync_readback_count",
+      "schema": "vulkan_prepack::sync_readback_count() -> int",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::synchronize",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2477,
+      "name": "vulkan_prepack::synchronize",
+      "schema": "vulkan_prepack::synchronize() -> ()",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::timed_fallback_phase_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2506,
+      "name": "vulkan_prepack::timed_fallback_phase_counters",
+      "schema": "vulkan_prepack::timed_fallback_phase_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::to_vulkan_labeled",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_label_and_device_name_inference",
+      "line": 2473,
+      "name": "vulkan_prepack::to_vulkan_labeled",
+      "schema": "vulkan_prepack::to_vulkan_labeled(Tensor X, str label) -> Tensor Y",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::token_prefix_cat_add",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2453,
+      "name": "vulkan_prepack::token_prefix_cat_add",
+      "schema": "vulkan_prepack::token_prefix_cat_add(Tensor prefix, Tensor tokens, Tensor pos) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::tokens_to_feature_map",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2447,
+      "name": "vulkan_prepack::tokens_to_feature_map",
+      "schema": "vulkan_prepack::tokens_to_feature_map(Tensor X, int height, int width) -> Tensor",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::validate_stack_shape_plan_binding",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2671,
+      "name": "vulkan_prepack::validate_stack_shape_plan_binding",
+      "schema": "vulkan_prepack::validate_stack_shape_plan_binding(__torch__.torch.classes.vulkan.VisionBackboneStackContext context, int planned_tokens, Tensor X, int[] capture_indices) -> str",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::value_trace_enabled",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2490,
+      "name": "vulkan_prepack::value_trace_enabled",
+      "schema": "vulkan_prepack::value_trace_enabled() -> bool",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::vision_owner_context_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2639,
+      "name": "vulkan_prepack::vision_owner_context_counters",
+      "schema": "vulkan_prepack::vision_owner_context_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::vision_owner_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2635,
+      "name": "vulkan_prepack::vision_owner_counters",
+      "schema": "vulkan_prepack::vision_owner_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::vision_owner_mlp_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2645,
+      "name": "vulkan_prepack::vision_owner_mlp_counters",
+      "schema": "vulkan_prepack::vision_owner_mlp_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::vision_stack_owner_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
+      "line": 2649,
+      "name": "vulkan_prepack::vision_stack_owner_counters",
+      "schema": "vulkan_prepack::vision_stack_owner_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Migration"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::vulkan_memory_residency_snapshot",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2601,
+      "name": "vulkan_prepack::vulkan_memory_residency_snapshot",
+      "schema": "vulkan_memory_residency_snapshot() -> str[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_prepack::zero_counters",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 2705,
+      "name": "vulkan_prepack::zero_counters",
+      "schema": "vulkan_prepack::zero_counters() -> int[]",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_quantized::add",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 3604,
+      "name": "vulkan_quantized::add",
+      "schema": "vulkan_quantized::add(Tensor qa, Tensor qb, float scale, int zero_point) -> Tensor qc",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_quantized::div",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 3619,
+      "name": "vulkan_quantized::div",
+      "schema": "vulkan_quantized::div(Tensor qa, Tensor qb, float scale, int zero_point)-> Tensor qc",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_quantized::mul",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 3614,
+      "name": "vulkan_quantized::mul",
+      "schema": "vulkan_quantized::mul(Tensor qa, Tensor qb, float scale, int zero_point)-> Tensor qc",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "operator_schema:vulkan_quantized::sub",
+      "kind": "operator_schema",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 3609,
+      "name": "vulkan_quantized::sub",
+      "schema": "vulkan_quantized::sub(Tensor qa, Tensor qb, float scale, int zero_point)-> Tensor qc",
+      "source": "aten/src/ATen/native/vulkan/ops/Register.cpp",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.backends.vulkan.is_available",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 7,
+      "name": "torch.backends.vulkan.is_available",
+      "source": "torch/backends/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.ColwiseParallel",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 156,
+      "name": "torch.vulkan.ColwiseParallel",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.DeviceGroup",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 157,
+      "name": "torch.vulkan.DeviceGroup",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.DeviceMesh",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 158,
+      "name": "torch.vulkan.DeviceMesh",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.ParallelStyle",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 159,
+      "name": "torch.vulkan.ParallelStyle",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.Replicate",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 160,
+      "name": "torch.vulkan.Replicate",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.RowwiseParallel",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 161,
+      "name": "torch.vulkan.RowwiseParallel",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.VulkanGraphCensus",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 162,
+      "name": "torch.vulkan.VulkanGraphCensus",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.VulkanGraphExecutionError",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 163,
+      "name": "torch.vulkan.VulkanGraphExecutionError",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.VulkanGraphNodeRecord",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 164,
+      "name": "torch.vulkan.VulkanGraphNodeRecord",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.VulkanGraphProgram",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 165,
+      "name": "torch.vulkan.VulkanGraphProgram",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.VulkanGraphProgramKey",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 166,
+      "name": "torch.vulkan.VulkanGraphProgramKey",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.VulkanLinearLoweringReport",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 167,
+      "name": "torch.vulkan.VulkanLinearLoweringReport",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.current_device",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 168,
+      "name": "torch.vulkan.current_device",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.device",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 169,
+      "name": "torch.vulkan.device",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.device_count",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 170,
+      "name": "torch.vulkan.device_count",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.device_group",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 171,
+      "name": "torch.vulkan.device_group",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.device_mesh",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 172,
+      "name": "torch.vulkan.device_mesh",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.device_of",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 173,
+      "name": "torch.vulkan.device_of",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.export_and_lower",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 174,
+      "name": "torch.vulkan.export_and_lower",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.get_device_name",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 175,
+      "name": "torch.vulkan.get_device_name",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.get_device_properties",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 176,
+      "name": "torch.vulkan.get_device_properties",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.is_available",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 177,
+      "name": "torch.vulkan.is_available",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.parallelize_module",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 178,
+      "name": "torch.vulkan.parallelize_module",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.replicate_module",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 179,
+      "name": "torch.vulkan.replicate_module",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    },
+    {
+      "id": "python_entrypoint:torch.vulkan.set_device",
+      "kind": "python_entrypoint",
+      "ledger_entry": "active_graph_eager_and_diagnostics",
+      "line": 180,
+      "name": "torch.vulkan.set_device",
+      "source": "torch/vulkan/__init__.py",
+      "state": "Active"
+    }
+  ]
+}
