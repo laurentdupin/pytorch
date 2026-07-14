@@ -108,6 +108,29 @@
       "consequence": "The inactive shader, exact DAv2 constants, admission checks, output preparation, dispatch branch, and fused-route log label were deleted. The composed decoder tail and its DAv2 behavioral coverage remain; replay and compiled-session deletion gates are unchanged."
     },
     {
+      "id": "current_topology_submit_elision_canary",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The opt-in canary removed one selected phase-boundary submit and intermittently corrupted private-capture output.",
+        "Its behavior-changing branch had already been backed out; the direct hook returned false, and its remaining authorization input only selected a different fail-closed diagnostic for the retained single-recording canary.",
+        "Generic boundary, barrier, submit-ordering, and single-recording proof surfaces remain available for the graph-owned region replacement."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
+        "StackRegionSubmitElisionCanary",
+        "stack_region_submit_elision_canary",
+        "maybe_elide_stack_region_boundary_submit_canary",
+        "StackRegionLiveSubmitEquivalenceBinding"
+      ],
+      "consequence": "The inactive environment route, submit-hook observer, graph rows, live-submit exact-join schema, collector plumbing, and mechanism-only test were deleted. Current-topology submits remain preserved, and behavioral tests continue to cover repeated output parity and fail-closed single-recording ownership."
+    },
+    {
       "id": "linear_pending_flush_deferral_canary",
       "decision": "retire_experiment",
       "status": "deleted",
@@ -640,7 +663,6 @@
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_RETIRE_DRAIN_DEFER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY",
-        "environment_variable:PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
         "environment_variable:PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG",
         "environment_variable:PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF",
         "environment_variable:PYTORCH_VULKAN_VISION_OWNER_LOG",

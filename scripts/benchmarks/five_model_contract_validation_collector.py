@@ -1367,7 +1367,6 @@ STACK_REGION_GRAPH_ROW_KEYS = (
     "stack_region_barrier_only_canary_live_rows",
     "stack_region_pre_dispatch_proof_table_rows",
     "stack_region_boundary_optimization_plan_rows",
-    "stack_region_submit_elision_canary_rows",
     "stack_region_single_recording_canary_rows",
     "stack_region_exit_submit_runtime_point_rows",
     "stack_region_pending_retire_transfer_records",

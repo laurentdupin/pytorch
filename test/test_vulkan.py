@@ -25174,16 +25174,12 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
-        previous_submit_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-        )
         previous_single_recording_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG"] = retained_state_path
         os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
-        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         os.environ.pop(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
         )
@@ -25292,7 +25288,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 "StackRegionBoundaryOptimizationPlan.v0",
             )
             self.assertTrue(optimization_plan["default_behavior_unchanged"])
-            self.assertTrue(optimization_plan["opt_in_only"])
             self.assertGreater(optimization_plan["candidate_records"], 0)
             self.assertGreater(optimization_plan["non_capture_records"], 0)
             self.assertEqual(optimization_plan["barrier_validated_records"], 0)
@@ -25824,14 +25819,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
                 )
-            if previous_submit_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
-                )
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-                    previous_submit_canary
-                )
             if previous_single_recording_canary is None:
                 os.environ.pop(
                     "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
@@ -25869,9 +25856,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
-        previous_submit_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-        )
         previous_single_recording_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
@@ -25879,7 +25863,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
-        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         os.environ.pop(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
         )
@@ -25975,7 +25958,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             )
             self.assertEqual(optimization_plan["submits_removed"], 0)
             self.assertIn(
-                "eligible_requires_submit_elision_opt_in",
+                "eligible_for_region_owned_recording_migration",
                 optimization_plan["status_counts"],
             )
             self.assertIn("stack_region_submit_epoch_ordering", graph)
@@ -31292,14 +31275,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
                 )
-            if previous_submit_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
-                )
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-                    previous_submit_canary
-                )
             if previous_single_recording_canary is None:
                 os.environ.pop(
                     "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
@@ -31337,9 +31312,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
-        previous_submit_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-        )
         previous_single_recording_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
@@ -31362,7 +31334,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
-        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         os.environ["PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
@@ -32150,14 +32121,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
                 )
-            if previous_submit_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
-                )
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-                    previous_submit_canary
-                )
             if previous_single_recording_canary is None:
                 os.environ.pop(
                     "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
@@ -32275,9 +32238,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         settings = {
             "PYTORCH_VULKAN_STACK_DEP_GRAPH": graph_path,
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY": (
-                "non_capture_residual2_norm1_block1"
-            ),
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY": (
                 "non_capture_residual2_norm1_block1"
             ),
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY": (
@@ -34113,255 +34073,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
-    def test_vulkan_stack_region_submit_elision_canary_rejects_current_topology(
-        self,
-    ):
-        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
-            151,
-            blocks=2,
-            label_prefix="vision.synthetic.stack.submit_elision_rejected",
-        )
-
-        with torch.inference_mode():
-            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
-                x,
-                stack_context,
-                [1],
-            )
-            torch.ops.vulkan_prepack.synchronize()
-
-        graph_path = os.path.join(
-            TEST_FILE_DIR,
-            "vulkan_stack_region_submit_elision_rejected_test.json",
-        )
-        if os.path.exists(graph_path):
-            os.remove(graph_path)
-        previous = os.environ.get("PYTORCH_VULKAN_STACK_DEP_GRAPH")
-        previous_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
-        )
-        previous_submit_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-        )
-        previous_single_recording_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
-        )
-        previous_reset_deferral_owner = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
-        )
-        previous_close_submit_owner = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
-        )
-        previous_retire_timeline_owner = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"
-        )
-        previous_pending_retire_transfer_owner = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
-        )
-        previous_scope_retire_handoff = os.environ.get(
-            "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
-        os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
-            "non_capture_residual2_norm1_block1"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-            "non_capture_residual2_norm1_block1"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"] = (
-            "non_capture_residual2_norm1_block1"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"] = (
-            "context_retained_release_point"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"] = (
-            "stack_exit_close_submit"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"] = (
-            "stack_exit_close_submit"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"] = (
-            "preserved_phase_submit_handoff"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
-            "stack_scope_retire_handoff"
-        )
-        try:
-            torch.ops.vulkan_prepack.reset_stack_dispatch_dependency_dry_run()
-            torch.ops.vulkan_prepack.reset_stack_subresource_lifetime_dry_run_counters()
-            with torch.inference_mode():
-                warmup = (
-                    torch.ops.vulkan_prepack
-                    .run_vision_backbone_stack_private_capture_debug(
-                        x,
-                        stack_context,
-                        [1],
-                        True,
-                    )
-                )
-                torch.ops.vulkan_prepack.synchronize()
-                actual = (
-                    torch.ops.vulkan_prepack
-                    .run_vision_backbone_stack_private_capture_debug(
-                        x,
-                        stack_context,
-                        [1],
-                        True,
-                    )
-                )
-                torch.ops.vulkan_prepack.synchronize()
-
-            self.assertEqual(warmup[0].cpu(), expected[0].cpu())
-            self.assertEqual(actual[0].cpu(), expected[0].cpu())
-            self.assertTrue(os.path.exists(graph_path))
-            with open(graph_path, encoding="utf-8") as handle:
-                graph = json.load(handle)
-            recording_domain_rows = [
-                row["fields"]
-                for row in graph["stack_region_recording_domain_rows"]
-            ]
-            self.assertGreater(
-                graph["summary"]["stack_region_recording_domain_rows"], 0
-            )
-            self.assertTrue(recording_domain_rows)
-            self.assertTrue(
-                any(row["event"] == "stack_entry_begin" for row in recording_domain_rows)
-            )
-            self.assertTrue(
-                any(row["event"] == "stack_exit_submit" for row in recording_domain_rows)
-            )
-            self.assertTrue(
-                any(row["event"] == "active_cmd_context" for row in recording_domain_rows)
-            )
-            for domain_row in recording_domain_rows:
-                self.assertEqual(
-                    domain_row["recording_domain_mode"],
-                    "context_phase_submit_compat",
-                )
-                self.assertEqual(domain_row["region_owned_command_buffer_active"], "0")
-                self.assertEqual(domain_row["phase_boundary_submits_preserved"], "1")
-                self.assertEqual(
-                    domain_row["current_topology_submit_elision_forbidden"], "1"
-                )
-                self.assertEqual(
-                    domain_row["top_blocker"],
-                    "missing_region_owned_command_buffer_recording_domain",
-                )
-            self.assertFalse(graph["summary"]["single_recording_canary_enabled"])
-            self.assertEqual(
-                graph["summary"]["single_recording_canary_submits_removed"],
-                0,
-            )
-            self.assertEqual(
-                graph["summary"][
-                    "single_recording_canary_submits_removed_outside_selected_boundary"
-                ],
-                0,
-            )
-            canary_rows = graph["stack_region_single_recording_canary_rows"]
-            if not canary_rows:
-                return
-            rejected_rows = [
-                row["fields"]
-                for row in canary_rows
-                if row["fields"].get("guard_fail_reason")
-                == "single_recording_current_topology_value_preservation_rejected"
-            ]
-            self.assertTrue(rejected_rows)
-            row = rejected_rows[0]
-            self.assertEqual(row["authorizes_submit_elision"], "1")
-            self.assertEqual(
-                row["region_exit_ownership_transfer_authorizes_submit_elision"],
-                "1",
-            )
-            self.assertEqual(
-                row["region_exit_ownership_transfer_status"],
-                "region_exit_ownership_transfer_complete_authorized_canary",
-            )
-            self.assertEqual(row["region_exit_ownership_transfer_top_blocker"], "none")
-            self.assertEqual(row["region_exit_ownership_transfer_complete"], "1")
-            self.assertEqual(
-                row["region_exit_close_submit_owner_ownership_complete"], "1"
-            )
-            self.assertEqual(row["reset_deferral_owner_ownership_complete"], "1")
-            self.assertEqual(row["retire_timeline_owner_ownership_complete"], "1")
-            self.assertEqual(
-                row["pending_retire_transfer_owner_ownership_complete"], "1"
-            )
-            self.assertEqual(row["submit_elision_enabled"], "0")
-            self.assertEqual(row["deferred_submit_enabled"], "0")
-            self.assertEqual(row["selected_submits_removed"], "0")
-            self.assertEqual(row["submits_removed_outside_selected_boundary"], "0")
-        finally:
-            if previous is None:
-                os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = previous
-            if previous_canary is None:
-                os.environ.pop("PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY", None)
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
-                    previous_canary
-                )
-            if previous_submit_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
-                )
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-                    previous_submit_canary
-                )
-            if previous_single_recording_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
-                )
-            else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
-                ] = previous_single_recording_canary
-            if previous_reset_deferral_owner is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER", None
-                )
-            else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER"
-                ] = previous_reset_deferral_owner
-            if previous_close_submit_owner is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER", None
-                )
-            else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER"
-                ] = previous_close_submit_owner
-            if previous_retire_timeline_owner is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER",
-                    None,
-                )
-            else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_RETIRE_TIMELINE_OWNER"
-                ] = previous_retire_timeline_owner
-            if previous_pending_retire_transfer_owner is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
-                    None,
-                )
-            else:
-                os.environ[
-                    "PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER"
-                ] = previous_pending_retire_transfer_owner
-            if previous_scope_retire_handoff is None:
-                os.environ.pop("PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF", None)
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF"] = (
-                    previous_scope_retire_handoff
-                )
-            if os.path.exists(graph_path):
-                os.remove(graph_path)
-
     def test_vulkan_stack_region_preserved_phase_close_submit_owner_stays_fail_closed(
         self,
     ):
@@ -34389,9 +34100,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
-        previous_submit_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-        )
         previous_single_recording_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
@@ -34405,7 +34113,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
-        os.environ.pop("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None)
         os.environ["PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
@@ -34596,14 +34303,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
                 )
-            if previous_submit_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
-                )
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-                    previous_submit_canary
-                )
             if previous_single_recording_canary is None:
                 os.environ.pop(
                     "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY", None
@@ -34631,7 +34330,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
-    def test_vulkan_stack_region_live_boundary_identity_diagnostic(self):
+    def test_vulkan_stack_region_boundary_optimization_stays_behavior_neutral(self):
         _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
             151,
             blocks=2,
@@ -34655,17 +34354,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         previous_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"
         )
-        previous_submit_canary = os.environ.get(
-            "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-        )
         previous_single_recording_canary = os.environ.get(
             "PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY"
         )
         os.environ["PYTORCH_VULKAN_STACK_DEP_GRAPH"] = graph_path
         os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
-            "non_capture_residual2_norm1_block1"
-        )
-        os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
             "non_capture_residual2_norm1_block1"
         )
         os.environ.pop(
@@ -34695,183 +34388,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertTrue(os.path.exists(graph_path))
             with open(graph_path, encoding="utf-8") as handle:
                 graph = json.load(handle)
-            self.assertIn("stack_region_submit_elision_canary_rows", graph)
             optimization_plan = graph["stack_region_boundary_optimization_plan"]
             self.assertGreater(optimization_plan["candidate_records"], 0)
             self.assertEqual(
-                optimization_plan["candidate_records"],
                 optimization_plan["submit_elision_eligible_records"],
+                0,
             )
             self.assertEqual(
                 optimization_plan["candidate_records"],
                 optimization_plan["barrier_validated_records"],
             )
             self.assertEqual(optimization_plan["submits_removed"], 0)
-            rows = (
-                torch.ops.vulkan_prepack.stack_dispatch_dependency_dry_run_snapshot()
+            self.assertIn(
+                "eligible_for_region_owned_recording_migration",
+                optimization_plan["status_counts"],
             )
-            submit_rows = [
-                row
-                for row in rows
-                if "stack_region_submit_elision_canary=1" in row
-            ]
-            self.assertTrue(submit_rows)
-            self.assertTrue(
-                any(
-                    "live_boundary_id=non_capture_boundary:producer_block=0:consumer_block=1"
-                    in row
-                    and "live_boundary_scope=non_capture" in row
-                    and "live_descriptor_binding=6" in row
-                    and "phase_submit_epoch_visibility_contract_guard_status="
-                    in row
-                    and "phase_submit_epoch_visibility_contract_guard_reason="
-                    in row
-                    and "live_submit_equivalence_binding=StackRegionLiveSubmitEquivalenceBinding.v0"
-                    in row
-                    and "live_command_buffer_id_status=live_command_buffer_recording_scope_observed"
-                    in row
-                    and "live_submit_epoch_status=live_submit_epoch_observed"
-                    in row
-                    and "live_command_buffer_recording_id=" in row
-                    and "live_submit_epoch_before=" in row
-                    and "live_submit_epoch_after=" in row
-                    and "live_pending_dispatch_range_status=live_pending_dispatch_range_observed"
-                    in row
-                    and "live_pending_dispatch_count=" in row
-                    and "live_pending_dispatch_position_range_available=1"
-                    in row
-                    and "live_pending_dispatch_list_identity=scope:" in row
-                    and "live_pending_dispatch_range_match_status=live_range_uses_stack_dispatch_dependency_position_convention"
-                    in row
-                    and "live_pending_dispatch_range_proof_compare_status=live_range_observed_uses_graph_pending_range_identity"
-                    in row
-                    and "live_side_effect_completion_status=" in row
-                    and "live_side_effect_completion_reason=" in row
-                    and "live_side_effect_completion_binding_source=StackBoundarySubmitLevelEquivalenceProof.v0"
-                    in row
-                    and "live_side_effect_completion_live_command_buffer_identity=1"
-                    in row
-                    and "live_side_effect_completion_live_submit_epoch_identity=1"
-                    in row
-                    and "live_side_effect_completion_live_pending_dispatch_range=1"
-                    in row
-                    and "live_side_effect_completion_descriptor_updates="
-                    in row
-                    and "live_side_effect_completion_actual_norm1_input_barrier="
-                    in row
-                    and "live_side_effect_completion_old_carry_retire_only="
-                    in row
-                    and "live_side_effect_completion_unknown_ordering_retire_entries_zero="
-                    in row
-                    and "phase_submit_epoch_visibility_contract_authorizes_submit_elision=0"
-                    in row
-                    and "candidate_records=" in row
-                    and "eligible_records=" in row
-                    and "submits_removed=0" in row
-                    for row in submit_rows
-                )
-            )
-            submit_level_proof = graph["stack_region_submit_epoch_ordering"][
-                "stack_boundary_proof_records"
-            ]["submit_level_equivalence_proof"]
-            exact_join_records = submit_level_proof[
-                "live_submit_equivalence_binding_exact_join_records"
-            ]
-            selected_exact_join_records = [
-                record["fields"]
-                for record in exact_join_records
-                if record["fields"].get("live_boundary_id")
-                == "non_capture_boundary:producer_block=0:consumer_block=1"
-            ]
-            self.assertTrue(selected_exact_join_records)
-            self.assertTrue(
-                all(
-                    record["exact_submit_level_proof_join_status"]
-                    in {
-                        "exact_submit_level_proof_row_matched_complete",
-                        "exact_submit_level_proof_row_matched_incomplete",
-                    }
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    record["live_cumulative_status_not_behavior_proof"] == "1"
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_pending_dispatch_completion_equivalence_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_pending_dispatch_execution_visibility_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_phase_submit_execution_flush_contract_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_phase_submit_execution_flush_missing_source"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_phase_submit_command_buffer_continuity_proof_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_phase_submit_later_queue_submit_candidate_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_stack_region_deferred_submit_plan_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    "exact_stack_region_deferred_submit_later_point_status"
-                    in record
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    record[
-                        "phase_submit_epoch_visibility_contract_authorizes_submit_elision"
-                    ]
-                    == "0"
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertTrue(
-                all(
-                    record["submits_removed"] == "0"
-                    for record in selected_exact_join_records
-                )
-            )
-            self.assertFalse(any("submits_removed=1" in row for row in submit_rows))
         finally:
             if previous is None:
                 os.environ.pop("PYTORCH_VULKAN_STACK_DEP_GRAPH", None)
@@ -34882,14 +34413,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             else:
                 os.environ["PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY"] = (
                     previous_canary
-                )
-            if previous_submit_canary is None:
-                os.environ.pop(
-                    "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY", None
-                )
-            else:
-                os.environ["PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"] = (
-                    previous_submit_canary
                 )
             if previous_single_recording_canary is None:
                 os.environ.pop(

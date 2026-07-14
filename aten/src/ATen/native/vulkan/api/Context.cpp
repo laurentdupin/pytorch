@@ -4463,15 +4463,6 @@ VulkanSubmission Context::submit_cmd_to_gpu(
       }
       dry_run_all_safe_group_eligible = dry_run_budget_reject == "none";
     }
-    const bool should_elide_stack_region_boundary_submit =
-        record_phase_boundary_dry_run &&
-        maybe_elide_stack_region_boundary_submit_canary(
-            phase,
-            callsite,
-            command_buffer_recording_id,
-            submit_epoch_before,
-            submit_epoch_after,
-            pending_dispatch_count);
     const bool should_defer_stack_region_single_recording_owner =
         record_phase_boundary_dry_run &&
         maybe_defer_stack_region_single_recording_owner_canary(
@@ -4510,7 +4501,6 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     const bool should_coalesce_phase_boundary_explicit_sync =
         (kCoalescePhaseBoundaryExplicitSync &&
          dry_run_all_safe_group_eligible) ||
-        should_elide_stack_region_boundary_submit ||
         should_defer_stack_region_single_recording_owner;
     note_region_lifetime_submit_attribution_group(
         origin,

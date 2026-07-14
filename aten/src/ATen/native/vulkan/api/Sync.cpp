@@ -52,8 +52,6 @@ const char* stack_region_dependency_graph_path();
 bool stack_region_dependency_graph_summary_only();
 const char* stack_region_barrier_only_canary_target();
 bool stack_region_barrier_only_canary_target_selected(const char* target);
-const char* stack_region_submit_elision_canary_target();
-bool stack_region_submit_elision_canary_target_selected(const char* target);
 const char* stack_region_single_recording_canary_target();
 bool stack_region_single_recording_canary_target_selected(const char* target);
 const char* stack_region_reset_deferral_owner_target();
@@ -517,15 +515,6 @@ struct StackRegionBoundaryOptimizationPlanValue final {
   uint64_t submit_removed_count = 0u;
 };
 
-struct StackRegionSubmitElisionCanaryValue final {
-  uint64_t count = 0u;
-  uint64_t candidate_records = 0u;
-  uint64_t eligible_records = 0u;
-  uint64_t eligible_boundary_count = 0u;
-  uint64_t barrier_validated_count = 0u;
-  uint64_t submit_removed_count = 0u;
-};
-
 struct StackRegionSingleRecordingCanaryValue final {
   uint64_t count = 0u;
   uint64_t candidate_records = 0u;
@@ -714,12 +703,6 @@ stack_descriptor_set_update_generation_rows() {
 std::map<std::string, StackRegionBoundaryOptimizationPlanValue>&
 stack_region_boundary_optimization_plan_rows() {
   static std::map<std::string, StackRegionBoundaryOptimizationPlanValue> rows;
-  return rows;
-}
-
-std::map<std::string, StackRegionSubmitElisionCanaryValue>&
-stack_region_submit_elision_canary_rows() {
-  static std::map<std::string, StackRegionSubmitElisionCanaryValue> rows;
   return rows;
 }
 
@@ -1494,7 +1477,7 @@ const char* stack_region_boundary_optimization_status(
     return "missing_barrier_only_validation";
   }
   if (!submit_elision_requested) {
-    return "eligible_requires_submit_elision_opt_in";
+    return "eligible_for_region_owned_recording_migration";
   }
   return "submit_elision_eligible";
 }
@@ -1503,7 +1486,7 @@ const char* stack_region_boundary_optimization_reject_reason(
     const char* const status) {
   const std::string value(status ? status : "");
   if (value == "submit_elision_eligible" ||
-      value == "eligible_requires_submit_elision_opt_in") {
+      value == "eligible_for_region_owned_recording_migration") {
     return "none";
   }
   if (value == "missing_barrier_only_validation") {
@@ -1553,7 +1536,6 @@ std::string stack_region_boundary_optimization_plan_key(
   key << "stack_region_boundary_optimization_plan=1"
       << " contract=StackRegionBoundaryOptimizationPlan"
       << " schema=StackRegionBoundaryOptimizationPlan.v0"
-      << " opt_in_submit_env=PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
       << " default_behavior_unchanged=1"
       << " selected_boundary_id=" << proof.boundary_id
       << " boundary_class=non_capture_residual2_to_norm1"
@@ -1689,309 +1671,6 @@ void record_stack_region_boundary_optimization_plan_locked(
   if (std::string(status) == "submit_elision_eligible") {
     value.behavior_change_allowed_count += 1u;
     value.submit_elision_eligible_count += 1u;
-  }
-}
-
-std::string stack_region_submit_elision_canary_key(
-    const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite,
-    const uint64_t command_buffer_recording_id,
-    const uint64_t submit_epoch_before,
-    const uint64_t submit_epoch_after,
-    const uint64_t pending_dispatch_count,
-    const char* const status,
-    const char* const guard_status,
-    const char* const guard_reason,
-    const uint64_t candidate_records,
-    const uint64_t eligible_records,
-    const uint64_t eligible_boundary_count,
-    const uint64_t barrier_validated_count,
-    const uint64_t proof_ready_records,
-    const uint64_t selected_submit_rows,
-    const uint64_t pending_range_complete_rows,
-    const uint64_t same_active_command_buffer_rows,
-    const uint64_t descriptor_update_generation_rows_for_selected,
-    const uint64_t actual_norm1_input_barrier_rows,
-    const uint64_t old_carry_retire_only_rows,
-    const uint64_t unknown_ordering_retire_entries_zero_rows,
-    const uint64_t no_public_final_host_readback_blocker_rows,
-    const bool submit_removed) {
-  const int64_t live_block = current_vision_stack_block_index();
-  const bool live_selected_boundary =
-      stack_region_submit_elision_canary_target_selected(
-          stack_region_submit_elision_canary_target()) &&
-      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
-      live_block == 1;
-  const bool live_command_buffer_id_observed =
-      command_buffer_recording_id != 0u;
-  const uint64_t pending_dispatch_last_position =
-      g_stack_dispatch_dependency_position;
-  const bool live_pending_dispatch_range_available =
-      pending_dispatch_count > 0u &&
-      pending_dispatch_last_position >= pending_dispatch_count;
-  const uint64_t pending_dispatch_first_position =
-      live_pending_dispatch_range_available
-      ? pending_dispatch_last_position - pending_dispatch_count + 1u
-      : 0u;
-  const std::string live_pending_dispatch_list_identity =
-      live_pending_dispatch_range_available
-      ? "scope:" + std::to_string(g_stack_dispatch_dependency_scope_id) +
-          ":command_buffer:" + std::to_string(command_buffer_recording_id) +
-          ":positions:" + std::to_string(pending_dispatch_first_position) +
-          "-" + std::to_string(pending_dispatch_last_position)
-      : "missing_live_pending_dispatch_range";
-  const char* const live_pending_dispatch_range_status =
-      pending_dispatch_count == 0u
-      ? "no_live_pending_dispatches"
-      : (live_pending_dispatch_range_available
-             ? "live_pending_dispatch_range_observed"
-             : "missing_live_pending_dispatch_range_positions");
-  const char* const live_pending_dispatch_range_match_status =
-      pending_dispatch_count == 0u
-      ? "no_live_pending_dispatches"
-      : (live_pending_dispatch_range_available
-             ? "live_range_uses_stack_dispatch_dependency_position_convention"
-             : "missing_live_pending_dispatch_range_positions");
-  const bool live_submit_identity_and_range_observed =
-      live_command_buffer_id_observed && live_pending_dispatch_range_available;
-  const bool live_submit_epoch_observed = true;
-  const bool selected_boundary_side_effects_complete =
-      live_selected_boundary && selected_submit_rows > 0u &&
-      proof_ready_records >= selected_submit_rows &&
-      live_submit_identity_and_range_observed;
-  const char* const live_side_effect_completion_status =
-      !live_selected_boundary
-      ? "not_selected_boundary"
-      : (selected_boundary_side_effects_complete
-             ? "live_side_effect_completion_observed_complete"
-             : "live_side_effect_completion_fail_closed_predicate_incomplete");
-  const char* const live_side_effect_completion_reason =
-      !live_selected_boundary
-      ? "non_selected_boundary_out_of_scope"
-      : (selected_boundary_side_effects_complete
-             ? "selected_boundary_live_side_effect_predicates_complete"
-             : "selected_boundary_live_side_effect_predicate_missing");
-  const bool live_submit_equivalence_binding_complete =
-      selected_boundary_side_effects_complete;
-  const std::string selected_boundary_id =
-      non_capture_residual2_to_norm1_boundary_id(0, 1);
-  std::ostringstream key;
-  key << "stack_region_submit_elision_canary=1"
-      << " contract=StackRegionBoundaryOptimizationPlan"
-      << " schema=StackRegionSubmitElisionCanary.v0"
-      << " opt_in_env=PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY"
-      << " selected_boundary_id=" << selected_boundary_id
-      << " boundary_class=non_capture_residual2_to_norm1"
-      << " phase=" << submit_phase_name(phase)
-      << " callsite=" << retire_call_site_name(callsite)
-      << " live_phase=" << vision_stack_phase_name(current_vision_stack_phase())
-      << " live_block=" << live_block
-      << " live_boundary_id="
-      << (live_selected_boundary ? selected_boundary_id : "none")
-      << " live_boundary_scope="
-      << (live_selected_boundary ? "non_capture" : "none")
-      << " live_boundary_class="
-      << (live_selected_boundary ? "non_capture_residual2_to_norm1" : "none")
-      << " live_boundary_proof_source="
-      << (live_selected_boundary ? "StackRegionBoundarySubmitPlan.v0" : "none")
-      << " live_producer_block=" << (live_selected_boundary ? 0 : -1)
-      << " live_consumer_block=" << (live_selected_boundary ? 1 : -1)
-      << " live_descriptor_binding=" << (live_selected_boundary ? 6u : 0u)
-      << " producer_command_buffer_id="
-      << (live_command_buffer_id_observed
-              ? std::to_string(command_buffer_recording_id)
-              : "missing_live_submit_command_buffer_api")
-      << " barrier_command_buffer_id="
-      << (live_command_buffer_id_observed
-              ? std::to_string(command_buffer_recording_id)
-              : "missing_live_submit_command_buffer_api")
-      << " consumer_command_buffer_id="
-      << (live_command_buffer_id_observed
-              ? std::to_string(command_buffer_recording_id)
-              : "missing_live_submit_command_buffer_api")
-      << " producer_submit_epoch=" << submit_epoch_before
-      << " consumer_submit_epoch=" << submit_epoch_after
-      << " live_submit_equivalence_binding=StackRegionLiveSubmitEquivalenceBinding.v0"
-      << " live_command_buffer_id_status="
-      << (live_command_buffer_id_observed
-              ? "live_command_buffer_recording_scope_observed"
-              : "missing_live_submit_command_buffer_binding_api")
-      << " live_command_buffer_id_source=context_command_buffer_recording"
-      << " live_command_buffer_recording_id="
-      << (live_command_buffer_id_observed
-              ? std::to_string(command_buffer_recording_id)
-              : "0")
-      << " live_submit_epoch_status=live_submit_epoch_observed"
-      << " live_submit_epoch_source=context_submit_epoch_counter"
-      << " live_submit_epoch_before=" << submit_epoch_before
-      << " live_submit_epoch_after=" << submit_epoch_after
-      << " live_pending_dispatch_range_status="
-      << live_pending_dispatch_range_status
-      << " live_pending_dispatch_count=" << pending_dispatch_count
-      << " live_pending_dispatch_position_range_source=stack_dispatch_dependency_recorded_positions"
-      << " live_pending_dispatch_position_range_available="
-      << (live_pending_dispatch_range_available ? 1 : 0)
-      << " live_pending_dispatch_position_first="
-      << pending_dispatch_first_position
-      << " live_pending_dispatch_position_last="
-      << pending_dispatch_last_position
-      << " live_pending_dispatch_list_identity="
-      << live_pending_dispatch_list_identity
-      << " live_pending_dispatch_range_match_status="
-      << live_pending_dispatch_range_match_status
-      << " live_pending_dispatch_range_proof_compare_status="
-      << (live_pending_dispatch_range_available
-              ? "live_range_observed_uses_graph_pending_range_identity"
-              : live_pending_dispatch_range_match_status)
-      << " live_side_effect_completion_status="
-      << live_side_effect_completion_status
-      << " live_side_effect_completion_reason="
-      << live_side_effect_completion_reason
-      << " live_side_effect_completion_binding_source=StackBoundarySubmitLevelEquivalenceProof.v0"
-      << " live_side_effect_completion_live_command_buffer_identity="
-      << (live_command_buffer_id_observed ? 1 : 0)
-      << " live_side_effect_completion_live_submit_epoch_identity="
-      << (live_submit_epoch_observed ? 1 : 0)
-      << " live_side_effect_completion_live_pending_dispatch_range="
-      << (live_pending_dispatch_range_available ? 1 : 0)
-      << " live_side_effect_completion_descriptor_updates="
-      << (selected_submit_rows > 0u &&
-              descriptor_update_generation_rows_for_selected >=
-                  selected_submit_rows
-          ? 1
-          : 0)
-      << " live_side_effect_completion_actual_norm1_input_barrier="
-      << (selected_submit_rows > 0u &&
-              actual_norm1_input_barrier_rows >= selected_submit_rows
-          ? 1
-          : 0)
-      << " live_side_effect_completion_old_carry_retire_only="
-      << (selected_submit_rows > 0u &&
-              old_carry_retire_only_rows >= selected_submit_rows
-          ? 1
-          : 0)
-      << " live_side_effect_completion_unknown_ordering_retire_entries_zero="
-      << (selected_submit_rows > 0u &&
-              unknown_ordering_retire_entries_zero_rows >=
-                  selected_submit_rows
-          ? 1
-          : 0)
-      << " live_side_effect_completion_no_public_final_host_readback_blocker="
-      << (selected_submit_rows > 0u &&
-              no_public_final_host_readback_blocker_rows >=
-                  selected_submit_rows
-          ? 1
-          : 0)
-      << " live_side_effect_completion_pending_range_complete_rows="
-      << pending_range_complete_rows
-      << " live_side_effect_completion_same_active_command_buffer_rows="
-      << same_active_command_buffer_rows
-      << " live_side_effect_completion_descriptor_update_rows="
-      << descriptor_update_generation_rows_for_selected
-      << " live_side_effect_completion_barrier_rows="
-      << actual_norm1_input_barrier_rows
-      << " live_side_effect_completion_old_carry_retire_only_rows="
-      << old_carry_retire_only_rows
-      << " live_side_effect_completion_unknown_ordering_zero_rows="
-      << unknown_ordering_retire_entries_zero_rows
-      << " live_side_effect_completion_no_public_blocker_rows="
-      << no_public_final_host_readback_blocker_rows
-      << " live_submit_equivalence_binding_status="
-      << (live_submit_equivalence_binding_complete
-              ? "complete_live_submit_equivalence_binding_observed_behavior_disabled"
-              : (live_submit_identity_and_range_observed
-                     ? "partial_live_submit_equivalence_binding_observed_command_epoch_and_pending_range"
-                     : (live_command_buffer_id_observed
-                            ? "partial_live_submit_equivalence_binding_observed_command_buffer_and_epoch"
-                            : "unavailable_missing_live_submit_equivalence_binding_api")))
-      << " live_submit_equivalence_proof_status="
-      << (live_submit_equivalence_binding_complete
-              ? "live_submit_equivalence_proof_complete_behavior_disabled"
-              : (live_pending_dispatch_range_available
-                     ? "unavailable_missing_or_incomplete_live_side_effect_completion"
-                     : (live_command_buffer_id_observed
-                            ? "unavailable_missing_live_pending_range_and_side_effect_completion"
-                            : "unavailable_missing_live_submit_equivalence_binding_api")))
-      << " phase_submit_epoch_visibility_contract_authorizes_submit_elision=0"
-      << " submit_elision_requires_live_submit_equivalence_binding=1"
-      << " same_command_buffer_or_same_submit_batch_proven=0"
-      << " removed_submit_pending_dispatch_set_complete=0"
-      << " removed_submit_has_no_unmodeled_execution_side_effects=0"
-      << " all_pending_writes_covered_by_barrier_or_nonescaping=0"
-      << " submit_equivalence_fail_closed_reason=missing_submit_epoch_and_pending_dispatch_set"
-      << " status=" << (status ? status : "missing")
-      << " live_submit_eligibility_status=" << (status ? status : "missing")
-      << " phase_submit_epoch_visibility_contract_guard_status="
-      << (guard_status ? guard_status : "missing")
-      << " phase_submit_epoch_visibility_contract_guard_reason="
-      << (guard_reason ? guard_reason : "missing")
-      << " candidate_records=" << candidate_records
-      << " eligible_records=" << eligible_records
-      << " eligible_boundary_count=" << eligible_boundary_count
-      << " barrier_validated_count=" << barrier_validated_count
-      << " proof_ready_records=" << proof_ready_records
-      << " selected_submit_rows=" << selected_submit_rows
-      << " barriers_inserted=" << barrier_validated_count
-      << " submits_removed=" << (submit_removed ? 1 : 0);
-  return key.str();
-}
-
-void record_stack_region_submit_elision_canary_locked(
-    const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite,
-    const uint64_t command_buffer_recording_id,
-    const uint64_t submit_epoch_before,
-    const uint64_t submit_epoch_after,
-    const uint64_t pending_dispatch_count,
-    const char* const status,
-    const char* const guard_status,
-    const char* const guard_reason,
-    const uint64_t candidate_records,
-    const uint64_t eligible_records,
-    const uint64_t eligible_boundary_count,
-    const uint64_t barrier_validated_count,
-    const uint64_t proof_ready_records,
-    const uint64_t selected_submit_rows,
-    const uint64_t pending_range_complete_rows,
-    const uint64_t same_active_command_buffer_rows,
-    const uint64_t descriptor_update_generation_rows_for_selected,
-    const uint64_t actual_norm1_input_barrier_rows,
-    const uint64_t old_carry_retire_only_rows,
-    const uint64_t unknown_ordering_retire_entries_zero_rows,
-    const uint64_t no_public_final_host_readback_blocker_rows,
-    const bool submit_removed) {
-  auto& value = stack_region_submit_elision_canary_rows()
-      [stack_region_submit_elision_canary_key(
-          phase,
-          callsite,
-          command_buffer_recording_id,
-          submit_epoch_before,
-          submit_epoch_after,
-          pending_dispatch_count,
-          status,
-          guard_status,
-          guard_reason,
-          candidate_records,
-          eligible_records,
-          eligible_boundary_count,
-          barrier_validated_count,
-          proof_ready_records,
-          selected_submit_rows,
-          pending_range_complete_rows,
-          same_active_command_buffer_rows,
-          descriptor_update_generation_rows_for_selected,
-          actual_norm1_input_barrier_rows,
-          old_carry_retire_only_rows,
-          unknown_ordering_retire_entries_zero_rows,
-          no_public_final_host_readback_blocker_rows,
-          submit_removed)];
-  value.count += 1u;
-  value.candidate_records += candidate_records;
-  value.eligible_records += eligible_records;
-  value.eligible_boundary_count += eligible_boundary_count;
-  value.barrier_validated_count += barrier_validated_count;
-  if (submit_removed) {
-    value.submit_removed_count += 1u;
   }
 }
 
@@ -3125,8 +2804,6 @@ bool stack_descriptor_dependency_diagnostics_requested() {
 
 bool stack_dispatch_dependency_recording_requested() {
   return stack_descriptor_dependency_diagnostics_requested() ||
-      stack_region_submit_elision_canary_target_selected(
-             stack_region_submit_elision_canary_target()) ||
       stack_region_single_recording_canary_target_selected(
              stack_region_single_recording_canary_target());
 }
@@ -3146,22 +2823,6 @@ const char* stack_region_barrier_only_canary_target() {
 }
 
 bool stack_region_barrier_only_canary_target_selected(
-    const char* const target) {
-  if (target == nullptr) {
-    return false;
-  }
-  const std::string value(target);
-  return value == "non_capture_residual2_norm1_block1" ||
-      value == "producer_block_0_consumer_block_1";
-}
-
-const char* stack_region_submit_elision_canary_target() {
-  const char* env =
-      std::getenv("PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY");
-  return (env && *env) ? env : nullptr;
-}
-
-bool stack_region_submit_elision_canary_target_selected(
     const char* const target) {
   if (target == nullptr) {
     return false;
@@ -9109,12 +8770,6 @@ void append_stack_region_boundary_optimization_plan_json(
   append_json_string(
       out, "schema", "StackRegionBoundaryOptimizationPlan.v0", plan_first);
   append_json_bool(out, "default_behavior_unchanged", true, plan_first);
-  append_json_bool(out, "opt_in_only", true, plan_first);
-  append_json_string(
-      out,
-      "submit_elision_env",
-      "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
-      plan_first);
   append_json_u64(out, "candidate_records", candidate_records, plan_first);
   append_json_u64(out, "non_capture_records", non_capture_records, plan_first);
   append_json_u64(
@@ -9291,7 +8946,6 @@ void append_stack_region_submit_epoch_ordering_json(
     const std::vector<std::string>& raw_resource_producer_rows,
     const std::vector<std::string>& consumer_registration_rows,
     const std::vector<std::string>& barrier_only_canary_rows,
-    const std::vector<std::string>& submit_rows,
     const std::vector<std::string>& exit_submit_runtime_point_rows,
     bool& first) {
   uint64_t optimization_records = 0u;
@@ -10076,7 +9730,6 @@ void append_stack_region_submit_epoch_ordering_json(
   std::map<std::string, std::set<std::string>>
       submit_level_submit_keys_by_boundary_id;
   std::vector<std::string> submit_level_equivalence_proof_rows;
-  std::vector<std::string> live_submit_equivalence_binding_exact_join_rows;
   std::vector<std::string> stack_region_submit_point_rows;
   std::vector<std::string> stack_region_planned_submit_point_rows;
   std::vector<std::string> stack_region_exit_release_point_rows;
@@ -10116,8 +9769,6 @@ void append_stack_region_submit_epoch_ordering_json(
   std::vector<std::string> stack_region_command_buffer_request_rows;
   std::vector<std::string> stack_region_command_buffer_request_result_rows;
   std::vector<std::string> stack_region_command_buffer_request_hook_plan_rows;
-  std::map<std::string, uint64_t>
-      live_submit_equivalence_binding_exact_join_status_counts;
   const auto submit_level_key_field =
       [](const std::map<std::string, std::string>& fields,
          const std::string& field) {
@@ -17086,251 +16737,6 @@ void append_stack_region_submit_epoch_ordering_json(
     stack_region_command_buffer_request_hook_plan_rows.emplace_back(
         request_hook_row.str());
   }
-  const auto field_or_value =
-      [](const std::map<std::string, std::string>& fields,
-         const char* key,
-         const std::string& fallback) {
-        const auto it = fields.find(key);
-        return it == fields.end() ? fallback : it->second;
-      };
-  for (const auto& row : submit_rows) {
-    const auto fields = parse_space_separated_fields(row);
-    std::map<std::string, std::string> normalized_fields = fields;
-    const std::string live_boundary_id =
-        field_or(fields, "live_boundary_id", "none");
-    const std::string live_boundary_class =
-        field_or(fields, "live_boundary_class", "unknown");
-    const std::string live_pending_dispatch_list_identity = field_or(
-        fields, "live_pending_dispatch_list_identity", "missing");
-    const std::string stack_region_instance_id =
-        field_or(fields, "stack_region_instance_id", "") == ""
-        ? stack_region_instance_from_pending_identity(
-              live_pending_dispatch_list_identity)
-        : field_or(fields, "stack_region_instance_id", "missing");
-    normalized_fields["live_boundary_stack_phase"] = field_or_value(
-        fields,
-        "live_boundary_stack_phase",
-        field_or_value(
-            fields,
-            "live_phase",
-            field_or(fields, "phase", "missing")));
-    normalized_fields["stack_region_instance_id"] = stack_region_instance_id;
-    normalized_fields["phase_boundary_submit_epoch_before"] = field_or_value(
-        fields,
-        "phase_boundary_submit_epoch_before",
-        field_or_value(
-            fields,
-            "live_submit_epoch_before",
-            field_or(fields, "producer_submit_epoch", "missing")));
-    normalized_fields["phase_boundary_submit_epoch_after"] = field_or_value(
-        fields,
-        "phase_boundary_submit_epoch_after",
-        field_or_value(
-            fields,
-            "live_submit_epoch_after",
-            field_or(fields, "consumer_submit_epoch", "missing")));
-    const std::string exact_submit_key =
-        submit_level_key_for_fields(normalized_fields);
-    const std::string exact_submit_key_fields =
-        submit_level_key_fields_for_fields(normalized_fields);
-    const auto proof_it =
-        submit_level_proof_by_submit_key.find(exact_submit_key);
-    const uint64_t count = std::max<uint64_t>(parsed_u64(fields, "count"), 1u);
-    std::string status;
-    std::string reason;
-    std::string proof_complete = "0";
-    std::string proof_reject_reason = "none";
-    std::string proof_candidate_status = "missing_submit_level_proof";
-    std::string proof_records = "0";
-    std::string proof_bytes = "0";
-    std::string proof_topology_signature = "missing";
-    std::string proof_pending_dispatch_completion_equivalence_status =
-        "missing_submit_level_proof";
-    std::string proof_pending_dispatch_completion_equivalence_reason =
-        "missing_submit_level_proof";
-    std::string proof_pending_dispatch_execution_visibility_status =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_execution_flush_contract_status =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_execution_flush_contract_reason =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_execution_flush_required_primitive =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_execution_flush_replacement_candidate =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_execution_flush_missing_source =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_command_buffer_continuity_status =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_command_buffer_continuity_reason =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_later_queue_submit_candidate_status =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_later_retire_coverage_status =
-        "missing_submit_level_proof";
-    std::string proof_phase_submit_command_buffer_continuity_missing_source =
-        "missing_submit_level_proof";
-    std::string proof_stack_region_deferred_submit_plan_status =
-        "missing_submit_level_proof";
-    std::string proof_stack_region_deferred_submit_plan_reason =
-        "missing_submit_level_proof";
-    std::string proof_stack_region_deferred_submit_later_point_status =
-        "missing_submit_level_proof";
-    std::string proof_stack_region_deferred_submit_top_migration_blocker =
-        "missing_submit_level_proof";
-    if (live_boundary_id == "none") {
-      status = "not_selected_boundary";
-      reason = "non_selected_boundary_out_of_scope";
-    } else if (proof_it == submit_level_proof_by_submit_key.end()) {
-      status = "no_exact_submit_level_proof_row_for_live_submit_key";
-      reason = "live_row_emitted_before_finalized_proof_table_or_key_mismatch";
-    } else {
-      const auto& proof = proof_it->second;
-      const bool ambiguous =
-          proof.submit_keys.size() > 1u ||
-          proof.stack_region_instance_ids.size() > 1u ||
-          proof.topology_signatures.size() > 1u;
-      proof_complete = proof.final_complete ? "1" : "0";
-      proof_reject_reason = proof.final_reject_reason;
-      proof_candidate_status =
-          top_count_key_from_map(proof.candidate_status_counts);
-      proof_records = std::to_string(proof.records);
-      proof_bytes = std::to_string(proof.bytes);
-      proof_topology_signature = proof.topology_signatures.empty()
-          ? "missing_current_run_topology_signature"
-          : *proof.topology_signatures.begin();
-      proof_pending_dispatch_completion_equivalence_status =
-          proof.pending_dispatch_completion_equivalence_status;
-      proof_pending_dispatch_completion_equivalence_reason =
-          proof.pending_dispatch_completion_equivalence_reason;
-      proof_pending_dispatch_execution_visibility_status =
-          proof.pending_dispatch_execution_visibility_status;
-      proof_phase_submit_execution_flush_contract_status =
-          proof.phase_submit_execution_flush_contract_status;
-      proof_phase_submit_execution_flush_contract_reason =
-          proof.phase_submit_execution_flush_contract_reason;
-      proof_phase_submit_execution_flush_required_primitive =
-          proof.phase_submit_execution_flush_required_primitive;
-      proof_phase_submit_execution_flush_replacement_candidate =
-          proof.phase_submit_execution_flush_replacement_candidate;
-      proof_phase_submit_execution_flush_missing_source =
-          proof.phase_submit_execution_flush_missing_source;
-      proof_phase_submit_command_buffer_continuity_status =
-          proof.phase_submit_command_buffer_continuity_proof_status;
-      proof_phase_submit_command_buffer_continuity_reason =
-          proof.phase_submit_command_buffer_continuity_proof_reason;
-      proof_phase_submit_later_queue_submit_candidate_status =
-          proof.phase_submit_later_queue_submit_candidate_status;
-      proof_phase_submit_later_retire_coverage_status =
-          proof.phase_submit_later_retire_coverage_status;
-      proof_phase_submit_command_buffer_continuity_missing_source =
-          proof.phase_submit_command_buffer_continuity_missing_source;
-      proof_stack_region_deferred_submit_plan_status =
-          proof.stack_region_deferred_submit_plan_status;
-      proof_stack_region_deferred_submit_plan_reason =
-          proof.stack_region_deferred_submit_plan_reason;
-      proof_stack_region_deferred_submit_later_point_status =
-          proof.stack_region_deferred_submit_later_point_status;
-      proof_stack_region_deferred_submit_top_migration_blocker =
-          proof.stack_region_deferred_submit_top_migration_blocker;
-      if (ambiguous) {
-        status = "ambiguous_multiple_proof_rows_for_live_submit_key";
-        reason = "exact_live_submit_key_maps_to_multiple_topology_records";
-      } else if (proof.final_complete) {
-        status = "exact_submit_level_proof_row_matched_complete";
-        reason = "exact_submit_level_proof_complete";
-      } else {
-        status = "exact_submit_level_proof_row_matched_incomplete";
-        reason = proof.final_reject_reason;
-      }
-    }
-    live_submit_equivalence_binding_exact_join_status_counts[status] += count;
-    std::ostringstream exact_row;
-    exact_row
-        << "schema=StackRegionLiveSubmitEquivalenceBindingExactJoin.v0"
-        << " live_submit_equivalence_binding=StackRegionLiveSubmitEquivalenceBinding.v0"
-        << " behavior_neutral=1 default_behavior_unchanged=1"
-        << " live_boundary_id=" << live_boundary_id
-        << " live_boundary_class=" << live_boundary_class
-        << " live_boundary_scope="
-        << field_or(fields, "live_boundary_scope", "unknown")
-        << " live_phase=" << field_or(fields, "live_phase", "missing")
-        << " live_block=" << field_or(fields, "live_block", "-1")
-        << " live_producer_block="
-        << field_or(fields, "live_producer_block", "-1")
-        << " live_consumer_block="
-        << field_or(fields, "live_consumer_block", "-1")
-        << " live_descriptor_binding="
-        << field_or(fields, "live_descriptor_binding", "-1")
-        << " stack_region_instance_id=" << stack_region_instance_id
-        << " live_command_buffer_recording_id="
-        << field_or(fields, "live_command_buffer_recording_id", "missing")
-        << " producer_command_buffer_id="
-        << field_or(fields, "producer_command_buffer_id", "missing")
-        << " consumer_command_buffer_id="
-        << field_or(fields, "consumer_command_buffer_id", "missing")
-        << " live_submit_epoch_before="
-        << field_or(fields, "live_submit_epoch_before", "missing")
-        << " live_submit_epoch_after="
-        << field_or(fields, "live_submit_epoch_after", "missing")
-        << " live_pending_dispatch_list_identity="
-        << live_pending_dispatch_list_identity
-        << " exact_submit_key=" << exact_submit_key
-        << " exact_submit_key_fields=" << exact_submit_key_fields
-        << " exact_submit_level_proof_join_status=" << status
-        << " exact_submit_level_proof_join_reason=" << reason
-        << " exact_submit_level_proof_complete=" << proof_complete
-        << " exact_submit_level_reject_reason=" << proof_reject_reason
-        << " exact_submit_level_candidate_status=" << proof_candidate_status
-        << " exact_submit_level_records=" << proof_records
-        << " exact_submit_level_bytes=" << proof_bytes
-        << " exact_submit_level_topology_signature="
-        << proof_topology_signature
-        << " exact_pending_dispatch_completion_equivalence_status="
-        << proof_pending_dispatch_completion_equivalence_status
-        << " exact_pending_dispatch_completion_equivalence_reason="
-        << proof_pending_dispatch_completion_equivalence_reason
-        << " exact_pending_dispatch_execution_visibility_status="
-        << proof_pending_dispatch_execution_visibility_status
-        << " exact_phase_submit_execution_flush_contract_status="
-        << proof_phase_submit_execution_flush_contract_status
-        << " exact_phase_submit_execution_flush_contract_reason="
-        << proof_phase_submit_execution_flush_contract_reason
-        << " exact_phase_submit_execution_flush_required_primitive="
-        << proof_phase_submit_execution_flush_required_primitive
-        << " exact_phase_submit_execution_flush_replacement_candidate="
-        << proof_phase_submit_execution_flush_replacement_candidate
-        << " exact_phase_submit_execution_flush_missing_source="
-        << proof_phase_submit_execution_flush_missing_source
-        << " exact_phase_submit_command_buffer_continuity_proof_status="
-        << proof_phase_submit_command_buffer_continuity_status
-        << " exact_phase_submit_command_buffer_continuity_proof_reason="
-        << proof_phase_submit_command_buffer_continuity_reason
-        << " exact_phase_submit_later_queue_submit_candidate_status="
-        << proof_phase_submit_later_queue_submit_candidate_status
-        << " exact_phase_submit_later_retire_coverage_status="
-        << proof_phase_submit_later_retire_coverage_status
-        << " exact_phase_submit_command_buffer_continuity_missing_source="
-        << proof_phase_submit_command_buffer_continuity_missing_source
-        << " exact_stack_region_deferred_submit_plan_status="
-        << proof_stack_region_deferred_submit_plan_status
-        << " exact_stack_region_deferred_submit_plan_reason="
-        << proof_stack_region_deferred_submit_plan_reason
-        << " exact_stack_region_deferred_submit_later_point_status="
-        << proof_stack_region_deferred_submit_later_point_status
-        << " exact_stack_region_deferred_submit_top_migration_blocker="
-        << proof_stack_region_deferred_submit_top_migration_blocker
-        << " live_cumulative_side_effect_completion_status="
-        << field_or(fields, "live_side_effect_completion_status", "missing")
-        << " live_cumulative_side_effect_completion_reason="
-        << field_or(fields, "live_side_effect_completion_reason", "missing")
-        << " live_cumulative_status_not_behavior_proof=1"
-        << " live_row_emission_order=live_row_emitted_before_finalized_proof_table"
-        << " phase_submit_epoch_visibility_contract_authorizes_submit_elision=0"
-        << " submits_removed=0 count=" << count;
-    live_submit_equivalence_binding_exact_join_rows.emplace_back(
-        exact_row.str());
-  }
   for (const auto& item : submit_level_proof_by_submit_key) {
     const auto& proof = item.second;
     auto& boundary_proof = submit_level_proof_by_boundary_id[proof.boundary_id];
@@ -19244,10 +18650,6 @@ void append_stack_region_submit_epoch_ordering_json(
   for (const auto& row : boundary_submit_plan_rows) {
     count_row(row, false, true);
   }
-  for (const auto& row : submit_rows) {
-    count_row(row, false, false);
-  }
-
   const auto top_count_key =
       [](const std::map<std::string, uint64_t>& values) {
         std::string top = "none";
@@ -23707,10 +23109,6 @@ void append_stack_region_submit_epoch_ordering_json(
   }
   out << "]";
   append_json_comma(out, submit_level_first);
-  out << "\"live_submit_equivalence_binding_exact_join_status_counts\":";
-  append_u64_map_object(
-      out, live_submit_equivalence_binding_exact_join_status_counts);
-  append_json_comma(out, submit_level_first);
   out << "\"records\":[";
   for (size_t i = 0u; i < submit_level_equivalence_proof_rows.size(); ++i) {
     if (i > 0u) {
@@ -23722,19 +23120,7 @@ void append_stack_region_submit_epoch_ordering_json(
         "submit_level_equivalence_proof");
   }
   out << "]";
-  append_json_comma(out, submit_level_first);
-  out << "\"live_submit_equivalence_binding_exact_join_records\":[";
-  for (size_t i = 0u; i < live_submit_equivalence_binding_exact_join_rows.size();
-       ++i) {
-    if (i > 0u) {
-      out << ',';
-    }
-    append_graph_row_object(
-        out,
-        live_submit_equivalence_binding_exact_join_rows[i],
-        "live_submit_equivalence_binding_exact_join");
-  }
-  out << "]}";
+  out << "}";
   append_json_comma(out, stack_boundary_first);
   out << "\"boundary_submit_equivalence_proof\":{";
   bool boundary_equivalence_first = true;
@@ -24230,7 +23616,6 @@ void split_stack_graph_rows(
     std::vector<std::string>& barrier_only_canary_rows,
     std::vector<std::string>& pre_dispatch_proof_rows,
     std::vector<std::string>& boundary_optimization_plan_rows,
-    std::vector<std::string>& submit_elision_canary_rows,
     std::vector<std::string>& single_recording_canary_rows,
     std::vector<std::string>& exit_submit_runtime_point_rows,
     std::vector<std::string>& recording_domain_rows,
@@ -24282,10 +23667,6 @@ void split_stack_graph_rows(
         row.find("stack_region_single_recording_canary=1") !=
         std::string::npos) {
       single_recording_canary_rows.emplace_back(row);
-      continue;
-    }
-    if (row.find("stack_region_submit_elision_canary=1") != std::string::npos) {
-      submit_elision_canary_rows.emplace_back(row);
       continue;
     }
     if (row.find("raw_resource_producer=1") != std::string::npos) {
@@ -24383,7 +23764,6 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
   std::vector<std::string> barrier_only_canary_rows;
   std::vector<std::string> pre_dispatch_proof_rows;
   std::vector<std::string> boundary_optimization_plan_rows;
-  std::vector<std::string> submit_elision_canary_rows;
   std::vector<std::string> single_recording_canary_rows;
   std::vector<std::string> exit_submit_runtime_point_rows;
   std::vector<std::string> recording_domain_rows;
@@ -24406,7 +23786,6 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       barrier_only_canary_rows,
       pre_dispatch_proof_rows,
       boundary_optimization_plan_rows,
-      submit_elision_canary_rows,
       single_recording_canary_rows,
       exit_submit_runtime_point_rows,
       recording_domain_rows,
@@ -24634,11 +24013,6 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       summary_first);
   append_json_u64(
       out,
-      "stack_region_submit_elision_canary_rows",
-      submit_elision_canary_rows.size(),
-      summary_first);
-  append_json_u64(
-      out,
       "stack_region_single_recording_canary_rows",
       single_recording_canary_rows.size(),
       summary_first);
@@ -24677,16 +24051,7 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       "raw_resource_producer_rows",
       raw_resource_producer_rows.size(),
       summary_first);
-  bool submit_elision_enabled = false;
-  for (const auto& row : submit_elision_canary_rows) {
-    const auto fields = parse_space_separated_fields(row);
-    if (parsed_u64(fields, "submits_removed") > 0u) {
-      submit_elision_enabled = true;
-      break;
-    }
-  }
-  append_json_bool(
-      out, "submit_elision_enabled", submit_elision_enabled, summary_first);
+  append_json_bool(out, "submit_elision_enabled", false, summary_first);
   bool single_recording_canary_enabled = false;
   uint64_t single_recording_canary_submits_removed = 0u;
   uint64_t single_recording_canary_outside_removed = 0u;
@@ -24779,12 +24144,6 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
         "stack_region_boundary_optimization_plan_rows",
         boundary_optimization_plan_rows,
         "stack_region_boundary_optimization_plan",
-        first);
-    append_graph_array(
-        out,
-        "stack_region_submit_elision_canary_rows",
-        submit_elision_canary_rows,
-        "stack_region_submit_elision_canary",
         first);
     append_graph_array(
         out,
@@ -24933,12 +24292,6 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       first);
   append_graph_array(
       out,
-      "stack_region_submit_elision_canary_rows",
-      submit_elision_canary_rows,
-      "stack_region_submit_elision_canary",
-      first);
-  append_graph_array(
-      out,
       "stack_region_single_recording_canary_rows",
       single_recording_canary_rows,
       "stack_region_single_recording_canary",
@@ -25039,7 +24392,6 @@ void write_stack_region_dependency_graph_json(std::ostream& out) {
       raw_resource_producer_rows,
       consumer_registration_rows,
       barrier_only_canary_rows,
-      submit_elision_canary_rows,
       exit_submit_runtime_point_rows,
       first);
   append_barrier_plan_json(
@@ -30975,8 +30327,6 @@ void note_stack_region_boundary_submit_plan(
   }
   const int64_t live_block = current_vision_stack_block_index();
   const bool non_capture_submit_target =
-      stack_region_submit_elision_canary_target_selected(
-          stack_region_submit_elision_canary_target()) ||
       stack_region_single_recording_canary_target_selected(
           stack_region_single_recording_canary_target()) ||
       stack_region_barrier_only_canary_target_selected(
@@ -31518,178 +30868,6 @@ void note_stack_region_boundary_submit_plan(
   }
 }
 
-bool maybe_elide_stack_region_boundary_submit_canary(
-    const VulkanSubmitPhase phase,
-    const VulkanRetireCallSite callsite,
-    const uint64_t command_buffer_recording_id,
-    const uint64_t submit_epoch_before,
-    const uint64_t submit_epoch_after,
-    const uint64_t pending_dispatch_count) {
-  const char* const target = stack_region_submit_elision_canary_target();
-  if (
-      !stack_region_submit_elision_canary_target_selected(target) ||
-      phase != VulkanSubmitPhase::StackOwner ||
-      !(callsite == VulkanRetireCallSite::StackOwnerPhaseBoundary ||
-        callsite == VulkanRetireCallSite::StackOwnerNorm1 ||
-        callsite == VulkanRetireCallSite::StackOwnerNorm2)) {
-    return false;
-  }
-  const std::string selected_boundary_id =
-      non_capture_residual2_to_norm1_boundary_id(0, 1);
-  std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
-  uint64_t already_removed = 0u;
-  for (const auto& item : stack_region_submit_elision_canary_rows()) {
-    already_removed += item.second.submit_removed_count;
-  }
-  const StackRegionOptimizationEligibilitySummary eligibility_summary =
-      stack_region_boundary_optimization_eligibility_summary_locked(
-          selected_boundary_id);
-  const StackRegionSubmitElisionProofGuardSummary proof_guard_summary =
-      stack_region_submit_elision_phase_contract_guard_summary_locked(
-          selected_boundary_id, eligibility_summary);
-  const bool live_boundary_matches_selected =
-      current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
-      current_vision_stack_block_index() == 1;
-  const char* const live_submit_status =
-      stack_region_live_submit_eligibility_status(
-          live_boundary_matches_selected, eligibility_summary);
-  if (already_removed != 0u) {
-    record_stack_region_submit_elision_canary_locked(
-        phase,
-        callsite,
-        command_buffer_recording_id,
-        submit_epoch_before,
-        submit_epoch_after,
-        pending_dispatch_count,
-        "already_removed_one_submit",
-        proof_guard_summary.status,
-        proof_guard_summary.reason,
-        eligibility_summary.candidate_records,
-        eligibility_summary.eligible_records,
-        eligibility_summary.eligible_boundary_count,
-        eligibility_summary.barrier_validated_count,
-        proof_guard_summary.proof_ready_rows,
-        proof_guard_summary.selected_submit_rows,
-        proof_guard_summary.pending_range_complete_rows,
-        proof_guard_summary.same_active_command_buffer_rows,
-        proof_guard_summary.descriptor_update_generation_rows_for_selected,
-        proof_guard_summary.actual_norm1_input_barrier_rows,
-        proof_guard_summary.old_carry_retire_only_rows,
-        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-        proof_guard_summary.no_public_final_host_readback_blocker_rows,
-        /*submit_removed=*/false);
-    return false;
-  }
-  if (!live_boundary_matches_selected) {
-    record_stack_region_submit_elision_canary_locked(
-        phase,
-        callsite,
-        command_buffer_recording_id,
-        submit_epoch_before,
-        submit_epoch_after,
-        pending_dispatch_count,
-        live_submit_status,
-        proof_guard_summary.status,
-        proof_guard_summary.reason,
-        eligibility_summary.candidate_records,
-        eligibility_summary.eligible_records,
-        eligibility_summary.eligible_boundary_count,
-        eligibility_summary.barrier_validated_count,
-        proof_guard_summary.proof_ready_rows,
-        proof_guard_summary.selected_submit_rows,
-        proof_guard_summary.pending_range_complete_rows,
-        proof_guard_summary.same_active_command_buffer_rows,
-        proof_guard_summary.descriptor_update_generation_rows_for_selected,
-        proof_guard_summary.actual_norm1_input_barrier_rows,
-        proof_guard_summary.old_carry_retire_only_rows,
-        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-        proof_guard_summary.no_public_final_host_readback_blocker_rows,
-        /*submit_removed=*/false);
-    return false;
-  }
-  if (std::string(live_submit_status) !=
-      "live_boundary_eligible_but_behavior_disabled") {
-    record_stack_region_submit_elision_canary_locked(
-        phase,
-        callsite,
-        command_buffer_recording_id,
-        submit_epoch_before,
-        submit_epoch_after,
-        pending_dispatch_count,
-        live_submit_status,
-        proof_guard_summary.status,
-        proof_guard_summary.reason,
-        eligibility_summary.candidate_records,
-        eligibility_summary.eligible_records,
-        eligibility_summary.eligible_boundary_count,
-        eligibility_summary.barrier_validated_count,
-        proof_guard_summary.proof_ready_rows,
-        proof_guard_summary.selected_submit_rows,
-        proof_guard_summary.pending_range_complete_rows,
-        proof_guard_summary.same_active_command_buffer_rows,
-        proof_guard_summary.descriptor_update_generation_rows_for_selected,
-        proof_guard_summary.actual_norm1_input_barrier_rows,
-        proof_guard_summary.old_carry_retire_only_rows,
-        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-        proof_guard_summary.no_public_final_host_readback_blocker_rows,
-        /*submit_removed=*/false);
-    return false;
-  }
-  if (std::string(proof_guard_summary.status) !=
-      "phase_contract_guard_proof_ready") {
-    record_stack_region_submit_elision_canary_locked(
-        phase,
-        callsite,
-        command_buffer_recording_id,
-        submit_epoch_before,
-        submit_epoch_after,
-        pending_dispatch_count,
-        "live_boundary_eligible_phase_contract_guard_failed",
-        proof_guard_summary.status,
-        proof_guard_summary.reason,
-        eligibility_summary.candidate_records,
-        eligibility_summary.eligible_records,
-        eligibility_summary.eligible_boundary_count,
-        eligibility_summary.barrier_validated_count,
-        proof_guard_summary.proof_ready_rows,
-        proof_guard_summary.selected_submit_rows,
-        proof_guard_summary.pending_range_complete_rows,
-        proof_guard_summary.same_active_command_buffer_rows,
-        proof_guard_summary.descriptor_update_generation_rows_for_selected,
-        proof_guard_summary.actual_norm1_input_barrier_rows,
-        proof_guard_summary.old_carry_retire_only_rows,
-        proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-        proof_guard_summary.no_public_final_host_readback_blocker_rows,
-        /*submit_removed=*/false);
-    return false;
-  }
-  record_stack_region_submit_elision_canary_locked(
-      phase,
-      callsite,
-      command_buffer_recording_id,
-      submit_epoch_before,
-      submit_epoch_after,
-      pending_dispatch_count,
-      "live_boundary_eligible_phase_contract_guard_ready_behavior_disabled",
-      proof_guard_summary.status,
-      proof_guard_summary.reason,
-      eligibility_summary.candidate_records,
-      eligibility_summary.eligible_records,
-      eligibility_summary.eligible_boundary_count,
-      eligibility_summary.barrier_validated_count,
-      proof_guard_summary.proof_ready_rows,
-      proof_guard_summary.selected_submit_rows,
-      proof_guard_summary.pending_range_complete_rows,
-      proof_guard_summary.same_active_command_buffer_rows,
-      proof_guard_summary.descriptor_update_generation_rows_for_selected,
-      proof_guard_summary.actual_norm1_input_barrier_rows,
-      proof_guard_summary.old_carry_retire_only_rows,
-      proof_guard_summary.unknown_ordering_retire_entries_zero_rows,
-      proof_guard_summary.no_public_final_host_readback_blocker_rows,
-      /*submit_removed=*/false);
-  return false;
-}
-
 bool maybe_defer_stack_region_single_recording_owner_canary(
     const VulkanSubmitPhase phase,
     const VulkanRetireCallSite callsite,
@@ -31739,9 +30917,7 @@ bool maybe_defer_stack_region_single_recording_owner_canary(
       current_vision_stack_phase() == VulkanVisionStackPhase::BlockEntry &&
       current_vision_stack_block_index() == 1;
   const bool submit_elision_authorized =
-      region_close_submit_owner_authorizes_submit_elision ||
-      stack_region_submit_elision_canary_target_selected(
-          stack_region_submit_elision_canary_target());
+      region_close_submit_owner_authorizes_submit_elision;
   const auto make_snapshot = [&](
                                  const char* const status,
                                  const char* const reason,
@@ -32523,8 +31699,6 @@ bool maybe_insert_vulkan_stack_barrier_only_canary_descriptor(
     return false;
   }
   const bool submit_elision_requested =
-      stack_region_submit_elision_canary_target_selected(
-          stack_region_submit_elision_canary_target()) ||
       stack_region_single_recording_canary_target_selected(
           stack_region_single_recording_canary_target());
   if (!inside_vision_stack_phase()) {
@@ -33229,7 +32403,6 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
       stack_region_barrier_only_canary_rows().size() +
       stack_region_pre_dispatch_proof_table_rows().size() +
       stack_region_boundary_optimization_plan_rows().size() +
-      stack_region_submit_elision_canary_rows().size() +
       stack_region_single_recording_canary_rows().size() +
       stack_region_exit_submit_runtime_point_rows().size() +
       stack_region_recording_domain_rows().size() +
@@ -33332,16 +32505,6 @@ std::vector<std::string> stack_dispatch_dependency_dry_run_snapshot() {
         << " submit_elision_eligible_count="
         << item.second.submit_elision_eligible_count
         << " barriers_inserted=" << item.second.barrier_inserted_count
-        << " submits_removed=" << item.second.submit_removed_count;
-    rows.push_back(row.str());
-  }
-  for (const auto& item : stack_region_submit_elision_canary_rows()) {
-    std::ostringstream row;
-    row << item.first << " count=" << item.second.count
-        << " candidate_records=" << item.second.candidate_records
-        << " eligible_records=" << item.second.eligible_records
-        << " eligible_boundary_count=" << item.second.eligible_boundary_count
-        << " barrier_validated_count=" << item.second.barrier_validated_count
         << " submits_removed=" << item.second.submit_removed_count;
     rows.push_back(row.str());
   }
@@ -33471,7 +32634,6 @@ void reset_stack_dispatch_dependency_dry_run() {
   stack_region_barrier_only_canary_rows().clear();
   stack_region_pre_dispatch_proof_table_rows().clear();
   stack_region_boundary_optimization_plan_rows().clear();
-  stack_region_submit_elision_canary_rows().clear();
   stack_region_single_recording_canary_rows().clear();
   stack_region_exit_submit_runtime_point_rows().clear();
   stack_region_recording_domain_rows().clear();

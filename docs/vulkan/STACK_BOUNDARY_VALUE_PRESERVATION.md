@@ -36,9 +36,9 @@ Each selected stack-region instance must classify into exactly one state:
   side-effect proof is incomplete.
 - `submit_proof_complete_but_value_preservation_missing`: submit-level proof is
   complete, but the value-preservation predicates below are not all satisfied.
-- `submit_elision_canary_ready`: every predicate is satisfied in the current run
-  and a separate explicit behavior flag is still required before any canary may
-  remove a submit.
+- `migration_ready_for_region_owned_recording`: every predicate is satisfied in
+  the current run, so a planned region-owned recording path may consume the
+  proof. The retired current-topology route cannot remove a submit.
 
 ## Required Predicates
 

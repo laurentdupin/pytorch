@@ -37,13 +37,13 @@
   "counts": {
     "by_kind": {
       "custom_class": 16,
-      "environment_variable": 64,
+      "environment_variable": 63,
       "operator_schema": 196,
       "python_entrypoint": 26
     },
     "by_state": {
       "Active": 189,
-      "Migration": 113
+      "Migration": 112
     }
   },
   "generator": "tools/vulkan_cleanup/generate_surface_inventory.py",
@@ -83,7 +83,7 @@
       ],
       "state": "Migration",
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
-      "surface_count": 88
+      "surface_count": 87
     },
     {
       "documents": [
@@ -184,6 +184,29 @@
       ],
       "scan_roots": [
         "aten/src/ATen/native/vulkan",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The opt-in canary removed one selected phase-boundary submit and intermittently corrupted private-capture output.",
+        "Its behavior-changing branch had already been backed out; the direct hook returned false, and its remaining authorization input only selected a different fail-closed diagnostic for the retained single-recording canary.",
+        "Generic boundary, barrier, submit-ordering, and single-recording proof surfaces remain available for the graph-owned region replacement."
+      ],
+      "consequence": "The inactive environment route, submit-hook observer, graph rows, live-submit exact-join schema, collector plumbing, and mechanism-only test were deleted. Current-topology submits remain preserved, and behavioral tests continue to cover repeated output parity and fail-closed single-recording ownership.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
+        "StackRegionSubmitElisionCanary",
+        "stack_region_submit_elision_canary",
+        "maybe_elide_stack_region_boundary_submit_canary",
+        "StackRegionLiveSubmitEquivalenceBinding"
+      ],
+      "id": "current_topology_submit_elision_canary",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts",
         "test"
       ],
       "status": "deleted"
@@ -1357,7 +1380,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3107,
+          "line": 2786,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1372,7 +1395,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3135,
+          "line": 2812,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1387,7 +1410,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3112,
+          "line": 2791,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1447,7 +1470,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3144,
+          "line": 2821,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1474,7 +1497,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3207,
+          "line": 2868,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         },
         {
@@ -1556,7 +1579,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3192,
+          "line": 2853,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1586,7 +1609,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3223,
+          "line": 2884,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1601,22 +1624,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 3176,
-          "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
-        }
-      ],
-      "state": "Migration"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
-      "kind": "environment_variable",
-      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
-      "name": "PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY",
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 3160,
+          "line": 2837,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],
@@ -1646,7 +1654,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 29268,
+          "line": 28620,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],

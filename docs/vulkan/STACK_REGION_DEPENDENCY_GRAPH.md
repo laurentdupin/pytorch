@@ -293,11 +293,11 @@ when a stack-owner recording scope ends. The v0 schema is
   `behavior_change_allowed`, and submit-elision eligibility. Public, capture,
   final, host-visible, and readback boundaries must remain fail-closed. The
   table is data-driven over proof predicates rather than model names or a
-  single benchmark route. A future submit-elision canary must use a separate
-  `PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` opt-in and only after the
-  same current run has inserted the real barrier records for the selected
-  non-capture boundary. Without that future opt-in, eligible records report
-  `eligible_requires_submit_elision_opt_in` and `submits_removed=0`.
+  single benchmark route. A future submit-elision implementation must use a
+  region-owned recording path and only after the same current run has inserted
+  the real barrier records for the selected non-capture boundary. The rejected
+  current-topology submit-deletion route is retired; eligible records remain
+  migration evidence and report `submits_removed=0`.
 - a nested `stack_boundary_proof_records` object with schema
   `StackBoundaryProofRecord.v0`. This is the consolidated per-boundary proof
   row surface for stack carry and submit-equivalence readiness. Each row records
@@ -534,37 +534,12 @@ ineligible regardless of environment flags.
 The first attempt to consume the proof-only
 `PhaseSubmitEpochVisibilityContract` for the selected `residual2@0 -> norm1@1`
 boundary removed one selected submit and failed bridge output sanity. That
-behavior was backed out. The graph may still emit
-`phase_contract_guard_proof_ready` rows under the opt-in submit-elision flag,
-but the current source preserves the submit and records `submits_removed=0`.
-Future behavior work must add a stronger value-preservation proof for removing
-the phase submit, not just the predicate-ready visibility contract.
-`StackRegionLiveSubmitEquivalenceBinding.v0` records the live-hook gap: whether
-the submit-elision decision site has command-buffer ids, submit epochs, pending
-dispatch range, and side-effect completion booleans before the submit executes.
-Current rows can observe the live command-buffer recording-scope id and submit
-epoch before/after values at the hook. They also bind the live pending-dispatch
-range using the same `scope:...:command_buffer:...:positions:first-last`
-identity convention as the graph proof rows. The live side-effect completion
-status is now bound from the selected-boundary submit-level predicates:
-descriptor update-generation evidence, matched actual Norm1 input barrier-only
-record, old-carry retire-only/non-escape proof, zero unknown/order-required
-retire entries, and absence of public/final/host/readback blockers. This binding
-is still behavior-neutral. Rows keep
-`phase_submit_epoch_visibility_contract_authorizes_submit_elision=0` and
-`submits_removed=0`.
-Because those rows are emitted before the final submit-level proof table is
-rolled up, they are not behavior proof. The graph therefore also emits
-`StackRegionLiveSubmitEquivalenceBindingExactJoin.v0` rows from the finalized
-`StackBoundarySubmitLevelEquivalenceProof.v0` table. The exact join key uses
-the selected boundary id/class, producer and consumer blocks, stack-region
-instance id, descriptor binding, callsite/phase, producer and consumer
-command-buffer ids, submit epochs, and the pending-dispatch range identity.
-Join statuses distinguish an exact complete proof row, an exact incomplete
-proof row with its reject reason, no proof row for the live submit key, and
-ambiguous multiple proof rows. The original cumulative live counters remain
-available for diagnosing emission order only and are marked as not
-behavior-authoritative.
+behavior was backed out, and the inactive environment route plus its live-submit
+binding and exact-join diagnostics were retired. The preserved rejection is
+that proof-ready visibility predicates do not establish value preservation
+when a current-topology phase submit is deleted. Future behavior work must use
+a planned region-owned recording path; generic submit-level proof remains as
+migration evidence.
 `StackRegionPendingDispatchCompletionEquivalenceProof.v0` is emitted from the
 same exact submit-level row. It records whether the pending dispatch range has
 an exact command-list proof, whether command recording is complete, whether
@@ -1195,10 +1170,9 @@ remove or defer a submit.
 The existing `StackRegionSingleRecordingCanary.v0` guard consumes the same
 component lifecycle state and records the aggregate transfer status on canary
 rows. The guard remains fail-closed by default at
-`region_exit_close_submit_owner_authorizes_submit_elision_disabled`. Enabling
-the explicit submit-elision canary can make the row report
-`region_exit_ownership_transfer_complete_authorized_canary`, but the current
-topology is still blocked by
+`region_exit_close_submit_owner_authorizes_submit_elision_disabled`. The
+retired submit-deletion canary could make the row report
+`region_exit_ownership_transfer_complete_authorized_canary`, but was blocked by
 `single_recording_current_topology_value_preservation_rejected`: skipping the
 selected phase-boundary submit after the fact was observed to corrupt
 private-capture outputs intermittently. Future performance work should build a

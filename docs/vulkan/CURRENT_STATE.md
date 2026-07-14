@@ -1296,10 +1296,10 @@ public, final, host-visible, and readback boundary records by live buffer
 binding, allocation/generation/range match, stage/access availability,
 insertion point availability, barrier-only validation, and submit-elision
 eligibility. Default behavior remains unchanged. Any submit-elision experiment
-must add and use a separate
-`PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` opt-in, must consume real
-barrier insertion plus current-run proof match, and may select at most one
-non-capture boundary.
+must be owned by a planned region-wide recording path and consume real barrier
+insertion plus a current-run proof match. The rejected current-topology
+submit-deletion canary has been retired; eligible rows are migration evidence,
+not permission to skip a submit.
 
 `StackBoundaryProofRecord.v0` consolidates the carry, actual Norm1 input, old
 carry retirement, barrier coverage, and submit-equivalence diagnostics into one
@@ -1443,34 +1443,12 @@ elision: `phase_submit_epoch_visibility_contract_behavior_enabled=0`,
 
 The first opt-in submit-elision canary for the selected
 `residual2@0 -> norm1@1` boundary removed one selected submit but failed
-bridge output sanity, so the behavior-changing return path was backed out.
-The current source keeps only diagnostic guard rows: selected rows can report
-`phase_contract_guard_proof_ready`, but `submits_removed` remains zero. The
-next proof gap is that the current `PhaseSubmitEpochVisibilityContract`
-predicates are not sufficient to prove value preservation when the phase submit
-itself is removed.
-
-Post-failure hardening adds `StackRegionLiveSubmitEquivalenceBinding.v0`
-diagnostic fields to the submit-elision canary rows. They explicitly distinguish
-live command-buffer recording-scope identity, live submit-epoch identity,
-live pending-dispatch range identity, and live side-effect completion status
-at the live submit hook. The live pending range uses the same
-`scope:...:command_buffer:...:positions:first-last` identity convention as the
-graph proof rows. Side-effect completion is reported from the same selected
-boundary predicates used by the current-run proof guard: descriptor update
-generation, matched actual Norm1 input barrier, old-carry retire-only proof,
-zero unknown/order-required retire entries, and no public/final/host/readback
-blockers. The proof-only phase contract still reports
-`phase_submit_epoch_visibility_contract_authorizes_submit_elision=0`; this is a
-diagnostic binding only and does not remove submits.
-`StackRegionLiveSubmitEquivalenceBindingExactJoin.v0` now supplements those
-live rows at graph serialization time by joining each live submit row to the
-finalized `StackBoundarySubmitLevelEquivalenceProof.v0` row with the exact
-boundary id, stack-region instance, command-buffer ids, submit epochs, and
-pending dispatch range identity. The earlier cumulative live side-effect
-counters remain visible as emission-order diagnostics, but they are explicitly
-marked non-authoritative for behavior decisions. Submit elision remains
-disabled and `submits_removed=0`.
+bridge output sanity. The behavior branch was backed out, and the inactive
+environment route, guard rows, live-submit binding, and exact-join diagnostics
+were subsequently retired. The retained rejection is that the current
+`PhaseSubmitEpochVisibilityContract` predicates do not prove value preservation
+when the phase submit itself is removed. Generic boundary and submit-level
+proof surfaces remain as migration evidence for a region-owned recording path.
 `StackRegionPendingDispatchCompletionEquivalenceProof.v0` now names the
 remaining submit-level execution side-effect gap per exact submit key. It
 separates exact command-list/range proof from command-buffer execution
@@ -1668,8 +1646,8 @@ a proof warmup pass to populate the selected non-capture
 `residual2@0 -> norm1@1` boundary plan, then the second pass may keep the
 stack-region command recording open across exactly that phase-boundary submit
 and close it at stack exit. Default behavior is unchanged, the older
-`PYTORCH_VULKAN_STACK_REGION_SUBMIT_ELISION_CANARY` path remains disabled, and
-the canary records `authorizes_submit_elision=0` because it is a
+current-topology submit-deletion path has been retired, and the canary records
+`authorizes_submit_elision=0` because it is a
 region-owned single-recording experiment rather than a retire-time submit
 elision proof. After real `vits_140` evidence showed one Norm1-input barrier
 does not preserve the full phase submit, the canary now also fails closed unless

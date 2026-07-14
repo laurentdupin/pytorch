@@ -2203,14 +2203,6 @@ TORCH_API void note_stack_region_boundary_submit_plan(
     const std::string& allocation_signature,
     const std::string& raw_provenance_signature,
     const std::string& blockers);
-TORCH_API bool maybe_elide_stack_region_boundary_submit_canary(
-    VulkanSubmitPhase phase,
-    VulkanRetireCallSite callsite,
-    uint64_t command_buffer_recording_id,
-    uint64_t submit_epoch_before,
-    uint64_t submit_epoch_after,
-    uint64_t pending_dispatch_count);
-
 TORCH_API bool maybe_defer_stack_region_single_recording_owner_canary(
     VulkanSubmitPhase phase,
     VulkanRetireCallSite callsite,
