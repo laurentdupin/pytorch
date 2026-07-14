@@ -57,6 +57,7 @@
         "aten/src/ATen/native/vulkan/planning/ExecutionContracts*",
         "aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime*",
         "aten/src/ATen/native/vulkan/planning/PackedWeightCache.*",
+        "aten/src/ATen/native/vulkan/planning/Request.*",
         "aten/src/ATen/native/vulkan/planning/Transition*"
       ],
       "state": "Active",
@@ -115,11 +116,13 @@
     {
       "id": "migration_label_and_device_name_inference",
       "paths": [
+        "aten/src/ATen/native/vulkan/planning/LegacyPlanningInference.*",
+        "aten/src/ATen/native/vulkan/planning/ModelLanePolicy.*",
         "aten/src/ATen/native/vulkan/planning/Request.cpp",
         "aten/src/ATen/native/vulkan/planning/DevicePolicy.cpp"
       ],
       "state": "Migration",
-      "summary": "Allocation-label model-lane inference and device-name policy checks.",
+      "summary": "Allocation-label model-lane inference and device-name policy checks. Label and tensor-shape heuristics are isolated in LegacyPlanningInference.* from explicit Request.* construction.",
       "surface_count": 4
     }
   ],
@@ -131,7 +134,7 @@
         "The deployed Qwen loader targets Qwen 2.5 through transformers and has no Vulkan custom-op callsite.",
         "Repository reachability outside tests ends inside the Qwen/gated-delta implementation, registration, and legacy planning caches."
       ],
-      "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, dedicated GatedDeltaSplit planning cache, and residual Qwen/gated-delta label sentinels were deleted. Generic Request.cpp label inference remains Migration until its separate explicit-field and lane-parity gate is met.",
+      "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, dedicated GatedDeltaSplit planning cache, and residual Qwen/gated-delta label sentinels were deleted. Generic planning-label inference remains Migration in LegacyPlanningInference.* until its separate explicit-field and lane-parity gate is met.",
       "decision": "out_of_scope",
       "forbidden_code_symbols": [
         "QwenLinearAttention",

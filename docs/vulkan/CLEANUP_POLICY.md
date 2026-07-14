@@ -39,9 +39,9 @@ path uses Transformers without a Vulkan custom-op call site, Qwen is outside the
 five-model Vulkan corpus, and repository reachability ended in the
 implementation, registration, and dedicated planning cache. The context,
 operators, shader, mechanism tests, `GatedDeltaSplit` cache, and residual
-Qwen/gated-delta label sentinels were deleted. Generic `Request.cpp` label
-inference remains Migration under its separate explicit-field and
-allocation-lane parity gate.
+Qwen/gated-delta label sentinels were deleted. Generic planning-label inference
+remains Migration in `LegacyPlanningInference.*` under its separate
+explicit-field and allocation-lane parity gate.
 
 ## Generated Reachability Inventory
 
@@ -96,18 +96,21 @@ Work that can interleave with executor milestones now:
 4. keep retained packed-weight and linear-context residency in
    `PackedWeightCache.*`, separate from migration-only KV-cache, scratch-arena,
    and readback objects in `ExecutionObjects.*`; and
-5. split mixed subsystems only when the split reduces the next deletion unit.
+5. keep allocation-label and tensor-shape guesses in
+   `LegacyPlanningInference.*`, separate from explicit semantic request
+   construction in `Request.*`; and
+6. split mixed subsystems only when the split reduces the next deletion unit.
 
 Later cleanup is a consequence of graph progress, not scheduled prerequisite
 work. VisionBlocks, compiled-session/replay, inference-graph, and stack-era
 systems remain Migration until Phase 5/6 graph programs provide the replacement
 and supported-default parity required by their ledger gates.
 
-`Request.cpp` label and device-name inference follows a strict order: graph
-lowering first supplies explicit semantic `VulkanPlanningRequest` fields,
-supported eager and graph paths demonstrate allocation-lane parity, and only
-then may the heuristics and `ModelLanePolicy` be deleted. The temporary
-exception remains live until those conditions hold.
+`LegacyPlanningInference.*`, `ModelLanePolicy.*`, and device-name policy
+branches follow a strict order: graph lowering first supplies explicit semantic
+`VulkanPlanningRequest` fields, supported eager and graph paths demonstrate
+allocation-lane parity, and only then may those heuristics be deleted. The
+temporary exception remains live until those conditions hold.
 
 Delete subsystem-era documentation with the subsystem. This includes large
 stack documents such as `STACK_REGION_DEPENDENCY_GRAPH.md`,

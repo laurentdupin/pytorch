@@ -55,6 +55,26 @@ PACKED_WEIGHT_CACHE_PATH = os.path.join(
     "planning",
     "PackedWeightCache.cpp",
 )
+LEGACY_PLANNING_INFERENCE_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "planning",
+    "LegacyPlanningInference.cpp",
+)
+REQUEST_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "planning",
+    "Request.cpp",
+)
 
 
 def _load_generator():
@@ -168,6 +188,29 @@ class TestVulkanCleanupInventory(TestCase):
         ):
             self.assertIn(definition, object_source)
             self.assertNotIn(definition, cache_source)
+
+    def test_explicit_planning_requests_are_separate_from_legacy_inference(self):
+        with open(LEGACY_PLANNING_INFERENCE_PATH, encoding="utf-8") as file:
+            inference_source = file.read()
+        with open(REQUEST_PATH, encoding="utf-8") as file:
+            request_source = file.read()
+
+        for definition in (
+            "current_planning_label()",
+            "allocation_label_contains(",
+            "kLlmlikeHiddenSizeThreshold",
+            "std::optional<VulkanExecutionPhase> infer_llm_phase_from_tensor_shape(",
+        ):
+            self.assertIn(definition, inference_source)
+            self.assertNotIn(definition, request_source)
+
+        for definition in (
+            "apply_scoped_planning_request(",
+            "make_vulkan_planning_request(",
+            "VulkanPlanningRequestScope::VulkanPlanningRequestScope(",
+        ):
+            self.assertIn(definition, request_source)
+            self.assertNotIn(definition, inference_source)
 
 
 if __name__ == "__main__":
