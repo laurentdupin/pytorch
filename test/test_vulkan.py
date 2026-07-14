@@ -486,7 +486,6 @@ class TestVulkanGovernance(TestCase):
                 )
                 self.assertTrue(native_plan["runtime_implemented"])
                 self.assertTrue(native_plan["runtime_canary_enabled"])
-                self.assertFalse(native_plan["runtime_unsafe_blocked"])
                 self.assertEqual(
                     native_plan["runtime_contract"],
                     "StackOutputBridgeDeepSplitPlanRuntime.v0",
@@ -503,9 +502,7 @@ class TestVulkanGovernance(TestCase):
 
         previous = os.environ.get(env_key)
         try:
-            os.environ[env_key] = (
-                benchmark.VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY
-            )
+            os.environ[env_key] = "python_private_baton"
             canary = benchmark.vulkan_stack_output_bridge_depth_status(
                 device_kind="vulkan",
                 bridge_requested=True,
@@ -525,14 +522,11 @@ class TestVulkanGovernance(TestCase):
         canary_plan = canary["deep_stack_bridge_split_plan"]
         self.assertEqual(
             canary_plan["status"],
-            "deep_stack_bridge_split_plan_python_private_baton_unsafe_blocked",
+            "deep_stack_bridge_split_plan_available_runtime_unimplemented",
         )
         self.assertFalse(canary_plan["runtime_implemented"])
-        self.assertTrue(canary_plan["runtime_unsafe_blocked"])
-        self.assertEqual(
-            canary_plan["unsafe_blocker"],
-            "python_private_baton_canary_stack_overflow_at_private_capture_debug",
-        )
+        self.assertFalse(canary_plan["runtime_canary_enabled"])
+        self.assertEqual(canary_plan["runtime_scope"], "none")
 
     def test_vulkan_stack_output_bridge_auto_deep_split_policy(self):
         benchmark = self._depth_anything_benchmark_module()

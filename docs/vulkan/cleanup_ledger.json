@@ -161,6 +161,27 @@
         "RuntimeElementwiseDeferredChainTrace.v0"
       ],
       "consequence": "The runtime compiler, owned-SPIR-V support, live sidecar, placeholder registry and consumer hooks, generated VisionBlocks routes, private schemas, environment gates, and mechanism tests were deleted. Concrete eager kernels and token-prefix buffer writes remain supported. The generic graph-scope deferred-registration guard survives with a direct C++ behavioral regression test."
+    },
+    {
+      "id": "python_private_baton_deep_split_canary",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "Production VisionBlocks only implements the native private-device-baton mode; the Python-mediated spelling was benchmark-local orchestration.",
+        "The Python-mediated canary overflowed the Windows stack inside run_vision_backbone_stack_private_capture_debug and never established a supported route.",
+        "The checked-in performance evidence manifest preserves the rejection result, so the live benchmark only needs a generic unsupported-mode fail-closed path."
+      ],
+      "scan_roots": [
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY",
+        "VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES",
+        "runtime_unsafe_blocked",
+        "unsafe_blocker"
+      ],
+      "consequence": "Dedicated unsafe-mode constants, planning fields, and status branches were deleted. The historical python_private_baton spelling now follows the generic unsupported-mode path, and a behavioral regression test still proves it cannot authorize deep-stack execution."
     }
   ],
   "entries": [

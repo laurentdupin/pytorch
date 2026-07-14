@@ -111,11 +111,7 @@ VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MAX_PROVEN_BLOCKS = 12
 VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV = (
     "PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT"
 )
-VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY = "python_private_baton"
 VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY = "native_private_baton"
-VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES = frozenset(
-    (VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY,)
-)
 VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES = frozenset(
     (VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY,)
 )
@@ -238,9 +234,6 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
         else runtime_mode
     )
     runtime_enabled = runtime_mode in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES
-    runtime_unsafe_blocked = (
-        runtime_mode in VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES
-    )
     result: dict[str, Any] = {
         "schema": "StackOutputBridgeDeepSplitPlan.v0",
         "needed": bool(block_count is not None and block_count > max_proven_blocks),
@@ -248,7 +241,6 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
         "runtime_mode": runtime_mode,
         "runtime_requested": runtime_mode != "none",
         "runtime_canary_enabled": runtime_enabled,
-        "runtime_unsafe_blocked": runtime_unsafe_blocked,
         "runtime_contract": "StackOutputBridgeDeepSplitPlanRuntime.v0",
         "max_blocks_per_chunk": max_proven_blocks,
         "block_count": block_count,
@@ -327,9 +319,7 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
         {
             "available": True,
             "status": (
-                "deep_stack_bridge_split_plan_python_private_baton_unsafe_blocked"
-                if runtime_unsafe_blocked
-                else "deep_stack_bridge_split_plan_available_runtime_implemented"
+                "deep_stack_bridge_split_plan_available_runtime_implemented"
                 if runtime_enabled
                 else "deep_stack_bridge_split_plan_available_runtime_unimplemented"
             ),
@@ -338,11 +328,6 @@ def build_vulkan_stack_output_bridge_deep_split_plan(
             "chunk_count": len(chunks),
             "private_baton_required": len(chunks) > 1,
             "runtime_implemented": runtime_enabled,
-            "unsafe_blocker": (
-                "python_private_baton_canary_stack_overflow_at_private_capture_debug"
-                if runtime_unsafe_blocked
-                else None
-            ),
             "runtime_scope": (
                 "native_bridge_private_device_baton"
                 if runtime_enabled

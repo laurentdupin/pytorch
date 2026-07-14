@@ -32,6 +32,14 @@ tensor-shape inference, and GPU-name overrides are isolated in
 `LegacyPlanningInference.*` and `LegacyDeviceNamePolicy.h`; their existing
 lane-parity deletion gate remains unchanged.
 
+The benchmark-local `python_private_baton` deep-split canary was retired on
+2026-07-14. Production only ever implemented the native private-device-baton
+mode, while the Python-mediated experiment overflowed the Windows stack. The
+benchmark now treats that retired spelling like any other unsupported mode and
+fails closed through the generic depth guard. The historical rejection reason
+remains in the performance evidence manifest, and the bug-class regression test
+continues to prove that the spelling cannot enable deep-stack execution.
+
 Runtime elementwise eager experiments were retired on 2026-07-14. The removed
 stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,
 live eager-chain sidecar recorder, deferred tensor placeholders, and the
@@ -779,8 +787,8 @@ stack-overflow path. An opt-in
 `PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton` runtime now
 splits deeper stacks into <=12-block native chunks, keeps the inter-chunk baton
 device-private, and feeds the captured tensors directly to the decoder-preprocess
-bridge. The unsafe benchmark-mediated `python_private_baton` mode remains
-blocked.
+bridge. The former benchmark-mediated `python_private_baton` mode is retired and
+falls through the generic unsupported-mode depth guard.
 
 `docs/vulkan/PERFORMANCE_EVIDENCE.md` and
 `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` now hold
@@ -965,10 +973,11 @@ all three kept timed fallback/readback/copies at zero and reported
 `PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton`, and an
 explicit benchmark env setting such as `none` is preserved rather than
 overridden. The benchmark-local
-`python_private_baton` canary remains unsafe blocked because it overflows inside
-`run_vision_backbone_stack_private_capture_debug`. Do not infer broad `vitl`
-support from `vits` or `vitb`, and do not retry the Python-mediated baton path
-as the next runtime proof.
+`python_private_baton` canary is retired because it overflowed inside
+`run_vision_backbone_stack_private_capture_debug`; its rejection remains
+historical evidence rather than live benchmark orchestration. Do not infer broad
+`vitl` support from `vits` or `vitb`, and do not retry the Python-mediated baton
+path as the next runtime proof.
 A post-`a3433b74fbd5` recheck with
 `PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT=native_private_baton`,
 `segmented_stack_wide4_to_exit`, and `compiled_session_bridge` passed

@@ -242,6 +242,27 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "Production VisionBlocks only implements the native private-device-baton mode; the Python-mediated spelling was benchmark-local orchestration.",
+        "The Python-mediated canary overflowed the Windows stack inside run_vision_backbone_stack_private_capture_debug and never established a supported route.",
+        "The checked-in performance evidence manifest preserves the rejection result, so the live benchmark only needs a generic unsupported-mode fail-closed path."
+      ],
+      "consequence": "Dedicated unsafe-mode constants, planning fields, and status branches were deleted. The historical python_private_baton spelling now follows the generic unsupported-mode path, and a behavioral regression test still proves it cannot authorize deep-stack execution.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_PYTHON_CANARY",
+        "VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_UNSAFE_BLOCKED_MODES",
+        "runtime_unsafe_blocked",
+        "unsafe_blocker"
+      ],
+      "id": "python_private_baton_deep_split_canary",
+      "scan_roots": [
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -684,7 +705,7 @@
         },
         {
           "access": "read",
-          "line": 565,
+          "line": 550,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -829,7 +850,7 @@
         },
         {
           "access": "read",
-          "line": 1822,
+          "line": 1807,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1173,7 +1194,7 @@
       "sites": [
         {
           "access": "delete",
-          "line": 1194,
+          "line": 1179,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
@@ -1184,27 +1205,27 @@
         },
         {
           "access": "read",
-          "line": 1162,
+          "line": 1147,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 136,
+          "line": 132,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 145,
+          "line": 141,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1169,
+          "line": 1154,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1199,
+          "line": 1184,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1308,12 +1329,12 @@
         },
         {
           "access": "read",
-          "line": 2963,
+          "line": 2948,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 3012,
+          "line": 2997,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
