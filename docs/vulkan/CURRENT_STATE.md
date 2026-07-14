@@ -40,6 +40,14 @@ fails closed through the generic depth guard. The historical rejection reason
 remains in the performance evidence manifest, and the bug-class regression test
 continues to prove that the spelling cannot enable deep-stack execution.
 
+The default-off stack-region external recording pool lease was also retired on
+2026-07-14. It was slower than the supported persistent-pool path and did not
+fix the compiled-session stack overflow it targeted. Stack-owned external
+recording now has one pool-ownership path: persistent command and descriptor
+pools reset at their existing global-completion points. The separate default
+stack-planned descriptor-pool lease remains active because it fixes a proven
+repeated-request lifetime bug.
+
 Runtime elementwise eager experiments were retired on 2026-07-14. The removed
 stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,
 live eager-chain sidecar recorder, deferred tensor placeholders, and the
@@ -719,11 +727,12 @@ A separate no-skip-output three-repeat sanity completed with `performance_valid`
 true and zero timed CPU fallback/sync readback, but the no-bridge benchmark path
 does not emit a model-vs-reference `max_abs` field.
 
-`PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` is now an
-opt-in stack-owned external recording pool-lease experiment. It is not enabled
-by default because focused `vits_140` evidence showed it was slower than the
-retained persistent-pool path and it did not fix the
-`compiled_session_bridge` Windows stack-overflow exit `-1073741571`.
+`PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack` was an
+opt-in stack-owned external recording pool-lease experiment. Focused
+`vits_140` evidence showed it was slower than the retained persistent-pool path
+and did not fix the `compiled_session_bridge` Windows stack-overflow exit
+`-1073741571`, so the live mechanism is retired and the result remains
+historical evidence only.
 
 A focused 18-row timestamp sweep over DAv2 `vits_140` and `vitb_140` on RX
 9070, GTX 1080, and RX 6700 XT kept both `3x3_s1p1_16x4` and

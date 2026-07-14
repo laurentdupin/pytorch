@@ -32234,6 +32234,46 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(graph_path):
                 os.remove(graph_path)
 
+    def test_vulkan_stack_region_owned_command_buffer_repeats_without_lifetime_failure(
+        self,
+    ):
+        _, stack_context, x = self._make_vulkan_vision_stack_shape_plan_fixture(
+            151,
+            blocks=2,
+            label_prefix="vision.synthetic.stack.owned_command_buffer_repeat",
+        )
+
+        with torch.inference_mode():
+            expected = torch.ops.vulkan_prepack.run_vision_backbone_stack_context(
+                x,
+                stack_context,
+                [1],
+            )
+            torch.ops.vulkan_prepack.synchronize()
+
+        env_key = "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER"
+        previous = os.environ.get(env_key)
+        os.environ[env_key] = "stack_entry_to_exit"
+        try:
+            with torch.inference_mode():
+                for _ in range(3):
+                    actual = (
+                        torch.ops.vulkan_prepack
+                        .run_vision_backbone_stack_private_capture_debug(
+                            x,
+                            stack_context,
+                            [1],
+                            True,
+                        )
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                    self.assertEqual(actual[0].cpu(), expected[0].cpu())
+        finally:
+            if previous is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = previous
+
     def test_vulkan_stack_region_owned_command_buffer_canary_records_external_domain(
         self,
     ):

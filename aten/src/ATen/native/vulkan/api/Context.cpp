@@ -140,17 +140,6 @@ bool stack_region_owned_command_buffer_canary_enabled() {
       value == "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 
-bool stack_region_external_recording_pool_lease_enabled() {
-  const char* env =
-      std::getenv("PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE");
-  if (env == nullptr || *env == '\0') {
-    return false;
-  }
-  const std::string value(env);
-  return value == "1" || value == "per_stack" ||
-      value == "stack_region_owned";
-}
-
 bool stack_region_pending_retire_transfer_owner_stack_internal_enabled() {
   const char* env =
       std::getenv("PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER");
@@ -1541,7 +1530,6 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
           queue_.family_index,
           config_.cmdPoolConfig),
       persistent_descriptor_pool_(device_, config_.descriptorPoolConfig),
-      stack_region_external_recording_pool_lease_(nullptr),
       stack_planned_recording_descriptor_pool_lease_(nullptr),
       fences_(device_),
       querypool_(config_.queryPoolConfig, adapter_p_),
@@ -2614,11 +2602,6 @@ Context::snapshot_stack_region_pending_retire_transfer_owner(
 
 DescriptorPool& Context::active_descriptor_pool() {
   if (external_recording_cmd()) {
-    if (stack_region_owned_command_buffer_active_.load(
-            std::memory_order_acquire) &&
-        stack_region_external_recording_pool_lease_) {
-      return stack_region_external_recording_pool_lease_->descriptor_pool;
-    }
     return persistent_descriptor_pool_;
   }
   if (stack_planned_recording_active_.load(std::memory_order_acquire)) {
@@ -2755,32 +2738,6 @@ void Context::flush_persistent_external_recording_pools_if_idle() {
   stack_region_external_descriptor_set_count_ = 0u;
   stack_region_external_command_buffer_acquire_at_begin_ = 0u;
   stack_region_external_descriptor_set_count_at_begin_ = 0u;
-}
-
-void Context::retire_stack_region_external_recording_pool_lease(
-    const VulkanSubmission& submission) {
-  if (!stack_region_external_recording_pool_lease_) {
-    return;
-  }
-  VK_CHECK_COND(
-      submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
-      "Cannot retire stack-region external recording pool lease without a "
-      "valid submit timeline");
-  std::shared_ptr<StackRegionExternalRecordingPoolLease> lease =
-      std::move(stack_region_external_recording_pool_lease_);
-  stack_region_external_recording_pool_lease_.reset();
-  retire_queue_.retire(RetiredResource{
-      submission.stream_id,
-      submission.timeline,
-      submission.timeline_value,
-      [lease = std::move(lease)]() mutable {
-        lease.reset();
-      },
-  });
-}
-
-void Context::release_stack_region_external_recording_pool_lease_now() {
-  stack_region_external_recording_pool_lease_.reset();
 }
 
 void Context::retire_stack_planned_recording_descriptor_pool_lease(
@@ -2942,8 +2899,6 @@ Context::capture_stack_region_retained_state_payload_locked(
   payload.bridge_handoff_images = bridge_handoff_image_count;
   payload.bridge_handoff_bytes = bridge_handoff_bytes;
   payload.retire_queue_size = retire_queue_.size();
-  payload.external_pool_lease_active =
-      stack_region_external_recording_pool_lease_ ? 1u : 0u;
   payload.stack_descriptor_pool_lease_active =
       stack_planned_recording_descriptor_pool_lease_ ? 1u : 0u;
   payload.external_cmd_acquire_count =
@@ -3012,7 +2967,6 @@ void Context::publish_stack_region_retained_state_payload(
       << " bridge_handoff_images=" << payload.bridge_handoff_images
       << " bridge_handoff_bytes=" << payload.bridge_handoff_bytes
       << " retire_queue_size=" << payload.retire_queue_size
-      << " external_pool_lease_active=" << payload.external_pool_lease_active
       << " stack_descriptor_pool_lease_active="
       << payload.stack_descriptor_pool_lease_active
       << " external_cmd_acquire_count="
@@ -4759,10 +4713,6 @@ VulkanSubmission Context::close_submit_stack_planned_region_exit() {
     stack_region_owned_recording_dispatch_count_ = 0u;
     submit_count_ = 0u;
     command_buffer_recording_id_ = 0u;
-    retire_stack_region_external_recording_pool_lease(submission);
-    log_stack_region_retained_state_locked(
-        "stack_exit_after_pool_lease_retire",
-        &submission);
   } else {
     submission = submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::StackPlannedRecordingSubmit);
@@ -4990,21 +4940,7 @@ void Context::begin_stack_planned_recording(
   stack_region_owned_recording_dispatch_count_ = 0u;
   if (allow_stack_owned_command_buffer_canary &&
       stack_region_owned_command_buffer_canary_enabled()) {
-    if (stack_region_external_recording_pool_lease_enabled()) {
-      VK_CHECK_COND(
-          !stack_region_external_recording_pool_lease_,
-          "Stack-region external recording pool lease is already active");
-      std::shared_ptr<StackRegionExternalRecordingPoolLease> lease =
-          std::make_shared<StackRegionExternalRecordingPoolLease>(
-              device_, queue_.family_index, config_);
-      CommandBuffer stack_region_owned_cmd =
-          lease->command_pool.get_new_cmd(/*reusable=*/true);
-      stack_region_owned_cmd.begin();
-      stack_region_external_recording_pool_lease_ = std::move(lease);
-      stack_region_owned_cmd_ = std::move(stack_region_owned_cmd);
-    } else {
-      stack_region_owned_cmd_ = acquire_persistent_command_buffer();
-    }
+    stack_region_owned_cmd_ = acquire_persistent_command_buffer();
     command_buffer_recording_id_ = next_command_buffer_recording_id_++;
     submit_count_ = 0u;
     begin_external_command_recording(stack_region_owned_cmd_);
@@ -5372,7 +5308,6 @@ StackPlannedRecordingStats Context::cancel_stack_planned_recording() {
     stack_region_owned_recording_dispatch_count_ = 0u;
     submit_count_ = 0u;
     command_buffer_recording_id_ = 0u;
-    release_stack_region_external_recording_pool_lease_now();
   }
   stack_region_recording_domain_observation_active_.store(
       false, std::memory_order_release);

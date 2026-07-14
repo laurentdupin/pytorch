@@ -612,9 +612,9 @@ The initial catalog records the current `vits_140` performance lane:
   opt-in ownership experiment for stack-owned external recording. A focused
   `vits_140` wide4 RX 9070 probe remained correctness-clean, but the lease was
   slower than the retained persistent-pool default and did not fix the
-  `compiled_session_bridge` Windows stack-overflow exit `-1073741571`. Keep it
-  as ownership/lifetime evidence only; do not enable it on the hot path without
-  new proof that it fixes a concrete lifetime bug or improves timing;
+  `compiled_session_bridge` Windows stack-overflow exit `-1073741571`. The live
+  mechanism is retired; keep this result as ownership/lifetime evidence rather
+  than restoring the canary without a new concrete lifetime bug and proof;
 - conv-plan timestamp sweep over DAv2 `vits_140`/`vitb_140` on RX 9070, GTX
   1080, and RX 6700 XT: rejected broad promotion of both `3x3_s1p1_16x4` and
   `3x3_s1p1_16x8`. Both candidates were correctness-clean and hit expected

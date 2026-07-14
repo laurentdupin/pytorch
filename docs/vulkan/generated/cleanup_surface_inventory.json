@@ -37,13 +37,13 @@
   "counts": {
     "by_kind": {
       "custom_class": 16,
-      "environment_variable": 65,
+      "environment_variable": 64,
       "operator_schema": 196,
       "python_entrypoint": 26
     },
     "by_state": {
       "Active": 189,
-      "Migration": 114
+      "Migration": 113
     }
   },
   "generator": "tools/vulkan_cleanup/generate_surface_inventory.py",
@@ -83,7 +83,7 @@
       ],
       "state": "Migration",
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
-      "surface_count": 89
+      "surface_count": 88
     },
     {
       "documents": [
@@ -259,6 +259,28 @@
       ],
       "id": "python_private_baton_deep_split_canary",
       "scan_roots": [
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The per-stack command/descriptor pool lease was default-off and reachable only through explicit environment orchestration.",
+        "Focused DAv2 vits_140 evidence was correctness-clean but slower than the supported persistent-pool default and did not fix the compiled-session stack overflow it targeted.",
+        "The accepted stack-planned descriptor-pool lease is a separate default lifetime fix and remains unchanged."
+      ],
+      "consequence": "The environment branch, per-stack command/descriptor pools, timeline-retirement callback, cancellation path, and mechanism-only retained-state field were deleted. Stack-owned external recording continues to use the supported persistent pools, their global-completion reset diagnostics remain, and the accepted stack-planned descriptor-pool lease is preserved.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
+        "StackRegionExternalRecordingPoolLease",
+        "stack_region_external_recording_pool_lease",
+        "external_pool_lease_active"
+      ],
+      "id": "stack_region_external_recording_pool_lease",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
         "scripts/benchmarks",
         "test"
       ],
@@ -1295,21 +1317,6 @@
       "state": "Migration"
     },
     {
-      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
-      "kind": "environment_variable",
-      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
-      "name": "PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 145,
-          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
-        }
-      ],
-      "state": "Migration"
-    },
-    {
       "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER",
       "kind": "environment_variable",
       "ledger_entry": "migration_vision_stack_and_sync_control_plane",
@@ -1349,13 +1356,13 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 156,
+          "line": 145,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         },
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 165,
+          "line": 154,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1385,7 +1392,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 174,
+          "line": 163,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],

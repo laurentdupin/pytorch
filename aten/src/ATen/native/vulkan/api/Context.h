@@ -192,19 +192,6 @@ class TORCH_API Context final {
   DescriptorPool descriptor_pool_;
   CommandPool persistent_command_pool_;
   DescriptorPool persistent_descriptor_pool_;
-  struct StackRegionExternalRecordingPoolLease final {
-    CommandPool command_pool;
-    DescriptorPool descriptor_pool;
-
-    StackRegionExternalRecordingPoolLease(
-        VkDevice device,
-        uint32_t queue_family_idx,
-        const ContextConfig& config)
-        : command_pool(device, queue_family_idx, config.cmdPoolConfig),
-          descriptor_pool(device, config.descriptorPoolConfig) {}
-  };
-  std::shared_ptr<StackRegionExternalRecordingPoolLease>
-      stack_region_external_recording_pool_lease_;
   struct StackPlannedRecordingDescriptorPoolLease final {
     DescriptorPool descriptor_pool;
 
@@ -340,7 +327,6 @@ class TORCH_API Context final {
     uint64_t bridge_handoff_images = 0u;
     uint64_t bridge_handoff_bytes = 0u;
     uint64_t retire_queue_size = 0u;
-    uint64_t external_pool_lease_active = 0u;
     uint64_t stack_descriptor_pool_lease_active = 0u;
     uint64_t external_cmd_acquire_count = 0u;
     uint64_t external_desc_set_count = 0u;
@@ -398,9 +384,6 @@ class TORCH_API Context final {
   void retire_bridge_private_capture_pending_retire_handoff_batch_locked(
       const VulkanSubmission& submission);
   void flush_persistent_external_recording_pools_if_idle();
-  void retire_stack_region_external_recording_pool_lease(
-      const VulkanSubmission& submission);
-  void release_stack_region_external_recording_pool_lease_now();
   void retire_stack_planned_recording_descriptor_pool_lease(
       const VulkanSubmission& submission);
   void release_stack_planned_recording_descriptor_pool_lease_now();

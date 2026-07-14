@@ -127,11 +127,11 @@
         "command pool lifetime",
         "descriptor pool lifetime"
       ],
-      "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack",
+      "canary_or_path": "retired PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE=per_stack",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
       "latest_observation": "Opt-in per-stack lease remained correctness-clean but was slower than the retained persistent-pool default and did not fix compiled_session_bridge exit -1073741571.",
-      "decision": "Keep opt-in for ownership experiments; do not enable on the hot path.",
-      "next_proof": "Only revisit if a concrete command/descriptor lifetime bug requires per-stack pool ownership.",
+      "decision": "Retire the live canary and keep this row as ownership/lifetime evidence.",
+      "next_proof": "Do not restore without a concrete command/descriptor lifetime bug and new proof that per-stack pool ownership fixes it.",
       "reusable_backend_policy": true
     },
     {

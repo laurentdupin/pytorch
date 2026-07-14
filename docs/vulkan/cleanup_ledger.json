@@ -182,6 +182,28 @@
         "unsafe_blocker"
       ],
       "consequence": "Dedicated unsafe-mode constants, planning fields, and status branches were deleted. The historical python_private_baton spelling now follows the generic unsupported-mode path, and a behavioral regression test still proves it cannot authorize deep-stack execution."
+    },
+    {
+      "id": "stack_region_external_recording_pool_lease",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The per-stack command/descriptor pool lease was default-off and reachable only through explicit environment orchestration.",
+        "Focused DAv2 vits_140 evidence was correctness-clean but slower than the supported persistent-pool default and did not fix the compiled-session stack overflow it targeted.",
+        "The accepted stack-planned descriptor-pool lease is a separate default lifetime fix and remains unchanged."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
+        "StackRegionExternalRecordingPoolLease",
+        "stack_region_external_recording_pool_lease",
+        "external_pool_lease_active"
+      ],
+      "consequence": "The environment branch, per-stack command/descriptor pools, timeline-retirement callback, cancellation path, and mechanism-only retained-state field were deleted. Stack-owned external recording continues to use the supported persistent pools, their global-completion reset diagnostics remain, and the accepted stack-planned descriptor-pool lease is preserved."
     }
   ],
   "entries": [
@@ -427,7 +449,6 @@
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
-        "environment_variable:PYTORCH_VULKAN_STACK_REGION_EXTERNAL_RECORDING_POOL_LEASE",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER",
