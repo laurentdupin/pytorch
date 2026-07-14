@@ -64,7 +64,6 @@ struct ShaderInfo final {
   std::vector<uint32_t> capabilities{};
   std::vector<std::string> extensions{};
   std::vector<uint32_t> execution_modes{};
-  std::vector<uint32_t> owned_spirv{};
   bool uses_local_size_id{false};
   utils::uvec3 out_tile_size{1u, 1u, 1u};
 
@@ -75,19 +74,11 @@ struct ShaderInfo final {
   bool require_full_subgroups{false};
 
   explicit ShaderInfo();
-  ShaderInfo(const ShaderInfo&);
-  ShaderInfo& operator=(const ShaderInfo&);
-  ShaderInfo(ShaderInfo&&) noexcept;
-  ShaderInfo& operator=(ShaderInfo&&) noexcept;
   explicit ShaderInfo(std::string, const char*);
   explicit ShaderInfo(
       std::string,
       const uint32_t*,
       const uint32_t,
-      std::vector<VkDescriptorType>);
-  explicit ShaderInfo(
-      std::string,
-      std::vector<uint32_t>,
       std::vector<VkDescriptorType>);
   explicit ShaderInfo(
       std::string,
@@ -194,15 +185,10 @@ class ShaderCache final {
   struct Hasher {
     inline size_t operator()(const ShaderInfo& source) const {
       size_t seed = 0;
-      if (!source.owned_spirv.empty()) {
-        for (const uint32_t word : source.owned_spirv) {
-          seed = utils::hash_combine(seed, std::hash<uint32_t>()(word));
-        }
-      } else {
-        seed = utils::hash_combine(
-            seed, std::hash<const uint32_t*>()(source.src_code.bin));
-      }
-      seed = utils::hash_combine(seed, std::hash<uint32_t>()(source.src_code.size));
+      seed = utils::hash_combine(
+          seed, std::hash<const uint32_t*>()(source.src_code.bin));
+      seed = utils::hash_combine(
+          seed, std::hash<uint32_t>()(source.src_code.size));
 
       return seed;
     }

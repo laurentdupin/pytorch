@@ -17,21 +17,6 @@ condition and migration target.
 - Migration target: explicit planning-scope API and lane selection independent
   of model-name string matching.
 
-### Runtime Elementwise Deferred Chain
-
-- Location: `aten/src/ATen/native/vulkan/ops/BinaryOp.cpp`
-- Status: explicit experimental opt-in, default off
-- Reason: `PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` is the sole
-  remaining Tensor placeholder canary. It is not a default eager route.
-  `guard_vulkan_deferred_value_registration` rejects registration during graph
-  execution before placeholder allocation or registry mutation. No recursive
-  materialization or submission may be added to `convert()`, resource lookup,
-  descriptor binding, or another locked low-level accessor.
-- Expiry: graph-owned elementwise fusion/codegen has corpus parity, dynamic
-  shape coverage, repeated-run lifetime safety, and zero CPU fallback/readback.
-- Migration target: Vulkan graph-region elementwise instructions with
-  program-owned value lifetime and execution.
-
 ### Exact Tuple Rows In Contract Tables
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`
@@ -691,6 +676,19 @@ condition and migration target.
   reviewed mask field in a broader SDPA contract.
 
 ## Retired Historical Records
+
+### Runtime Elementwise Compiler And Deferred Placeholders
+
+- Status: retired; not an active exception.
+- Standalone runtime-generated fp32 buffer elementwise shaders reached numeric
+  parity, but eager tensor-handle retention and deferred placeholders did not
+  prove stack value lifetime, output ownership, or consumer order. DAv2 bridge
+  sanity remained broken across runtime-generated and static shaders, copied
+  input leases, and explicit consumer materialization.
+- The runtime glslc compiler, owned-SPIR-V support, live-chain sidecar,
+  placeholder registry, and generated VisionBlocks routes were deleted.
+- Migration target: graph-owned elementwise instructions with program-owned
+  values, descriptors, barriers, outputs, and command partitions.
 
 ### Linear GELU Deferred Bridge
 

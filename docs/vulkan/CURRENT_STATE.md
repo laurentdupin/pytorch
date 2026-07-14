@@ -12,142 +12,23 @@ defined by `docs/vulkan/CLEANUP_POLICY.md`; the exact live-surface states are in
 guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
-Last refreshed: 2026-07-06 with materialized runtime-generated residual1 and
-residual2 stack chains:
-`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG=<path>` now bridges the
-explicit generated-shader executor to ordinary eager elementwise chains for
-the narrow fp32 Vulkan buffer case where the root/output shape is stable and
-each tensor RHS is broadcast-compatible with that shape. The
-`aten::binary_op.buffer_float` and `unary_op_buffer` routes now share a mixed
-live-chain recorder over binary `add`/`mul`/`sub`/`div` steps and unary
-`exp`/`sqrt`/`log`/`sin`/`cos`/`neg`/`reciprocal`/`rsqrt`/`silu` steps. This
-includes Python scalar literals when eager represents them as rank-0 Vulkan
-buffer operands. The shared recorder captures logical eager input/RHS/output
-tensor handles and op names; with
-`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE=1`, it submits the generated
-runtime elementwise-chain shader as a sidecar proof once a chain reaches two or
-more ops. The trace row is
-`VulkanRuntimeElementwiseLiveChainTrace.v0` and records
-`behavior_change=0` / `normal_eager_output_preserved=1`: normal eager dispatch
-still produces the returned tensor, and the generated chain output is not used
-for user-visible execution. Focused random-shape coverage now includes pure
-unary `neg -> exp -> sqrt` and mixed `add -> neg -> exp -> mul -> sqrt` chains.
-Mixed scalar UBO steps, alias proof, output ownership, and flush-time
-replacement remain future runtime command-list work rather than hidden
-behavior. The sidecar is opt-in and may retain eager tensor handles for the
-proof dispatch; production replacement must use metadata snapshots and weak
-storage validation before it can own outputs or retire resources.
-`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT=1` is diagnostic-only
-and reads back the sidecar/eager outputs to log `output_check_max_abs` for
-parity tests, not for performance runs.
-`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` is now the first
-behavior-changing deferred-output canary for generated runtime shaders. It is
-limited to fp32 Vulkan buffer elementwise chains with zero storage offset,
-stable root/output shape, same-shape tensor RHS operands, supported unary
-steps, at most eight total steps, and at most four tensor RHS operands.
-Instead of running each eager
-elementwise op immediately, the canary returns a Vulkan placeholder that owns
-the output buffer and records the chain. Mandatory access boundaries currently
-materialize the chain at `copy_`/CPU readback by submitting the generated mixed
-elementwise shader into that placeholder, then recording normal provenance. The
-trace row is `VulkanRuntimeElementwiseDeferredChainTrace.v0` with
-`behavior_change=1`. Unsupported consumers must materialize first and then take
-the existing eager path; storage offsets, out/in-place mutation, scalar UBO
-retention, and region-level output ownership remain outside this canary.
-Focused DAv2 `vits_140` probes showed why this canary must fail closed broadly
-inside stack planned recording: generated `add`/`mul` shaders were correct on
-the same standalone random shapes, but delaying reads of stack-owned token
-tensors until later materialization broke bridge sanity. A narrower stack
-single-op `mul` experiment also failed when the generated shader was executed at
-the stack op site, and still failed after `add_buffer_out_vulkan` was taught to
-materialize runtime-deferred placeholders before recording its residual add. The
-same candidate also failed when materialized through the existing static
-registered `VK_KERNEL(buffer_mul)` path instead of the runtime-owned SPIR-V
-path. The remaining blocker is therefore deferred stack value preservation and
-input lifetime ownership, not ordinary broadcast math, shader generation, or a
-missing residual-add materialization hook. Stack candidates log
-`stack_plan_reject` with
-`reason=stack_deferred_value_preservation_unproven`, including tensor
-state/provenance for the candidate input and tensor RHS operands, and then use
-the existing eager path. The same rows classify the attempted path as
-`pipeline_path=stack_generated_command_list_candidate` with
-`pipeline_path_status=rejected`,
-`value_preservation_status=stack_value_preservation_unproven`, and a
-shape-independent `program_key`; ordinary non-stack deferred materializations report
-`pipeline_path=runtime_owned_spirv_deferred_materialize` and
-`value_preservation_status=consumer_materialize_boundary_required`.
-`add_buffer_out_vulkan` now materializes any runtime-deferred placeholder inputs
-before checking its buffer route and recording the add, and passes an explicit
-materialization callsite into the deferred trace when that boundary fires, so
-non-stack deferred candidates cannot be consumed as raw placeholder buffers by
-that out path. Layernorm context consumers now perform the same mandatory
-materialization before reading context inputs. Normal register/materialize rows
-record whether stack planned
-recording was active. Stack candidate rows also carry structured value-lease and
-command-order proof fields: input/RHS/output tensor keys, storage ids, view ids,
-generations, logical descriptor hashes, byte ranges, provenance writer and
-route, stack phase/block, command-buffer recording id, stack recorded
-compute-job/descriptor/barrier counters, topology status, and
-`authorizes_stack_dynamic_path=0`. The last focused `vits_140` deferred-log run
-observed residual1/residual2 stack candidates inside valid command-buffer
-recording domains, but every stack row still reported
-`stack_command_order_proof_status=recording_domain_dispatch_count_observed_consumer_order_unproven`
-and `value_lease_status=captured_tensor_handle_without_stack_value_lease`.
-Follow-up local POCs confirmed this is not a standalone shader math issue:
-the generated `[tokens,384] * [384]` runtime chain, and the same chain fed by
-Vulkan `clone()` leases, are exact outside stack planned recording. Inside the
-stack, broad deferred layerscale still failed bridge sanity after explicit
-layernorm materialization, after private device-copy input/RHS leases, and after
-materializing the stack `mul` through the existing static binary shader before
-copying into the deferred placeholder. Stack runtime elementwise deferral
-therefore remains rejected until the placeholder/output ownership and consumer
-order can be represented by a real generated command-list region instead of
-retrofitting a placeholder into the current stack topology.
-The first behavior-bearing generated stack chains are narrower and keep normal
-eager tensor ownership: non-program residual1 and residual2 now materialize
-deferred bridge operands, compile/run runtime `mul -> add` shaders for
-`attention_output * ls1_gamma + input_2d` and
-`mlp_output * ls2_gamma + hidden_states`, and return the generated tensors as
-ordinary eager outputs. A focused DAv2 `vits_140`
-`stack_capture_decoder_preprocess` run recorded 144 generated
-`vulkan_prepack::runtime_elementwise_chain` submissions, reduced
-`aten::binary_op.buffer_float` hits to 24, and passed bridge sanity
-(`max_abs=1.1846423149108887e-06`,
-`mean_abs=6.115393347272402e-08`) with `cpu_fallback=0` and
-`sync_readback=0`. A direct-output-slot variant stayed rejected: both the
-existing static `add_scaled_buffer_float` path and the generated `mul -> add`
-path corrupted bridge sanity when writing a fresh stack block output slot, so
-stack output-slot ownership remains a region command-list problem.
-Generated elementwise chains can also target caller-owned output storage through
-`try_runtime_elementwise_chain_out_vulkan`. The first use is
-`token_prefix_cat_add`, where both prefix and token position-add slices write
-into views of the final concatenated output. The out path is fail-closed and
-falls back to `add_buffer_out_vulkan` if the generated output write cannot prove
-layout/storage compatibility. A focused `vits_140` run recorded 14
-`vulkan_prepack::runtime_mixed_elementwise_chain_out` hits, kept the 144
-residual returned-tensor chain hits, reduced `aten::binary_op.buffer_float` to
-10, and preserved the same bridge sanity and zero fallback/readback counters.
-The remaining 10 binary hits are now shape-attributed in the op-hit log:
-focused `vits_140` classification showed `add` at `[1,64,5,8]` once and at
-`[1,64,10,15]`, `[1,64,20,30]`, and `[1,64,40,60]` three times each. All ten
-occur before the first `run_vision_decoder_fusion_block_context.*` bridge record
-and are the initial unbridged decoder residual ladder/preflight, not the
-repeated bridge-private decoder context path. The add helper therefore records
-`kind`, operand/output sizes, optional `callsite`, and parent caller in
-`PYTORCH_VULKAN_OP_HIT_LOG` without changing execution or allocation labels, so
-future work can distinguish setup/preflight binary adds from timed bridge work
-instead of re-chasing the same shapes.
-Convolution,
-activation/clamp, upsample, `ensure_buffer_storage`, and the execution planner
-materialize any deferred placeholder before reading or planning it.
-The last focused `vits_140` bridge run with
-`PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER=1` and broad stack deferral
-disabled matched the default path (`max_abs=1.1846423149108887e-06`,
-`mean_abs=6.115393347272402e-08`); the stack `mul` canary must keep that bridge
-sanity bar before any broader chain is admitted.
-`api::ShaderInfo` now also has an owned-SPIR-V construction path so future
-runtime-generated programs can hand stable bytes to the shader module cache;
-static registered shaders keep the existing pointer/size cache identity.
+Runtime elementwise eager experiments were retired on 2026-07-14. The removed
+stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,
+live eager-chain sidecar recorder, deferred tensor placeholders, and the
+materialized generated-chain uses in VisionBlocks. Standalone generated
+add/mul math reached parity, but deferred stack values repeatedly failed bridge
+sanity across runtime-generated and static shaders, copied input leases, and
+explicit consumer materialization. That evidence rejected retrofitting output
+ownership and consumer ordering into eager tensor handles.
+
+Supported eager operators now execute concretely, and token-prefix output views
+use the existing static buffer add. Future elementwise generation belongs to
+graph lowering and program-owned values, descriptors, barriers, and command
+partitions. The generic graph execution scope still rejects deferred-value
+registration; its behavioral regression test is independent of the retired
+producer. Git retains the inactive implementations and detailed experiment
+history.
+
 The old replay/compiled-session execution surface is now quarantined under
 `docs/vulkan/REPLAY_RETIREMENT.md`. The DAv2 benchmark no longer exposes
 `compiled_session_bridge` as a selectable stack-output bridge mode, and

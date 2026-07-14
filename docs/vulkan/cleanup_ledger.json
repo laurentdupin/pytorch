@@ -125,6 +125,38 @@
         "VulkanRuntimeCommandListPlanTrace.v0"
       ],
       "consequence": "The eager backlog observer state, flush-boundary hooks, behavior-neutral runtime compiler and command-list planners, provenance-only deferred handles, mechanism tests, and stack-era documentation were deleted. Failure logging, fallback/readback counters, submit-origin accounting, transition diagnostics, and GPU timestamp attribution remain active."
+    },
+    {
+      "id": "runtime_elementwise_eager_pocs",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "Repository reachability for runtime glslc compilation, owned SPIR-V descriptors, live eager-chain recording, and deferred tensor placeholders ended in the experiment implementations, private schemas, mechanism tests, and four VisionBlocks call sites.",
+        "No graph lowering or VulkanGraphProgram consumer used the shader-expression generator or owned-SPIR-V path.",
+        "Standalone fp32 buffer add/mul shader parity succeeded, but DAv2 stack bridge sanity repeatedly failed across runtime-generated and static shaders, copied input leases, and explicit materialization boundaries, rejecting eager tensor handles as value-lifetime or output-ownership proof."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "aten/src/ATen/test",
+        "scripts",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
+        "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
+        "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG",
+        "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE",
+        "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG",
+        "PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR",
+        "PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC",
+        "vulkan_prepack::deferred_value_creation_count",
+        "vulkan_prepack::runtime_elementwise_chain",
+        "owned_spirv",
+        "run_runtime_elementwise_chain",
+        "materialize_deferred_runtime_elementwise_candidate_if_needed",
+        "RuntimeElementwiseDeferredChainTrace.v0"
+      ],
+      "consequence": "The runtime compiler, owned-SPIR-V support, live sidecar, placeholder registry and consumer hooks, generated VisionBlocks routes, private schemas, environment gates, and mechanism tests were deleted. Concrete eager kernels and token-prefix buffer writes remain supported. The generic graph-scope deferred-registration guard survives with a direct C++ behavioral regression test."
     }
   ],
   "entries": [
@@ -519,38 +551,6 @@
         "operator_schema:vulkan_prepack::device_policy_snapshot",
         "operator_schema:vulkan_prepack::swap_runtime_label",
         "operator_schema:vulkan_prepack::to_vulkan_labeled"
-      ]
-    },
-    {
-      "id": "delete_ready_eager_deferred_and_codegen_pocs",
-      "state": "Delete-ready",
-      "summary": "Runtime glslc elementwise executor sidecars and eager deferred placeholders.",
-      "deletion_wave": "wave 2 after the inventory/gates commit",
-      "preserve": [
-        "pure reusable shader-expression generation if it has a graph-codegen consumer",
-        "the graph-execution deferred-registration rejection test",
-        "behavioral tests for previously unsafe unbind/materialization bug classes",
-        "failure, fallback, readback, submit-origin, transition, and GPU timestamp diagnostics",
-        "concise rejected-result records"
-      ],
-      "paths": [
-        "aten/src/ATen/native/vulkan/ops/BinaryOp.cpp",
-        "aten/src/ATen/native/vulkan/ops/UnaryOp.cpp",
-        "aten/src/ATen/native/vulkan/ops/FallbackPolicy.cpp",
-        "aten/src/ATen/native/vulkan/ops/Register.cpp",
-        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
-      ],
-      "surfaces": [
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER_LOG",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_EXECUTE",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_LIVE_LOG",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_CACHE_DIR",
-        "environment_variable:PYTORCH_VULKAN_RUNTIME_SHADER_GLSLC",
-        "operator_schema:vulkan_prepack::deferred_value_creation_count",
-        "operator_schema:vulkan_prepack::runtime_elementwise_chain",
-        "operator_schema:vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div"
       ]
     }
   ]

@@ -2,7 +2,6 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Resource.h>
 #include <ATen/native/vulkan/api/Sync.h>
-#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
@@ -789,9 +788,7 @@ vTensor materialize_to_contiguous_buffer(
 Tensor ensure_buffer_storage(
     const Tensor& input_arg,
     api::GPUMemoryLayout memory_layout) {
-  Tensor input = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
   vTensor& v_input = convert(input);
 
   if (

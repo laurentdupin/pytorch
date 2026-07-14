@@ -1071,10 +1071,6 @@ int64_t sync_readback_count_runtime() {
   return static_cast<int64_t>(vulkan_sync_readback_count());
 }
 
-int64_t deferred_value_creation_count_runtime() {
-  return static_cast<int64_t>(vulkan_deferred_value_creation_count());
-}
-
 int64_t begin_graph_execution_scope_runtime() {
   return begin_vulkan_graph_execution_scope();
 }
@@ -2446,13 +2442,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::check_tensor_finite(Tensor X, str label) -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div("
-      "Tensor input, Tensor add_rhs, Tensor mul_rhs, Tensor sub_rhs, "
-      "Tensor div_rhs) -> Tensor"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::runtime_elementwise_chain("
-      "Tensor input, Tensor[] rhs_tensors, str[] ops) -> Tensor"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::value_trace_enabled() -> bool"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::device_policy_snapshot() -> str[]"));
@@ -2460,8 +2449,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::cpu_fallback_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::sync_readback_count() -> int"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::deferred_value_creation_count() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::begin_graph_execution_scope() -> int"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2789,9 +2776,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::sync_readback_count"),
       TORCH_FN(sync_readback_count_runtime));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::deferred_value_creation_count"),
-      TORCH_FN(deferred_value_creation_count_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::begin_graph_execution_scope"),
       TORCH_FN(begin_graph_execution_scope_runtime));
@@ -3471,13 +3455,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::token_prefix_cat_add"),
       TORCH_FN(token_prefix_cat_add));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::runtime_elementwise_chain_add_mul_sub_div"),
-      TORCH_FN(run_runtime_elementwise_chain_add_mul_sub_div));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::runtime_elementwise_chain"),
-      TORCH_FN(run_runtime_elementwise_chain));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_conv2d_context"),
       TORCH_FN(run_conv2d_context));

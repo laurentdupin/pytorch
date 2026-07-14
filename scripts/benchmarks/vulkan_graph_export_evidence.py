@@ -29,11 +29,6 @@ from torch.vulkan._graph_evidence import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFER_ENV_VARS = (
-    "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
-)
-
-
 def _artifact_prefix(value: str) -> str:
     if (
         not value
@@ -413,70 +408,60 @@ def main() -> int:
     )
     original_export_seconds = time.perf_counter() - original_export_start
     lower_start = time.perf_counter()
-    previous_env = {name: os.environ.get(name) for name in _DEFER_ENV_VARS}
+    program = torch.vulkan.export_and_lower(
+        model, normal, dynamic_shapes=dynamic_shapes, device=device
+    )
+    eager_model = copy.deepcopy(model).to(device).eval()
+    normal_census, normal_parity = _run_case(
+        "normal",
+        program,
+        eager_model,
+        model,
+        normal,
+        args.eager_atol,
+        args.eager_rtol,
+        args.cpu_atol,
+        args.cpu_rtol,
+    )
     try:
-        for name in _DEFER_ENV_VARS:
-            os.environ[name] = "0"
-        program = torch.vulkan.export_and_lower(
-            model, normal, dynamic_shapes=dynamic_shapes, device=device
-        )
-        eager_model = copy.deepcopy(model).to(device).eval()
-        normal_census, normal_parity = _run_case(
-            "normal",
+        alternate_census, alternate_parity = _run_case(
+            "alternate",
             program,
             eager_model,
             model,
-            normal,
+            alternate,
             args.eager_atol,
             args.eager_rtol,
             args.cpu_atol,
             args.cpu_rtol,
         )
-        try:
-            alternate_census, alternate_parity = _run_case(
-                "alternate",
-                program,
-                eager_model,
-                model,
-                alternate,
-                args.eager_atol,
-                args.eager_rtol,
-                args.cpu_atol,
-                args.cpu_rtol,
-            )
-        except Exception as error:
-            if not _is_export_guard_rejection(error):
-                raise
-            variant_start = time.perf_counter()
-            alternate_program = torch.vulkan.export_and_lower(
-                model, alternate, dynamic_shapes=dynamic_shapes, device=device
-            )
-            variant_seconds = time.perf_counter() - variant_start
-            alternate_census, alternate_parity = _run_case(
-                "alternate",
-                alternate_program,
-                eager_model,
-                model,
-                alternate,
-                args.eager_atol,
-                args.eager_rtol,
-                args.cpu_atol,
-                args.cpu_rtol,
-            )
-            alternate_census["guard"] = {
-                "status": "recompiled_guard_variant",
-                "rejected_program_message": str(error),
-                "variant_compile_seconds": variant_seconds,
-                "variant_program_key": _jsonable(alternate_program.key),
-            }
-            alternate_parity["guard"] = alternate_census["guard"]
-        out_of_range_guard = _out_of_range_guard(program, out_of_range)
-    finally:
-        for name, value in previous_env.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+    except Exception as error:
+        if not _is_export_guard_rejection(error):
+            raise
+        variant_start = time.perf_counter()
+        alternate_program = torch.vulkan.export_and_lower(
+            model, alternate, dynamic_shapes=dynamic_shapes, device=device
+        )
+        variant_seconds = time.perf_counter() - variant_start
+        alternate_census, alternate_parity = _run_case(
+            "alternate",
+            alternate_program,
+            eager_model,
+            model,
+            alternate,
+            args.eager_atol,
+            args.eager_rtol,
+            args.cpu_atol,
+            args.cpu_rtol,
+        )
+        alternate_census["guard"] = {
+            "status": "recompiled_guard_variant",
+            "rejected_program_message": str(error),
+            "variant_compile_seconds": variant_seconds,
+            "variant_program_key": _jsonable(alternate_program.key),
+        }
+        alternate_parity["guard"] = alternate_census["guard"]
+    out_of_range_guard = _out_of_range_guard(program, out_of_range)
     lower_seconds = time.perf_counter() - lower_start
     if out_of_range_guard["status"] == "unexpectedly_accepted":
         raise RuntimeError("Out-of-range input was accepted by exported guards")

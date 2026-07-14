@@ -33,11 +33,6 @@ std::atomic<uint64_t>& sync_readback_counter() {
   return counter;
 }
 
-std::atomic<uint64_t>& deferred_value_creation_counter() {
-  static std::atomic<uint64_t> counter{0};
-  return counter;
-}
-
 struct VulkanGraphExecutionScope final {
   int64_t token = 0;
   uint64_t cpu_fallback_count = 0;
@@ -445,10 +440,6 @@ uint64_t vulkan_sync_readback_count() {
   return sync_readback_counter().load(std::memory_order_relaxed);
 }
 
-uint64_t vulkan_deferred_value_creation_count() {
-  return deferred_value_creation_counter().load(std::memory_order_relaxed);
-}
-
 int64_t begin_vulkan_graph_execution_scope() {
   int64_t& next_token = graph_execution_scope_next_token_tls();
   TORCH_CHECK(
@@ -479,17 +470,11 @@ std::vector<int64_t> end_vulkan_graph_execution_scope(const int64_t token) {
   return counts;
 }
 
-bool vulkan_graph_execution_scope_active() {
-  return !graph_execution_scopes_tls().empty();
-}
-
 void guard_vulkan_deferred_value_registration(const char* producer) {
-  std::vector<VulkanGraphExecutionScope>& scopes = graph_execution_scopes_tls();
   TORCH_CHECK(
-      scopes.empty(),
+      graph_execution_scopes_tls().empty(),
       "Vulkan graph execution cannot register a deferred value from ",
       producer ? producer : "an unnamed producer");
-  deferred_value_creation_counter().fetch_add(1, std::memory_order_relaxed);
 }
 
 void reset_vulkan_fallback_counters() {

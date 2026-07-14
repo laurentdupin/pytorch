@@ -2,7 +2,6 @@
 #include <ATen/native/vulkan/api/Diagnostics.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/impl/Packing.h>
-#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>
 #include <ATen/native/vulkan/ops/Layernorm.h>
@@ -2330,9 +2329,7 @@ Tensor& copy_(Tensor& dst, const Tensor& src) {
   // Check that sizes are equal
   TORCH_CHECK(
       dst.sizes() == src.sizes(), "Vulkan copy_: Tensor sizes are mismatched!");
-  Tensor src_to_copy = src.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(src)
-      : src;
+  const Tensor& src_to_copy = src;
   // X -> Vulkan
   if (at::kVulkan == dst.device().type()) {
     vTensor& v_self = convert(dst);

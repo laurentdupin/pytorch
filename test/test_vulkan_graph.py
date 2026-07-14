@@ -2525,44 +2525,5 @@ class TestVulkanGraph(TestCase):
             [0, 0, 0],
         )
 
-    def test_graph_rejects_deferred_value_registration(self):
-        class Add(torch.nn.Module):
-            def forward(self, tensor):
-                return tensor + tensor
-
-        tensor = torch.randn(2, 3)
-        program = torch.vulkan.export_and_lower(Add().eval(), tensor)
-        deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
-        with patch.dict(
-            os.environ,
-            {"PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER": "1"},
-        ):
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "cannot register a deferred value",
-            ):
-                program(tensor)
-        self.assertEqual(program.last_deferred_values_created, 0)
-        self.assertEqual(
-            torch.ops.vulkan_prepack.deferred_value_creation_count(),
-            deferred_before,
-        )
-
-    def test_default_eager_elementwise_does_not_register_deferred_value(self):
-        tensor = torch.randn(2, 3)
-        deferred_before = torch.ops.vulkan_prepack.deferred_value_creation_count()
-        with patch.dict(
-            os.environ,
-            {"PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER": ""},
-        ):
-            with torch.inference_mode():
-                actual = (tensor.to("vulkan") + tensor.to("vulkan")).cpu()
-        torch.testing.assert_close(actual, tensor + tensor)
-        self.assertEqual(
-            torch.ops.vulkan_prepack.deferred_value_creation_count(),
-            deferred_before,
-        )
-
-
 if __name__ == "__main__":
     run_tests()

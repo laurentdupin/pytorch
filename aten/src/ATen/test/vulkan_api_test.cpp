@@ -12,6 +12,7 @@
 #include <ATen/native/vulkan/api/Stream.h>
 #include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
+#include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/VisionBlocks.h>
 #include <ATen/native/vulkan/planning/ExecutableRegions.h>
 #include <ATen/native/vulkan/planning/InferenceGraphs.h>
@@ -1290,6 +1291,16 @@ TEST_F(VulkanAPITest, vulkan_env_flags_are_registered) {
   EXPECT_EQ(
       vk_api::find_vulkan_env_flag("PYTORCH_VULKAN_UNREGISTERED_TEST_FLAG"),
       nullptr);
+}
+
+TEST(VulkanFallbackPolicyTest, graph_execution_rejects_deferred_registration) {
+  using namespace at::native::vulkan::ops;
+  const int64_t token = begin_vulkan_graph_execution_scope();
+  EXPECT_THROW(
+      guard_vulkan_deferred_value_registration("test producer"), c10::Error);
+  EXPECT_EQ(
+      end_vulkan_graph_execution_scope(token),
+      (std::vector<int64_t>{0, 0, 0}));
 }
 
 TEST_F(VulkanAPITest, executable_region_dispatch_kind_name_covers_capture_patch_tokens) {

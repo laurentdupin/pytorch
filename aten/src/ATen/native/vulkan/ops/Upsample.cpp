@@ -2,7 +2,6 @@
 #include <ATen/ops/_upsample_bilinear2d_aa.h>
 #include <ATen/ops/_upsample_nearest_exact2d.h>
 #include <ATen/native/vulkan/api/Context.h>
-#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
@@ -22,9 +21,7 @@ namespace ops {
 using namespace api::utils;
 
 Tensor prepare_upsample_texture_input(const Tensor& input_arg) {
-  const Tensor input = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input = input_arg;
   return utils::prepare_vulkan_execution_tensor(
       input, utils::VulkanExecutionPlanKind::TextureComputeInput);
 }
@@ -288,9 +285,7 @@ static Tensor upsample_nearest2d(
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
-  const Tensor input_source = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input_source = input_arg;
   if (should_run_buffer_nearest_upsample(input_source)) {
     return upsample_nearest2d_buffer_impl(
         input_source, output_sizes, scales_h, scales_w);
@@ -393,9 +388,7 @@ static Tensor upsample_nearest_exact2d_cpu_fallback(
     const IntArrayRef output_sizes,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
-  const Tensor input = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input = input_arg;
   report_vulkan_cpu_fallback(
       "aten::_upsample_nearest_exact2d",
       "small_cpu_control_fallback",
@@ -459,9 +452,7 @@ static Tensor upsample_bilinear2d_aa_cpu_fallback(
     bool align_corners,
     const std::optional<double> scales_h,
     const std::optional<double> scales_w) {
-  const Tensor input = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input = input_arg;
   TORCH_CHECK(
       input.is_vulkan(),
       "Vulkan _upsample_bilinear2d_aa fallback expects a Vulkan input");
@@ -542,9 +533,7 @@ static Tensor upsample_bilinear2d(
     const std::optional<double> scales_w) {
   api::AllocationScope allocation_scope("upsample_bilinear");
   api::Context* const context = api::context();
-  const Tensor input_source = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input_source = input_arg;
 
   TORCH_CHECK(
       (4 == input_source.sizes().size()) && (2 == output_sizes.size()),
@@ -651,9 +640,7 @@ static Tensor upsample_bicubic2d(
     const std::optional<double> scales_w) {
   api::AllocationScope allocation_scope("upsample_bicubic");
   api::Context* const context = api::context();
-  const Tensor input_source = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input_source = input_arg;
 
   TORCH_CHECK(
       (4 == input_source.sizes().size()) && (2 == output_sizes.size()),
@@ -826,9 +813,7 @@ Tensor upsample_bilinear2d_buffer_out_vulkan(
     const std::optional<double> scales_h,
     const std::optional<double> scales_w,
     Tensor& output) {
-  const Tensor input_source = input.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
-      : input;
+  const Tensor& input_source = input;
   TORCH_CHECK(
       should_run_buffer_upsample(input_source),
       "Vulkan bilinear upsample out expects float buffer-backed input");

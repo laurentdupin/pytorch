@@ -5,9 +5,7 @@
 #include <ATen/native/vulkan/ops/Common.h>
 
 #include <optional>
-#include <string>
 #include <utility>
-#include <vector>
 
 namespace at {
 namespace native {
@@ -21,40 +19,6 @@ Tensor add_buffer_out_vulkan(
     const std::optional<Scalar>& alpha = std::nullopt,
     const char* callsite = nullptr);
 
-Tensor run_runtime_elementwise_chain_add_mul_sub_div(
-    const Tensor& input,
-    const Tensor& add_rhs,
-    const Tensor& mul_rhs,
-    const Tensor& sub_rhs,
-    const Tensor& div_rhs);
-
-Tensor run_runtime_elementwise_chain(
-    const Tensor& input,
-    const std::vector<Tensor>& rhs_tensors,
-    const std::vector<std::string>& ops);
-
-std::optional<Tensor> try_runtime_elementwise_chain_vulkan(
-    const Tensor& input,
-    const std::vector<Tensor>& rhs_tensors,
-    const std::vector<std::string>& ops);
-
-std::optional<Tensor> try_runtime_elementwise_chain_out_vulkan(
-    const Tensor& input,
-    const std::vector<Tensor>& rhs_tensors,
-    const std::vector<std::string>& ops,
-    Tensor& output);
-
-void note_runtime_elementwise_binary_live_chain(
-    const Tensor& self,
-    const Tensor& other,
-    const Tensor& output,
-    const char* op_name);
-
-void note_runtime_elementwise_unary_live_chain(
-    const Tensor& self,
-    const Tensor& output,
-    const char* op_name);
-
 std::optional<Tensor> try_add_scaled_buffer_out_vulkan(
     const Tensor& self,
     const Tensor& other,
@@ -66,17 +30,6 @@ std::optional<std::pair<Tensor, Tensor>> try_add_relu_buffer_out_vulkan(
     const Tensor& other,
     Tensor& add_output,
     Tensor& relu_output);
-
-Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
-    const Tensor& tensor);
-
-Tensor materialize_deferred_runtime_elementwise_candidate_if_needed(
-    const Tensor& tensor,
-    const char* materialize_callsite);
-
-std::optional<Tensor> try_defer_runtime_elementwise_unary_candidate(
-    const Tensor& tensor,
-    const char* op_name);
 
 } // namespace ops
 } // namespace vulkan

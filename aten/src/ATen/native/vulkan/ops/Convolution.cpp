@@ -11,7 +11,6 @@
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/RoutePolicy.h>
 #include <ATen/native/vulkan/planning/generated/ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h>
-#include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Copy.h>
@@ -3194,9 +3193,7 @@ bool can_run_float_buffer_conv2d_add(
 }
 
 Tensor prepare_runtime_float_buffer_conv_input(const Tensor& input_arg) {
-  Tensor input = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg.vulkan();
+  Tensor input = input_arg.is_vulkan() ? input_arg : input_arg.vulkan();
   if (input.scalar_type() == kHalf) {
     input = utils::cast_vulkan_tensor_dtype(input, kFloat);
   }
@@ -4237,9 +4234,7 @@ Tensor run_bfloat16_buffer_conv2d(
     const bool transposed,
     const IntArrayRef output_padding,
     const int64_t groups) {
-      Tensor compute_input = input.is_vulkan()
-          ? materialize_deferred_runtime_elementwise_candidate_if_needed(input)
-          : input;
+      Tensor compute_input = input;
       if (can_run_bfloat16_buffer_conv2d(
               compute_input, weight, bias, transposed, false, output_padding)) {
         return run_bfloat16_buffer_conv2d(
@@ -4985,9 +4980,7 @@ static Tensor run_conv2d_context_impl(
     output_min = output_min > 0.0f ? output_min : 0.0f;
     output_max = output_max > 0.0f ? output_max : 0.0f;
   }
-  const Tensor input_source = input_arg.is_vulkan()
-      ? materialize_deferred_runtime_elementwise_candidate_if_needed(input_arg)
-      : input_arg;
+  const Tensor& input_source = input_arg;
 
   if (
       input_source.device().type() == c10::DeviceType::Vulkan &&
