@@ -38,9 +38,10 @@ The Qwen/gated-delta scope decision is now a retired record. The deployed Qwen
 path uses Transformers without a Vulkan custom-op call site, Qwen is outside the
 five-model Vulkan corpus, and repository reachability ended in the
 implementation, registration, and dedicated planning cache. The context,
-operators, shader, tests, and `GatedDeltaSplit` cache were deleted. Generic
-`Request.cpp` label inference remains Migration under its separate
-explicit-field and allocation-lane parity gate.
+operators, shader, mechanism tests, `GatedDeltaSplit` cache, and residual
+Qwen/gated-delta label sentinels were deleted. Generic `Request.cpp` label
+inference remains Migration under its separate explicit-field and
+allocation-lane parity gate.
 
 ## Generated Reachability Inventory
 

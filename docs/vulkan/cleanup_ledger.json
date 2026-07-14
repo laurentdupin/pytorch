@@ -66,16 +66,20 @@
         "aten/src/ATen/native/vulkan/ops/QwenLinearAttention.h"
       ],
       "scan_roots": [
-        "aten/src/ATen/native/vulkan"
+        "aten/src/ATen/native/vulkan",
+        "test"
       ],
       "forbidden_code_symbols": [
         "QwenLinearAttention",
         "GatedDeltaSplit",
+        "\"qwen\"",
+        "qwen.decoder.self_attn",
+        "gated_deltanet",
         "run_gated_delta_rule_",
         "run_scheduled_gated_delta_rule_",
         "gated_delta_recurrent_buffer"
       ],
-      "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, and dedicated GatedDeltaSplit planning cache were deleted. Generic Request.cpp label inference remains Migration until its separate explicit-field and lane-parity gate is met."
+      "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, dedicated GatedDeltaSplit planning cache, and residual Qwen/gated-delta label sentinels were deleted. Generic Request.cpp label inference remains Migration until its separate explicit-field and lane-parity gate is met."
     },
     {
       "id": "linear_pending_flush_deferral_canary",

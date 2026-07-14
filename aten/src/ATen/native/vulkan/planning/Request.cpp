@@ -114,10 +114,8 @@ bool is_runtime_llm_operator_label(const std::string& allocation_label) {
       allocation_label,
       {
           "llama",
-          "qwen",
           "decoder",
           "lm_head",
-          "gated_deltanet",
           "self_attn",
           "linear",
           "bmm",
@@ -350,7 +348,7 @@ VulkanPlanningRequest infer_vulkan_planning_request(
 
   const bool is_llm = allocation_label_contains(
       planning_label,
-      {"llama", "qwen", "decoder", "lm_head", "gated_deltanet", "self_attn"});
+      {"llama", "decoder", "lm_head", "self_attn"});
   const bool is_vision = allocation_label_contains(
       planning_label,
       {"depth", "dino", "beit", "zoe", "midas", "patch_embed", "refinenet"});

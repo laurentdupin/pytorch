@@ -39486,7 +39486,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 v = torch.randn(1, 2, 7, 8, dtype=torch.float32).to("vulkan")
 
                 previous = torch.ops.vulkan_prepack.swap_runtime_label(
-                    "qwen.decoder.self_attn"
+                    "llm.decoder.self_attn"
                 )
                 try:
                     with torch.inference_mode():
@@ -39599,7 +39599,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 v = torch.randn(1, 2, 96, 160, dtype=torch.float32).to("vulkan")
 
                 previous = torch.ops.vulkan_prepack.swap_runtime_label(
-                    "qwen.decoder.self_attn"
+                    "llm.decoder.self_attn"
                 )
                 try:
                     with torch.inference_mode():
