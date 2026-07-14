@@ -635,19 +635,6 @@ future region planner can rank natural-chain cuts by semantic cause instead of
 treating every internal pending-command flush as the same blocker or polluting
 readback counters.
 
-`PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL=linear` is the first opt-in
-behavior canary built on that classification. It only targets plain
-`aten::linear` pending-command flushes after the packed-context path. It does
-not affect `addmm`, raw-direct linear, linear+GELU, repeat temp-clone lifetime,
-replay input uploads, replay warmup, replay submit guards, or output
-materialization. The canary is accepted only in inference mode, with Vulkan
-input/weight/output tensors, a rank-2 Vulkan weight, and a persistent packed
-linear context retained by a bounded canary owner until blocking readback/fence
-cleanup releases it. Inference mode is the autograd guard; module parameter
-tensors may still carry `requires_grad=True` metadata. If those guards fail, or
-if the retention budget is exhausted, the existing `linear_eager_submit` flush
-still runs.
-
 `PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG=<path>` records the lifecycle of the
 existing deferred bridge paths that already return placeholder Vulkan tensors
 and materialize or fuse later. This is still behavior-neutral; it does not make

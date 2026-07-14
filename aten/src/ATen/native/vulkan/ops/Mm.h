@@ -157,8 +157,6 @@ void reset_linear_aggregate();
 
 void reset_linear_pack_residency_snapshot();
 
-bool release_pending_linear_flush_deferral_contexts();
-
 } // namespace ops
 } // namespace vulkan
 } // namespace native

@@ -20005,54 +20005,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(submit_origins["tensor_cpu_readback"], 0)
         self.assertEqual(y.device.type, "vulkan")
 
-    def test_linear_pending_flush_deferral_canary_preserves_correctness(self):
-        script = f"""
-            import torch
-            import torch.nn.functional as F
-
-            SUBMIT_ORIGIN_NAMES = {list(VULKAN_SUBMIT_ORIGIN_COUNTER_NAMES)!r}
-
-            def submit_origin_counters():
-                return dict(zip(
-                    SUBMIT_ORIGIN_NAMES,
-                    torch.ops.vulkan_prepack.submit_origin_counters(),
-                ))
-
-            torch.manual_seed(2605)
-            x_cpu = torch.randn(6, 8)
-            weight_cpu = torch.randn(16, 8)
-            bias_cpu = torch.randn(16)
-            x = x_cpu.to("vulkan")
-            weight = weight_cpu.to("vulkan")
-            bias = bias_cpu.to("vulkan")
-
-            torch.ops.vulkan_prepack.reset_submit_origin_counters()
-            with torch.inference_mode():
-                y = F.linear(x, weight, bias)
-
-            before_cpu = submit_origin_counters()
-            assert before_cpu["pending_command_flush"] == 0, before_cpu
-            assert before_cpu["tensor_cpu_readback"] == 0, before_cpu
-            assert y.device.type == "vulkan"
-
-            actual = y.cpu()
-            expected = F.linear(x_cpu, weight_cpu, bias_cpu)
-            torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)
-
-            after_cpu = submit_origin_counters()
-            assert after_cpu["pending_command_flush"] == 0, after_cpu
-            assert after_cpu["tensor_cpu_readback"] > 0, after_cpu
-        """
-        self._run_repo_python_subprocess(
-            script,
-            extra_env={
-                "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL": "linear",
-            },
-            error_prefix=(
-                "Vulkan linear pending-flush deferral canary test failed."
-            ),
-        )
-
     def test_tensor_cpu_readback_submit_origin_stays_readback(self):
         torch.manual_seed(2602)
         x_vulkan = torch.randn(1, 4, 8, 8).to("vulkan")

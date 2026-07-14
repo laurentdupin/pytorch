@@ -37,13 +37,13 @@
   "counts": {
     "by_kind": {
       "custom_class": 16,
-      "environment_variable": 78,
+      "environment_variable": 77,
       "operator_schema": 199,
       "python_entrypoint": 26
     },
     "by_state": {
       "Active": 189,
-      "Delete-ready": 16,
+      "Delete-ready": 15,
       "Migration": 114
     }
   },
@@ -130,8 +130,8 @@
         "aten/src/ATen/native/vulkan/ops/Mm.cpp"
       ],
       "state": "Delete-ready",
-      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, command-list POCs, and linear pending-flush deferral.",
-      "surface_count": 16
+      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, and command-list POCs.",
+      "surface_count": 15
     }
   ],
   "schema_version": 1,
@@ -161,6 +161,27 @@
       ],
       "scan_roots": [
         "aten/src/ATen/native/vulkan"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The canary was default-off and reachable only through explicit environment orchestration.",
+        "Its DAv2 result proved that 48 plain-linear flushes could be deferred with bit-for-bit output parity, but did not establish a supported eager default or a graph-owned replacement.",
+        "Supported eager linear retains its explicit pending-command flush and submit-origin accounting while graph programs pursue packed-context ownership directly."
+      ],
+      "consequence": "The canary context-retention owner, eager branch, environment registration, evidence-harness exemption, and mechanism test were deleted. The supported default linear flush and its submit-origin regression test remain.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
+        "linear_pending_flush_deferral",
+        "LinearPendingFlushDeferralContract"
+      ],
+      "id": "linear_pending_flush_deferral_canary",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
       ],
       "status": "deleted"
     }
@@ -852,26 +873,6 @@
       "state": "Active"
     },
     {
-      "id": "environment_variable:PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
-      "kind": "environment_variable",
-      "ledger_entry": "delete_ready_eager_deferred_and_codegen_pocs",
-      "name": "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
-      "registry": {
-        "coverage": "linear pending-flush deferral canary tests and manual profiling",
-        "kind": "ActiveImplementationGate",
-        "reason": "opt into plain linear pending-command flush deferral canary"
-      },
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 152,
-          "source": "aten/src/ATen/native/vulkan/ops/Mm.cpp"
-        }
-      ],
-      "state": "Delete-ready"
-    },
-    {
       "id": "environment_variable:PYTORCH_VULKAN_LINEAR_PLAN_LOG",
       "kind": "environment_variable",
       "ledger_entry": "active_graph_eager_and_diagnostics",
@@ -880,7 +881,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 315,
+          "line": 260,
           "source": "aten/src/ATen/native/vulkan/ops/Mm.cpp"
         },
         {

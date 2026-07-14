@@ -26,7 +26,7 @@ ENV_SCAN_ROOTS = (
     Path("scripts/benchmarks"),
 )
 ENV_SOURCE_SUFFIXES = (".cpp", ".h", ".py")
-RETIRED_CODE_SUFFIXES = (".cpp", ".h", ".glsl")
+RETIRED_CODE_SUFFIXES = (".cpp", ".h", ".glsl", ".py")
 STATES = ("Active", "Migration", "Compatibility", "Delete-ready")
 ENV_NAME_RE = re.compile(r"PYTORCH_VULKAN_[A-Z0-9_]+")
 CPP_STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
@@ -439,14 +439,14 @@ def validate_scope_decisions(
         if decision.get("status") != "deleted":
             continue
         decision_id = decision.get("id")
-        removed_paths = decision.get("removed_paths")
+        removed_paths = decision.get("removed_paths", [])
         scan_roots = decision.get("scan_roots")
         forbidden_symbols = decision.get("forbidden_code_symbols")
         if not isinstance(decision_id, str) or not decision_id:
             raise InventoryError("Every deleted scope decision needs an id")
-        if not isinstance(removed_paths, list) or not removed_paths:
+        if not isinstance(removed_paths, list):
             raise InventoryError(
-                f"Deleted scope decision {decision_id!r} needs removed_paths"
+                f"Deleted scope decision {decision_id!r} has invalid removed_paths"
             )
         if not isinstance(scan_roots, list) or not scan_roots:
             raise InventoryError(

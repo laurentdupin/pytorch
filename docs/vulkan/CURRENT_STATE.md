@@ -236,18 +236,6 @@ output materialization, stack replay step submit guards, and temporary-clone
 lifetime protection. The trace can now show why a natural lazy chain was cut
 instead of collapsing all internal submits into one opaque boundary or polluting
 readback counters.
-`PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL=linear` is now the first
-classification-driven behavior canary. It can skip the immediate plain
-`aten::linear` pending-command flush only in inference mode when the packed
-linear context is persistent and retained by the canary's bounded pending
-context owner. It leaves `addmm`, raw-direct linear, linear+GELU, repeat
-lifetime protection, replay warmup, replay submit guards, and output
-materialization unchanged. If the retention budget is exhausted, the canary
-fails closed and the existing `linear_eager_submit` flush runs.
-A focused DepthExtractor DAv2 `vits_140` image smoke with this canary accepted
-48 plain-linear deferrals, removed all `flush_pending_cmds` lazy-chain
-boundaries from that run, and matched the default depth output bit-for-bit
-(`max_abs=0`, `mean_abs=0`).
 `SmallSpatialPointwiseConvContract` `GenericDynamicHW` is the first adaptive pointwise
 example, admitting legal fp32 direct-buffer 1x1 conv with unseen batch/H/W
 under semantic 1x1/direct-buffer guards and routing it through the existing

@@ -76,6 +76,27 @@
         "gated_delta_recurrent_buffer"
       ],
       "consequence": "The Qwen linear-attention context, gated-delta operators and shader, mechanism tests, and dedicated GatedDeltaSplit planning cache were deleted. Generic Request.cpp label inference remains Migration until its separate explicit-field and lane-parity gate is met."
+    },
+    {
+      "id": "linear_pending_flush_deferral_canary",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The canary was default-off and reachable only through explicit environment orchestration.",
+        "Its DAv2 result proved that 48 plain-linear flushes could be deferred with bit-for-bit output parity, but did not establish a supported eager default or a graph-owned replacement.",
+        "Supported eager linear retains its explicit pending-command flush and submit-origin accounting while graph programs pursue packed-context ownership directly."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
+        "linear_pending_flush_deferral",
+        "LinearPendingFlushDeferralContract"
+      ],
+      "consequence": "The canary context-retention owner, eager branch, environment registration, evidence-harness exemption, and mechanism test were deleted. The supported default linear flush and its submit-origin regression test remain."
     }
   ],
   "entries": [
@@ -475,7 +496,7 @@
     {
       "id": "delete_ready_eager_deferred_and_codegen_pocs",
       "state": "Delete-ready",
-      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, command-list POCs, and linear pending-flush deferral.",
+      "summary": "Eager lazy-chain observers, deferred placeholders, runtime glslc sidecars, and command-list POCs.",
       "deletion_wave": "wave 2 after the inventory/gates commit",
       "preserve": [
         "pure reusable shader-expression generation if it has a graph-codegen consumer",
@@ -492,7 +513,6 @@
         "environment_variable:PYTORCH_VULKAN_DEFERRED_EXECUTION_LOG",
         "environment_variable:PYTORCH_VULKAN_DEFERRED_REGION_PLAN_LOG",
         "environment_variable:PYTORCH_VULKAN_LAZY_CHAIN_LOG",
-        "environment_variable:PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_COMMAND_LIST_LOG",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_CHECK_OUTPUT",
         "environment_variable:PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",

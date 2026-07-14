@@ -31,7 +31,6 @@ from torch.vulkan._graph_evidence import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFER_ENV_VARS = (
     "PYTORCH_VULKAN_RUNTIME_ELEMENTWISE_CHAIN_DEFER",
-    "PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL",
 )
 
 

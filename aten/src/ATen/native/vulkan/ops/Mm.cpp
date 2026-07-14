@@ -146,61 +146,6 @@ VulkanLinearPlanCounters& linear_plan_counters() {
   return counters;
 }
 
-bool linear_pending_flush_deferral_enabled() {
-  static const bool enabled = []() {
-    const char* env =
-        std::getenv("PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL");
-    if (env == nullptr || env[0] == '\0') {
-      return false;
-    }
-    const std::string value(env);
-    return value == "1" || value == "linear" || value == "plain_linear";
-  }();
-  return enabled;
-}
-
-constexpr size_t kMaxPendingLinearFlushDeferralContexts = 512;
-
-std::mutex& pending_linear_flush_deferral_context_mutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-
-std::vector<c10::intrusive_ptr<LinearPackedContext>>&
-pending_linear_flush_deferral_contexts() {
-  static auto* contexts =
-      new std::vector<c10::intrusive_ptr<LinearPackedContext>>();
-  return *contexts;
-}
-
-bool retain_pending_linear_flush_deferral_context(
-    const c10::intrusive_ptr<LinearPackedContext>& linear_context) {
-  if (!linear_context) {
-    return false;
-  }
-  guard_vulkan_deferred_value_registration("linear_pending_flush_deferral");
-  std::lock_guard<std::mutex> lock(
-      pending_linear_flush_deferral_context_mutex());
-  auto& contexts = pending_linear_flush_deferral_contexts();
-  if (contexts.size() >= kMaxPendingLinearFlushDeferralContexts) {
-    return false;
-  }
-  contexts.emplace_back(linear_context);
-  return true;
-}
-
-bool release_pending_linear_flush_deferral_contexts_impl() {
-  std::vector<c10::intrusive_ptr<LinearPackedContext>> contexts;
-  {
-    std::lock_guard<std::mutex> lock(
-        pending_linear_flush_deferral_context_mutex());
-    contexts.swap(pending_linear_flush_deferral_contexts());
-  }
-  const bool released = !contexts.empty();
-  contexts.clear();
-  return released;
-}
-
 std::mutex& linear_aggregate_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -767,49 +712,6 @@ c10::intrusive_ptr<LinearPackedContext> get_or_create_linear_context(
 
 inline bool has_bias(const std::optional<Tensor>& bias) {
   return bias && bias->defined();
-}
-
-bool can_defer_plain_linear_pending_flush(
-    const Tensor& input,
-    const Tensor& weight,
-    const std::optional<Tensor>& bias,
-    const c10::intrusive_ptr<LinearPackedContext>& linear_context,
-    const Tensor& output) {
-  if (!linear_pending_flush_deferral_enabled()) {
-    return false;
-  }
-  if (!c10::InferenceMode::is_enabled()) {
-    utils::log_vulkan_op_hit(
-        "aten::linear.pending_flush_deferral.reject.not_inference_mode");
-    return false;
-  }
-  if (!input.is_vulkan() || !weight.is_vulkan() || !output.is_vulkan()) {
-    utils::log_vulkan_op_hit(
-        "aten::linear.pending_flush_deferral.reject.non_vulkan_tensor");
-    return false;
-  }
-  if (weight.dim() != 2) {
-    utils::log_vulkan_op_hit(
-        "aten::linear.pending_flush_deferral.reject.weight_rank");
-    return false;
-  }
-  if (
-      !linear_context ||
-      !linear_context->packed_weight().defined() ||
-      linear_context->packed_weight().residency_class() ==
-          PackedWeightResidencyClass::Transient) {
-    utils::log_vulkan_op_hit(
-        "aten::linear.pending_flush_deferral.reject.context_not_retained");
-    return false;
-  }
-  if (!retain_pending_linear_flush_deferral_context(linear_context)) {
-    utils::log_vulkan_op_hit(
-        "aten::linear.pending_flush_deferral.reject.retention_budget");
-    return false;
-  }
-  utils::log_vulkan_op_hit(
-      "aten::linear.pending_flush_deferral.accept contract=LinearPendingFlushDeferralContract family=PlainLinearPersistentPackedContext");
-  return true;
 }
 
 struct LinearPackedRunState final {
@@ -3962,10 +3864,7 @@ Tensor linear(
         api::PendingCommandFlushReason::LinearRawDirectWeightEagerSubmit);
     return *raw_direct_output;
   }
-  const bool allow_pending_flush_deferral =
-      linear_pending_flush_deferral_enabled();
-  const auto linear_context = get_or_create_linear_context(
-      weight, bias, allow_pending_flush_deferral);
+  const auto linear_context = get_or_create_linear_context(weight, bias);
   Tensor output = run_addmm_context(
       input,
       1.0f,
@@ -3974,10 +3873,6 @@ Tensor linear(
       false,
       0,
       0);
-  if (can_defer_plain_linear_pending_flush(
-          input, weight, bias, linear_context, output)) {
-    return output;
-  }
   api::context()->flush_pending_cmds(
       api::PendingCommandFlushReason::LinearEagerSubmit);
   return output;
@@ -4318,10 +4213,6 @@ void reset_linear_aggregate() {
 void reset_linear_pack_residency_snapshot() {
   std::lock_guard<std::mutex> guard(linear_pack_residency_mutex());
   linear_pack_residency_aggregate().clear();
-}
-
-bool release_pending_linear_flush_deferral_contexts() {
-  return release_pending_linear_flush_deferral_contexts_impl();
 }
 
 PackedWeightResidencyClass linear_buffer_weight_residency_class(

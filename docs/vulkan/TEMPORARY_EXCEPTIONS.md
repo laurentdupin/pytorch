@@ -32,19 +32,6 @@ condition and migration target.
 - Migration target: Vulkan graph-region elementwise instructions with
   program-owned value lifetime and execution.
 
-### Linear Pending-Flush Deferral
-
-- Location: `aten/src/ATen/native/vulkan/ops/Mm.cpp`
-- Status: explicit experimental opt-in, default off
-- Reason: `PYTORCH_VULKAN_LINEAR_PENDING_FLUSH_DEFERRAL=1` retains a
-  `LinearPackedContext` through the normal pending-command flush. The linear
-  output is already concrete; this policy exposes no public Tensor placeholder.
-  Graph execution is rejected by the common deferred-registration guard.
-- Expiry: graph programs own packed contexts and their completion retirement,
-  with coverage-corpus graph parity and repeated-run lifetime safety.
-- Migration target: graph-program packed-context ownership and timeline-gated
-  retirement.
-
 ### Exact Tuple Rows In Contract Tables
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`
