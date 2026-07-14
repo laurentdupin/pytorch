@@ -341,6 +341,27 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The exact stack_internal_until_stack_exit spelling was a default-off diagnostic override with no supported caller, benchmark entry, or focused mechanism test.",
+        "It only allowed a smaller stack-exit retire-source snapshot to supersede the preserved phase-submit source; it did not transfer resources, defer submits, or authorize submit elision.",
+        "The selected synthetic residual2-to-norm1 boundary still reported a partial source and failed closed on pending_retire_transfer_source_incomplete, while the preserved-phase handoff remains the live migration route."
+      ],
+      "consequence": "The exact environment spelling, selector helper, source-overwrite branch, work-batch state, and mode-specific diagnostic field were deleted. Generic control-plane work-batch rows, pending-retire source snapshots and coverage diagnostics, and preserved_phase_submit_handoff behavior remain.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "stack_internal_until_stack_exit",
+        "stack_region_pending_retire_transfer_owner_stack_internal_enabled",
+        "bind_stack_internal_source_at_stack_exit"
+      ],
+      "id": "stack_internal_retire_source_override",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -1414,12 +1435,6 @@
           "callee": "std::getenv",
           "line": 139,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
-        },
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 148,
-          "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
       "state": "Migration"
@@ -1448,7 +1463,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 157,
+          "line": 148,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
         }
       ],
@@ -1523,7 +1538,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 29271,
+          "line": 29268,
           "source": "aten/src/ATen/native/vulkan/api/Sync.cpp"
         }
       ],

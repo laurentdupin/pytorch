@@ -1772,15 +1772,13 @@ bindings remain explicit through
 `pending_retire_transfer_source_partially_bound_to_region_exit_submit` or
 `pending_retire_transfer_source_partially_bound_to_preserved_phase_submit` plus
 the bound and missing count/byte tuples. This keeps the next ownership blocker
-visible without transferring pending retires or enabling submit elision.
-The opt-in
-`PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER=stack_internal_until_stack_exit`
-mode lets the stack-exit stack-internal retire batch source supersede the
-earlier preserved phase-submit source for diagnostics only. It preserves all
-submits and does not move resources. On the current selected synthetic
-`residual2@0 -> norm1@1` boundary, that mode reports only a partial
-stack-exit source, so the owner still fail-closes on
-`pending_retire_transfer_source_incomplete`.
+visible without transferring pending retires or enabling submit elision. The
+retired `stack_internal_until_stack_exit` diagnostic override allowed the
+smaller stack-exit source to supersede the preserved phase-submit source. Its
+selected synthetic `residual2@0 -> norm1@1` result remained partial and
+fail-closed on `pending_retire_transfer_source_incomplete`, so the exact
+selector and its work-batch field were deleted. The generic source snapshots,
+coverage diagnostics, and preserved-phase handoff remain.
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or
 `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=stack_scope_retire_handoff` is the
 contract-facing `StackScopeRetireHandoffContract.v0` spelling for the proven

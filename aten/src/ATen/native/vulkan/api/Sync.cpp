@@ -25146,7 +25146,6 @@ void note_stack_region_control_plane_work_batch(
     const bool prepared,
     const bool drained_inline,
     const bool pending_retire_handoff_at_stack_exit,
-    const bool bind_stack_internal_source_at_stack_exit,
     const bool timeline_valid,
     const uint64_t source_snapshot_state,
     const uint64_t stack_internal_temp_batch_count,
@@ -25175,8 +25174,6 @@ void note_stack_region_control_plane_work_batch(
       << " drained_inline=" << (drained_inline ? "1" : "0")
       << " pending_retire_handoff_at_stack_exit="
       << (pending_retire_handoff_at_stack_exit ? "1" : "0")
-      << " bind_stack_internal_source_at_stack_exit="
-      << (bind_stack_internal_source_at_stack_exit ? "1" : "0")
       << " timeline_valid=" << (timeline_valid ? "1" : "0")
       << " source_snapshot_state=" << source_snapshot_state
       << " stack_internal_temp_batch_count="

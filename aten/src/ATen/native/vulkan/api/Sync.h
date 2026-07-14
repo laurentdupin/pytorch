@@ -2413,7 +2413,6 @@ TORCH_API void note_stack_region_control_plane_work_batch(
     bool prepared,
     bool drained_inline,
     bool pending_retire_handoff_at_stack_exit,
-    bool bind_stack_internal_source_at_stack_exit,
     bool timeline_valid,
     uint64_t source_snapshot_state,
     uint64_t stack_internal_temp_batch_count,

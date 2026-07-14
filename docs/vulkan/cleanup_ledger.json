@@ -260,6 +260,27 @@
         "kSegmentedOwnedCommandBufferPrefix6ScopeLimit"
       ],
       "consequence": "The five accepted spellings, wide3 constants and plan wrapper, prefix-tail scope ladder and tail-to-exit execution branch, benchmark allowlist entries, and mechanism-only tests were deleted. The generic fixed-width and dispatch-budget planners, prefix3 and wide4 modes, context-owned remainder recording, stack diagnostics, and historical measurements remain."
+    },
+    {
+      "id": "stack_internal_retire_source_override",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The exact stack_internal_until_stack_exit spelling was a default-off diagnostic override with no supported caller, benchmark entry, or focused mechanism test.",
+        "It only allowed a smaller stack-exit retire-source snapshot to supersede the preserved phase-submit source; it did not transfer resources, defer submits, or authorize submit elision.",
+        "The selected synthetic residual2-to-norm1 boundary still reported a partial source and failed closed on pending_retire_transfer_source_incomplete, while the preserved-phase handoff remains the live migration route."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "stack_internal_until_stack_exit",
+        "stack_region_pending_retire_transfer_owner_stack_internal_enabled",
+        "bind_stack_internal_source_at_stack_exit"
+      ],
+      "consequence": "The exact environment spelling, selector helper, source-overwrite branch, work-batch state, and mode-specific diagnostic field were deleted. Generic control-plane work-batch rows, pending-retire source snapshots and coverage diagnostics, and preserved_phase_submit_handoff behavior remain."
     }
   ],
   "entries": [

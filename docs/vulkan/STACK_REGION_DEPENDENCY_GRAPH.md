@@ -879,17 +879,13 @@ ownership. Partial source bindings remain explicit through
 `pending_retire_transfer_source_partially_bound_to_preserved_phase_submit`.
 These rows make the gap between known sources and transferable region-exit
 ownership explicit before any future owner can claim retire transfer behavior.
-The opt-in
-`PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER=stack_internal_until_stack_exit`
-mode lets the stack-exit stack-internal retire batch source override the
-earlier preserved phase-submit source for source-binding diagnostics only. It
-does not transfer retire entries, defer a submit, or authorize submit elision.
-If the stack-exit batch exactly matches the selected graph-pending set, the row
-can advance to a stack-exit source-available state while behavior remains
-disabled. Partial, superset, mixed, or missing stack-exit sources continue to
-fail closed; the current selected synthetic boundary reports a partial
-stack-exit source and therefore remains blocked by
-`pending_retire_transfer_source_incomplete`.
+The retired `stack_internal_until_stack_exit` diagnostic override allowed the
+smaller stack-exit source to supersede the preserved phase-submit source. It
+did not transfer retire entries, defer a submit, or authorize submit elision,
+and the selected synthetic boundary remained partial and fail-closed on
+`pending_retire_transfer_source_incomplete`. The exact selector and its
+work-batch field were deleted; generic source snapshots and coverage rows
+remain.
 The retired `PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES=1` spelling used to
 enable the already-classified QKV stack-temp retire-batch candidate class.
 Use `PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF=1` or

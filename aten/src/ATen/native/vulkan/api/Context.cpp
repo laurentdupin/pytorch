@@ -134,15 +134,6 @@ bool stack_region_owned_command_buffer_canary_enabled() {
       value == "segmented_stack_dispatch_budget_prefix_to_exit";
 }
 
-bool stack_region_pending_retire_transfer_owner_stack_internal_enabled() {
-  const char* env =
-      std::getenv("PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER");
-  if (env == nullptr || *env == '\0') {
-    return false;
-  }
-  return std::string(env) == "stack_internal_until_stack_exit";
-}
-
 bool stack_region_pending_retire_transfer_owner_preserved_phase_handoff_enabled() {
   const char* env =
       std::getenv("PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER");
@@ -4966,14 +4957,9 @@ Context::prepare_stack_region_exit_work_batch_locked(
   auto batch = std::make_unique<StackRegionExitWorkBatch>();
   batch->submission = submission;
   batch->prepared = true;
-  batch->bind_stack_internal_source_at_stack_exit =
-      stack_region_pending_retire_transfer_owner_stack_internal_enabled() &&
-      stack_region_close_submit_owner_stack_exit_enabled();
   batch->pending_retire_handoff_at_stack_exit =
       has_stack_region_pending_retire_handoff_batch_locked();
-  batch->preserve_larger_source =
-      !batch->bind_stack_internal_source_at_stack_exit &&
-      !batch->pending_retire_handoff_at_stack_exit;
+  batch->preserve_larger_source = !batch->pending_retire_handoff_at_stack_exit;
   batch->source_snapshot_state =
       batch->pending_retire_handoff_at_stack_exit ? 6u : 2u;
   {
@@ -5025,7 +5011,6 @@ Context::prepare_stack_region_exit_work_batch_locked(
       batch->prepared,
       batch->drained_inline,
       batch->pending_retire_handoff_at_stack_exit,
-      batch->bind_stack_internal_source_at_stack_exit,
       batch->submission.timeline != VK_NULL_HANDLE &&
           batch->submission.timeline_value != 0u,
       batch->source_snapshot_state,
@@ -5142,7 +5127,6 @@ void Context::drain_stack_region_exit_work_batch_locked(
       batch.prepared,
       batch.drained_inline,
       batch.pending_retire_handoff_at_stack_exit,
-      batch.bind_stack_internal_source_at_stack_exit,
       batch.submission.timeline != VK_NULL_HANDLE &&
           batch.submission.timeline_value != 0u,
       batch.source_snapshot_state,
