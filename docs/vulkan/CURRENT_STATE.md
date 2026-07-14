@@ -26,10 +26,11 @@ after the C++ graph executor owns their replacements no longer risks deleting
 the supported packed-weight residency substrate with them.
 
 Explicit planning-request construction and scope application remain in
-`Request.*`. Temporary allocation-label reads, model-token matching, and
-bounded LLM tensor-shape inference are isolated in
-`LegacyPlanningInference.*`; their existing lane-parity deletion gate remains
-unchanged.
+`Request.*`, and device capability discovery remains in `DevicePolicy.*`.
+Temporary allocation-label reads, model-token matching, bounded LLM
+tensor-shape inference, and GPU-name overrides are isolated in
+`LegacyPlanningInference.*` and `LegacyDeviceNamePolicy.h`; their existing
+lane-parity deletion gate remains unchanged.
 
 Runtime elementwise eager experiments were retired on 2026-07-14. The removed
 stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,

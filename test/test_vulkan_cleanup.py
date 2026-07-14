@@ -75,6 +75,16 @@ REQUEST_PATH = os.path.join(
     "planning",
     "Request.cpp",
 )
+DEVICE_POLICY_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "planning",
+    "DevicePolicy.cpp",
+)
 
 
 def _load_generator():
@@ -210,6 +220,30 @@ class TestVulkanCleanupInventory(TestCase):
             "VulkanPlanningRequestScope::VulkanPlanningRequestScope(",
         ):
             self.assertIn(definition, request_source)
+            self.assertNotIn(definition, inference_source)
+
+    def test_device_capabilities_are_separate_from_name_policy(self):
+        with open(LEGACY_PLANNING_INFERENCE_PATH, encoding="utf-8") as file:
+            inference_source = file.read()
+        with open(DEVICE_POLICY_PATH, encoding="utf-8") as file:
+            policy_source = file.read()
+
+        for definition in (
+            "bool contains_device_name(",
+            '"GTX"',
+            '"6700 XT"',
+            "void apply_device_name_policy(",
+        ):
+            self.assertIn(definition, inference_source)
+            self.assertNotIn(definition, policy_source)
+
+        for definition in (
+            "properties.vendorID",
+            "adapter->supports_int8_buffer_arithmetic()",
+            "adapter->has_subgroup_size_control()",
+            "adapter->has_synchronization2()",
+        ):
+            self.assertIn(definition, policy_source)
             self.assertNotIn(definition, inference_source)
 
 

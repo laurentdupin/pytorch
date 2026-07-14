@@ -54,6 +54,7 @@
       "paths": [
         "torch/vulkan",
         "aten/src/ATen/native/vulkan/api",
+        "aten/src/ATen/native/vulkan/planning/DevicePolicy.*",
         "aten/src/ATen/native/vulkan/planning/ExecutionContracts*",
         "aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime*",
         "aten/src/ATen/native/vulkan/planning/PackedWeightCache.*",
@@ -116,13 +117,14 @@
     {
       "id": "migration_label_and_device_name_inference",
       "paths": [
+        "aten/src/ATen/native/vulkan/planning/LegacyDeviceNamePolicy.h",
         "aten/src/ATen/native/vulkan/planning/LegacyPlanningInference.*",
         "aten/src/ATen/native/vulkan/planning/ModelLanePolicy.*",
         "aten/src/ATen/native/vulkan/planning/Request.cpp",
         "aten/src/ATen/native/vulkan/planning/DevicePolicy.cpp"
       ],
       "state": "Migration",
-      "summary": "Allocation-label model-lane inference and device-name policy checks. Label and tensor-shape heuristics are isolated in LegacyPlanningInference.* from explicit Request.* construction.",
+      "summary": "Allocation-label model-lane inference and device-name policy checks. Label, tensor-shape, and device-name heuristics are isolated in LegacyPlanningInference.* and LegacyDeviceNamePolicy.h from explicit Request.* construction and capability discovery.",
       "surface_count": 4
     }
   ],

@@ -1,8 +1,8 @@
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
 
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/planning/LegacyDeviceNamePolicy.h>
 
-#include <cstring>
 #include <sstream>
 
 namespace at {
@@ -10,14 +10,6 @@ namespace native {
 namespace vulkan {
 namespace ops {
 namespace utils {
-
-namespace {
-
-bool contains_name(const std::string& name, const char* needle) {
-  return !name.empty() && needle && std::strstr(name.c_str(), needle) != nullptr;
-}
-
-} // namespace
 
 VulkanDevicePolicy current_vulkan_device_policy() {
   VulkanDevicePolicy policy;
@@ -42,18 +34,11 @@ VulkanDevicePolicy current_vulkan_device_policy() {
   policy.supports_zero_initialize_workgroup_memory =
       adapter->has_shader_zero_initialize_workgroup_memory();
 
-  const bool gtx_class = contains_name(policy.device_name, "GTX");
-  const bool rx_6700_xt = contains_name(policy.device_name, "6700 XT");
-  const bool conservative_large_conv_device = gtx_class || rx_6700_xt;
   policy.prefer_strict_replay_retirement = true;
-  policy.avoid_large_persistent_weight_cache = gtx_class || rx_6700_xt;
-  policy.disable_large_float_buffer_conv_prepack = gtx_class;
   policy.transient_large_linear_weight_cache_threshold_bytes = 0u;
   policy.disable_generic_tiled_diffusion_linear = true;
   policy.disable_generic_4d_sdpa = true;
-  policy.disable_large_buffer_conv_3x3 = conservative_large_conv_device;
-  policy.disable_known_bad_conv_3x3_s1_p1 =
-      policy.disable_large_buffer_conv_3x3;
+  legacy::apply_device_name_policy(policy);
   return policy;
 }
 

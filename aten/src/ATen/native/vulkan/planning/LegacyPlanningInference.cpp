@@ -1,8 +1,10 @@
 #include <ATen/native/vulkan/planning/LegacyPlanningInference.h>
 
 #include <ATen/native/vulkan/api/Resource.h>
+#include <ATen/native/vulkan/planning/LegacyDeviceNamePolicy.h>
 
 #include <algorithm>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 
@@ -55,6 +57,10 @@ const std::string& current_planning_label() {
   return api::current_allocation_label();
 }
 
+bool contains_device_name(const std::string& name, const char* needle) {
+  return !name.empty() && needle && std::strstr(name.c_str(), needle) != nullptr;
+}
+
 } // namespace
 
 VulkanModelDomain infer_model_domain_from_planning_label() {
@@ -73,6 +79,17 @@ VulkanModelDomain infer_model_domain_from_planning_label() {
     return VulkanModelDomain::Vision;
   }
   return VulkanModelDomain::Generic;
+}
+
+void apply_device_name_policy(VulkanDevicePolicy& policy) {
+  const bool gtx_class = contains_device_name(policy.device_name, "GTX");
+  const bool rx_6700_xt = contains_device_name(policy.device_name, "6700 XT");
+  const bool conservative_large_conv_device = gtx_class || rx_6700_xt;
+  policy.avoid_large_persistent_weight_cache = gtx_class || rx_6700_xt;
+  policy.disable_large_float_buffer_conv_prepack = gtx_class;
+  policy.disable_large_buffer_conv_3x3 = conservative_large_conv_device;
+  policy.disable_known_bad_conv_3x3_s1_p1 =
+      policy.disable_large_buffer_conv_3x3;
 }
 
 bool planning_label_allows_llm_tensor_inference() {
