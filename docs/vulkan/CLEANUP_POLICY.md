@@ -66,6 +66,8 @@ reviewed decision in the ledger. CI-style tests reject generated-file drift,
 unclassified surfaces, duplicate classifications, stale surface IDs, invalid
 state metadata, restored files or dedicated symbols from deleted scope
 decisions, and a compatibility count that contradicts the deployment audit.
+Retired paths and dedicated symbols belong in generated scope decisions, not in
+separate hand-maintained repository scans.
 
 ## Deletion Evidence
 

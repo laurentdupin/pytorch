@@ -278,31 +278,6 @@ class TestVulkanGovernance(TestCase):
             )
             self.assertIn(f"TILE_SIZE = {tile}", shader)
 
-    def test_vulkan_retired_env_toggles_absent_from_runtime_code(self):
-        retired_env_toggles = {
-            "PYTORCH_VULKAN_LINEAR_TILED_CANARY",
-            "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES",
-            "PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF",
-            "PYTORCH_VULKAN_STACK_RETIRE_POLL_DEFERRAL",
-        }
-        scan_roots = [
-            os.path.join(REPO_ROOT, "aten", "src", "ATen", "native", "vulkan"),
-            os.path.join(REPO_ROOT, "scripts", "benchmarks"),
-        ]
-        offenders = []
-        for root in scan_roots:
-            for dirpath, _, filenames in os.walk(root):
-                for filename in filenames:
-                    if not filename.endswith((".cpp", ".h", ".py")):
-                        continue
-                    path = os.path.join(dirpath, filename)
-                    with open(path, encoding="utf-8") as handle:
-                        text = handle.read()
-                    for env_name in retired_env_toggles:
-                        if env_name in text:
-                            offenders.append(os.path.relpath(path, REPO_ROOT))
-        self.assertEqual([], offenders)
-
     def test_vulkan_depth_benchmark_replay_bridge_mode_is_quarantined(self):
         benchmark = self._depth_anything_benchmark_module()
         compiled_session = (

@@ -362,6 +362,88 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The label-inferred broad tiled-linear route failed full DAv2 bridge parity, and the narrower exact FC2 route was correctness-clean but substantially slower than the retained supported lane.",
+        "Later exact FC2 vec2 and QKV tiled contracts also failed full bridge isolation despite passing local operator tests, so the conservative buffer-linear route remains the supported default.",
+        "The generic tiled kernels remain available for contract-backed plans; only the retired environment selector and its exact-route helpers are forbidden."
+      ],
+      "consequence": "The environment read, exact FC2/vec2 selection helpers, benchmark orchestration, and mechanism-only route tests were deleted. Generic tiled kernels remain, while behavioral fail-closed tests continue to pin the full-bridge correctness bug class.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_LINEAR_TILED_CANARY",
+        "linear_tiled_canary_vision_fc2_enabled",
+        "linear_tiled_canary_vision_fc2_vec2_enabled"
+      ],
+      "id": "linear_tiled_canary_env_gate",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The legacy QKV-only environment spelling duplicated the already-proven stack-internal retire-batch predicate without naming the reusable ownership contract.",
+        "PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF is the contract-facing replacement and covers QKV plus later proven stack-scoped activation and LayerNorm statistic-buffer classes.",
+        "No supported caller or compatibility artifact depends on the private legacy spelling."
+      ],
+      "consequence": "The legacy environment alias, selector helper, and alias-only mechanism test were deleted. StackScopeRetireHandoffContract and its evidence-critical diagnostics remain the sole live path.",
+      "decision": "replace_alias",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_BATCH_QKV_RETIRES",
+        "stack_region_batch_qkv_retires_enabled"
+      ],
+      "id": "legacy_qkv_retire_batch_alias",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The canary safely moved exact external-recording cleanup entries to the existing stack-exit timeline, but did not reduce the measured stack-owner retire-drain submit count.",
+        "The RX 9070 DAv2 vits_140 probe regressed device-resident mean latency from about 64.3 ms to 75.3 ms.",
+        "A future handoff requires segment-local completion ownership or a separate submit-plan change, not restoration of the same stack-exit transfer."
+      ],
+      "consequence": "The environment selector, transfer helper and movement branch, and mechanism-only test were deleted. Generic external-recording cleanup rows remain metadata-only and continue to prove that no pending retires move.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_SEGMENT_COMPLETION_RETIRE_HANDOFF",
+        "stack_region_segment_completion_retire_handoff_enabled"
+      ],
+      "id": "segment_completion_retire_handoff_canary",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The poll-only deferral canary reduced retire-poll accounting but left the stack-owner retire-queue submit count unchanged.",
+        "The RX 9070 DAv2 vits_140 probe remained correctness-clean but regressed device-resident mean latency from about 64.3 ms to 67.0 ms.",
+        "The accepted narrow stack-owned segment retire-drain deferral uses explicit resource-count and byte budgets and remains the supported policy."
+      ],
+      "consequence": "The poll-only environment read, selector helper, and early-return branch were deleted. The accepted bounded stack-owned segment retire-drain deferral and generic retire counters remain.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_RETIRE_POLL_DEFERRAL",
+        "stack_owner_poll_only_retire_drain_defer_enabled",
+        "stack_owner_poll_only"
+      ],
+      "id": "stack_owner_poll_only_retire_deferral",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
