@@ -3,7 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Context.h>
-#include <ATen/native/vulkan/api/Sync.h>
+#include <ATen/native/vulkan/api/SyncCounters.h>
 
 namespace at {
 namespace native {

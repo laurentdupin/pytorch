@@ -1,6 +1,6 @@
 #include <ATen/ATen.h>
 #include <ATen/native/vulkan/api/Diagnostics.h>
-#include <ATen/native/vulkan/api/Sync.h>
+#include <ATen/native/vulkan/api/SyncCounters.h>
 #include <ATen/native/vulkan/impl/Packing.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/LayoutTransitions.h>

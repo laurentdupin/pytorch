@@ -163,8 +163,8 @@
     {
       "id": "active_graph_eager_and_diagnostics",
       "state": "Active",
-      "summary": "Graph correctness execution, generic eager kernels and contexts, public Vulkan Python APIs, and evidence-critical diagnostics.",
-      "why": "These surfaces implement the supported graph program or the concrete eager correctness substrate and its explicit accounting.",
+      "summary": "Graph correctness execution, generic eager kernels and contexts, public Vulkan Python APIs, and evidence-critical diagnostics including generic sync, submit, and retire attribution.",
+      "why": "These surfaces implement the supported graph program or the concrete eager correctness substrate and its explicit accounting. Generic sync, submit, and retire attribution is isolated in SyncCounters.* from migration-gated stack policy.",
       "paths": [
         "torch/vulkan",
         "aten/src/ATen/native/vulkan/api",
@@ -367,7 +367,7 @@
     {
       "id": "migration_vision_stack_and_sync_control_plane",
       "state": "Migration",
-      "summary": "VisionBlocks model orchestration and the stack proof/canary control plane embedded in Sync and Context.",
+      "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
       "replacement": "C++ immutable graph plans followed by recorded graph-owned command partitions.",
       "delete_when": "DAv2 and affected corpus paths use the supported graph program with correctness, dynamic-shape, repeated-output lifetime, submit, memory, and latency parity.",
       "baseline": "Compare only with plain concrete eager and VulkanGraphProgram artifacts recorded at deletion time.",

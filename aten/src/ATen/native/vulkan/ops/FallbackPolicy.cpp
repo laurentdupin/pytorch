@@ -1,7 +1,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Diagnostics.h>
-#include <ATen/native/vulkan/api/Sync.h>
+#include <ATen/native/vulkan/api/SyncCounters.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/planning/TransitionPlanner.h>

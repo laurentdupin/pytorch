@@ -89,9 +89,9 @@ Work that can interleave with executor milestones now:
 
 1. maintain the generated inventory, ledger, and review gates;
 2. delete experiments already marked Delete-ready;
-3. prepare the `Sync.cpp` split while preserving every counter and attribution
-   path consumed by the evidence harness, including fallback/readback,
-   submit-origin, and GPU timestamps; and
+3. keep the generic `SyncCounters.*` evidence substrate separate from the
+   stack proof/canary control plane remaining in `Sync.*`, preserving
+   fallback/readback, submit-origin, retire, and GPU-timestamp attribution; and
 4. split mixed subsystems only when the split reduces the next deletion unit.
 
 Later cleanup is a consequence of graph progress, not scheduled prerequisite

@@ -12,6 +12,13 @@ defined by `docs/vulkan/CLEANUP_POLICY.md`; the exact live-surface states are in
 guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
+The supported sync accounting substrate is now isolated in `SyncCounters.*`.
+It owns sync and forced-sync counters, graph-program invocation accounting,
+submit-origin/phase attribution, and retire-drain/call-site accounting without
+changing their schemas. This preserves fallback/readback and profiling GPU
+timestamp evidence independently of the stack proof/canary control plane that
+remains migration-gated in `Sync.*` and `Context.cpp`.
+
 Runtime elementwise eager experiments were retired on 2026-07-14. The removed
 stack comprised the runtime glslc compiler, owned-SPIR-V shader descriptors,
 live eager-chain sidecar recorder, deferred tensor placeholders, and the

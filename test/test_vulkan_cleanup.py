@@ -15,6 +15,26 @@ GENERATOR_PATH = os.path.join(
     "vulkan_cleanup",
     "generate_surface_inventory.py",
 )
+SYNC_COUNTERS_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "api",
+    "SyncCounters.cpp",
+)
+SYNC_PATH = os.path.join(
+    REPO_ROOT,
+    "aten",
+    "src",
+    "ATen",
+    "native",
+    "vulkan",
+    "api",
+    "Sync.cpp",
+)
 
 
 def _load_generator():
@@ -71,6 +91,39 @@ class TestVulkanCleanupInventory(TestCase):
             "restored symbols",
         ):
             self.generator.validate_scope_decisions(ledger)
+
+    def test_sync_counter_substrate_is_separate_from_stack_control_plane(self):
+        with open(SYNC_COUNTERS_PATH, encoding="utf-8") as file:
+            counter_source = file.read()
+        with open(SYNC_PATH, encoding="utf-8") as file:
+            sync_source = file.read()
+
+        definitions = (
+            "VulkanSyncCounters& vulkan_sync_counters()",
+            "vulkan_graph_program_invocation_counters() {",
+            "void note_vulkan_queue_submit(VulkanSubmitOrigin origin)",
+            "std::vector<std::string> submit_origin_phase_snapshot()",
+            "std::vector<int64_t> retire_drain_counters_snapshot()",
+            "std::vector<std::string> retire_call_site_counters_snapshot()",
+            "void note_vulkan_forced_sync(VulkanForcedSyncReason reason)",
+        )
+        for definition in definitions:
+            self.assertIn(definition, counter_source)
+            self.assertNotIn(definition, sync_source)
+
+        for evidence_path in (
+            "FallbackPolicyReadback",
+            "ProfilingTimestampReset",
+            "ProfilingTimestampReadback",
+            "StackPlannedRecordingSubmit",
+        ):
+            self.assertIn(evidence_path, counter_source)
+
+        self.assertIn("stack_internal_temp_retire_batch_counters()", sync_source)
+        self.assertNotIn(
+            "stack_internal_temp_retire_batch_counters()",
+            counter_source,
+        )
 
 
 if __name__ == "__main__":

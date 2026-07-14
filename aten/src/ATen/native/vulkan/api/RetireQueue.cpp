@@ -3,7 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Exception.h>
-#include <ATen/native/vulkan/api/Sync.h>
+#include <ATen/native/vulkan/api/SyncCounters.h>
 
 #include <limits>
 

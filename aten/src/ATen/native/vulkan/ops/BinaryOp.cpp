@@ -30,7 +30,6 @@
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
 #include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
-#include <ATen/native/vulkan/api/Sync.h>
 #include <ATen/native/vulkan/planning/ExecutionContracts.h>
 #include <ATen/native/vulkan/planning/ReplayTensorState.h>
 #include <algorithm>

@@ -3,7 +3,7 @@
 #ifdef USE_VULKAN_API
 
 #include <ATen/native/vulkan/api/Adapter.h>
-#include <ATen/native/vulkan/api/Sync.h>
+#include <ATen/native/vulkan/api/SyncCounters.h>
 #include <ATen/native/vulkan/api/vk_api.h>
 
 #include <c10/core/Stream.h>
