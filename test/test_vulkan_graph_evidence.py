@@ -23,6 +23,9 @@ from scripts.benchmarks.vulkan_graph_export_evidence import (
     _is_export_guard_rejection,
     _lowering_reports,
     _named_counter_snapshot,
+    _nonnegative_repeat_count,
+    _positive_repeat_count,
+    _summarize_latency_samples,
 )
 
 
@@ -1069,6 +1072,22 @@ class TestVulkanGraphEvidence(TestCase):
         for prefix in ("", "../paddleocr", r"paddleocr\\run", "paddle ocr", "."):
             with self.assertRaises(argparse.ArgumentTypeError):
                 _artifact_prefix(prefix)
+
+    def test_latency_repeat_counts_and_summary_are_explicit(self):
+        self.assertEqual(_nonnegative_repeat_count("0"), 0)
+        self.assertEqual(_positive_repeat_count("10"), 10)
+        with self.assertRaises(argparse.ArgumentTypeError):
+            _nonnegative_repeat_count("-1")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            _positive_repeat_count("0")
+
+        summary = _summarize_latency_samples([0.04, 0.01, 0.03, 0.02])
+        self.assertEqual(summary["count"], 4)
+        self.assertEqual(summary["samples_seconds"], [0.04, 0.01, 0.03, 0.02])
+        self.assertAlmostEqual(summary["mean_seconds"], 0.025)
+        self.assertAlmostEqual(summary["median_seconds"], 0.025)
+        self.assertAlmostEqual(summary["p90_seconds"], 0.037)
+        self.assertAlmostEqual(summary["p95_seconds"], 0.0385)
 
     def test_guard_variant_only_handles_export_guard_rejections(self):
         self.assertTrue(

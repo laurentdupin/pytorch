@@ -43,7 +43,8 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --output-dir C:\results\dav2_vits_graph \
   --source-git-sha <full-HEAD-SHA> \
   --eager-atol 0.0 --eager-rtol 0.0 \
-  --cpu-atol 0.004 --cpu-rtol 0.0
+  --cpu-atol 0.004 --cpu-rtol 0.0 \
+  --latency-warmup-repeats 3 --latency-measurement-repeats 10
 ```
 
 The caller-owned output directory receives measured census and parity
@@ -159,6 +160,18 @@ supported eager high-water mark. DAv2 is 0.9% to 1.7% below eager across the
 recorded graph phases; PaddleOCR ranges from 0.5% below to 2.5% above. These
 fields do not authorize model-name production dispatch, exact-shape admission,
 or executor performance tuning.
+
+Each case separately measures supported-default latency with preuploaded Vulkan
+inputs and Vulkan outputs that are not read back in the timed region. Plain
+concrete eager and `VulkanGraphProgram` receive the same device-resident inputs,
+alternate which surface runs first in each measurement round, and synchronize
+after every measured invocation. The artifact records every sample plus mean,
+median, standard deviation, minimum, maximum, p90, and p95. The default is three
+warmups and ten measurements per surface. This phase runs after parity,
+submission, repeated-output, and memory snapshots have been captured, so its
+explicit synchronization does not contaminate those counters. The raw samples
+remain direction evidence until a reviewed deletion unit names its supported
+baseline artifact and latency acceptance bar.
 
 The default tolerances are zero. A nonzero tolerance is an explicit corpus
 evidence choice and is written into the measured parity artifact. Graph versus

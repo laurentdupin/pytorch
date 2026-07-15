@@ -89,6 +89,23 @@ def _artifact_prefix(value: str) -> str:
     return value
 
 
+def _nonnegative_repeat_count(value: str) -> int:
+    try:
+        count = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("repeat count must be an integer") from error
+    if count < 0:
+        raise argparse.ArgumentTypeError("repeat count must be nonnegative")
+    return count
+
+
+def _positive_repeat_count(value: str) -> int:
+    count = _nonnegative_repeat_count(value)
+    if count == 0:
+        raise argparse.ArgumentTypeError("measurement repeat count must be positive")
+    return count
+
+
 def _artifact_output_paths(output_dir: Path, prefix: str) -> tuple[Path, Path]:
     return (
         output_dir / f"{prefix}_export_census.json",
@@ -382,6 +399,127 @@ def _finish_memory_phase(baseline_live_bytes: int) -> dict[str, int]:
     }
 
 
+def _percentile(ordered: list[float], fraction: float) -> float:
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * fraction
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
+def _summarize_latency_samples(samples: list[float]) -> dict[str, Any]:
+    if not samples:
+        raise ValueError("latency samples must not be empty")
+    ordered = sorted(samples)
+    return {
+        "count": len(samples),
+        "mean_seconds": statistics.fmean(samples),
+        "median_seconds": statistics.median(ordered),
+        "min_seconds": ordered[0],
+        "max_seconds": ordered[-1],
+        "stdev_seconds": statistics.pstdev(ordered) if len(ordered) > 1 else 0.0,
+        "p90_seconds": _percentile(ordered, 0.90),
+        "p95_seconds": _percentile(ordered, 0.95),
+        "samples_seconds": samples,
+    }
+
+
+def _latency_runtime_snapshot() -> dict[str, int]:
+    return {
+        "cpu_fallback": int(torch.ops.vulkan_prepack.cpu_fallback_count()),
+        "sync_readback": int(torch.ops.vulkan_prepack.sync_readback_count()),
+    }
+
+
+def _measure_latency_pair(
+    eager_run: Callable[[], Any],
+    graph_run: Callable[[], Any],
+    warmup_repeats: int,
+    measurement_repeats: int,
+) -> dict[str, Any]:
+    surfaces = (
+        ("supported_eager", eager_run),
+        ("vulkan_graph_program", graph_run),
+    )
+    torch.ops.vulkan_prepack.synchronize()
+    for index in range(warmup_repeats):
+        ordered_surfaces = surfaces if index % 2 == 0 else tuple(reversed(surfaces))
+        for _, run in ordered_surfaces:
+            output = run()
+            del output
+    torch.ops.vulkan_prepack.synchronize()
+
+    samples: dict[str, list[float]] = {name: [] for name, _ in surfaces}
+    runtime_counters = {
+        name: {"cpu_fallback": 0, "sync_readback": 0} for name, _ in surfaces
+    }
+    for index in range(measurement_repeats):
+        ordered_surfaces = surfaces if index % 2 == 0 else tuple(reversed(surfaces))
+        for name, run in ordered_surfaces:
+            counters_before = _latency_runtime_snapshot()
+            start = time.perf_counter()
+            output = run()
+            torch.ops.vulkan_prepack.synchronize()
+            samples[name].append(time.perf_counter() - start)
+            counters_after = _latency_runtime_snapshot()
+            for counter_name in runtime_counters[name]:
+                runtime_counters[name][counter_name] += (
+                    counters_after[counter_name] - counters_before[counter_name]
+                )
+            del output
+
+    eager_summary = _summarize_latency_samples(samples["supported_eager"])
+    graph_summary = _summarize_latency_samples(samples["vulkan_graph_program"])
+    eager_summary["runtime_counters"] = runtime_counters["supported_eager"]
+    graph_summary["runtime_counters"] = runtime_counters["vulkan_graph_program"]
+    median_ratio = (
+        graph_summary["median_seconds"] / eager_summary["median_seconds"]
+    )
+    return {
+        "method": "alternating_completed_device_resident_invocations",
+        "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
+        "output_readback_in_timed_region": False,
+        "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
+        "measurement_order": "supported_eager_first_on_even_rounds",
+        "warmup_repeats_per_surface": warmup_repeats,
+        "measurement_repeats_per_surface": measurement_repeats,
+        "supported_eager": eager_summary,
+        "vulkan_graph_program": graph_summary,
+        "median_ratio_graph_over_eager": median_ratio,
+        "median_delta_percent": (median_ratio - 1.0) * 100.0,
+    }
+
+
+def _measure_case_latency(
+    program: torch.vulkan.VulkanGraphProgram,
+    eager_model: torch.nn.Module,
+    args: tuple[Any, ...],
+    warmup_repeats: int,
+    measurement_repeats: int,
+) -> dict[str, Any]:
+    latency_args = pytree.tree_map(
+        lambda value: value.to("vulkan")
+        if isinstance(value, torch.Tensor)
+        else value,
+        args,
+    )
+    plan = getattr(program, "cpp_plan", None)
+    generation_before = plan.invocation_generation() if plan is not None else None
+    result = _measure_latency_pair(
+        lambda: eager_model(*latency_args),
+        lambda: program(*latency_args),
+        warmup_repeats,
+        measurement_repeats,
+    )
+    generation_after = plan.invocation_generation() if plan is not None else None
+    result["graph_invocation_generation_before"] = generation_before
+    result["graph_invocation_generation_after"] = generation_after
+    del latency_args
+    return result
+
+
 def _run_case(
     name: str,
     program: torch.vulkan.VulkanGraphProgram,
@@ -534,6 +672,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--eager-rtol", type=float, default=0.0)
     parser.add_argument("--cpu-atol", type=float, default=0.0)
     parser.add_argument("--cpu-rtol", type=float, default=0.0)
+    parser.add_argument(
+        "--latency-warmup-repeats", type=_nonnegative_repeat_count, default=3
+    )
+    parser.add_argument(
+        "--latency-measurement-repeats", type=_positive_repeat_count, default=10
+    )
     parser.add_argument("--normal-input-shape", default=None)
     parser.add_argument("--alternate-input-shape", default=None)
     return parser.parse_args()
@@ -584,6 +728,8 @@ def main() -> int:
     program = torch.vulkan.export_and_lower(
         model, normal, dynamic_shapes=dynamic_shapes, device=device
     )
+    lower_seconds = time.perf_counter() - lower_start
+    normal_program = program
     eager_model = copy.deepcopy(model).to(device).eval()
     normal_census, normal_parity = _run_case(
         "normal",
@@ -597,6 +743,7 @@ def main() -> int:
         args.cpu_rtol,
     )
     try:
+        alternate_program = program
         alternate_census, alternate_parity = _run_case(
             "alternate",
             program,
@@ -635,7 +782,25 @@ def main() -> int:
         }
         alternate_parity["guard"] = alternate_census["guard"]
     out_of_range_guard = _out_of_range_guard(program, out_of_range)
-    lower_seconds = time.perf_counter() - lower_start
+    execution_plan = _execution_plan_summary(program)
+    normal_latency = _measure_case_latency(
+        normal_program,
+        eager_model,
+        normal,
+        args.latency_warmup_repeats,
+        args.latency_measurement_repeats,
+    )
+    alternate_latency = _measure_case_latency(
+        alternate_program,
+        eager_model,
+        alternate,
+        args.latency_warmup_repeats,
+        args.latency_measurement_repeats,
+    )
+    for case in (normal_census, normal_parity):
+        case["timing"]["supported_default_latency"] = normal_latency
+    for case in (alternate_census, alternate_parity):
+        case["timing"]["supported_default_latency"] = alternate_latency
     if out_of_range_guard["status"] == "unexpectedly_accepted":
         raise RuntimeError("Out-of-range input was accepted by exported guards")
     lowering_reports = _lowering_reports(program)
@@ -654,7 +819,7 @@ def main() -> int:
         "program_key": _jsonable(program.key),
         "graph_structure": _graph_structure(program),
         "graph_census": _graph_counts(program),
-        "execution_plan": _execution_plan_summary(program),
+        "execution_plan": execution_plan,
         **lowering_reports,
     }
     census = {
