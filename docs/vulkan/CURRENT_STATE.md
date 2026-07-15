@@ -63,18 +63,22 @@ Plan selection is fail-closed. The v3 schema accepts tensor inputs, zero or one
 dispatcher return per instruction, direct SSA references, flat homogeneous
 dynamic list arguments, and literal or graph-owned constants; internal single
 returns may be non-Tensor IValues while public outputs remain Tensors.
-Schema-typed device constants are canonicalized before boxed dispatch. Mutable
-dispatch, mismatched boxed argument types, deeper or non-list dynamic
-containers, and multiple dispatcher returns retain the Python correctness
-executor with an explicit reason. The four-token HY-MT probe now crosses
-`aten::_assert_tensor_metadata` and all 129 dynamic `Tensor[]` arguments to
-`aten::cat`, then stops at `argument_type_mismatch:mul:other`: export bound a
-Python float to the Tensor argument of `aten::mul.Tensor`, whose Python wrapper
-performs a scalar-to-Tensor coercion that the boxed plan does not yet represent.
-HY-MT still executes through the Python correctness path. The v3 executor does
-not yet preallocate a memory arena, own descriptors/submissions, support deeper
-containers or multi-output values, or provide corpus parity/performance
-evidence, so it does not satisfy a Migration deletion gate.
+Schema-typed device constants are canonicalized before boxed dispatch. Python
+numeric literals bound to Tensor schema arguments are represented as CPU 0D
+Tensor constants, matching the cross-device scalar form accepted by the Vulkan
+eager kernels without fallback or readback. Mutable dispatch, mismatched boxed
+argument types, deeper or non-list dynamic containers, and multiple dispatcher
+returns retain the Python correctness executor with an explicit reason. The
+four-token HY-MT probe now crosses `aten::_assert_tensor_metadata`, all 129
+dynamic `Tensor[]` arguments to `aten::cat`, and the Python float bound to
+`aten::mul.Tensor`, then stops at
+`mutable_operator:detach_:aten::detach_`. That mutation targets the result of
+`aten::lift_fresh_copy`; it remains rejected until a generic fresh-alias proof
+can rewrite it to functional `aten::detach`. HY-MT still executes through the
+Python correctness path. The v3 executor does not yet preallocate a memory
+arena, own descriptors/submissions, support deeper containers or multi-output
+values, or provide corpus parity/performance evidence, so it does not satisfy
+a Migration deletion gate.
 
 The existing GQA repeat shader also had its generic coordinate mapping fixed:
 Vulkan buffer metadata orders logical coordinates as width, sequence, heads,

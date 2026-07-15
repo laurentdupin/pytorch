@@ -505,9 +505,11 @@ graphs execute without Python node callbacks and preserve earlier live outputs.
 Unsupported plan structure reports a reason and retains the Python correctness
 executor. HY-MT now crosses the zero-return `aten::_assert_tensor_metadata`
 instruction and all 129 dynamic `Tensor[]` arguments to `aten::cat`, then stops
-at the Python scalar bound to `aten::mul.Tensor`'s Tensor argument; it therefore
-remains Python-executed. Deeper list/tuple/dict values, scalar-to-Tensor schema
-coercion, multiple-return values, program memory slots, descriptors,
+after canonicalizing the Python scalar bound to `aten::mul.Tensor` as a CPU 0D
+Tensor constant. Its next blocker is mutable `aten::detach_` over an
+`aten::lift_fresh_copy` result; it therefore remains Python-executed. Deeper
+list/tuple/dict values, proof-driven functionalization of fresh mutations,
+multiple-return values, program memory slots, descriptors,
 submission/completion ownership, and corpus parity remain open.
 
 Exit criteria:

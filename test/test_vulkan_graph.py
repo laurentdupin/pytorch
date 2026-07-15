@@ -741,6 +741,29 @@ class TestVulkanGraph(TestCase):
                 [1],
             )
 
+    def test_cpp_graph_plan_canonicalizes_scalar_tensor_literal(self):
+        class ScalarTensorMul(torch.nn.Module):
+            def forward(self, tensor):
+                return torch.ops.aten.mul.Tensor(tensor, 1.5)
+
+        model = ScalarTensorMul().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.status, "compiled")
+        self.assertEqual(program.cpp_plan_report.plan_version, "v3")
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor)
+        torch.testing.assert_close(output.cpu(), model(tensor))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
             def __init__(self):
@@ -2209,11 +2232,8 @@ class TestVulkanGraph(TestCase):
         model = NoGradPointwise().eval()
         tensor = torch.randn(2, 3)
         program = torch.vulkan.export_and_lower(model, tensor)
-        self.assertEqual(program.execution_mode, "python_correctness_executor")
-        self.assertEqual(
-            program.cpp_plan_report.reason,
-            "argument_type_mismatch:add_1:other",
-        )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.status, "compiled")
         self.assertFalse(
             any(
                 node.target is torch.ops.higher_order.wrap_with_set_grad_enabled

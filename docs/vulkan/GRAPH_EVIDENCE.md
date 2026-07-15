@@ -74,12 +74,14 @@ remain unchanged. Plan compilation now crosses `aten::_assert_tensor_metadata`,
 including its schema-typed device constant, and all 129 dynamic `Tensor[]`
 arguments to `aten::cat`. It explicitly selects
 `python_correctness_executor` with first reason
-`argument_type_mismatch:mul:other`: export bound the Python float `1.0` to the
-Tensor argument of `aten::mul.Tensor`, relying on a Python-wrapper
-scalar-to-Tensor coercion absent from the boxed plan. This establishes schema
-coercion as the next generic representation blocker without claiming that
-HY-MT has transferred execution, memory, descriptor, or submission ownership
-to C++.
+`mutable_operator:detach_:aten::detach_`. Plan compilation now canonicalizes
+the Python float `1.0` bound to `aten::mul.Tensor` as the same CPU 0D Tensor
+scalar form accepted by Vulkan eager execution. The mutable detach targets an
+`aten::lift_fresh_copy` result and needs a generic fresh-alias proof plus
+functional rewrite rather than mutable C++ dispatch. This establishes
+functionalization as the next generic representation blocker without claiming
+that HY-MT has transferred execution, memory, descriptor, or submission
+ownership to C++.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, proven-identity indexing,

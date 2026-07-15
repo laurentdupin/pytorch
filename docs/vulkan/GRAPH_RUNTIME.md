@@ -164,8 +164,11 @@ multi-instruction graphs therefore cross Python once per invocation rather than
 once per node. The compiler reports why a graph remains on the Python executor;
 it does not silently mix the two execution modes.
 
-The v3 plan does not yet implement deeper or non-list dynamic containers,
-Python scalar-to-Tensor schema coercion, multiple-return operators, preallocated
+Python numeric literals bound to Tensor schema arguments are canonicalized to
+CPU 0D Tensor constants before plan construction; Vulkan eager kernels already
+admit this cross-device scalar form without fallback or readback. The v3 plan
+does not yet implement deeper or non-list dynamic containers, functionalization
+of proven-fresh mutable operators, multiple-return operators, preallocated
 memory slots, descriptor/barrier construction, submission ownership, or
 generation-gated output reuse. Those remain Stage 2 requirements rather than
 being inferred from the boxed eager dispatch used by this slice.

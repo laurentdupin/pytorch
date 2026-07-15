@@ -145,6 +145,10 @@ def _canonicalize_argument(value: Any, expected_type: Any) -> Any:
             return torch.device(value)
         except RuntimeError:
             pass
+    if value_type.kind() == "TensorType" and isinstance(
+        value, (bool, int, float, complex)
+    ):
+        return torch.tensor(value, device="cpu")
     return value
 
 
