@@ -499,24 +499,29 @@ def _measure_case_latency(
     warmup_repeats: int,
     measurement_repeats: int,
 ) -> dict[str, Any]:
-    latency_args = pytree.tree_map(
-        lambda value: value.to("vulkan")
-        if isinstance(value, torch.Tensor)
-        else value,
-        args,
-    )
-    plan = getattr(program, "cpp_plan", None)
-    generation_before = plan.invocation_generation() if plan is not None else None
-    result = _measure_latency_pair(
-        lambda: eager_model(*latency_args),
-        lambda: program(*latency_args),
-        warmup_repeats,
-        measurement_repeats,
-    )
-    generation_after = plan.invocation_generation() if plan is not None else None
-    result["graph_invocation_generation_before"] = generation_before
-    result["graph_invocation_generation_after"] = generation_after
-    del latency_args
+    with torch.inference_mode():
+        latency_args = pytree.tree_map(
+            lambda value: value.to("vulkan")
+            if isinstance(value, torch.Tensor)
+            else value,
+            args,
+        )
+        plan = getattr(program, "cpp_plan", None)
+        generation_before = (
+            plan.invocation_generation() if plan is not None else None
+        )
+        result = _measure_latency_pair(
+            lambda: eager_model(*latency_args),
+            lambda: program(*latency_args),
+            warmup_repeats,
+            measurement_repeats,
+        )
+        generation_after = (
+            plan.invocation_generation() if plan is not None else None
+        )
+        result["graph_invocation_generation_before"] = generation_before
+        result["graph_invocation_generation_after"] = generation_after
+        del latency_args
     return result
 
 
