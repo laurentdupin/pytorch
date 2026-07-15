@@ -503,14 +503,14 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v6` is an immutable C++ IValue-SSA plan for
+Current status: `VulkanGraphPlan.v7` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with any schema-declared
 return count. It owns operator handles and constants, preserves ordered
 effect-only instructions, assigns multi-schema returns to adjacent SSA slots,
 aliases constant-index multi-return projections to the selected slot, executes
 constant-index list projections with negative-index normalization and runtime
-bounds checking, and materializes
-schema-typed flat homogeneous list arguments,
+bounds checking, materializes schema-typed empty list sentinels from zero-leaf
+recipes, and assembles schema-typed flat homogeneous list arguments,
 validates use-count/last-use metadata for every list leaf, tracks liveness
 separately from values, releases non-escaping values after last use, rejects
 concurrent invocation, and checks each instruction for implicit host
@@ -536,7 +536,11 @@ complete 404-instruction C++ plan. PaddleOCR remains at the schema mismatch for
 the exported `avg_pool2d` stride. Both retain exact graph-versus-eager Vulkan
 parity and zero runtime fallback, readback, or deferred-value creation. These
 are generic plan-representation tasks, not reasons to add corpus routes.
-HY-MT retains its complete 2,732-instruction C++ plan under v6.
+HY-MT retains its complete 2,732-instruction C++ plan under v7. Caller-owned v7
+evidence also moves PaddleOCR to a complete 290-instruction C++ plan by
+preserving its schema-default empty `avg_pool2d` stride as a typed list recipe;
+DAv2 and HY-MT retain their complete plans and zero counters. Exact-SHA v7
+artifacts remain pending the implementation commit.
 
 Exit criteria:
 

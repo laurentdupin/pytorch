@@ -151,7 +151,7 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v6` is the current bounded implementation slice. It consumes
+`VulkanGraphPlan.v7` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
 non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
 use-count, last-use, liveness, and Tensor output escape. Instructions may have
@@ -162,7 +162,9 @@ instruction. A constant-index `getitem` over a represented list value becomes
 an internal list-projection instruction with Python-compatible negative-index
 normalization and runtime bounds checking. A schema-typed list recipe assembles
 a flat homogeneous dynamic argument from SSA and constant leaves before boxed
-dispatch; all leaves participate in normal lifetime accounting.
+dispatch; all leaves participate in normal lifetime accounting. A zero-leaf
+recipe materializes an empty list with the schema's element type, preserving
+legal default sentinels that cannot be inferred from an untyped Python list.
 Per-instruction graph scopes reject fallback, readback, deferred-value
 creation, and non-Vulkan Tensor results. Eligible
 multi-instruction graphs therefore cross Python once per invocation rather than
@@ -175,7 +177,7 @@ admit this cross-device scalar form without fallback or readback.
 Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
 checked C++ arithmetic with Python floor semantics and no dispatcher or Python
 callback. Non-integer operands, overflow, and division by zero fail closed. The
-v6 plan does not yet implement deeper or non-list dynamic containers,
+v7 plan does not yet implement deeper or non-list dynamic containers,
 projection from nested, tuple, or dictionary values, preallocated memory slots,
 descriptor/barrier
 construction, submission ownership, or generation-gated output reuse. Those

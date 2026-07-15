@@ -21,6 +21,10 @@ exact graph-versus-eager Vulkan parity, zero unsupported nodes, and zero
 graph-runtime fallback, readback, or deferred-value creation. DAv2 now executes
 its complete 404-instruction v6 C++ plan on both recorded shapes. PaddleOCR
 remains at schema-directed `avg_pool2d` stride canonicalization.
+Caller-owned v7 worktree evidence represents the schema-default empty stride
+as a typed zero-leaf list recipe. PaddleOCR then executes a complete
+290-instruction C++ plan on both shapes, while DAv2 and HY-MT retain their
+complete plans and zero implicit-boundary counters.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -40,7 +44,7 @@ The same four-token HY-MT prefill probe captures 3,160 nodes, lowers 225, and
 reports zero unsupported nodes at lower time. It now executes the complete
 immutable C++ plan, returns 65 tensor outputs, and records zero CPU fallback,
 sync readback, or deferred-value creation with no Vulkan behavior overrides.
-The v6 plan contains 2,732 instructions, including 268 ordered effects and 129
+The v7 plan contains 2,732 instructions, including 268 ordered effects and 129
 schema-typed list arguments. The former `[1,16,4,128]` boolean-masked SDPA
 boundary is covered by the generic bounded `MaskedTinySDPAContract` runtime
 family, which converts PyTorch boolean keep masks to an additive buffer on
@@ -49,7 +53,7 @@ not numerical parity, dynamic-shape, repeated-output lifetime, submit,
 peak-memory, or latency evidence; all Migration deletion gates therefore
 remain unchanged.
 
-Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v6`
+Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v7`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
 handles, graph-owned constants and contexts, IValue SSA values, ordered
 zero-return effects, schema-ordered multi-return values, schema-typed
@@ -70,9 +74,11 @@ metadata-checked, and Tensor-list concat graphs run through this path while the
 Python interpreter is disabled, and earlier live outputs remain valid after
 later invocations.
 
-Plan selection is fail-closed. The v6 schema accepts tensor inputs, any
+Plan selection is fail-closed. The v7 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
 homogeneous dynamic list arguments, and literal or graph-owned constants;
+an empty schema-list constant is represented as a typed zero-leaf list recipe
+rather than an untyped `Any[]` constant.
 internal returns may be non-Tensor IValues while public outputs remain
 Tensors.
 Schema-typed device constants are canonicalized before boxed dispatch. Python
@@ -101,9 +107,9 @@ chain is proven to lead back to
 `aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
 mutable and fail closed. The four-token HY-MT probe proves this condition for
 all 64 exported detach mutations and now compiles the entire graph as a
-2,732-instruction `VulkanGraphPlan.v6`; it contains no graph-scalar or list
-projection instructions, so the v6 probe is also a strict executor regression
-check. The v6 executor does not yet preallocate a memory arena, own
+2,732-instruction `VulkanGraphPlan.v7`; it contains no graph-scalar or list
+projection instructions, so the v7 probe is also a strict executor regression
+check. The v7 executor does not yet preallocate a memory arena, own
 descriptors/submissions, support deeper or non-list containers, or provide
 checked-in HY-MT parity/performance evidence, so it does not satisfy a
 Migration deletion gate.

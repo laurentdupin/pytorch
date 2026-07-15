@@ -64,7 +64,7 @@ A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
 executes the complete immutable C++ plan, and returns 65 tensor outputs. The
 plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
-129 typed list arguments. A v6 regression probe reports zero graph-scalar and
+129 typed list arguments. A v7 regression probe reports zero graph-scalar and
 list-projection instructions, as expected for this static prefill. Runtime
 counters remain zero for CPU fallback, sync readback, and deferred-value
 creation, with no Vulkan behavior overrides. This proves that static constants,
@@ -101,6 +101,16 @@ checked-in evidence; the adjacent rejection cases are unit-level contract
 proofs. The matching exact-SHA v6 PaddleOCR measurement remains at
 `argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
 counters.
+
+Caller-owned v7 PaddleOCR evidence encodes the omitted `avg_pool2d` stride as
+a schema-typed empty-list recipe and executes both shapes as a complete
+290-instruction, 294-value C++ plan with one ordered effect, 14 list arguments,
+and one output. It retains exact graph-versus-eager parity, stays within the
+existing CPU tolerance, and reports zero fallback, readback, or deferred-value
+creation. Matching v7 DAv2 and HY-MT probes retain their complete plans and
+zero counters. These measurements remain caller-owned until the v7
+implementation is committed and exact-SHA artifacts deliberately replace the
+checked-in v6 evidence.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach and fresh-ReLU

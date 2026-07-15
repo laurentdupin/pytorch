@@ -111,7 +111,7 @@ void execute_graph_scalar_instruction(
     std::vector<c10::IValue>& stack) {
   TORCH_CHECK(
       stack.size() == 2u && stack[0].isInt() && stack[1].isInt(),
-      "VulkanGraphPlan.v6 graph scalar node '",
+      "VulkanGraphPlan.v7 graph scalar node '",
       instruction.node_name,
       "' requires two integer operands");
   const int64_t left = stack[0].toInt();
@@ -131,12 +131,12 @@ void execute_graph_scalar_instruction(
     case VulkanGraphPlanInstructionKind::IntFloorDivide: {
       TORCH_CHECK(
           right != 0,
-          "VulkanGraphPlan.v6 graph scalar node '",
+          "VulkanGraphPlan.v7 graph scalar node '",
           instruction.node_name,
           "' divides by zero");
       TORCH_CHECK(
           left != std::numeric_limits<int64_t>::min() || right != -1,
-          "VulkanGraphPlan.v6 graph scalar node '",
+          "VulkanGraphPlan.v7 graph scalar node '",
           instruction.node_name,
           "' overflows integer floor division");
       result = left / right;
@@ -152,7 +152,7 @@ void execute_graph_scalar_instruction(
   }
   TORCH_CHECK(
       !overflowed,
-      "VulkanGraphPlan.v6 graph scalar node '",
+      "VulkanGraphPlan.v7 graph scalar node '",
       instruction.node_name,
       "' overflows int64");
   stack.clear();
@@ -164,7 +164,7 @@ void execute_list_getitem_instruction(
     std::vector<c10::IValue>& stack) {
   TORCH_CHECK(
       stack.size() == 2u && stack[0].isList() && stack[1].isInt(),
-      "VulkanGraphPlan.v6 list projection node '",
+      "VulkanGraphPlan.v7 list projection node '",
       instruction.node_name,
       "' requires a list and integer index");
   const c10::List<c10::IValue> list = stack[0].toList();
@@ -175,7 +175,7 @@ void execute_list_getitem_instruction(
   }
   TORCH_CHECK(
       index >= 0 && index < list_size,
-      "VulkanGraphPlan.v6 list projection node '",
+      "VulkanGraphPlan.v7 list projection node '",
       instruction.node_name,
       "' index ",
       stack[1].toInt(),
@@ -200,7 +200,7 @@ int64_t constant_index(const int64_t argument_ref) {
   TORCH_INTERNAL_ASSERT(argument_ref < 0);
   TORCH_CHECK(
       argument_ref != std::numeric_limits<int64_t>::min(),
-      "VulkanGraphPlan.v6 constant reference underflow");
+      "VulkanGraphPlan.v7 constant reference underflow");
   return -argument_ref - 1;
 }
 
@@ -215,7 +215,7 @@ void check_implicit_boundary(
     const std::vector<int64_t>& counters) {
   TORCH_CHECK(
       !any_implicit_boundary(counters),
-      "VulkanGraphPlan.v6 node '",
+      "VulkanGraphPlan.v7 node '",
       instruction.node_name,
       "' (",
       instruction.operator_name,
@@ -235,7 +235,7 @@ class VulkanGraphPlanInvocation final {
   explicit VulkanGraphPlanInvocation(VulkanGraphPlan& plan) : plan_(plan) {
     TORCH_CHECK(
         plan_.try_begin_invocation(),
-        "VulkanGraphPlan.v6 rejects concurrent invocation");
+        "VulkanGraphPlan.v7 rejects concurrent invocation");
   }
 
   ~VulkanGraphPlanInvocation() {
@@ -255,7 +255,7 @@ struct VulkanGraphPlan::State final {
 
 VulkanGraphPlan::VulkanGraphPlan(std::shared_ptr<State> state)
     : state_(std::move(state)) {
-  TORCH_CHECK(valid(), "VulkanGraphPlan.v6 has an invalid schema");
+  TORCH_CHECK(valid(), "VulkanGraphPlan.v7 has an invalid schema");
 }
 
 int64_t VulkanGraphPlan::input_count() const {
@@ -376,7 +376,6 @@ bool VulkanGraphPlan::valid() const {
     }
     for (const VulkanGraphPlanArgument& argument : instruction.arguments) {
       if (
-          argument.refs.empty() ||
           (argument.kind == VulkanGraphPlanArgumentKind::Value &&
            argument.refs.size() != 1u) ||
           (argument.kind == VulkanGraphPlanArgumentKind::List &&
@@ -433,7 +432,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<int64_t> output_value_ids) {
   TORCH_CHECK(
       input_count > 0,
-      "VulkanGraphPlan.v6 requires at least one tensor input");
+      "VulkanGraphPlan.v7 requires at least one tensor input");
   const size_t instruction_count = node_names.size();
   TORCH_CHECK(
       instruction_count > 0 && operator_names.size() == instruction_count &&
@@ -441,17 +440,17 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           argument_refs.size() == instruction_count &&
           argument_kinds.size() == instruction_count &&
           instruction_output_value_ids.size() == instruction_count,
-      "VulkanGraphPlan.v6 requires aligned non-empty instruction fields");
+      "VulkanGraphPlan.v7 requires aligned non-empty instruction fields");
   TORCH_CHECK(
       !output_value_ids.empty(),
-      "VulkanGraphPlan.v6 requires at least one output value");
+      "VulkanGraphPlan.v7 requires at least one output value");
 
   int64_t next_value_id = input_count;
   for (const auto& instruction_output_ids : instruction_output_value_ids) {
     for (const int64_t output_value_id : instruction_output_ids) {
       TORCH_CHECK(
           output_value_id == next_value_id,
-          "VulkanGraphPlan.v6 instruction output IDs must follow IValue SSA order");
+          "VulkanGraphPlan.v7 instruction output IDs must follow IValue SSA order");
       ++next_value_id;
     }
   }
@@ -467,7 +466,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     TORCH_CHECK(
         !node_names[instruction_index].empty() &&
             !operator_names[instruction_index].empty(),
-        "VulkanGraphPlan.v6 instruction names must be non-empty");
+        "VulkanGraphPlan.v7 instruction names must be non-empty");
     const auto internal_instruction_kind =
         graph_instruction_kind(operator_names[instruction_index]);
     const VulkanGraphPlanInstructionKind instruction_kind =
@@ -478,7 +477,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     if (internal_instruction_kind) {
       TORCH_CHECK(
           overload_names[instruction_index].empty(),
-          "VulkanGraphPlan.v6 internal instruction '",
+          "VulkanGraphPlan.v7 internal instruction '",
           node_names[instruction_index],
           "' must not declare an overload");
     } else {
@@ -489,11 +488,11 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       schema = &operator_handle->schema();
       TORCH_CHECK(
           !schema->is_mutable(),
-          "VulkanGraphPlan.v6 rejects mutable operator ",
+          "VulkanGraphPlan.v7 rejects mutable operator ",
           schema->operator_name());
       TORCH_CHECK(
           has_plan_dispatch(*operator_handle),
-          "VulkanGraphPlan.v6 requires a Vulkan or composite kernel for ",
+          "VulkanGraphPlan.v7 requires a Vulkan or composite kernel for ",
           schema->operator_name());
     }
     std::vector<int64_t>& output_value_ids_for_instruction =
@@ -502,12 +501,12 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       TORCH_CHECK(
           schema->returns().size() ==
               output_value_ids_for_instruction.size(),
-          "VulkanGraphPlan.v6 output schema does not match ",
+          "VulkanGraphPlan.v7 output schema does not match ",
           schema->operator_name());
     } else {
       TORCH_CHECK(
           output_value_ids_for_instruction.size() == 1u,
-          "VulkanGraphPlan.v6 internal instruction '",
+          "VulkanGraphPlan.v7 internal instruction '",
           node_names[instruction_index],
           "' must define one value");
     }
@@ -516,7 +515,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     TORCH_CHECK(
         argument_refs[instruction_index].size() == expected_argument_count &&
             argument_kinds[instruction_index].size() == expected_argument_count,
-        "VulkanGraphPlan.v6 argument count does not match ",
+        "VulkanGraphPlan.v7 argument count does not match ",
         operator_names[instruction_index]);
 
     std::vector<VulkanGraphPlanArgument> arguments;
@@ -529,17 +528,15 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
                   static_cast<int64_t>(VulkanGraphPlanArgumentKind::Value) ||
               kind_value ==
                   static_cast<int64_t>(VulkanGraphPlanArgumentKind::List),
-          "VulkanGraphPlan.v6 instruction '",
+          "VulkanGraphPlan.v7 instruction '",
           node_names[instruction_index],
           "' has an invalid argument kind");
       const auto kind = static_cast<VulkanGraphPlanArgumentKind>(kind_value);
       std::vector<int64_t>& refs =
           argument_refs[instruction_index][argument_index];
       TORCH_CHECK(
-          !refs.empty() &&
-              (kind != VulkanGraphPlanArgumentKind::Value ||
-               refs.size() == 1u),
-          "VulkanGraphPlan.v6 instruction '",
+          kind == VulkanGraphPlanArgumentKind::List || refs.size() == 1u,
+          "VulkanGraphPlan.v7 instruction '",
           node_names[instruction_index],
           "' has an invalid argument recipe");
 
@@ -547,7 +544,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       if (kind == VulkanGraphPlanArgumentKind::List) {
         TORCH_CHECK(
             schema,
-            "VulkanGraphPlan.v6 internal instruction '",
+            "VulkanGraphPlan.v7 internal instruction '",
             node_names[instruction_index],
             "' requires value arguments");
         c10::TypePtr argument_type =
@@ -558,7 +555,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         const auto list_type = argument_type->cast<c10::ListType>();
         TORCH_CHECK(
             list_type,
-            "VulkanGraphPlan.v6 instruction '",
+            "VulkanGraphPlan.v7 instruction '",
             node_names[instruction_index],
             "' declares a list recipe for non-list argument '",
             schema->arguments()[argument_index].name(),
@@ -570,7 +567,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         if (argument_ref >= 0) {
           TORCH_CHECK(
               argument_ref < defined_value_count,
-              "VulkanGraphPlan.v6 instruction '",
+              "VulkanGraphPlan.v7 instruction '",
               node_names[instruction_index],
               "' references a value before it is defined");
           VulkanGraphPlanValue& value =
@@ -581,7 +578,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           const int64_t index = constant_index(argument_ref);
           TORCH_CHECK(
               index < static_cast<int64_t>(state->constants.size()),
-              "VulkanGraphPlan.v6 instruction '",
+              "VulkanGraphPlan.v7 instruction '",
               node_names[instruction_index],
               "' has an invalid constant reference");
         }
@@ -613,7 +610,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     TORCH_CHECK(
         output_value_id >= 0 &&
             output_value_id < static_cast<int64_t>(state->values.size()),
-        "VulkanGraphPlan.v6 output value is out of range");
+        "VulkanGraphPlan.v7 output value is out of range");
     state->values[static_cast<size_t>(output_value_id)].escapes = true;
   }
   return c10::make_intrusive<VulkanGraphPlan>(std::move(state));
@@ -622,17 +619,17 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
 std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,
     const c10::intrusive_ptr<VulkanGraphPlan>& plan) {
-  TORCH_CHECK(plan, "VulkanGraphPlan.v6 requires a plan");
-  TORCH_CHECK(plan->valid(), "VulkanGraphPlan.v6 has an invalid schema");
+  TORCH_CHECK(plan, "VulkanGraphPlan.v7 requires a plan");
+  TORCH_CHECK(plan->valid(), "VulkanGraphPlan.v7 has an invalid schema");
   const VulkanGraphPlan::State& state = plan->state();
   TORCH_CHECK(
       inputs.size() == static_cast<size_t>(state.input_count),
-      "VulkanGraphPlan.v6 input count mismatch");
+      "VulkanGraphPlan.v7 input count mismatch");
   TORCH_CHECK(
       std::all_of(inputs.begin(), inputs.end(), [](const Tensor& input) {
         return input.is_vulkan();
       }),
-      "VulkanGraphPlan.v6 requires Vulkan tensor inputs");
+      "VulkanGraphPlan.v7 requires Vulkan tensor inputs");
   VulkanGraphPlanInvocation invocation(*plan);
 
   std::vector<c10::IValue> values(state.values.size());
@@ -650,7 +647,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       if (argument_ref >= 0) {
         TORCH_CHECK(
             value_live[static_cast<size_t>(argument_ref)],
-            "VulkanGraphPlan.v6 node '",
+            "VulkanGraphPlan.v7 node '",
             instruction.node_name,
             "' references a released value");
         return values[static_cast<size_t>(argument_ref)];
@@ -688,7 +685,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
-          "VulkanGraphPlan.v6 node '",
+          "VulkanGraphPlan.v7 node '",
           instruction.node_name,
           "' (",
           instruction.operator_name,
@@ -700,7 +697,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
-          "VulkanGraphPlan.v6 node '",
+          "VulkanGraphPlan.v7 node '",
           instruction.node_name,
           "' (",
           instruction.operator_name,
@@ -712,7 +709,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
-          "VulkanGraphPlan.v6 node '",
+          "VulkanGraphPlan.v7 node '",
           instruction.node_name,
           "' (",
           instruction.operator_name,
@@ -724,13 +721,13 @@ std::vector<Tensor> run_vulkan_graph_plan(
     if (instruction.output_value_ids.empty()) {
       TORCH_CHECK(
           stack.empty(),
-          "VulkanGraphPlan.v6 effect node '",
+          "VulkanGraphPlan.v7 effect node '",
           instruction.node_name,
           "' produced an undeclared value");
     } else {
       TORCH_CHECK(
           stack.size() == instruction.output_value_ids.size(),
-          "VulkanGraphPlan.v6 node '",
+          "VulkanGraphPlan.v7 node '",
           instruction.node_name,
           "' did not produce its declared values");
       for (const auto output_index :
@@ -738,7 +735,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
         c10::IValue output = std::move(stack[output_index]);
         TORCH_CHECK(
             !output.isTensor() || output.toTensor().is_vulkan(),
-            "VulkanGraphPlan.v6 node '",
+            "VulkanGraphPlan.v7 node '",
             instruction.node_name,
             "' produced a non-Vulkan tensor");
         const int64_t output_value_id =
@@ -781,7 +778,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
     c10::IValue& output = values[static_cast<size_t>(output_value_id)];
     TORCH_CHECK(
         value_live[static_cast<size_t>(output_value_id)] && output.isTensor(),
-        "VulkanGraphPlan.v6 output references a released or non-Tensor value");
+        "VulkanGraphPlan.v7 output references a released or non-Tensor value");
     outputs.push_back(output.toTensor());
   }
   return outputs;
