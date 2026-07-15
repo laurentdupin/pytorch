@@ -494,10 +494,12 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v4` is an immutable C++ IValue-SSA plan for
-fully bound, non-mutating Vulkan/composite operators with zero or one dispatcher
-return. It owns operator handles and constants, preserves ordered effect-only
-instructions, materializes schema-typed flat homogeneous list arguments,
+Current status: `VulkanGraphPlan.v5` is an immutable C++ IValue-SSA plan for
+fully bound, non-mutating Vulkan/composite operators with any schema-declared
+return count. It owns operator handles and constants, preserves ordered
+effect-only instructions, assigns multi-schema returns to adjacent SSA slots,
+aliases constant-index projections to the selected slot, and materializes
+schema-typed flat homogeneous list arguments,
 validates use-count/last-use metadata for every list leaf, tracks liveness
 separately from values, releases non-escaping values after last use, rejects
 concurrent invocation, and checks each instruction for implicit host
@@ -512,7 +514,7 @@ functional `aten::detach` only when the chain is rooted at
 This proves all 64 detach mutations in the four-token HY-MT graph and allows
 its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
-multiple dispatcher returns, program memory slots, descriptors,
+projection from a single container-valued return, program memory slots, descriptors,
 submission/completion ownership, and checked-in HY-MT parity remain open.
 The exact-SHA DAv2 and PaddleOCR evidence at `291ecd5f3a1` selects the Python
 executor for explicit generic reasons. DAv2 crosses immutable composite
@@ -521,6 +523,12 @@ reaches the first multi-return dispatcher instruction,
 `vulkan_prepack::run_graph_add_layernorm_plan`. PaddleOCR first reaches a
 schema mismatch for the exported `avg_pool2d` stride. These are generic
 plan-representation tasks, not reasons to add corpus routes.
+
+A caller-owned v5 worktree validation crosses DAv2's multi-schema-return
+boundary and next stops at constant indexing into the single `Tensor[]` return
+of `run_vulkan_graph_region_plan`. PaddleOCR remains at the same stride schema
+boundary. Both retain exact graph-versus-eager Vulkan parity and zero runtime
+fallback, readback, or deferred-value creation.
 
 Exit criteria:
 

@@ -151,14 +151,16 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v4` is the current bounded implementation slice. It consumes
+`VulkanGraphPlan.v5` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
 non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
 use-count, last-use, liveness, and Tensor output escape. Instructions may have
-one arbitrary boxed return or no return for an ordered effect. A schema-typed
-list recipe assembles a flat homogeneous dynamic argument from SSA and constant
-leaves before boxed dispatch; all leaves participate in normal lifetime
-accounting. Per-instruction graph scopes reject fallback, readback,
+any schema-declared boxed return count or no return for an ordered effect.
+Multi-schema returns occupy adjacent SSA slots in schema order, and a
+constant-index `getitem` aliases the selected slot without adding a runtime
+instruction. A schema-typed list recipe assembles a flat homogeneous dynamic
+argument from SSA and constant leaves before boxed dispatch; all leaves
+participate in normal lifetime accounting. Per-instruction graph scopes reject fallback, readback,
 deferred-value creation, and non-Vulkan Tensor results. Eligible
 multi-instruction graphs therefore cross Python once per invocation rather than
 once per node. The compiler reports why a graph remains on the Python executor;
@@ -170,8 +172,9 @@ admit this cross-device scalar form without fallback or readback.
 Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
 checked C++ arithmetic with Python floor semantics and no dispatcher or Python
 callback. Non-integer operands, overflow, and division by zero fail closed. The
-v4 plan does not yet implement deeper or non-list dynamic containers,
-multiple-return operators, preallocated memory slots, descriptor/barrier
+v5 plan does not yet implement deeper or non-list dynamic containers,
+projection from a single container-valued return, preallocated memory slots,
+descriptor/barrier
 construction, submission ownership, or generation-gated output reuse. Those
 remain Stage 2 requirements rather than being inferred from the boxed eager
 dispatch used by this slice.

@@ -2733,7 +2733,7 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::create_vulkan_graph_plan("
       "str[] node_names, str[] operator_names, str[] overload_names, "
       "int[][][] argument_refs, int[][] argument_kinds, "
-      "int[] instruction_output_value_ids, "
+      "int[][] instruction_output_value_ids, "
       "Any[] constants, int input_count, "
       "int[] output_value_ids) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));

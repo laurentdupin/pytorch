@@ -52,7 +52,7 @@ def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
             status="python_correctness_executor",
             reason=reason,
             plan_class="VulkanGraphPlan",
-            plan_version="v4",
+            plan_version="v5",
             input_count=0,
             instruction_count=0,
             effect_instruction_count=0,
@@ -169,7 +169,7 @@ def compile_vulkan_graph_plan(
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
     if not placeholders:
-        return _rejected("v4_requires_tensor_inputs")
+        return _rejected("v5_requires_tensor_inputs")
     for node in placeholders:
         if not isinstance(node.meta.get("val"), torch.Tensor):
             return _rejected(f"non_tensor_input:{node.name}")
@@ -178,6 +178,8 @@ def compile_vulkan_graph_plan(
     value_types = {
         node: torch._C.TensorType.get() for node in placeholders
     }
+    multi_value_ids: dict[torch.fx.Node, tuple[int, ...]] = {}
+    multi_value_types: dict[torch.fx.Node, tuple[Any, ...]] = {}
     constants: list[Any] = []
     constant_ids: dict[torch.fx.Node, int] = {}
     node_names: list[str] = []
@@ -185,7 +187,7 @@ def compile_vulkan_graph_plan(
     overload_names: list[str] = []
     argument_refs: list[list[list[int]]] = []
     argument_kinds: list[list[int]] = []
-    instruction_output_value_ids: list[int] = []
+    instruction_output_value_ids: list[list[int]] = []
     next_value_id = len(placeholders)
 
     def encode_leaf(value: Any, consumer: torch.fx.Node) -> int | str:
@@ -298,7 +300,32 @@ def compile_vulkan_graph_plan(
             overload_names.append("")
             argument_refs.append(refs)
             argument_kinds.append([_VALUE_ARGUMENT, _VALUE_ARGUMENT])
-            instruction_output_value_ids.append(output_value_id)
+            instruction_output_value_ids.append([output_value_id])
+            continue
+        if (
+            node.op == "call_function"
+            and node.target is operator.getitem
+            and node.args
+            and isinstance(node.args[0], torch.fx.Node)
+            and node.args[0] in multi_value_ids
+        ):
+            if classifications.get(node.name) != "graph":
+                return _rejected(
+                    f"multi_return_getitem_not_admitted:{node.name}:"
+                    f"{classifications.get(node.name, 'unknown')}"
+                )
+            if len(node.args) != 2 or node.kwargs:
+                return _rejected(f"invalid_multi_return_getitem:{node.name}")
+            producer = node.args[0]
+            index = node.args[1]
+            if type(index) is not int:
+                return _rejected(f"invalid_multi_return_index:{node.name}")
+            output_ids = multi_value_ids[producer]
+            normalized_index = index if index >= 0 else len(output_ids) + index
+            if normalized_index < 0 or normalized_index >= len(output_ids):
+                return _rejected(f"multi_return_index_out_of_range:{node.name}")
+            value_ids[node] = output_ids[normalized_index]
+            value_types[node] = multi_value_types[producer][normalized_index]
             continue
         if node.op != "call_function" or not isinstance(
             node.target, torch._ops.OpOverload
@@ -316,10 +343,6 @@ def compile_vulkan_graph_plan(
         schema = node.target._schema
         if schema.is_mutable:
             return _rejected(f"mutable_operator:{node.name}:{schema.name}")
-        if len(schema.returns) > 1:
-            return _rejected(
-                f"multiple_dispatch_returns:{node.name}:{schema.name}"
-            )
         bound_arguments = _bound_operator_arguments(node)
         if isinstance(bound_arguments, str):
             return _rejected(bound_arguments)
@@ -337,21 +360,29 @@ def compile_vulkan_graph_plan(
             kind, encoded_refs = encoded
             kinds.append(kind)
             refs.append(encoded_refs)
-        output_value_id = -1
+        output_value_ids: list[int] = []
         if schema.returns:
-            output_value_id = next_value_id
-            next_value_id += 1
-            value_ids[node] = output_value_id
-            value_types[node] = schema.returns[0].type
+            output_value_ids = list(
+                range(next_value_id, next_value_id + len(schema.returns))
+            )
+            next_value_id += len(schema.returns)
+            if len(schema.returns) == 1:
+                value_ids[node] = output_value_ids[0]
+                value_types[node] = schema.returns[0].type
+            else:
+                multi_value_ids[node] = tuple(output_value_ids)
+                multi_value_types[node] = tuple(
+                    result.type for result in schema.returns
+                )
         node_names.append(node.name)
         operator_names.append(schema.name)
         overload_names.append(schema.overload_name)
         argument_refs.append(refs)
         argument_kinds.append(kinds)
-        instruction_output_value_ids.append(output_value_id)
+        instruction_output_value_ids.append(output_value_ids)
 
     if not node_names:
-        return _rejected("v4_requires_at_least_one_instruction")
+        return _rejected("v5_requires_at_least_one_instruction")
     output_node = next(
         node for node in graph_module.graph.nodes if node.op == "output"
     )
@@ -359,21 +390,21 @@ def compile_vulkan_graph_plan(
     output_value_ids: list[int] = []
     for leaf in output_leaves:
         if not isinstance(leaf, torch.fx.Node) or leaf not in value_ids:
-            return _rejected("v4_requires_tensor_value_outputs")
+            return _rejected("v5_requires_tensor_value_outputs")
         if not value_types[leaf].isSubtypeOf(torch._C.TensorType.get()):
-            return _rejected("v4_requires_tensor_value_outputs")
+            return _rejected("v5_requires_tensor_value_outputs")
         output_value_ids.append(value_ids[leaf])
     if not output_value_ids:
-        return _rejected("v4_requires_tensor_value_outputs")
+        return _rejected("v5_requires_tensor_value_outputs")
 
     input_count = len(placeholders)
     value_count = next_value_id
     use_counts = [0] * value_count
     last_uses = [-1] * value_count
-    for instruction_index, (refs, output_value_id) in enumerate(
+    for instruction_index, (refs, instruction_output_ids) in enumerate(
         zip(argument_refs, instruction_output_value_ids)
     ):
-        if output_value_id >= 0:
+        for output_value_id in instruction_output_ids:
             last_uses[output_value_id] = instruction_index
         for argument_refs_for_value in refs:
             for ref in argument_refs_for_value:
@@ -396,12 +427,12 @@ def compile_vulkan_graph_plan(
         status="compiled",
         reason="immutable_ivalue_ssa_plan",
         plan_class="VulkanGraphPlan",
-        plan_version="v4",
+        plan_version="v5",
         input_count=input_count,
         instruction_count=len(node_names),
         effect_instruction_count=sum(
-            output_value_id < 0
-            for output_value_id in instruction_output_value_ids
+            not output_value_ids
+            for output_value_ids in instruction_output_value_ids
         ),
         graph_scalar_instruction_count=sum(
             operator_name in _GRAPH_INT_OPERATOR_NAMES.values()
@@ -431,7 +462,7 @@ def compile_vulkan_graph_plan(
         or tuple(plan.value_use_counts()) != report.value_use_counts
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
-        raise RuntimeError("VulkanGraphPlan.v4 C++ schema disagrees with lowering")
+        raise RuntimeError("VulkanGraphPlan.v5 C++ schema disagrees with lowering")
     return _VulkanGraphPlanCompilation(plan, report)
 
 

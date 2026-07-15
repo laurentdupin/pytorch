@@ -47,8 +47,8 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 ```
 
 The caller-owned output directory receives measured census and parity
-artifacts. The checked-in DAv2 and PaddleOCR evidence was deliberately
-refreshed after the checked integer-scalar executor transfer at source commit
+artifacts. The checked-in DAv2 and PaddleOCR evidence records the checked
+integer-scalar executor transfer at source commit
 `291ecd5f3a1279820e05ffb5c79f24f84e767858`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
 with no such candidates. Both corpora report zero unsupported nodes, exact
@@ -62,11 +62,20 @@ caller-owned until they are deliberately reviewed and replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
 
+A caller-owned v5 worktree validation crosses DAv2's checked-in
+`multiple_dispatch_returns` boundary. Its first remaining plan rejection is
+`unsupported_node_kind:getitem:call_function`, where the graph projects a
+constant index from the single `Tensor[]` return of
+`run_vulkan_graph_region_plan`. The same validation retains exact
+graph-versus-eager Vulkan parity and zero runtime fallback, readback, or
+deferred-value creation. PaddleOCR remains at
+`argument_type_mismatch:avg_pool2d:stride`.
+
 A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
 executes the complete immutable C++ plan, and returns 65 tensor outputs. The
 plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
-129 typed list arguments. A v4 regression probe reports zero graph-scalar
+129 typed list arguments. A v5 regression probe reports zero graph-scalar
 instructions, as expected for this static prefill. Runtime counters remain
 zero for CPU fallback, sync readback, and deferred-value creation, with no
 Vulkan behavior overrides. This proves that static constants, boolean mask
@@ -86,14 +95,15 @@ blocker for the current prefill and transfers per-node execution to C++; it
 does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
-The exact-SHA DAv2 evidence admits `aten::sym_size.int` through its immutable
+The exact-SHA v4 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
 graph crosses both former representation blockers and next reaches
 `multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while
 retaining exact graph-versus-eager parity and zero runtime fallback, sync
-readback, or deferred-value creation. This identifies multi-return IValue SSA
-as the next generic representation task.
+readback, or deferred-value creation. The subsequent v5 worktree validation
+crosses that representation boundary and identifies constant projection from
+a container-valued dispatcher return as the next generic representation task.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach
