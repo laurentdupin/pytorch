@@ -435,6 +435,12 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             _lowering_reports(linear_only),
             {
+                "input_normalization": None,
+                "static_factory_constants": None,
+                "lifted_tensor_constants": None,
+                "static_identity_advanced_indices": None,
+                "static_gqa_repeats": None,
+                "tensor_placement": None,
                 "linear_lowering": {"created_context_count": 2},
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": None,
@@ -448,6 +454,12 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             _lowering_reports(conv2d_only),
             {
+                "input_normalization": None,
+                "static_factory_constants": None,
+                "lifted_tensor_constants": None,
+                "static_identity_advanced_indices": None,
+                "static_gqa_repeats": None,
+                "tensor_placement": None,
                 "linear_lowering": None,
                 "static_linear_gelu_regions": None,
                 "conv2d_lowering": {"created_context_count": 3},
@@ -458,6 +470,22 @@ class TestVulkanGraphEvidence(TestCase):
                 "vulkan_graph_regions": None,
             },
         )
+
+    def test_graph_preparation_reports_serialize_additively(self):
+        preparation_reports = {
+            "input_normalization": {"normalized_input_count": 1},
+            "static_factory_constants": {"created_constant_count": 2},
+            "lifted_tensor_constants": {"created_constant_count": 3},
+            "static_identity_advanced_indices": {"lowered_count": 4},
+            "static_gqa_repeats": {"lowered_count": 5},
+            "tensor_placement": {"buffer_direct_count": 6},
+        }
+        reports = _lowering_reports(SimpleNamespace(**preparation_reports))
+        self.assertEqual(
+            {name: reports[name] for name in preparation_reports},
+            preparation_reports,
+        )
+        self.assertEqual(reports["linear_lowering"], None)
 
     def test_static_linear_gelu_regions_serialize_without_counting_context_twice(
         self,

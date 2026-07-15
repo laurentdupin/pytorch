@@ -39,7 +39,9 @@ ops::utils::LogicalBufferMetadata make_cpu_buffer_compute_metadata(
 }
 
 api::ShaderInfo get_buffer_to_buffer_shader(const vTensor& tensor) {
-  if (tensor.dtype() == api::kByte) {
+  if (
+      tensor.dtype() == api::kByte || tensor.dtype() == api::kChar ||
+      tensor.dtype() == api::kBool) {
     return VK_KERNEL(buffer_to_buffer_uint8);
   }
   return VK_KERNEL(buffer_to_buffer);

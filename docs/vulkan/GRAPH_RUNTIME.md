@@ -50,8 +50,17 @@ edges, mutation, aliasing, output escape, and value lifetime.
 The lowering pass:
 
 - rewrites factory-device arguments captured from the CPU example run;
-- places lifted parameters and buffers on the selected Vulkan device;
+- inlines inference/gradient wrappers only when they preserve inference-mode
+  semantics;
 - creates packed linear and convolution contexts outside timed execution;
+- materializes static factory expressions and lifted tensor literals as
+  deduplicated graph-owned constants;
+- proves full-rank static advanced indices are row-major identity maps before
+  replacing them with views;
+- rewrites static GQA head repetition to the generic rank-4 Vulkan kernel
+  rather than representing the intermediate rank-5 expand;
+- places lifted parameters, buffers, constants, and runtime inputs on the
+  selected Vulkan device through an explicit placement report;
 - normalizes graph metadata into stable input, constant, temporary, and output
   value classes;
 - rejects unsupported mutation or alias semantics with a node-level reason.
@@ -176,9 +185,10 @@ can express it without host synchronization.
 
 ## Runtime Shader Generation
 
-The current generated elementwise shader is valid fusion-codegen evidence, but
-its `glslc` subprocess and filesystem cache are development plumbing. A
-production graph runtime compiler must own:
+The retired eager runtime-elementwise experiment remains historical
+fusion-codegen evidence, but its `glslc` subprocess and filesystem cache are
+not a production execution path. A future production graph runtime compiler
+must own:
 
 - compiler availability and version identity;
 - in-memory source and SPIR-V ownership;
@@ -189,8 +199,11 @@ production graph runtime compiler must own:
 - negative-cache and error reporting.
 
 Production execution must not depend on a manually configured executable path.
-Static existing shaders remain the first graph instruction set; runtime shader
-generation is introduced after the plan executor is correct.
+Static existing shaders remain the first graph instruction set. Their
+configure-time generator tracks every GLSL source, included header, template
+YAML file, and the generator script as CMake dependencies, so incremental
+builds regenerate `spv.cpp` after source changes. Runtime shader generation is
+introduced only after the plan executor is correct.
 
 ## Correctness Gates
 

@@ -15329,6 +15329,28 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.bitwise_not(x), actual_not.cpu())
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 2)
 
+    def test_bool_buffer_and_aligned_broadcast_is_native(self):
+        x = torch.tensor(
+            [[[[True, True, False, False]] * 4]],
+            dtype=torch.bool,
+        )
+        y = torch.tensor([[[[True, False, True, False]]]], dtype=torch.bool)
+        x_vulkan = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+            x, torch.device("vulkan")
+        )
+
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+        with torch.inference_mode():
+            for _ in range(3):
+                actual = torch.bitwise_and(
+                    x_vulkan,
+                    torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+                        y, torch.device("vulkan")
+                    ),
+                )
+                self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
     def test_bool_buffer_and_broadcast_falls_back(self):
         x = torch.tensor([False, True, False], dtype=torch.bool)
         y = torch.tensor([[False, True, False]], dtype=torch.bool)

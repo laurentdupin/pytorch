@@ -17,23 +17,33 @@ from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanGraphInputNormalizationReport,
     VulkanGraphRegionLoweringReport,
+    VulkanGraphTensorPlacementReport,
     VulkanLayernormLoweringReport,
+    VulkanLiftedTensorConstantReport,
     VulkanLinearLoweringReport,
     VulkanStaticAddLayernormRegionReport,
     VulkanStaticConv2dReluConv2dRegionReport,
     VulkanStaticConv2dReluRegionReport,
+    VulkanStaticFactoryConstantReport,
+    VulkanStaticGQARepeatReport,
+    VulkanStaticIdentityAdvancedIndexReport,
     VulkanStaticLinearGeluRegionReport,
     extract_verified_exported_input_guard,
     is_verified_exported_input_guard_call,
+    lower_lifted_tensor_constants,
     lower_static_conv2d_relu_regions,
     lower_static_conv2d_relu_conv2d_regions,
     lower_static_conv2d_to_vulkan_contexts,
+    lower_static_factory_constants,
+    lower_static_gqa_repeats,
+    lower_static_identity_advanced_indices,
     lower_static_add_layernorm_regions,
     lower_static_layernorm_to_vulkan_contexts,
     lower_static_linear_to_vulkan_contexts,
     lower_static_linear_gelu_regions,
     lower_graph_input_dtype_normalizations,
     make_vulkan_graph_region_lowering_report,
+    plan_graph_tensor_placements,
 )
 
 
@@ -110,6 +120,99 @@ def _target_name(target: Any) -> str:
     if module and qualname:
         return f"{module}.{qualname}"
     return str(target)
+
+
+def _inline_inference_grad_wrappers(graph_module: torch.fx.GraphModule) -> int:
+    from torch._higher_order_ops.wrap import wrap_with_set_grad_enabled
+
+    graph = graph_module.graph
+    inlined = 0
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target is not wrap_with_set_grad_enabled
+            or len(node.args) < 2
+            or node.args[0] is not False
+        ):
+            continue
+        if node.kwargs:
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper lowering does not accept keyword arguments"
+            )
+        submodule_node = node.args[1]
+        if (
+            not isinstance(submodule_node, torch.fx.Node)
+            or submodule_node.op != "get_attr"
+            or not isinstance(submodule_node.target, str)
+        ):
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper requires a graph-owned submodule"
+            )
+        submodule = graph_module.get_submodule(submodule_node.target)
+        if not isinstance(submodule, torch.fx.GraphModule):
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper requires an FX GraphModule body"
+            )
+        body_nodes = tuple(submodule.graph.nodes)
+        if any(
+            body_node.op not in ("placeholder", "call_function", "output")
+            for body_node in body_nodes
+        ):
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper body contains unsupported graph state"
+            )
+        placeholders = tuple(
+            body_node for body_node in body_nodes if body_node.op == "placeholder"
+        )
+        operands = node.args[2:]
+        if len(placeholders) != len(operands) or any(
+            not isinstance(operand, torch.fx.Node) for operand in operands
+        ):
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper inputs do not match its graph body"
+            )
+        users = tuple(node.users)
+        if any(
+            user.op != "call_function"
+            or user.target is not operator.getitem
+            or len(user.args) != 2
+            or user.args[0] is not node
+            or not isinstance(user.args[1], int)
+            or isinstance(user.args[1], bool)
+            for user in users
+        ):
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper outputs require static tuple extraction"
+            )
+        with graph.inserting_before(node):
+            output = graph.graph_copy(
+                submodule.graph,
+                dict(zip(placeholders, operands)),
+            )
+        if not isinstance(output, tuple | list) or any(
+            not isinstance(value, torch.fx.Node) for value in output
+        ):
+            raise VulkanGraphExecutionError(
+                "Inference grad wrapper body must return a tensor tuple"
+            )
+        for user in users:
+            index = user.args[1]
+            if index < 0 or index >= len(output):
+                raise VulkanGraphExecutionError(
+                    "Inference grad wrapper output index is out of range"
+                )
+            user.replace_all_uses_with(output[index])
+            graph.erase_node(user)
+        graph.erase_node(node)
+        if not submodule_node.users:
+            graph.erase_node(submodule_node)
+        inlined += 1
+    if inlined:
+        graph.eliminate_dead_code()
+        graph_module.delete_all_unused_submodules()
+        graph.lint()
+        graph_module.recompile()
+    return inlined
 
 
 def _is_python_scalar_or_symbolic(value: Any) -> bool:
@@ -561,7 +664,12 @@ def _freeze_cpu_state_dict_snapshot(
     return snapshot, fingerprint.hexdigest()
 
 
-def _move_runtime_value(value: Any, device: torch.device) -> Any:
+def _move_runtime_value(
+    value: Any,
+    device: torch.device,
+    *,
+    buffer_direct: bool = False,
+) -> Any:
     if not isinstance(value, torch.Tensor):
         return value
     if value.device == device:
@@ -571,7 +679,64 @@ def _move_runtime_value(value: Any, device: torch.device) -> Any:
             f"VulkanGraphProgram cannot move an input from {value.device}; "
             "runtime tensors must be on CPU or the program Vulkan device"
         )
+    if buffer_direct:
+        try:
+            return torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+                value, device
+            )
+        except (AttributeError, RuntimeError, TypeError) as error:
+            raise VulkanGraphExecutionError(
+                "VulkanGraphProgram direct-buffer input upload failed: "
+                f"{error}"
+            ) from error
     return value.to(device)
+
+
+def _move_lowered_graph_module_to_device(
+    graph_module: torch.fx.GraphModule,
+    device: torch.device,
+    tensor_placement: VulkanGraphTensorPlacementReport,
+) -> None:
+    for attr in tensor_placement.buffer_constant_attrs:
+        value = getattr(graph_module, attr, None)
+        if not isinstance(value, torch.Tensor) or value.device.type != "cpu":
+            raise VulkanGraphExecutionError(
+                "Vulkan graph direct-buffer constant placement requires a CPU "
+                f"tensor at {attr!r}"
+            )
+        try:
+            setattr(
+                graph_module,
+                attr,
+                torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(value, device),
+            )
+        except (AttributeError, RuntimeError, TypeError) as error:
+            raise VulkanGraphExecutionError(
+                f"Vulkan graph direct-buffer constant upload failed for {attr!r}: "
+                f"{error}"
+            ) from error
+    graph_module.to(device)
+    for module in graph_module.modules():
+        if not isinstance(module, torch.fx.GraphModule):
+            continue
+        for node in module.graph.nodes:
+            if "device" in node.kwargs:
+                kwargs = dict(node.kwargs)
+                kwargs["device"] = str(device)
+                node.kwargs = kwargs
+            if node.op == "call_function" and node.target is torch.ops.aten.to.device:
+                args = list(node.args)
+                args[1] = str(device)
+                node.args = tuple(args)
+            if "val" in node.meta:
+                node.meta["val"] = pytree.tree_map(
+                    lambda value: value.to(device)
+                    if isinstance(value, torch.Tensor)
+                    else value,
+                    node.meta["val"],
+                )
+        module.graph.lint()
+        module.recompile()
 
 
 def _graph_placeholder_names(graph_module: torch.fx.GraphModule) -> tuple[str, ...]:
@@ -579,6 +744,28 @@ def _graph_placeholder_names(graph_module: torch.fx.GraphModule) -> tuple[str, .
         str(node.target)
         for node in graph_module.graph.nodes
         if node.op == "placeholder"
+    )
+
+
+def _move_graph_runtime_inputs_to_device(
+    graph_module: torch.fx.GraphModule,
+    values: tuple[Any, ...],
+    device: torch.device,
+    tensor_placement: VulkanGraphTensorPlacementReport,
+) -> tuple[Any, ...]:
+    buffer_placeholders = set(tensor_placement.buffer_placeholder_names)
+    return tuple(
+        pytree.tree_map(
+            lambda leaf: _move_runtime_value(
+                leaf,
+                device,
+                buffer_direct=placeholder_name in buffer_placeholders,
+            ),
+            value,
+        )
+        for placeholder_name, value in zip(
+            _graph_placeholder_names(graph_module), values
+        )
     )
 
 
@@ -764,6 +951,16 @@ def _static_conv2d_relu_conv2d_region_rejection_message(
     )
 
 
+def _static_factory_constant_rejection_message(
+    report: VulkanStaticFactoryConstantReport,
+) -> str:
+    rejected = [node for node in report.nodes if node.status == "rejected"]
+    return "\n".join(
+        f"{node.node_name}: {node.reason}"
+        for node in rejected
+    )
+
+
 def _tensor_leaves(value: Any) -> tuple[torch.Tensor, ...]:
     return tuple(
         leaf
@@ -842,6 +1039,11 @@ class VulkanGraphProgram:
         key: VulkanGraphProgramKey,
         census: VulkanGraphCensus,
         input_normalization: VulkanGraphInputNormalizationReport,
+        static_factory_constants: VulkanStaticFactoryConstantReport,
+        lifted_tensor_constants: VulkanLiftedTensorConstantReport,
+        static_identity_advanced_indices: VulkanStaticIdentityAdvancedIndexReport,
+        static_gqa_repeats: VulkanStaticGQARepeatReport,
+        tensor_placement: VulkanGraphTensorPlacementReport,
         linear_lowering: VulkanLinearLoweringReport,
         static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
         conv2d_lowering: VulkanConv2dLoweringReport,
@@ -857,6 +1059,11 @@ class VulkanGraphProgram:
         self._key = key
         self._census = census
         self._input_normalization = input_normalization
+        self._static_factory_constants = static_factory_constants
+        self._lifted_tensor_constants = lifted_tensor_constants
+        self._static_identity_advanced_indices = static_identity_advanced_indices
+        self._static_gqa_repeats = static_gqa_repeats
+        self._tensor_placement = tensor_placement
         self._linear_lowering = linear_lowering
         self._static_linear_gelu_regions = static_linear_gelu_regions
         self._conv2d_lowering = conv2d_lowering
@@ -896,6 +1103,28 @@ class VulkanGraphProgram:
     @property
     def input_normalization(self) -> VulkanGraphInputNormalizationReport:
         return self._input_normalization
+
+    @property
+    def static_factory_constants(self) -> VulkanStaticFactoryConstantReport:
+        return self._static_factory_constants
+
+    @property
+    def lifted_tensor_constants(self) -> VulkanLiftedTensorConstantReport:
+        return self._lifted_tensor_constants
+
+    @property
+    def static_identity_advanced_indices(
+        self,
+    ) -> VulkanStaticIdentityAdvancedIndexReport:
+        return self._static_identity_advanced_indices
+
+    @property
+    def static_gqa_repeats(self) -> VulkanStaticGQARepeatReport:
+        return self._static_gqa_repeats
+
+    @property
+    def tensor_placement(self) -> VulkanGraphTensorPlacementReport:
+        return self._tensor_placement
 
     @property
     def linear_lowering(self) -> VulkanLinearLoweringReport:
@@ -985,22 +1214,28 @@ class VulkanGraphProgram:
                 bound_args,
                 self._input_normalization,
             )
-            moved_args = pytree.tree_map(
-                lambda value: _move_runtime_value(value, self._device), normalized_args
-            )
-            interpreter = _VulkanGraphInterpreter(self._graph_module, self._device)
-            scope_token = _begin_graph_execution_scope()
-            try:
-                with torch.vulkan.device(self._device), torch.inference_mode():
-                    output = interpreter.run(*moved_args)
-            finally:
-                (
-                    self._last_cpu_fallback_count,
-                    self._last_sync_readback_count,
-                    self._last_deferred_values_created,
-                ) = _end_graph_execution_scope(scope_token)
-                self._last_executed_nodes = tuple(interpreter.executed_nodes)
-                self._last_implicit_boundary = interpreter.last_implicit_boundary
+            with torch.vulkan.device(self._device):
+                moved_args = _move_graph_runtime_inputs_to_device(
+                    self._graph_module,
+                    normalized_args,
+                    self._device,
+                    self._tensor_placement,
+                )
+                interpreter = _VulkanGraphInterpreter(
+                    self._graph_module, self._device
+                )
+                scope_token = _begin_graph_execution_scope()
+                try:
+                    with torch.inference_mode():
+                        output = interpreter.run(*moved_args)
+                finally:
+                    (
+                        self._last_cpu_fallback_count,
+                        self._last_sync_readback_count,
+                        self._last_deferred_values_created,
+                    ) = _end_graph_execution_scope(scope_token)
+                    self._last_executed_nodes = tuple(interpreter.executed_nodes)
+                    self._last_implicit_boundary = interpreter.last_implicit_boundary
 
             if (
                 self._last_cpu_fallback_count
@@ -1070,15 +1305,23 @@ def export_and_lower(
     cpu_state_snapshot, state_fingerprint = _freeze_cpu_state_dict_snapshot(
         exported_program
     )
-    from torch.export.passes import move_to_device_pass
-
+    graph_module = exported_program.module()
+    _inline_inference_grad_wrappers(graph_module)
+    exported_input_guard = extract_verified_exported_input_guard(graph_module)
+    input_normalization = lower_graph_input_dtype_normalizations(graph_module)
+    static_factory_constants = lower_static_factory_constants(graph_module)
+    lifted_tensor_constants = lower_lifted_tensor_constants(graph_module)
+    static_identity_advanced_indices = lower_static_identity_advanced_indices(
+        graph_module
+    )
+    static_gqa_repeats = lower_static_gqa_repeats(graph_module)
+    tensor_placement = plan_graph_tensor_placements(
+        graph_module,
+        input_normalization,
+        static_factory_constants,
+        lifted_tensor_constants,
+    )
     with torch.vulkan.device(target_device):
-        moved_exported_program = move_to_device_pass(
-            exported_program, target_device
-        )
-        graph_module = moved_exported_program.module()
-        exported_input_guard = extract_verified_exported_input_guard(graph_module)
-        input_normalization = lower_graph_input_dtype_normalizations(graph_module)
         linear_lowering = lower_static_linear_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
         )
@@ -1105,7 +1348,17 @@ def export_and_lower(
             static_linear_gelu_regions,
             static_conv2d_relu_conv2d_regions,
         )
+        _move_lowered_graph_module_to_device(
+            graph_module,
+            target_device,
+            tensor_placement,
+        )
     lowering_rejections: list[str] = []
+    if static_factory_constants.rejected_count:
+        lowering_rejections.append(
+            "static_factory_constants:\n"
+            + _static_factory_constant_rejection_message(static_factory_constants)
+        )
     if linear_lowering.rejected_count:
         lowering_rejections.append(
             "linear:\n" + _linear_lowering_rejection_message(linear_lowering)
@@ -1158,6 +1411,11 @@ def export_and_lower(
             str(exported_program.graph_signature),
             str(exported_program.range_constraints),
             repr(input_normalization),
+            repr(static_factory_constants),
+            repr(lifted_tensor_constants),
+            repr(static_identity_advanced_indices),
+            repr(static_gqa_repeats),
+            repr(tensor_placement),
             repr(linear_lowering),
             repr(static_linear_gelu_regions),
             repr(conv2d_lowering),
@@ -1197,6 +1455,11 @@ def export_and_lower(
         key,
         census,
         input_normalization,
+        static_factory_constants,
+        lifted_tensor_constants,
+        static_identity_advanced_indices,
+        static_gqa_repeats,
+        tensor_placement,
         linear_lowering,
         static_linear_gelu_regions,
         conv2d_lowering,
@@ -1213,6 +1476,10 @@ __all__ = [
     "VulkanGraphExecutionError",
     "VulkanGraphImplicitBoundaryAttribution",
     "VulkanGraphInputNormalizationReport",
+    "VulkanGraphTensorPlacementReport",
+    "VulkanLiftedTensorConstantReport",
+    "VulkanStaticIdentityAdvancedIndexReport",
+    "VulkanStaticGQARepeatReport",
     "VulkanGraphNodeRecord",
     "VulkanGraphProgram",
     "VulkanGraphProgramKey",
@@ -1222,6 +1489,7 @@ __all__ = [
     "VulkanLinearLoweringReport",
     "VulkanStaticConv2dReluConv2dRegionReport",
     "VulkanStaticConv2dReluRegionReport",
+    "VulkanStaticFactoryConstantReport",
     "VulkanStaticLinearGeluRegionReport",
     "export_and_lower",
 ]

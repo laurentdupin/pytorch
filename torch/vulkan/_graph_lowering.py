@@ -263,6 +263,124 @@ class VulkanGraphInputNormalizationReport:
     nodes: tuple[VulkanGraphInputNormalizationNodeReport, ...]
 
 
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticFactoryConstantNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    operator_name: str
+    constant_attr: str | None
+    constant_status: str | None
+    dtype: torch.dtype | None
+    shape: tuple[int, ...] | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticFactoryConstantReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    created_constant_count: int
+    reused_constant_count: int
+    nodes: tuple[VulkanStaticFactoryConstantNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanLiftedTensorConstantNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    source_attr: str | None
+    constant_attr: str | None
+    constant_status: str | None
+    dtype: torch.dtype | None
+    shape: tuple[int, ...] | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanLiftedTensorConstantReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    created_constant_count: int
+    reused_constant_count: int
+    nodes: tuple[VulkanLiftedTensorConstantNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticIdentityAdvancedIndexNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    source_shape: tuple[int, ...] | None
+    output_shape: tuple[int, ...] | None
+    index_attrs: tuple[str, ...]
+    replacement_node_name: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticIdentityAdvancedIndexReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    skipped_count: int
+    nodes: tuple[VulkanStaticIdentityAdvancedIndexNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticGQARepeatNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    source_shape: tuple[int, ...] | None
+    output_shape: tuple[int, ...] | None
+    repeat_factor: int | None
+    replacement_node_name: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticGQARepeatReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    nodes: tuple[VulkanStaticGQARepeatNodeReport, ...]
+    operator: str
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphTensorPlacementNodeReport:
+    source_kind: str
+    source_name: str
+    dtype: torch.dtype
+    storage_type: str
+    execution_layout: str
+    reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanGraphTensorPlacementReport:
+    buffer_direct_count: int
+    upload_operator: str
+    nodes: tuple[VulkanGraphTensorPlacementNodeReport, ...]
+
+    @property
+    def buffer_placeholder_names(self) -> tuple[str, ...]:
+        return tuple(
+            node.source_name
+            for node in self.nodes
+            if node.source_kind == "placeholder"
+        )
+
+    @property
+    def buffer_constant_attrs(self) -> tuple[str, ...]:
+        return tuple(
+            node.source_name
+            for node in self.nodes
+            if node.source_kind == "constant"
+        )
+
+
 def _get_attr_target(value: Any) -> str | None:
     if isinstance(value, torch.fx.Node) and value.op == "get_attr":
         return str(value.target)
@@ -442,6 +560,15 @@ def _node_static_tensor_shape(node: torch.fx.Node) -> tuple[int, ...] | None:
     return tuple(static_shape)
 
 
+def _static_shape_argument(value: Any) -> tuple[int, ...] | None:
+    if not isinstance(value, tuple | list) or any(
+        not isinstance(size, int) or isinstance(size, bool) or size < 0
+        for size in value
+    ):
+        return None
+    return tuple(value)
+
+
 def _static_identity_expand_rejection_reason(node: torch.fx.Node) -> str | None:
     if (
         node.op != "call_function"
@@ -451,17 +578,14 @@ def _static_identity_expand_rejection_reason(node: torch.fx.Node) -> str | None:
         or not isinstance(node.args[0], torch.fx.Node)
     ):
         return "expand_signature_not_static_default"
-    requested_shape = node.args[1]
-    if not isinstance(requested_shape, (list, tuple)) or any(
-        not isinstance(size, int) or isinstance(size, bool) or size < 0
-        for size in requested_shape
-    ):
+    requested_shape = _static_shape_argument(node.args[1])
+    if requested_shape is None:
         return "expand_shape_not_static"
     input_shape = _node_static_tensor_shape(node.args[0])
     output_shape = _node_static_tensor_shape(node)
     if input_shape is None or output_shape is None:
         return "expand_tensor_metadata_not_static"
-    if tuple(requested_shape) != input_shape or output_shape != input_shape:
+    if requested_shape != input_shape or output_shape != input_shape:
         return "expand_not_identity"
     return None
 
@@ -576,37 +700,85 @@ def lower_graph_input_dtype_normalizations(
     candidate_count = 0
 
     for node in tuple(graph.nodes):
-        if node.op != "call_function" or node.target != torch.ops.aten.to.dtype:
+        if node.op != "call_function" or node.target not in (
+            torch.ops.aten.to.dtype,
+            torch.ops.aten.to.device,
+        ):
             continue
         candidate_count += 1
-        if len(node.args) != 2 or node.kwargs:
-            reports.append(
-                _input_normalization_report(
-                    node,
-                    "rejected",
-                    "to_dtype_signature_not_static_default",
+        if node.target == torch.ops.aten.to.dtype:
+            if len(node.args) != 2 or node.kwargs:
+                reports.append(
+                    _input_normalization_report(
+                        node,
+                        "rejected",
+                        "to_dtype_signature_not_static_default",
+                    )
                 )
-            )
-            continue
-        input_node, target_dtype = node.args
+                continue
+            input_node, target_dtype = node.args
+            if target_dtype != torch.float32:
+                reports.append(
+                    _input_normalization_report(
+                        node,
+                        "rejected",
+                        "to_dtype_target_not_supported_floating_dtype",
+                        target_dtype=target_dtype
+                        if isinstance(target_dtype, torch.dtype)
+                        else None,
+                    )
+                )
+                continue
+            operation_name = "to_dtype"
+            requires_view_chain = True
+            lowered_reason = "isolated_int64_placeholder_view_chain_to_float32"
+        else:
+            if len(node.args) != 3 or node.kwargs:
+                reports.append(
+                    _input_normalization_report(
+                        node,
+                        "rejected",
+                        "to_device_signature_not_static_default",
+                    )
+                )
+                continue
+            input_node, target_device, target_dtype = node.args
+            if (
+                not isinstance(target_device, torch.device)
+                or target_device.type != "cpu"
+            ):
+                reports.append(
+                    _input_normalization_report(
+                        node,
+                        "rejected",
+                        "to_device_target_not_cpu_capture_device",
+                        target_dtype=target_dtype
+                        if isinstance(target_dtype, torch.dtype)
+                        else None,
+                    )
+                )
+                continue
+            if target_dtype != torch.bool:
+                reports.append(
+                    _input_normalization_report(
+                        node,
+                        "rejected",
+                        "to_device_target_not_supported_input_dtype",
+                        target_dtype=target_dtype
+                        if isinstance(target_dtype, torch.dtype)
+                        else None,
+                    )
+                )
+                continue
+            operation_name = "to_device"
+            requires_view_chain = False
+            lowered_reason = "isolated_int64_placeholder_to_bool"
         if not isinstance(input_node, torch.fx.Node):
             reports.append(
                 _input_normalization_report(
                     node,
                     "rejected",
-                    "to_dtype_input_not_graph_node",
-                    target_dtype=target_dtype
-                    if isinstance(target_dtype, torch.dtype)
-                    else None,
-                )
-            )
-            continue
-        if target_dtype != torch.float32:
-            reports.append(
-                _input_normalization_report(
-                    node,
-                    "rejected",
-                    "to_dtype_target_not_supported_floating_dtype",
+                    f"{operation_name}_input_not_graph_node",
                     target_dtype=target_dtype
                     if isinstance(target_dtype, torch.dtype)
                     else None,
@@ -651,12 +823,18 @@ def lower_graph_input_dtype_normalizations(
                 )
             )
             continue
-        if current.op != "placeholder" or not chain_reversed:
+        if current.op != "placeholder" or (
+            requires_view_chain and not chain_reversed
+        ):
             reports.append(
                 _input_normalization_report(
                     node,
                     "rejected",
-                    "to_dtype_input_not_isolated_unsqueeze_from_placeholder",
+                    (
+                        "to_dtype_input_not_isolated_unsqueeze_from_placeholder"
+                        if operation_name == "to_dtype"
+                        else "to_device_input_not_isolated_placeholder"
+                    ),
                     target_dtype=target_dtype,
                 )
             )
@@ -729,13 +907,14 @@ def lower_graph_input_dtype_normalizations(
             _set_node_tensor_dtype(value, target_dtype)
         for assertion in assertions:
             assertion.kwargs = {**assertion.kwargs, "dtype": target_dtype}
-        node.replace_all_uses_with(chain[-1])
+        normalized_input = chain[-1] if chain else placeholder
+        node.replace_all_uses_with(normalized_input)
         graph.erase_node(node)
         reports.append(
             _input_normalization_report(
                 node,
                 "lowered",
-                "isolated_int64_placeholder_view_chain_to_float32",
+                lowered_reason,
                 placeholder,
                 source_dtype,
                 target_dtype,
@@ -753,6 +932,819 @@ def lower_graph_input_dtype_normalizations(
         candidate_count=candidate_count,
         lowered_count=sum(report.status == "lowered" for report in reports),
         rejected_count=sum(report.status == "rejected" for report in reports),
+        nodes=tuple(reports),
+    )
+
+
+_STATIC_ARANGE_OPERATOR_NAMES = frozenset(
+    (
+        "aten::arange",
+        "aten::arange.start",
+        "aten::arange.start_step",
+    )
+)
+_STATIC_FACTORY_EXPRESSION_OPERATOR_NAMES = frozenset(
+    (
+        "aten::add.Tensor",
+        "aten::le.Tensor",
+        "aten::new_ones",
+        "aten::to.dtype",
+        "aten::unsqueeze",
+    )
+)
+
+
+def _is_static_arange_target(target: Any) -> bool:
+    return (
+        isinstance(target, torch._ops.OpOverload)
+        and target.name() in _STATIC_ARANGE_OPERATOR_NAMES
+    )
+
+
+def _is_static_factory_value(value: Any) -> bool:
+    if value is None or isinstance(
+        value,
+        (bool, int, float, complex, str, torch.device, torch.dtype, torch.layout),
+    ):
+        return True
+    if isinstance(value, tuple | list):
+        return all(_is_static_factory_value(item) for item in value)
+    return False
+
+
+def _static_factory_constant_attr(value: torch.Tensor) -> str:
+    fingerprint = hashlib.sha256()
+    fingerprint.update(str(value.dtype).encode("utf-8"))
+    fingerprint.update(b"\x00")
+    fingerprint.update(repr(tuple(value.shape)).encode("utf-8"))
+    fingerprint.update(b"\x00")
+    fingerprint.update(value.reshape(-1).view(torch.uint8).numpy().tobytes())
+    return f"_vulkan_static_factory_constant_{fingerprint.hexdigest()[:16]}"
+
+
+def _resolve_static_factory_expression_value(
+    graph_module: torch.fx.GraphModule,
+    value: Any,
+) -> tuple[Any, bool, bool]:
+    if isinstance(value, torch.fx.Node):
+        target = str(value.target)
+        if (
+            value.op == "get_attr"
+            and target.startswith("_vulkan_static_factory_constant_")
+            and hasattr(graph_module, target)
+        ):
+            constant = getattr(graph_module, target)
+            if isinstance(constant, torch.Tensor) and constant.device.type == "cpu":
+                return constant, True, True
+        return None, False, False
+    if isinstance(value, tuple | list):
+        resolved: list[Any] = []
+        contains_constant = False
+        for item in value:
+            resolved_item, is_static, item_contains_constant = (
+                _resolve_static_factory_expression_value(graph_module, item)
+            )
+            if not is_static:
+                return None, False, False
+            resolved.append(resolved_item)
+            contains_constant = contains_constant or item_contains_constant
+        return type(value)(resolved), True, contains_constant
+    return value, _is_static_factory_value(value), False
+
+
+def _contains_static_factory_constant_node(value: Any) -> bool:
+    if isinstance(value, torch.fx.Node):
+        return value.op == "get_attr" and str(value.target).startswith(
+            "_vulkan_static_factory_constant_"
+        )
+    if isinstance(value, tuple | list):
+        return any(_contains_static_factory_constant_node(item) for item in value)
+    return False
+
+
+def lower_static_factory_constants(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticFactoryConstantReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticFactoryConstantNodeReport] = []
+    constant_attrs: set[str] = set()
+    created_constant_count = 0
+    reused_constant_count = 0
+
+    for node in tuple(graph.nodes):
+        if node.op != "call_function" or not isinstance(
+            node.target, torch._ops.OpOverload
+        ):
+            continue
+        operator_name = node.target.name()
+        is_factory = _is_static_arange_target(node.target)
+        is_expression = operator_name in _STATIC_FACTORY_EXPRESSION_OPERATOR_NAMES
+        if not is_factory and not is_expression:
+            continue
+        if is_expression and not any(
+            _contains_static_factory_constant_node(argument)
+            for argument in (*node.args, *node.kwargs.values())
+        ):
+            continue
+
+        resolved_args: list[Any] = []
+        args_are_static = True
+        contains_constant = False
+        for argument in node.args:
+            resolved, is_static, argument_contains_constant = (
+                _resolve_static_factory_expression_value(graph_module, argument)
+            )
+            if not is_static:
+                args_are_static = False
+                break
+            resolved_args.append(resolved)
+            contains_constant = contains_constant or argument_contains_constant
+        resolved_kwargs: dict[str, Any] = {}
+        if args_are_static:
+            for name, argument in node.kwargs.items():
+                resolved, is_static, argument_contains_constant = (
+                    _resolve_static_factory_expression_value(graph_module, argument)
+                )
+                if not is_static:
+                    args_are_static = False
+                    break
+                resolved_kwargs[name] = resolved
+                contains_constant = contains_constant or argument_contains_constant
+        if not args_are_static or (is_expression and not contains_constant):
+            reports.append(
+                VulkanStaticFactoryConstantNodeReport(
+                    node_name=node.name,
+                    status="skipped",
+                    reason="factory_arguments_not_static",
+                    operator_name=operator_name,
+                    constant_attr=None,
+                    constant_status=None,
+                    dtype=_node_tensor_dtype(node),
+                    shape=None,
+                )
+            )
+            continue
+
+        if is_factory:
+            resolved_kwargs["device"] = torch.device("cpu")
+            if "pin_memory" in resolved_kwargs:
+                resolved_kwargs["pin_memory"] = False
+        try:
+            with torch.inference_mode():
+                value = node.target(*resolved_args, **resolved_kwargs)
+            if not isinstance(value, torch.Tensor) or value.device.type != "cpu":
+                raise RuntimeError("static factory did not produce a CPU tensor")
+            value = value.detach().contiguous()
+        except (RuntimeError, TypeError, ValueError) as error:
+            reports.append(
+                VulkanStaticFactoryConstantNodeReport(
+                    node_name=node.name,
+                    status="rejected",
+                    reason=f"static_factory_evaluation_failed:{type(error).__name__}",
+                    operator_name=operator_name,
+                    constant_attr=None,
+                    constant_status=None,
+                    dtype=_node_tensor_dtype(node),
+                    shape=None,
+                )
+            )
+            continue
+
+        constant_attr = _static_factory_constant_attr(value)
+        constant_attrs.add(constant_attr)
+        if hasattr(graph_module, constant_attr):
+            constant_status = "reused"
+            reused_constant_count += 1
+        else:
+            graph_module.register_buffer(constant_attr, value, persistent=False)
+            constant_status = "created"
+            created_constant_count += 1
+        with graph.inserting_before(node):
+            constant_node = graph.get_attr(constant_attr)
+        constant_node.meta = dict(node.meta)
+        node.replace_all_uses_with(constant_node)
+        graph.erase_node(node)
+        reports.append(
+            VulkanStaticFactoryConstantNodeReport(
+                node_name=node.name,
+                status="lowered",
+                reason=(
+                    "static_arange_graph_owned_constant"
+                    if is_factory
+                    else "static_factory_expression_graph_owned_constant"
+                ),
+                operator_name=operator_name,
+                constant_attr=constant_attr,
+                constant_status=constant_status,
+                dtype=value.dtype,
+                shape=tuple(value.shape),
+            )
+        )
+
+    lowered_count = sum(report.status == "lowered" for report in reports)
+    if lowered_count:
+        graph.eliminate_dead_code()
+        for target in constant_attrs:
+            _delete_graph_attr_if_unreferenced(graph_module, target)
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticFactoryConstantReport(
+        candidate_count=len(reports),
+        lowered_count=lowered_count,
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        skipped_count=sum(report.status == "skipped" for report in reports),
+        created_constant_count=created_constant_count,
+        reused_constant_count=reused_constant_count,
+        nodes=tuple(reports),
+    )
+
+
+def _resolve_graph_attr(
+    graph_module: torch.fx.GraphModule,
+    target: str,
+) -> Any:
+    value: Any = graph_module
+    for name in target.split("."):
+        if not hasattr(value, name):
+            return None
+        value = getattr(value, name)
+    return value
+
+
+def _lifted_tensor_constant_attr(value: torch.Tensor) -> str:
+    suffix = _static_factory_constant_attr(value).removeprefix(
+        "_vulkan_static_factory_constant_"
+    )
+    return f"_vulkan_lifted_tensor_constant_{suffix}"
+
+
+def lower_lifted_tensor_constants(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanLiftedTensorConstantReport:
+    graph = graph_module.graph
+    reports: list[VulkanLiftedTensorConstantNodeReport] = []
+    removed_source_attrs: set[str] = set()
+    created_constant_count = 0
+    reused_constant_count = 0
+
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.lift_fresh_copy.default
+        ):
+            continue
+        source = node.args[0] if len(node.args) == 1 and not node.kwargs else None
+        source_attr = _get_attr_target(source)
+        value = (
+            _resolve_graph_attr(graph_module, source_attr)
+            if source_attr is not None
+            else None
+        )
+        if (
+            source_attr is None
+            or not isinstance(value, torch.Tensor)
+            or value.device.type != "cpu"
+        ):
+            reports.append(
+                VulkanLiftedTensorConstantNodeReport(
+                    node_name=node.name,
+                    status="rejected",
+                    reason="lifted_source_is_not_a_cpu_tensor_attr",
+                    source_attr=source_attr,
+                    constant_attr=None,
+                    constant_status=None,
+                    dtype=value.dtype if isinstance(value, torch.Tensor) else None,
+                    shape=tuple(value.shape) if isinstance(value, torch.Tensor) else None,
+                )
+            )
+            continue
+        try:
+            constant = value.detach().clone(memory_format=torch.contiguous_format)
+        except RuntimeError:
+            reports.append(
+                VulkanLiftedTensorConstantNodeReport(
+                    node_name=node.name,
+                    status="rejected",
+                    reason="lifted_source_cannot_be_frozen_contiguously",
+                    source_attr=source_attr,
+                    constant_attr=None,
+                    constant_status=None,
+                    dtype=value.dtype,
+                    shape=tuple(value.shape),
+                )
+            )
+            continue
+
+        constant_attr = _lifted_tensor_constant_attr(constant)
+        if hasattr(graph_module, constant_attr):
+            constant_status = "reused"
+            reused_constant_count += 1
+        else:
+            graph_module.register_buffer(constant_attr, constant, persistent=False)
+            constant_status = "created"
+            created_constant_count += 1
+        with graph.inserting_before(node):
+            constant_node = graph.get_attr(constant_attr)
+        if isinstance(source, torch.fx.Node):
+            constant_node.meta = dict(source.meta)
+        node.args = (constant_node,)
+        removed_source_attrs.add(source_attr)
+        reports.append(
+            VulkanLiftedTensorConstantNodeReport(
+                node_name=node.name,
+                status="lowered",
+                reason="lifted_tensor_registered_as_graph_owned_constant",
+                source_attr=source_attr,
+                constant_attr=constant_attr,
+                constant_status=constant_status,
+                dtype=constant.dtype,
+                shape=tuple(constant.shape),
+            )
+        )
+
+    lowered_count = sum(report.status == "lowered" for report in reports)
+    if lowered_count:
+        graph.eliminate_dead_code()
+        for target in removed_source_attrs:
+            _delete_graph_attr_if_unreferenced(graph_module, target)
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanLiftedTensorConstantReport(
+        candidate_count=len(reports),
+        lowered_count=lowered_count,
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        created_constant_count=created_constant_count,
+        reused_constant_count=reused_constant_count,
+        nodes=tuple(reports),
+    )
+
+
+def _static_factory_tensor_attr(
+    graph_module: torch.fx.GraphModule,
+    value: Any,
+) -> tuple[str, torch.Tensor] | None:
+    if not isinstance(value, torch.fx.Node) or value.op != "get_attr":
+        return None
+    target = str(value.target)
+    if not target.startswith("_vulkan_static_factory_constant_") or not hasattr(
+        graph_module, target
+    ):
+        return None
+    tensor = getattr(graph_module, target)
+    if not isinstance(tensor, torch.Tensor) or tensor.device.type != "cpu":
+        return None
+    return target, tensor
+
+
+def _static_identity_advanced_index_offsets(
+    source_shape: tuple[int, ...],
+    indices: tuple[torch.Tensor, ...],
+) -> tuple[torch.Tensor | None, str]:
+    if not source_shape or not indices:
+        return None, "static_advanced_index_requires_nonzero_rank"
+    try:
+        broadcast_indices = torch.broadcast_tensors(*indices)
+    except RuntimeError:
+        return None, "static_indices_do_not_broadcast"
+
+    output_shape = tuple(broadcast_indices[0].shape)
+    source_numel = math.prod(source_shape)
+    if math.prod(output_shape) != source_numel:
+        return None, "static_index_output_numel_differs_from_source"
+
+    linear_offsets = torch.zeros(output_shape, dtype=torch.int64)
+    stride = source_numel
+    for size, index in zip(source_shape, broadcast_indices):
+        stride //= size if size else 1
+        normalized = index.to(dtype=torch.int64)
+        if size:
+            normalized = torch.where(normalized < 0, normalized + size, normalized)
+            if bool(torch.any((normalized < 0) | (normalized >= size))):
+                return None, "static_index_out_of_bounds"
+        elif normalized.numel():
+            return None, "static_index_into_empty_dimension"
+        linear_offsets.add_(normalized * stride)
+
+    expected = torch.arange(source_numel, dtype=torch.int64).reshape(output_shape)
+    if not torch.equal(linear_offsets, expected):
+        return None, "static_index_is_not_identity_order"
+    return linear_offsets, "static_full_rank_identity_advanced_index"
+
+
+def lower_static_identity_advanced_indices(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticIdentityAdvancedIndexReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticIdentityAdvancedIndexNodeReport] = []
+    lowered_attrs: set[str] = set()
+
+    def record(
+        node: torch.fx.Node,
+        status: str,
+        reason: str,
+        source_shape: tuple[int, ...] | None,
+        output_shape: tuple[int, ...] | None,
+        index_attrs: tuple[str, ...] = (),
+        replacement_node_name: str | None = None,
+    ) -> None:
+        reports.append(
+            VulkanStaticIdentityAdvancedIndexNodeReport(
+                node_name=node.name,
+                status=status,
+                reason=reason,
+                source_shape=source_shape,
+                output_shape=output_shape,
+                index_attrs=index_attrs,
+                replacement_node_name=replacement_node_name,
+            )
+        )
+
+    for node in tuple(graph.nodes):
+        if node.op != "call_function" or node.target != torch.ops.aten.index.Tensor:
+            continue
+        source = node.args[0] if node.args else None
+        source_shape = (
+            _node_static_tensor_shape(source)
+            if isinstance(source, torch.fx.Node)
+            else None
+        )
+        output_shape = _node_static_tensor_shape(node)
+        if (
+            len(node.args) != 2
+            or node.kwargs
+            or not isinstance(source, torch.fx.Node)
+            or not isinstance(node.args[1], tuple | list)
+        ):
+            record(
+                node,
+                "skipped",
+                "unsupported_advanced_index_signature",
+                source_shape,
+                output_shape,
+            )
+            continue
+        if source_shape is None or output_shape is None:
+            record(
+                node,
+                "skipped",
+                "advanced_index_shape_not_static",
+                source_shape,
+                output_shape,
+            )
+            continue
+
+        source_value = source.meta.get("val")
+        if not isinstance(source_value, torch.Tensor) or not source_value.is_contiguous():
+            record(
+                node,
+                "rejected",
+                "advanced_index_source_not_contiguous",
+                source_shape,
+                output_shape,
+            )
+            continue
+
+        index_nodes = tuple(node.args[1])
+        if len(index_nodes) != len(source_shape):
+            record(
+                node,
+                "skipped",
+                "advanced_index_does_not_cover_every_source_dimension",
+                source_shape,
+                output_shape,
+            )
+            continue
+        resolved = tuple(
+            _static_factory_tensor_attr(graph_module, index) for index in index_nodes
+        )
+        if any(item is None for item in resolved):
+            record(
+                node,
+                "skipped",
+                "advanced_indices_are_not_graph_owned_static_constants",
+                source_shape,
+                output_shape,
+            )
+            continue
+        static_indices = tuple(item for item in resolved if item is not None)
+        index_attrs = tuple(item[0] for item in static_indices)
+        index_tensors = tuple(item[1] for item in static_indices)
+        if any(index.dtype not in (torch.int32, torch.int64) for index in index_tensors):
+            record(
+                node,
+                "rejected",
+                "static_advanced_index_dtype_not_integral",
+                source_shape,
+                output_shape,
+                index_attrs,
+            )
+            continue
+
+        _, reason = _static_identity_advanced_index_offsets(
+            source_shape, index_tensors
+        )
+        if reason != "static_full_rank_identity_advanced_index":
+            record(
+                node,
+                "rejected",
+                reason,
+                source_shape,
+                output_shape,
+                index_attrs,
+            )
+            continue
+        broadcast_shape = tuple(torch.broadcast_shapes(*(x.shape for x in index_tensors)))
+        if output_shape != broadcast_shape:
+            record(
+                node,
+                "rejected",
+                "advanced_index_metadata_shape_mismatch",
+                source_shape,
+                output_shape,
+                index_attrs,
+            )
+            continue
+
+        with graph.inserting_before(node):
+            replacement = graph.call_function(
+                torch.ops.aten.view.default,
+                (source, list(output_shape)),
+            )
+        replacement.meta = dict(node.meta)
+        node.replace_all_uses_with(replacement)
+        graph.erase_node(node)
+        lowered_attrs.update(index_attrs)
+        record(
+            node,
+            "lowered",
+            reason,
+            source_shape,
+            output_shape,
+            index_attrs,
+            replacement.name,
+        )
+
+    lowered_count = sum(report.status == "lowered" for report in reports)
+    if lowered_count:
+        graph.eliminate_dead_code()
+        for target in lowered_attrs:
+            _delete_graph_attr_if_unreferenced(graph_module, target)
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticIdentityAdvancedIndexReport(
+        candidate_count=len(reports),
+        lowered_count=lowered_count,
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        skipped_count=sum(report.status == "skipped" for report in reports),
+        nodes=tuple(reports),
+    )
+
+
+def lower_static_gqa_repeats(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticGQARepeatReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticGQARepeatNodeReport] = []
+
+    def record(
+        node: torch.fx.Node,
+        status: str,
+        reason: str,
+        source_shape: tuple[int, ...] | None,
+        output_shape: tuple[int, ...] | None,
+        repeat_factor: int | None,
+        replacement_node_name: str | None = None,
+    ) -> None:
+        reports.append(
+            VulkanStaticGQARepeatNodeReport(
+                node_name=node.name,
+                status=status,
+                reason=reason,
+                source_shape=source_shape,
+                output_shape=output_shape,
+                repeat_factor=repeat_factor,
+                replacement_node_name=replacement_node_name,
+            )
+        )
+
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.reshape.default
+            or len(node.args) != 2
+            or node.kwargs
+        ):
+            continue
+        expand = node.args[0]
+        if not (
+            isinstance(expand, torch.fx.Node)
+            and expand.op == "call_function"
+            and expand.target == torch.ops.aten.expand.default
+            and len(expand.args) == 2
+            and not expand.kwargs
+        ):
+            continue
+        expanded_shape = _node_static_tensor_shape(expand)
+        if expanded_shape is None or len(expanded_shape) != 5:
+            continue
+        requested_expanded_shape = _static_shape_argument(expand.args[1])
+        requested_output_shape = _static_shape_argument(node.args[1])
+
+        unsqueeze = expand.args[0]
+        source = (
+            unsqueeze.args[0]
+            if isinstance(unsqueeze, torch.fx.Node)
+            and _is_static_unsqueeze(unsqueeze)
+            else None
+        )
+        source_shape = (
+            _node_static_tensor_shape(source)
+            if isinstance(source, torch.fx.Node)
+            else None
+        )
+        output_shape = _node_static_tensor_shape(node)
+        repeat_factor = expanded_shape[2]
+        if (
+            not isinstance(source, torch.fx.Node)
+            or unsqueeze.args[1] != 2
+            or len(unsqueeze.users) != 1
+            or len(expand.users) != 1
+            or source_shape is None
+            or len(source_shape) != 4
+            or output_shape is None
+        ):
+            record(
+                node,
+                "rejected",
+                "gqa_repeat_graph_structure_mismatch",
+                source_shape,
+                output_shape,
+                repeat_factor,
+            )
+            continue
+        if requested_expanded_shape is None or requested_output_shape is None:
+            record(
+                node,
+                "rejected",
+                "gqa_repeat_shape_arguments_not_static",
+                source_shape,
+                output_shape,
+                repeat_factor,
+            )
+            continue
+        expected_expanded_shape = (
+            source_shape[0],
+            source_shape[1],
+            repeat_factor,
+            source_shape[2],
+            source_shape[3],
+        )
+        expected_output_shape = (
+            source_shape[0],
+            source_shape[1] * repeat_factor,
+            source_shape[2],
+            source_shape[3],
+        )
+        if (
+            repeat_factor <= 1
+            or requested_expanded_shape != expanded_shape
+            or requested_output_shape != output_shape
+            or expanded_shape != expected_expanded_shape
+            or output_shape != expected_output_shape
+        ):
+            record(
+                node,
+                "rejected",
+                "gqa_repeat_shape_contract_mismatch",
+                source_shape,
+                output_shape,
+                repeat_factor,
+            )
+            continue
+        if _node_tensor_dtype(source) != torch.float32:
+            record(
+                node,
+                "rejected",
+                "gqa_repeat_requires_float32",
+                source_shape,
+                output_shape,
+                repeat_factor,
+            )
+            continue
+
+        with graph.inserting_before(unsqueeze):
+            replacement = graph.call_function(
+                torch.ops.vulkan_prepack.repeat_attention_heads_for_gqa.default,
+                (source, repeat_factor),
+            )
+        replacement.meta = dict(node.meta)
+        node.replace_all_uses_with(replacement)
+        graph.erase_node(node)
+        graph.erase_node(expand)
+        graph.erase_node(unsqueeze)
+        record(
+            node,
+            "lowered",
+            "static_gqa_repeat_kernel_family",
+            source_shape,
+            output_shape,
+            repeat_factor,
+            replacement.name,
+        )
+
+    lowered_count = sum(report.status == "lowered" for report in reports)
+    if lowered_count:
+        graph.eliminate_dead_code()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticGQARepeatReport(
+        candidate_count=len(reports),
+        lowered_count=lowered_count,
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        nodes=tuple(reports),
+        operator="vulkan_prepack::repeat_attention_heads_for_gqa",
+    )
+
+
+def plan_graph_tensor_placements(
+    graph_module: torch.fx.GraphModule,
+    input_normalization: VulkanGraphInputNormalizationReport,
+    static_factory_constants: VulkanStaticFactoryConstantReport,
+    lifted_tensor_constants: VulkanLiftedTensorConstantReport,
+) -> VulkanGraphTensorPlacementReport:
+    normalized_placeholders = {
+        node.placeholder_name
+        for node in input_normalization.nodes
+        if node.status == "lowered" and node.placeholder_name is not None
+    }
+    reports: list[VulkanGraphTensorPlacementNodeReport] = []
+    for placeholder in _graph_placeholder_nodes(graph_module):
+        if _node_tensor_dtype(placeholder) != torch.bool:
+            continue
+        placeholder_name = str(placeholder.target)
+        reports.append(
+            VulkanGraphTensorPlacementNodeReport(
+                source_kind="placeholder",
+                source_name=placeholder_name,
+                dtype=torch.bool,
+                storage_type="buffer",
+                execution_layout="buffer_direct",
+                reason=(
+                    "normalized_bool_graph_input"
+                    if placeholder_name in normalized_placeholders
+                    else "captured_bool_graph_input"
+                ),
+            )
+        )
+
+    referenced_attrs = {
+        str(node.target)
+        for node in graph_module.graph.nodes
+        if node.op == "get_attr"
+    }
+    seen_attrs: set[str] = set()
+    constant_candidates: list[
+        tuple[
+            VulkanStaticFactoryConstantNodeReport
+            | VulkanLiftedTensorConstantNodeReport,
+            str,
+        ]
+    ] = [
+        (node, "graph_owned_bool_factory_constant")
+        for node in static_factory_constants.nodes
+    ]
+    constant_candidates.extend(
+        (node, "graph_owned_bool_lifted_constant")
+        for node in lifted_tensor_constants.nodes
+    )
+    for node, reason in constant_candidates:
+        if (
+            node.status != "lowered"
+            or node.dtype != torch.bool
+            or node.constant_attr is None
+            or node.constant_attr not in referenced_attrs
+            or node.constant_attr in seen_attrs
+        ):
+            continue
+        seen_attrs.add(node.constant_attr)
+        reports.append(
+            VulkanGraphTensorPlacementNodeReport(
+                source_kind="constant",
+                source_name=node.constant_attr,
+                dtype=torch.bool,
+                storage_type="buffer",
+                execution_layout="buffer_direct",
+                reason=reason,
+            )
+        )
+
+    return VulkanGraphTensorPlacementReport(
+        buffer_direct_count=len(reports),
+        upload_operator="vulkan_prepack::upload_graph_tensor_to_buffer",
         nodes=tuple(reports),
     )
 
@@ -2981,6 +3973,16 @@ __all__ = [
     "VulkanConv2dLoweringReport",
     "VulkanGraphInputNormalizationNodeReport",
     "VulkanGraphInputNormalizationReport",
+    "VulkanGraphTensorPlacementNodeReport",
+    "VulkanGraphTensorPlacementReport",
+    "VulkanLiftedTensorConstantNodeReport",
+    "VulkanLiftedTensorConstantReport",
+    "VulkanStaticFactoryConstantNodeReport",
+    "VulkanStaticFactoryConstantReport",
+    "VulkanStaticIdentityAdvancedIndexNodeReport",
+    "VulkanStaticIdentityAdvancedIndexReport",
+    "VulkanStaticGQARepeatNodeReport",
+    "VulkanStaticGQARepeatReport",
     "VulkanLayernormLoweringNodeReport",
     "VulkanLayernormLoweringReport",
     "VulkanStaticAddLayernormRegionNodeReport",
@@ -3004,4 +4006,9 @@ __all__ = [
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",
     "lower_graph_input_dtype_normalizations",
+    "lower_lifted_tensor_constants",
+    "lower_static_factory_constants",
+    "lower_static_identity_advanced_indices",
+    "lower_static_gqa_repeats",
+    "plan_graph_tensor_placements",
 ]

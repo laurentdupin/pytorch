@@ -459,6 +459,13 @@ program without capturing from Vulkan opaque tensors.
 - emit a stable graph-coverage and parity census;
 - execute the first lowered program through existing eager Vulkan kernels.
 
+Current status: the Python correctness executor has model-independent passes
+for inference-wrapper normalization, packed-context ordering, static factory
+and lifted-literal constants, explicit bool tensor placement, proven-identity
+advanced indexing, and static GQA head repetition. HY-MT prefill reaches its
+first masked SDPA with zero lower-time unsupported nodes; masked-SDPA semantic
+admission is the next boundary, not a corpus-specific rewrite.
+
 Exit criteria:
 
 - DAv2 runs through the product graph API with Vulkan/eager parity;

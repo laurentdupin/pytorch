@@ -577,6 +577,24 @@ bool should_run_buffer_binary_scalar_bool(
       utils::scalar_fits_vulkan_int32(*alpha_arg);
 }
 
+bool should_run_buffer_bool_and_tensor(
+    const Tensor& self,
+    const Tensor& other) {
+  if (
+      !self.is_vulkan() || !other.is_vulkan() ||
+      self.scalar_type() != kBool || other.scalar_type() != kBool) {
+    return false;
+  }
+  if (!is_bool_buffer_compute_candidate(self)) {
+    return false;
+  }
+  if (!is_bool_buffer_compute_candidate(other)) {
+    return false;
+  }
+  return utils::last_dim_is_width_aligned(self) &&
+      utils::last_dim_is_width_aligned(other);
+}
+
 bool should_run_bool_or_tensor_native(const Tensor& self, const Tensor& other) {
   return self.is_vulkan() && other.is_vulkan() && self.scalar_type() == kBool &&
       other.scalar_type() == kBool && self.dim() == 1 &&
@@ -780,6 +798,7 @@ Tensor prepare_native_integral_buffer_input(const Tensor& input_arg) {
 
   if (
       v_input.storage_type() == api::StorageType::BUFFER &&
+      v_input.has_direct_buffer_layout() &&
       utils::last_dim_is_width_aligned(input) &&
       (v_input.dtype() == api::kBool
            ? utils::supports_native_bool_buffer_compute(input)
@@ -789,6 +808,12 @@ Tensor prepare_native_integral_buffer_input(const Tensor& input_arg) {
 
   input = utils::ensure_buffer_storage(input);
   v_input = convert(input);
+  if (
+      v_input.dtype() == api::kBool && v_input.has_direct_buffer_layout() &&
+      utils::last_dim_is_width_aligned(input) &&
+      utils::supports_native_bool_buffer_compute(input)) {
+    return input;
+  }
   if (
       !v_input.has_direct_buffer_layout() ||
       v_input.storage_type() != api::StorageType::BUFFER ||
@@ -947,7 +972,7 @@ static Tensor binary_op_tensor_buffer_bool(
       params.buffer());
 
   return record_tensor_write_and_return(
-      convert(v_output), "aten::binary_op", "scalar_buffer", {self});
+      convert(v_output), "aten::binary_op", "tensor_buffer_bool", {self, other});
 }
 
 static Tensor binary_op_scalar_buffer(
@@ -1630,6 +1655,17 @@ static Tensor bool_and_tensor_native(
     const Tensor& other_arg,
     const char* op_name,
     const bool logical) {
+  if (
+      self_arg.scalar_type() == kBool && other_arg.scalar_type() == kBool) {
+    utils::is_broadcastable(self_arg, other_arg);
+    if (should_run_buffer_bool_and_tensor(self_arg, other_arg)) {
+      return binary_op_tensor_buffer_bool(
+          self_arg,
+          other_arg,
+          std::optional<Scalar>(),
+          bool_buffer_tensor_shader(BinaryOpKind::Mul));
+    }
+  }
   return bool_and_tensor_cpu_fallback(self_arg, other_arg, op_name, logical);
 }
 

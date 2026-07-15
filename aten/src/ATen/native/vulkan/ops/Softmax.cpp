@@ -4078,6 +4078,27 @@ Tensor softmax_buffer_lastdim_out_vulkan(
   return softmax_buffer_lastdim_impl(input, &output);
 }
 
+Tensor repeat_attention_heads_for_gqa_vulkan(
+    const Tensor& tensor,
+    const int64_t repeat_factor) {
+  TORCH_CHECK(
+      tensor.is_vulkan() && tensor.dim() == 4 && tensor.scalar_type() == kFloat &&
+          repeat_factor > 0,
+      "Vulkan graph GQA repeat expects a positive repeat factor and a 4D "
+      "float Vulkan tensor");
+  Tensor buffer_tensor = utils::ensure_buffer_storage(
+      tensor, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  const auto match = match_gqa_repeat_materialization_contract(
+      buffer_tensor, repeat_factor);
+  TORCH_CHECK(
+      match.matched,
+      "Vulkan graph GQA repeat requires the generic float direct-buffer "
+      "GQARepeatContract");
+  utils::log_vulkan_op_hit(
+      "vulkan_prepack::repeat_attention_heads_for_gqa");
+  return materialize_bounded_decode_gqa_repeat(buffer_tensor, repeat_factor);
+}
+
 Tensor scaled_dot_product_attention_vulkan(
     const Tensor& query,
     const Tensor& key,

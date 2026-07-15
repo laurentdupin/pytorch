@@ -22,6 +22,33 @@ deferred-value creation. The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
 
+The Python correctness executor now normalizes false inference/gradient
+wrappers, creates packed contexts before generic state placement, materializes
+static factory expressions and lifted tensor literals as graph-owned
+constants, and records explicit input/constant tensor placement. Bool graph
+inputs and constants upload directly to width-packed Vulkan buffers without a
+CPU fallback or readback. Full-rank static advanced indexing lowers to a view
+only when its row-major offsets prove identity order; reordered indices remain
+visible and unsupported. The exact static `unsqueeze -> expand -> reshape`
+form used for GQA head repetition lowers to the generic `GQARepeatContract`
+kernel family rather than constructing an unsupported rank-5 Vulkan value.
+
+An HY-MT prefill probe after these changes captures 3,160 nodes, lowers 225,
+and reports zero unsupported nodes at lower time. Execution advances through
+the bool mask, static identity index, lifted empty cache tensors, and both GQA
+repeats before failing loud at the existing masked-SDPA policy for
+`[1,16,4,128]` Q/K/V. That SDPA admission boundary is the next forward task;
+it is not a reason to weaken graph fallback policy or add an HY-MT route.
+
+The existing GQA repeat shader also had its generic coordinate mapping fixed:
+Vulkan buffer metadata orders logical coordinates as width, sequence, heads,
+batch, so repetition divides the head coordinate rather than the sequence
+coordinate. Generic non-corpus shapes and the randomized eager GQA suite cover
+the corrected mapping. Vulkan shader sources, included headers, template YAML,
+and `tools/gen_vulkan_spv.py` are now CMake configure dependencies, so an
+incremental Visual Studio build automatically regenerates `spv.cpp` after a
+shader or generator change.
+
 The supported sync accounting substrate is now isolated in `SyncCounters.*`.
 It owns sync and forced-sync counters, graph-program invocation accounting,
 submit-origin/phase attribution, and retire-drain/call-site accounting without

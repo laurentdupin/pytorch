@@ -174,7 +174,8 @@ bool requires_logical_pack_shader_for_readback(const vTensor& src) {
       src.has_direct_buffer_layout() && src.storage_offset() == 0 &&
       !src.last_write_was_compute();
   return src.storage_type() == api::StorageType::BUFFER &&
-      (src.dtype() == api::kFloat || src.dtype() == api::kByte) &&
+      (src.dtype() == api::kFloat || src.dtype() == api::kByte ||
+       src.dtype() == api::kChar || src.dtype() == api::kBool) &&
       src.sizes().size() <= 4 && !is_raw_buffer_readback_legal(src) &&
       !transfer_written_direct_buffer_snapshot;
 }

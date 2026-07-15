@@ -1419,13 +1419,13 @@ Tensor maybe_move_runtime_tensor_to_device(
     return tensor;
   }
   if (device.type() == kVulkan && !tensor.is_vulkan()) {
-    api::context()->submit_pending_work_and_poll_retire();
     Tensor cpu_snapshot = tensor.contiguous().clone();
+    if (device.has_index()) {
+      api::set_current_device(device.index());
+    }
     Tensor output =
         utils::create_buffer_tensor(cpu_snapshot.sizes(), cpu_snapshot.scalar_type());
-    output.copy_(cpu_snapshot);
-    api::context()->flush();
-    api::context()->submit_pending_work_and_poll_retire();
+    pack_cpu_to_vulkan(cpu_snapshot, convert(output));
     return record_tensor_write_and_return(
         output,
         "vulkan_prepack::runtime_tensor_upload",
@@ -1433,6 +1433,18 @@ Tensor maybe_move_runtime_tensor_to_device(
         {cpu_snapshot});
   }
   return tensor.to(device);
+}
+
+Tensor upload_graph_tensor_to_buffer(
+    const Tensor& tensor,
+    const Device& device) {
+  TORCH_CHECK(
+      device.type() == kVulkan,
+      "vulkan_prepack::upload_graph_tensor_to_buffer expects a Vulkan device");
+  TORCH_CHECK(
+      tensor.device().type() == kCPU,
+      "vulkan_prepack::upload_graph_tensor_to_buffer expects a CPU tensor");
+  return maybe_move_runtime_tensor_to_device(tensor, device);
 }
 
 Tensor create_causal_attention_mask_runtime(
@@ -2347,6 +2359,9 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge("
       "Tensor query, Tensor key, Tensor value) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::repeat_attention_heads_for_gqa("
+      "Tensor tensor, int repeat_factor) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge("
       "Tensor backbone_input, "
       "__torch__.torch.classes.vulkan.VisionBackboneBlockContext backbone_context, "
@@ -2434,6 +2449,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::compute_rotary_cos_sin(Tensor prototype, Tensor inv_freq, Tensor position_ids, float attention_scaling=1.0) -> (Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::to_vulkan_labeled(Tensor X, str label) -> Tensor Y"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::upload_graph_tensor_to_buffer(Tensor X, Device device) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::swap_runtime_label(str label) -> str"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -3263,6 +3280,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::to_vulkan_labeled"),
       TORCH_FN(to_vulkan_labeled));
   m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::upload_graph_tensor_to_buffer"),
+      TORCH_FN(upload_graph_tensor_to_buffer));
+  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
       TORCH_FN(query_runtime_policy));
   m.impl(
@@ -3349,6 +3369,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_attention_runtime_buffer_math_replay_bridge"),
       TORCH_FN(run_attention_runtime_buffer_math_replay_bridge));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::repeat_attention_heads_for_gqa"),
+      TORCH_FN(repeat_attention_heads_for_gqa_vulkan));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge"),

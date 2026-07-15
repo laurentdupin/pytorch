@@ -206,6 +206,18 @@ def _lowering_report_objects(
     program: torch.vulkan.VulkanGraphProgram,
 ) -> dict[str, Any]:
     return {
+        "input_normalization": getattr(program, "input_normalization", None),
+        "static_factory_constants": getattr(
+            program, "static_factory_constants", None
+        ),
+        "lifted_tensor_constants": getattr(
+            program, "lifted_tensor_constants", None
+        ),
+        "static_identity_advanced_indices": getattr(
+            program, "static_identity_advanced_indices", None
+        ),
+        "static_gqa_repeats": getattr(program, "static_gqa_repeats", None),
+        "tensor_placement": getattr(program, "tensor_placement", None),
         "linear_lowering": getattr(program, "linear_lowering", None),
         "static_linear_gelu_regions": getattr(
             program, "static_linear_gelu_regions", None

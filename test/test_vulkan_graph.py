@@ -1913,6 +1913,317 @@ class TestVulkanGraph(TestCase):
         self.assertFalse(hasattr(program, "exported_program"))
         self.assertFalse(hasattr(program, "_exported_program"))
 
+    def test_inference_grad_wrapper_is_inlined_before_vulkan_lowering(self):
+        class NoGradPointwise(torch.nn.Module):
+            @torch.no_grad()
+            def forward(self, tensor):
+                return torch.sin(tensor) + 1
+
+        model = NoGradPointwise().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        self.assertFalse(
+            any(
+                node.target is torch.ops.higher_order.wrap_with_set_grad_enabled
+                for node in program.graph_module.graph.nodes
+            )
+        )
+        self.assertEqual(program(tensor).cpu(), model(tensor))
+        self.assertEqual(program.census.unsupported_node_count, 0)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_static_contexts_replace_raw_weights_before_state_device_move(self):
+        class EmbeddingProjection(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(8, 4)
+                self.projection = torch.nn.Linear(4, 3)
+
+            def forward(self, indices):
+                return self.projection(self.embedding(indices))
+
+        model = EmbeddingProjection().eval()
+        indices = torch.tensor([[1, 3]], dtype=torch.long)
+        expected = model(indices)
+        program = torch.vulkan.export_and_lower(model, indices)
+        state = program.graph_module.state_dict()
+        self.assertEqual(set(state), {"embedding.weight"})
+        self.assertEqual(state["embedding.weight"].device.type, "vulkan")
+        self.assertEqual(model.embedding.weight.device.type, "cpu")
+        self.assertEqual(model.projection.weight.device.type, "cpu")
+        self.assertEqual(program(indices).cpu(), expected)
+
+    def test_static_arange_expression_becomes_graph_owned_constant(self):
+        class StaticArange(torch.nn.Module):
+            def forward(self, tensor):
+                positions = torch.arange(tensor.shape[0], device=tensor.device) + 0
+                keys = positions.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+                queries = positions.unsqueeze(0).unsqueeze(0).unsqueeze(-1)
+                return keys <= queries
+
+        model = StaticArange().eval()
+        tensor = torch.randn(4, 2)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.static_factory_constants
+        self.assertGreater(report.candidate_count, 2)
+        self.assertEqual(report.lowered_count, report.candidate_count)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertGreater(report.created_constant_count, 1)
+        self.assertGreater(report.reused_constant_count, 0)
+        constant_attr = report.nodes[-1].constant_attr
+        self.assertIsNotNone(constant_attr)
+        self.assertEqual(getattr(program.graph_module, constant_attr).device.type, "vulkan")
+        self.assertNotIn(constant_attr, program.graph_module.state_dict())
+        self.assertFalse(
+            any(
+                node.op == "call_function"
+                and (
+                    vulkan_graph_lowering._is_static_arange_target(node.target)
+                    or (
+                        isinstance(node.target, torch._ops.OpOverload)
+                        and node.target.name()
+                        in vulkan_graph_lowering._STATIC_FACTORY_EXPRESSION_OPERATOR_NAMES
+                    )
+                )
+                for node in program.graph_module.graph.nodes
+            )
+        )
+        self.assertEqual(program(tensor).cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_lifted_tensor_literals_become_graph_owned_constants(self):
+        class EmptyLiterals(torch.nn.Module):
+            def forward(self, tensor):
+                del tensor
+                left = torch.tensor([], dtype=torch.float32)
+                right = torch.tensor([], dtype=torch.float32)
+                return left, right
+
+        tensor = torch.randn(4)
+        model = EmptyLiterals().eval()
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.lifted_tensor_constants
+        self.assertEqual(report.candidate_count, 2)
+        self.assertEqual(report.lowered_count, 2)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.created_constant_count, 1)
+        self.assertEqual(report.reused_constant_count, 1)
+        constant_attr = report.nodes[0].constant_attr
+        self.assertIsNotNone(constant_attr)
+        self.assertEqual(getattr(program.graph_module, constant_attr).device.type, "vulkan")
+        self.assertNotIn(constant_attr, program.graph_module.state_dict())
+        actual = program(tensor)
+        expected = model(tensor)
+        self.assertEqual(tuple(value.cpu() for value in actual), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_lifted_bool_literal_uses_direct_buffer_placement(self):
+        class BoolLiteral(torch.nn.Module):
+            def forward(self, tensor):
+                del tensor
+                return torch.tensor([True, False, True, False])
+
+        tensor = torch.randn(1)
+        model = BoolLiteral().eval()
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.lifted_tensor_constants
+        self.assertEqual(report.lowered_count, 1)
+        constant_attr = report.nodes[0].constant_attr
+        self.assertIsNotNone(constant_attr)
+        self.assertEqual(
+            program.tensor_placement.buffer_constant_attrs,
+            (constant_attr,),
+        )
+        self.assertEqual(program(tensor).cpu(), model(tensor))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_static_causal_mask_and_runtime_attention_mask_stay_on_device(self):
+        class CausalAttentionMask(torch.nn.Module):
+            def forward(self, attention_mask):
+                batches = torch.arange(
+                    attention_mask.shape[0],
+                    device=attention_mask.device,
+                )
+                positions = torch.arange(
+                    attention_mask.shape[-1],
+                    device=attention_mask.device,
+                )
+                batch_indices = (
+                    batches.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                )
+                keys = positions.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+                queries = positions.unsqueeze(0).unsqueeze(0).unsqueeze(-1)
+                causal = keys <= queries
+                runtime_mask = attention_mask.to(
+                    device=attention_mask.device,
+                    dtype=torch.bool,
+                )
+                runtime = runtime_mask[batch_indices, keys]
+                return causal & runtime
+
+        attention_mask = torch.tensor(
+            [[1, 1, 1, 0], [1, 0, 1, 1]],
+            dtype=torch.int64,
+        )
+        model = CausalAttentionMask().eval()
+        program = torch.vulkan.export_and_lower(model, attention_mask)
+        self.assertEqual(program.static_factory_constants.rejected_count, 0)
+        self.assertGreater(program.static_factory_constants.lowered_count, 0)
+        self.assertEqual(program.input_normalization.lowered_count, 1)
+        index_report = program.static_identity_advanced_indices
+        self.assertEqual(index_report.candidate_count, 1)
+        self.assertEqual(index_report.lowered_count, 1)
+        self.assertEqual(index_report.rejected_count, 0)
+        self.assertEqual(index_report.skipped_count, 0)
+        self.assertEqual(
+            index_report.nodes[0].reason,
+            "static_full_rank_identity_advanced_index",
+        )
+        self.assertNotIn("aten.index.Tensor", program.graph_module.code)
+        self.assertEqual(
+            program.tensor_placement.buffer_placeholder_names,
+            ("attention_mask",),
+        )
+        self.assertEqual(program(attention_mask).cpu(), model(attention_mask))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_bool_graph_input_accepts_program_device_tensor(self):
+        class BoolAnd(torch.nn.Module):
+            def forward(self, mask):
+                return mask & mask
+
+        mask = torch.tensor(
+            [[True, False, True, False]],
+            dtype=torch.bool,
+        )
+        model = BoolAnd().eval()
+        program = torch.vulkan.export_and_lower(model, mask)
+        mask_vulkan = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+            mask, torch.device("vulkan")
+        )
+        self.assertEqual(program(mask_vulkan).cpu(), model(mask))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_rejects_static_advanced_index_that_reorders_values(self):
+        class ReverseMask(torch.nn.Module):
+            def forward(self, attention_mask):
+                batches = torch.arange(
+                    attention_mask.shape[0],
+                    device=attention_mask.device,
+                )
+                positions = torch.arange(
+                    attention_mask.shape[-1] - 1,
+                    -1,
+                    -1,
+                    device=attention_mask.device,
+                )
+                batch_indices = (
+                    batches.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+                )
+                key_indices = positions.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+                runtime_mask = attention_mask.to(torch.bool)
+                return runtime_mask[batch_indices, key_indices]
+
+        attention_mask = torch.tensor([[1, 0, 1, 1]], dtype=torch.int64)
+        program = torch.vulkan.export_and_lower(ReverseMask().eval(), attention_mask)
+        report = program.static_identity_advanced_indices
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "static_index_is_not_identity_order",
+        )
+        self.assertIn("aten.index.Tensor", program.graph_module.code)
+
+    def test_static_gqa_repeat_lowers_to_generic_kernel_family(self):
+        class RepeatHeads(torch.nn.Module):
+            def forward(self, tensor):
+                batch, heads, tokens, width = tensor.shape
+                return tensor.unsqueeze(2).expand(
+                    batch,
+                    heads,
+                    3,
+                    tokens,
+                    width,
+                ).reshape(batch, heads * 3, tokens, width)
+
+        tensor = torch.randn(2, 3, 5, 7)
+        model = RepeatHeads().eval()
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.static_gqa_repeats
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.nodes[0].repeat_factor, 3)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "static_gqa_repeat_kernel_family",
+        )
+        self.assertIn(
+            "vulkan_prepack.repeat_attention_heads_for_gqa",
+            program.graph_module.code,
+        )
+        self.assertNotIn("aten.expand.default", program.graph_module.code)
+        self.assertEqual(program(tensor).cpu(), model(tensor))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_static_gqa_repeat_rejects_non_float_kernel_input(self):
+        class RepeatHeads(torch.nn.Module):
+            def forward(self, tensor):
+                batch, heads, tokens, width = tensor.shape
+                return tensor.unsqueeze(2).expand(
+                    batch,
+                    heads,
+                    2,
+                    tokens,
+                    width,
+                ).reshape(batch, heads * 2, tokens, width)
+
+        tensor = torch.ones(1, 2, 3, 4, dtype=torch.int32)
+        program = torch.vulkan.export_and_lower(RepeatHeads().eval(), tensor)
+        report = program.static_gqa_repeats
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].reason, "gqa_repeat_requires_float32")
+        self.assertIn("aten.expand.default", program.graph_module.code)
+
+    def test_enable_grad_wrapper_stays_unsupported_for_inference(self):
+        body_graph = torch.fx.Graph()
+        body_input = body_graph.placeholder("tensor")
+        body_output = body_graph.call_function(
+            torch.ops.aten.sin.default, (body_input,)
+        )
+        body_graph.output((body_output,))
+        body = torch.fx.GraphModule({}, body_graph)
+
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        body_attr = graph.get_attr("body")
+        wrapped = graph.call_function(
+            torch.ops.higher_order.wrap_with_set_grad_enabled,
+            (True, body_attr, tensor),
+        )
+        output = graph.call_function(operator.getitem, (wrapped, 0))
+        graph.output(output)
+        graph_module = torch.fx.GraphModule({"body": body}, graph)
+
+        self.assertEqual(vulkan_graph._inline_inference_grad_wrappers(graph_module), 0)
+        record = vulkan_graph._classify_node(graph_module, 2, wrapped)
+        self.assertEqual(record.classification, "unsupported")
+        self.assertEqual(record.reason, "unsupported_graph_node_kind")
+
     def test_dynamic_batch_reuses_program(self):
         class DynamicLinear(torch.nn.Module):
             def __init__(self):
@@ -2200,6 +2511,34 @@ class TestVulkanGraph(TestCase):
             "requires the original CPU dtype torch.int64",
         ):
             program(tensor.to(torch.float32).to("vulkan"))
+
+    def test_normalizes_isolated_int64_attention_mask_to_bool_at_graph_input(self):
+        class NormalizeMask(torch.nn.Module):
+            def forward(self, attention_mask):
+                return attention_mask.to(
+                    device=attention_mask.device,
+                    dtype=torch.bool,
+                )
+
+        attention_mask = torch.tensor([[1, 1, 0]], dtype=torch.int64)
+        model = NormalizeMask().eval()
+        program = torch.vulkan.export_and_lower(model, attention_mask)
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        node = report.nodes[0]
+        self.assertEqual(node.status, "lowered")
+        self.assertEqual(node.reason, "isolated_int64_placeholder_to_bool")
+        self.assertEqual(node.placeholder_name, "attention_mask")
+        self.assertEqual(node.source_dtype, torch.int64)
+        self.assertEqual(node.target_dtype, torch.bool)
+        self.assertEqual(node.chain_node_names, ())
+        self.assertNotIn("aten.to.device", program.graph_module.code)
+        self.assertIn("dtype=torch.int64", program.key.input_signature[0])
+        self.assertEqual(program(attention_mask).cpu(), model(attention_mask))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
 
     def test_normalizes_isolated_int64_identity_expand_unsqueeze_to_float32(
         self,

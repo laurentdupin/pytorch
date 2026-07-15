@@ -34,6 +34,10 @@ Tensor scaled_dot_product_attention_vulkan(
     std::optional<double> scale,
     bool enable_gqa);
 
+Tensor repeat_attention_heads_for_gqa_vulkan(
+    const Tensor& tensor,
+    int64_t repeat_factor);
+
 Tensor run_attention_runtime_buffer_math_program_bridge(
     const Tensor& query,
     const Tensor& key,

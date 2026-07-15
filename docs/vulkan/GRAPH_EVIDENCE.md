@@ -57,10 +57,12 @@ measurements are caller-owned until they are deliberately reviewed and
 replaced. The harness requires an explicit source SHA when `git` is not on
 `PATH`, so a sanitized runtime cannot emit unproven provenance.
 
-The machine-readable evidence records graph census and lowerings, guard
+The machine-readable evidence records graph census and lowerings, including
+input normalization, static and lifted constants, proven-identity indexing,
+static GQA repetition, and explicit tensor placement. It also records guard
 outcomes, program key, Vulkan runtime identity and DLL hashes, timing,
-fallback/readback/deferred-value counters, and CPU/eager Vulkan parity. It
-does not authorize model-name production dispatch, exact-shape admission, or
+fallback/readback/deferred-value counters, and CPU/eager Vulkan parity. It does
+not authorize model-name production dispatch, exact-shape admission, or
 Python-executor performance tuning.
 
 The default tolerances are zero. A nonzero tolerance is an explicit corpus

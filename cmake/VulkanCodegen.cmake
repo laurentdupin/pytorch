@@ -127,6 +127,17 @@ if(SPIRV_VAL_PATH)
   list(APPEND VULKAN_GEN_VALIDATION_ARGS "--spirv-val-path=${SPIRV_VAL_PATH}")
 endif()
 
+set(VULKAN_GLSL_SOURCE_PATH
+    "${CMAKE_CURRENT_LIST_DIR}/../aten/src/ATen/native/vulkan/glsl")
+file(GLOB_RECURSE VULKAN_SHADER_SOURCES CONFIGURE_DEPENDS
+  "${VULKAN_GLSL_SOURCE_PATH}/*.glsl"
+  "${VULKAN_GLSL_SOURCE_PATH}/*.h"
+  "${VULKAN_GLSL_SOURCE_PATH}/*.yaml")
+# Shader generation runs during configuration, so source changes must rerun CMake.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  ${VULKAN_SHADER_SOURCES}
+  "${CMAKE_CURRENT_LIST_DIR}/../tools/gen_vulkan_spv.py")
+
 set(PYTHONPATH "$ENV{PYTHONPATH}")
 set(NEW_PYTHONPATH ${PYTHONPATH})
 list(APPEND NEW_PYTHONPATH "${CMAKE_CURRENT_LIST_DIR}/..")
@@ -135,7 +146,7 @@ execute_process(
   COMMAND
   "${Python_EXECUTABLE}"
   ${CMAKE_CURRENT_LIST_DIR}/../tools/gen_vulkan_spv.py
-  --glsl-paths ${CMAKE_CURRENT_LIST_DIR}/../aten/src/ATen/native/vulkan/glsl
+  --glsl-paths ${VULKAN_GLSL_SOURCE_PATH}
   --output-path ${VULKAN_GEN_OUTPUT_PATH}
   --glslc-path=${GLSLC_PATH}
   --tmp-dir-path=${CMAKE_BINARY_DIR}/vulkan/spv

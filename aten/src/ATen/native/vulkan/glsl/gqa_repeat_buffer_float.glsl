@@ -49,8 +49,8 @@ void main() {
   const uint repeat_factor = uint(uBlock.repeat_info.x);
   const uvec4 input_coord = uvec4(
       out_coord.x,
-      out_coord.y / repeat_factor,
-      out_coord.z,
+      out_coord.y,
+      out_coord.z / repeat_factor,
       out_coord.w);
 
   const uint input_idx =

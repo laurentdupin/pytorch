@@ -618,6 +618,9 @@ bool supports_native_bool_buffer_compute(const Tensor& tensor) {
   const vTensor& v_tensor = convert(tensor);
   return api::context()->adapter_ptr()->supports_int8_buffer_arithmetic() &&
       v_tensor.dtype() == api::kBool &&
+      v_tensor.storage_type() == api::StorageType::BUFFER &&
+      v_tensor.gpu_memory_layout() ==
+          api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
       supports_buffer_elementwise_compute(v_tensor) && !v_tensor.is_quantized();
 }
 
