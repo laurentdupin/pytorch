@@ -13,7 +13,7 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed at source commit
-`7b53498bcd8eb7f835c64668f6b33ca9d4231027` against `torch_cpu.dll` SHA-256
+`2d3c8492f2fd6b5c165d9bf921c2786c4689a3af` against `torch_cpu.dll` SHA-256
 `1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a`.
 Both corpora execute complete v8 C++ plans on both recorded shapes with exact
 graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
@@ -34,11 +34,19 @@ its complete plan; its evidence is described below but is not a checked-in
 parity artifact.
 The same checked-in cases record allocator high-water phases for eager, first
 graph execution, and repeated graph execution with the prior output live. DAv2
-graph peaks are 0.9% to 1.7% below eager. PaddleOCR graph peaks range from 0.5%
-below to 2.5% above eager. All recorded graph phases remain within the evidence
+graph peaks are 0.7% to 1.4% below eager. PaddleOCR graph peaks range from 0.2%
+to 3.3% above eager. All recorded graph phases remain within the evidence
 gate of 5% above their same-process supported eager peak. This proves bounded
 peak-memory parity for the recorded shapes, not program-owned arenas or stable
 allocation addresses.
+The same cases measure supported-default latency from preuploaded Vulkan inputs
+to completed Vulkan outputs, alternating plain eager and `VulkanGraphProgram`
+for three warmups and ten samples per surface. DAv2 graph medians are 41.0 ms
+and 41.2 ms versus eager medians of 123.0 ms and 119.2 ms. PaddleOCR graph
+medians are 42.8 ms and 54.3 ms versus eager medians of 141.3 ms and 146.9 ms.
+Graph p95 is below eager p95 in all four cases, with zero timed fallback or
+readback. This establishes latency no-regression for the recorded shapes, not
+the full corpus or eligibility to delete a Migration subsystem.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -124,7 +132,7 @@ node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
 `mul`, and `floordiv` instructions execute as checked C++ plan operations. They
 reject non-integer operands, detect overflow and division by zero, and preserve
 Python floor-division semantics for negative values. The checked-in exact-SHA
-v7 DAv2 evidence crosses its former symbolic-size, floor-division,
+v8 DAv2 evidence crosses its former symbolic-size, floor-division,
 multi-return, list-projection, and mutable-ReLU blockers. Both `relu_` inputs
 are proven single-use, non-aliasing results of functional `aten::conv2d` and
 are rewritten to functional `aten::relu`. The complete normal and alternate

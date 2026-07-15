@@ -263,19 +263,27 @@ values remain mutable. Exact-SHA normal and alternate DAv2 runs execute a
 fallback, readback, or deferred values. Its 12 linear/GELU and eight
 conv/ReLU/conv region calls use one outer owner per invocation. The two-run
 shape evidence drops from 16 scopes and 92 total submits to two scopes and 52
-total submits, including zero retire-drain submits. The latest repeated-run
-samples are mixed rather than a latency proof: about 45.1 ms and 71.5 ms versus
-48.8 ms and 48.5 ms in the prior artifact. This transfers execution and
-top-level submission/completion ownership, but not memory or descriptor
-ownership.
+total submits, including zero retire-drain submits. Supported-default evidence
+uses the same preuploaded Vulkan inputs for three warmups and ten alternating
+samples per surface. Graph medians are 41.0 ms and 41.2 ms versus eager medians
+of 123.0 ms and 119.2 ms, with graph p95 below eager p95 and no timed fallback
+or readback. Graph allocator high-water is 0.7% to 1.4% below eager across the
+first and repeat-with-prior-output-live phases. This transfers execution and
+top-level submission/completion ownership and clears recorded-shape latency and
+peak-memory no-regression, but does not provide a program memory arena or
+descriptor ownership.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and
 zero fallback, readback, or deferred values. The two-run evidence records 42
 bounded owner checkpoints and 46 total submits rather than one unbounded
-command partition. It transfers boxed execution and top-level
-submission/completion ownership, but not memory or descriptor ownership.
+command partition. Its graph medians are 42.8 ms and 54.3 ms versus eager
+medians of 141.3 ms and 146.9 ms, with graph p95 below eager p95. Graph
+allocator high-water ranges from 0.2% to 3.3% above eager and stays inside the
+5% gate. It transfers boxed execution and top-level submission/completion
+ownership and clears recorded-shape latency and peak-memory no-regression, but
+not program memory or descriptor ownership.
 
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
 integer IValues using their composite registration. The bounded pure-integer

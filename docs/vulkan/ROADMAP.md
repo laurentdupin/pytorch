@@ -479,9 +479,11 @@ nodes consume single-use, non-aliasing results from functional `aten::conv2d`.
 The schema/alias proof rewrites only those fresh mutations; input aliases,
 views, and branched values remain fail-closed. Normal and alternate DAv2 shapes
 then execute a 404-instruction C++ plan with exact graph-versus-eager parity
-and zero fallback, readback, or deferred values. This clears graph execution,
-but not the repeated-output lifetime, submit, memory, or latency deletion
-gates.
+and zero fallback, readback, or deferred values. Exact-SHA DAv2 and PaddleOCR
+artifacts now also cover repeated live outputs, top-level submission ownership,
+same-process peak memory, and supported-default latency for their recorded
+shapes. They clear those recorded-shape bars, not the wider corpus and resource
+ownership required by a subsystem deletion gate.
 
 Exit criteria:
 
@@ -506,48 +508,39 @@ structural.
 Current status: `VulkanGraphPlan.v8` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with any schema-declared
 return count. It owns operator handles and constants, preserves ordered
-effect-only instructions, assigns multi-schema returns to adjacent SSA slots,
-aliases constant-index multi-return projections to the selected slot, executes
-constant-index list projections with negative-index normalization and runtime
-bounds checking, materializes schema-typed empty list sentinels from zero-leaf
-recipes, and assembles schema-typed flat homogeneous list arguments,
-validates use-count/last-use metadata for every list leaf, tracks liveness
-separately from values, releases non-escaping values after last use, rejects
-concurrent invocation, and checks each instruction for implicit host
-boundaries. Compatible plans also own one normal Context recording transaction,
-suppress internal frequency submits, reject sync/flush escape, and retain the
-resulting timeline token by invocation generation. Command-free metadata plans
-complete without a synthetic token. Plans containing nested graph-region
-transactions or `aten::lift_fresh_copy` remain explicitly non-owning. Repeated
-multi-instruction Tensor, metadata-effect, and Tensor-list graphs execute
-without Python node callbacks and preserve earlier live outputs.
-Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
-checked C++ semantics. Unsupported plan structure or scalar type reports a
-reason and retains the Python correctness executor. A generic single-user
-fresh-chain proof rewrites `aten::detach_` to
-functional `aten::detach` only when the chain is rooted at
-`aten::lift_fresh_copy`; adjacent aliasing cases remain mutable and rejected.
-This proves all 64 detach mutations in the four-token HY-MT graph and allows
-its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
-and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
-nested or non-list container projection, program memory slots, descriptors,
-nested submission ownership, generation-gated output reuse, and checked-in
-HY-MT parity remain open. The exact-SHA DAv2 and PaddleOCR v8 evidence at
-`6cffc662e19` records complete executor outcomes. DAv2 crosses
-immutable composite `aten::sym_size.int` metadata reads, bounded integer shape
-arithmetic, multi-schema-return instructions, and bounded list projection,
-then functionalizes both proven-fresh `aten::relu_` nodes and executes a
-complete 404-instruction C++ plan. PaddleOCR preserves its schema-default empty
-`avg_pool2d` stride as a typed list recipe and executes a complete
-290-instruction C++ plan. Both retain exact graph-versus-eager Vulkan parity and
-zero runtime fallback, readback, or deferred-value creation. PaddleOCR also
-proves top-level ownership: each two-run shape records two scopes, two plan
-submits, six total submits including input/output transfer, and no frequency or
-retire-drain submits. DAv2 remains top-level non-owning: each two-run shape
-records 16 nested scopes, 30 pending-command flushes, 56 retire-drain submits,
-and 92 total submits. HY-MT retains its complete 2,732-instruction caller-owned
-C++ plan under v7. These are generic plan-representation results, not
-corpus-specific routes.
+effects, represents multi-schema returns and typed flat lists, validates
+use-count/last-use metadata, releases non-escaping values after last use,
+rejects concurrent invocation, and checks every instruction for implicit host
+boundaries. Checked integer `add`, `sub`, `mul`, and `floordiv` instructions
+consume immutable symbolic-size reads without Python callbacks. Unsupported
+plan structure or scalar type reports a reason and retains the Python
+correctness executor.
+
+Compatible plans own the outer normal Context recording transaction for the
+whole invocation, including direct-buffer `aten::lift_fresh_copy` and bounded
+`VulkanGraphRegionPlan` instructions. Frequency and large-linear maintenance
+boundaries become graph-owner checkpoints, bounded conv regions retain their
+exact scratch timeline token, and the plan exposes the completed final token
+by invocation generation. Command-free plans complete without a synthetic
+token. Repeated executions preserve an earlier live output.
+
+The exact-SHA DAv2 and PaddleOCR evidence at `2d3c8492f2f` records complete
+executor outcomes on both shapes. DAv2 executes a 404-instruction plan with two
+scopes, no retire-drain submits, and 52 total submits per two-run case.
+PaddleOCR executes a 290-instruction plan with two scopes, no normal-frequency
+or retire-drain submits, and 46 total submits. Both retain exact
+graph-versus-eager parity, zero runtime fallback/readback/deferred values, live
+prior outputs, graph peak memory inside 5% of supported eager, and graph median
+and p95 latency no worse than supported eager. These are recorded-shape results,
+not corpus-specific production routes or whole-corpus deletion evidence.
+
+The four-token HY-MT probe executes its complete 2,732-instruction plan with
+top-level submission/completion ownership and zero fallback or readback, but it
+still lacks checked-in numerical parity, dynamic-guard, repeated-output,
+peak-memory, and latency evidence. Program-preallocated SSA/resource slots,
+descriptor and barrier plans, recorded command partitions, generation-gated
+slot reuse, deeper container support, and an explicit stateful-input protocol
+also remain Phase 5/6 work.
 
 Exit criteria:
 

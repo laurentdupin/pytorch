@@ -22,8 +22,8 @@
         "value_count": 425
       },
       "graph_vs_cpu": {
-        "max_abs": 0.00311279296875,
-        "mean_abs": 0.002402833430096507,
+        "max_abs": 0.003577709197998047,
+        "mean_abs": 0.002767107682302594,
         "tensor_leaf_count": 1
       },
       "graph_vs_eager_vulkan": {
@@ -52,8 +52,8 @@
         "graph_first": {
           "baseline_live_bytes": 297094256,
           "end_live_bytes": 300468144,
-          "high_water_bytes": 310997316,
-          "peak_delta_bytes": 13903060
+          "high_water_bytes": 311817824,
+          "peak_delta_bytes": 14723568
         },
         "graph_repeat_with_prior_output_live": {
           "baseline_live_bytes": 300468144,
@@ -97,8 +97,73 @@
         }
       },
       "timing": {
-        "first_run_seconds": 0.05679969999619061,
-        "repeated_run_seconds_reference_only": 0.045119200003682636
+        "first_run_seconds": 0.04633240000111982,
+        "repeated_run_seconds_reference_only": 0.03832210000109626,
+        "supported_default_latency": {
+          "graph_invocation_generation_after": 15,
+          "graph_invocation_generation_before": 2,
+          "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
+          "measurement_order": "supported_eager_first_on_even_rounds",
+          "measurement_repeats_per_surface": 10,
+          "median_delta_percent": -66.70095104969053,
+          "median_ratio_graph_over_eager": 0.33299048950309457,
+          "method": "alternating_completed_device_resident_invocations",
+          "output_readback_in_timed_region": false,
+          "supported_eager": {
+            "count": 10,
+            "max_seconds": 0.19225810000352794,
+            "mean_seconds": 0.13307451000073342,
+            "median_seconds": 0.12299089999942225,
+            "min_seconds": 0.11322750000545057,
+            "p90_seconds": 0.17385256000270602,
+            "p95_seconds": 0.18305533000311697,
+            "runtime_counters": {
+              "cpu_fallback": 0,
+              "sync_readback": 0
+            },
+            "samples_seconds": [
+              0.11538339999970049,
+              0.11322750000545057,
+              0.12533379999513272,
+              0.11482309999701101,
+              0.12064800000371179,
+              0.13381079999817302,
+              0.1718075000026147,
+              0.19225810000352794,
+              0.12998289999814006,
+              0.11347000000387197
+            ],
+            "stdev_seconds": 0.02579090676136182
+          },
+          "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
+          "vulkan_graph_program": {
+            "count": 10,
+            "max_seconds": 0.06544359999679727,
+            "mean_seconds": 0.04427511999820126,
+            "median_seconds": 0.04095479999523377,
+            "min_seconds": 0.03765410000050906,
+            "p90_seconds": 0.05285881000527297,
+            "p95_seconds": 0.05915120500103511,
+            "runtime_counters": {
+              "cpu_fallback": 0,
+              "sync_readback": 0
+            },
+            "samples_seconds": [
+              0.04154029999335762,
+              0.03765410000050906,
+              0.046126999994157813,
+              0.038676999996823724,
+              0.04020840000157477,
+              0.04036929999710992,
+              0.051460500006214716,
+              0.06544359999679727,
+              0.041696499996760394,
+              0.039574499998707324
+            ],
+            "stdev_seconds": 0.008039642626086432
+          },
+          "warmup_repeats_per_surface": 3
+        }
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -132,8 +197,8 @@
         "value_count": 425
       },
       "graph_vs_cpu": {
-        "max_abs": 0.0015354156494140625,
-        "mean_abs": 0.0005480061518028378,
+        "max_abs": 0.001529693603515625,
+        "mean_abs": 0.0006073581171222031,
         "tensor_leaf_count": 1
       },
       "graph_vs_eager_vulkan": {
@@ -144,13 +209,13 @@
       "guard": {
         "rejected_program_message": "VulkanGraphProgram exported input guard failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 3.5109108000033302,
+        "variant_compile_seconds": 2.8087669999949867,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "c9336406c5279ca5916df5746518a4151c175c8ed05a8514ab54a445d91efa09",
+          "graph_hash": "fdefdc028143d01da271042b31fe78ab1b2cb0ed99e6e13166fe1d010186f4d3",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -176,14 +241,14 @@
         "graph_first": {
           "baseline_live_bytes": 406858368,
           "end_live_bytes": 413575936,
-          "high_water_bytes": 434631508,
-          "peak_delta_bytes": 27773140
+          "high_water_bytes": 436271216,
+          "peak_delta_bytes": 29412848
         },
         "graph_repeat_with_prior_output_live": {
           "baseline_live_bytes": 413575936,
           "end_live_bytes": 413732736,
-          "high_water_bytes": 436428016,
-          "peak_delta_bytes": 22852080
+          "high_water_bytes": 436017888,
+          "peak_delta_bytes": 22441952
         }
       },
       "name": "alternate",
@@ -221,8 +286,73 @@
         }
       },
       "timing": {
-        "first_run_seconds": 0.12068690000160132,
-        "repeated_run_seconds_reference_only": 0.07149489999574143
+        "first_run_seconds": 0.04376539999793749,
+        "repeated_run_seconds_reference_only": 0.03877389999979641,
+        "supported_default_latency": {
+          "graph_invocation_generation_after": 15,
+          "graph_invocation_generation_before": 2,
+          "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
+          "measurement_order": "supported_eager_first_on_even_rounds",
+          "measurement_repeats_per_surface": 10,
+          "median_delta_percent": -65.45646698751013,
+          "median_ratio_graph_over_eager": 0.3454353301248987,
+          "method": "alternating_completed_device_resident_invocations",
+          "output_readback_in_timed_region": false,
+          "supported_eager": {
+            "count": 10,
+            "max_seconds": 0.14418899999873247,
+            "mean_seconds": 0.12298421999803395,
+            "median_seconds": 0.11922274999596993,
+            "min_seconds": 0.11146719999669585,
+            "p90_seconds": 0.139284450004925,
+            "p95_seconds": 0.14173672500182874,
+            "runtime_counters": {
+              "cpu_fallback": 0,
+              "sync_readback": 0
+            },
+            "samples_seconds": [
+              0.14418899999873247,
+              0.12567670000134967,
+              0.11170279999350896,
+              0.11369899999408517,
+              0.11445209999510553,
+              0.11502999999356689,
+              0.1314704000033089,
+              0.12341549999837298,
+              0.11146719999669585,
+              0.13873950000561308
+            ],
+            "stdev_seconds": 0.011222817962790836
+          },
+          "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
+          "vulkan_graph_program": {
+            "count": 10,
+            "max_seconds": 0.04905710000457475,
+            "mean_seconds": 0.042334809999738356,
+            "median_seconds": 0.04118375000325614,
+            "min_seconds": 0.03798059999826364,
+            "p90_seconds": 0.047718799996800954,
+            "p95_seconds": 0.04838795000068785,
+            "runtime_counters": {
+              "cpu_fallback": 0,
+              "sync_readback": 0
+            },
+            "samples_seconds": [
+              0.040457600000081584,
+              0.041064700002607424,
+              0.04172399999515619,
+              0.03798059999826364,
+              0.04064699999435106,
+              0.03844519999984186,
+              0.04130280000390485,
+              0.0475700999959372,
+              0.04905710000457475,
+              0.04509900000266498
+            ],
+            "stdev_seconds": 0.003517816570104905
+          },
+          "warmup_repeats_per_surface": 3
+        }
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -593,8 +723,8 @@
       "aten::squeeze.dim": 1,
       "aten::sym_size.int": 2,
       "aten::to.dtype": 2,
-      "aten::upsample_bilinear2d.vec": 5,
-      "aten::upsample_nearest2d.vec": 1
+      "aten::upsample_bicubic2d.vec": 1,
+      "aten::upsample_bilinear2d.vec": 5
     },
     "composite_runtime_verified": 129,
     "conditionally_supported": 0,
@@ -1496,7 +1626,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "061c36b1a594986e85ac8ecb47eccd0ed28e0641e93dc5afed4d12151b740094",
+    "graph_hash": "9919e0d1e0f2f2a04ec661f70c9b85f3820630c23e01f80c37f938cdcbefb13e",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1521,7 +1651,7 @@
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "7b53498bcd8eb7f835c64668f6b33ca9d4231027",
+  "source_git_sha": "2d3c8492f2fd6b5c165d9bf921c2786c4689a3af",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,

@@ -1,5 +1,6 @@
 import argparse
 import json
+import statistics
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -779,7 +780,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"7b53498bcd8eb7f835c64668f6b33ca9d4231027"},
+            {"2d3c8492f2fd6b5c165d9bf921c2786c4689a3af"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -932,6 +933,92 @@ class TestVulkanGraphEvidence(TestCase):
                         memory[graph_phase]["high_water_bytes"],
                         eager_peak * 1.05,
                     )
+                latency = case["timing"]["supported_default_latency"]
+                self.assertEqual(
+                    set(latency),
+                    {
+                        "method",
+                        "input_boundary",
+                        "output_readback_in_timed_region",
+                        "synchronization",
+                        "measurement_order",
+                        "warmup_repeats_per_surface",
+                        "measurement_repeats_per_surface",
+                        "supported_eager",
+                        "vulkan_graph_program",
+                        "median_ratio_graph_over_eager",
+                        "median_delta_percent",
+                        "graph_invocation_generation_before",
+                        "graph_invocation_generation_after",
+                    },
+                )
+                self.assertEqual(
+                    latency["method"],
+                    "alternating_completed_device_resident_invocations",
+                )
+                self.assertEqual(
+                    latency["input_boundary"],
+                    "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
+                )
+                self.assertFalse(latency["output_readback_in_timed_region"])
+                self.assertEqual(latency["warmup_repeats_per_surface"], 3)
+                self.assertEqual(latency["measurement_repeats_per_surface"], 10)
+                for surface in ("supported_eager", "vulkan_graph_program"):
+                    summary = latency[surface]
+                    self.assertEqual(
+                        set(summary),
+                        {
+                            "count",
+                            "mean_seconds",
+                            "median_seconds",
+                            "min_seconds",
+                            "max_seconds",
+                            "stdev_seconds",
+                            "p90_seconds",
+                            "p95_seconds",
+                            "samples_seconds",
+                            "runtime_counters",
+                        },
+                    )
+                    samples = summary["samples_seconds"]
+                    self.assertEqual(summary["count"], 10)
+                    self.assertEqual(len(samples), 10)
+                    self.assertTrue(all(sample > 0.0 for sample in samples))
+                    self.assertEqual(summary["mean_seconds"], statistics.fmean(samples))
+                    self.assertEqual(
+                        summary["median_seconds"], statistics.median(samples)
+                    )
+                    self.assertEqual(summary["min_seconds"], min(samples))
+                    self.assertEqual(summary["max_seconds"], max(samples))
+                    self.assertEqual(
+                        summary["stdev_seconds"], statistics.pstdev(samples)
+                    )
+                    self.assertEqual(
+                        summary["runtime_counters"],
+                        {"cpu_fallback": 0, "sync_readback": 0},
+                    )
+                eager_latency = latency["supported_eager"]
+                graph_latency = latency["vulkan_graph_program"]
+                self.assertLessEqual(
+                    graph_latency["median_seconds"], eager_latency["median_seconds"]
+                )
+                self.assertLessEqual(
+                    graph_latency["p95_seconds"], eager_latency["p95_seconds"]
+                )
+                median_ratio = (
+                    graph_latency["median_seconds"] / eager_latency["median_seconds"]
+                )
+                self.assertAlmostEqual(
+                    latency["median_ratio_graph_over_eager"], median_ratio
+                )
+                self.assertAlmostEqual(
+                    latency["median_delta_percent"], (median_ratio - 1.0) * 100.0
+                )
+                self.assertEqual(
+                    latency["graph_invocation_generation_after"]
+                    - latency["graph_invocation_generation_before"],
+                    13,
+                )
         expected_dav2_graph_counters = {
             "scope_begun": 2,
             "normal_submit_token_capture": 2,

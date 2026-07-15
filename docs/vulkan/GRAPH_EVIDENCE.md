@@ -49,7 +49,7 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
-at source commit `7b53498bcd8eb7f835c64668f6b33ca9d4231027` and
+at source commit `2d3c8492f2fd6b5c165d9bf921c2786c4689a3af` and
 `torch_cpu.dll` SHA-256
 `1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a`.
 The DAv2 census lowers all 12 `linear_gelu_none` candidates with no rejection;
@@ -120,11 +120,15 @@ submits. The prior supported graph artifact recorded 16 scopes, 56
 retire-drain submits, and 92 total submits. Graph versus eager Vulkan remains
 exact, CPU tolerance remains satisfied, and runtime fallback, readback, and
 deferred-value counters remain zero. The current DAv2 repeated-run samples are
-about 45.1 ms and 71.5 ms versus 48.8 ms and 48.5 ms in the prior artifact;
-PaddleOCR records about 83.6 ms and 73.3 ms versus 66.7 ms and 92.1 ms. These
-mixed single samples do not establish latency parity. The caller-owned HY-MT
-worktree probe retains its complete plan and records the owned checkpoint/token
-evidence described above.
+supplemented by supported-default distributions with three warmups and ten
+alternating samples per surface. DAv2 graph medians are 41.0 ms and 41.2 ms
+versus eager medians of 123.0 ms and 119.2 ms; PaddleOCR graph medians are
+42.8 ms and 54.3 ms versus eager medians of 141.3 ms and 146.9 ms. Graph p95
+is below eager p95 in all four cases, and timed fallback/readback counters stay
+zero. This clears the recorded-shape latency no-regression bar against the two
+supported defaults. The caller-owned HY-MT worktree probe retains its complete
+plan and records the owned checkpoint/token evidence described above, but does
+not yet provide the matching checked-in distribution.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.
@@ -160,8 +164,8 @@ mark; the first graph output remains live throughout that repeat. Any queue
 submission created by this boundary remains visible in the already-active
 submit-origin counters. Checked-in evidence requires the first graph phase and
 the repeat-with-prior-output-live phase to stay within 5% of their same-process
-supported eager high-water mark. DAv2 is 0.9% to 1.7% below eager across the
-recorded graph phases; PaddleOCR ranges from 0.5% below to 2.5% above. These
+supported eager high-water mark. DAv2 is 0.7% to 1.4% below eager across the
+recorded graph phases; PaddleOCR ranges from 0.2% to 3.3% above. These
 fields do not authorize model-name production dispatch, exact-shape admission,
 or executor performance tuning.
 
@@ -171,11 +175,13 @@ concrete eager and `VulkanGraphProgram` receive the same device-resident inputs,
 alternate which surface runs first in each measurement round, and synchronize
 after every warmup and measured invocation. The artifact records every sample
 plus mean, median, standard deviation, minimum, maximum, p90, and p95. The
-default is three warmups and ten measurements per surface. This phase runs after parity,
-submission, repeated-output, and memory snapshots have been captured, so its
-explicit synchronization does not contaminate those counters. The raw samples
-remain direction evidence until a reviewed deletion unit names its supported
-baseline artifact and latency acceptance bar.
+default is three warmups and ten measurements per surface. This phase runs
+after parity, submission, repeated-output, and memory snapshots have been
+captured, so its explicit synchronization does not contaminate those counters.
+The raw samples are checked in as a recorded-shape no-regression gate: graph
+median and p95 must not exceed the matching supported eager values. A subsystem
+deletion still requires a reviewed deletion unit to name this artifact and
+prove that its other corpus, ownership, and resource gates are satisfied.
 
 The default tolerances are zero. A nonzero tolerance is an explicit corpus
 evidence choice and is written into the measured parity artifact. Graph versus
