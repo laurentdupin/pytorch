@@ -494,11 +494,13 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v5` is an immutable C++ IValue-SSA plan for
+Current status: `VulkanGraphPlan.v6` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with any schema-declared
 return count. It owns operator handles and constants, preserves ordered
 effect-only instructions, assigns multi-schema returns to adjacent SSA slots,
-aliases constant-index projections to the selected slot, and materializes
+aliases constant-index multi-return projections to the selected slot, executes
+constant-index list projections with negative-index normalization and runtime
+bounds checking, and materializes
 schema-typed flat homogeneous list arguments,
 validates use-count/last-use metadata for every list leaf, tracks liveness
 separately from values, releases non-escaping values after last use, rejects
@@ -514,7 +516,7 @@ functional `aten::detach` only when the chain is rooted at
 This proves all 64 detach mutations in the four-token HY-MT graph and allows
 its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
-projection from a single container-valued return, program memory slots,
+nested or non-list container projection, program memory slots,
 descriptors, submission/completion ownership, and checked-in HY-MT parity
 remain open. The exact-SHA DAv2 and PaddleOCR evidence at `dd9bc1a749d`
 selects the Python executor for explicit generic reasons. DAv2 crosses
@@ -525,6 +527,9 @@ constant indexing into the single `Tensor[]` return of
 the exported `avg_pool2d` stride. Both retain exact graph-versus-eager Vulkan
 parity and zero runtime fallback, readback, or deferred-value creation. These
 are generic plan-representation tasks, not reasons to add corpus routes.
+Caller-owned v6 worktree evidence crosses the DAv2 list projection and next
+fails closed at mutable `aten::relu_`; PaddleOCR remains at the same stride
+boundary, and HY-MT retains its complete 2,732-instruction C++ plan.
 
 Exit criteria:
 

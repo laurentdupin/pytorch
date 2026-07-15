@@ -143,6 +143,9 @@ int register_vulkan_graph_plan() {
               "graph_scalar_instruction_count",
               &utils::VulkanGraphPlan::graph_scalar_instruction_count)
           .def(
+              "list_projection_instruction_count",
+              &utils::VulkanGraphPlan::list_projection_instruction_count)
+          .def(
               "list_argument_count",
               &utils::VulkanGraphPlan::list_argument_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)

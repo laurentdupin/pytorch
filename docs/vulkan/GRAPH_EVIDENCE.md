@@ -68,10 +68,10 @@ A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
 executes the complete immutable C++ plan, and returns 65 tensor outputs. The
 plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
-129 typed list arguments. A v5 regression probe reports zero graph-scalar
-instructions, as expected for this static prefill. Runtime counters remain
-zero for CPU fallback, sync readback, and deferred-value creation, with no
-Vulkan behavior overrides. This proves that static constants, boolean mask
+129 typed list arguments. A v6 regression probe reports zero graph-scalar and
+list-projection instructions, as expected for this static prefill. Runtime
+counters remain zero for CPU fallback, sync readback, and deferred-value
+creation, with no Vulkan behavior overrides. This proves that static constants, boolean mask
 construction, identity indexing,
 GQA repetition, boolean-masked SDPA, and boxed C++ dispatch compose through one
 real prefill. It is not a checked-in parity artifact: it does not compare
@@ -97,12 +97,23 @@ return as the next generic representation task. It retains exact
 graph-versus-eager parity and zero runtime fallback, sync readback, or
 deferred-value creation.
 
+Caller-owned v6 DAv2 evidence executes the constant projection from the
+single `Tensor[]` return as a bounded internal C++ instruction and next
+identifies mutable `aten::relu_` as the fail-closed boundary. Its normal and
+alternate guards retain exact graph-versus-eager parity and zero runtime
+fallback, sync readback, or deferred-value creation. The matching v6
+PaddleOCR worktree measurement remains at
+`argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
+counters. These measurements are not checked-in exact-SHA evidence until the
+implementation commit is anchored and the artifacts are deliberately
+replaced.
+
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach
 functionalization, proven-identity indexing, static GQA repetition, and
 explicit tensor placement. It also records an immutable-plan summary including
-the graph-scalar instruction count, guard outcomes, program key, Vulkan runtime
-identity and DLL hashes, timing,
+the graph-scalar and list-projection instruction counts, guard outcomes,
+program key, Vulkan runtime identity and DLL hashes, timing,
 fallback/readback/deferred-value counters, and CPU/eager Vulkan parity. It does
 not authorize model-name production dispatch, exact-shape admission, or
 executor performance tuning.

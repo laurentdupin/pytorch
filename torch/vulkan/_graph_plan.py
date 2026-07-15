@@ -21,6 +21,7 @@ class VulkanGraphPlanReport:
     instruction_count: int
     effect_instruction_count: int
     graph_scalar_instruction_count: int
+    list_projection_instruction_count: int
     list_argument_count: int
     value_count: int
     output_count: int
@@ -43,6 +44,7 @@ _GRAPH_INT_OPERATOR_NAMES = {
     operator.mul: "vulkan_graph::int_multiply",
     operator.floordiv: "vulkan_graph::int_floor_divide",
 }
+_GRAPH_LIST_GETITEM_OPERATOR_NAME = "vulkan_graph::list_getitem"
 
 
 def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
@@ -52,11 +54,12 @@ def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
             status="python_correctness_executor",
             reason=reason,
             plan_class="VulkanGraphPlan",
-            plan_version="v5",
+            plan_version="v6",
             input_count=0,
             instruction_count=0,
             effect_instruction_count=0,
             graph_scalar_instruction_count=0,
+            list_projection_instruction_count=0,
             list_argument_count=0,
             value_count=0,
             output_count=0,
@@ -169,7 +172,7 @@ def compile_vulkan_graph_plan(
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
     if not placeholders:
-        return _rejected("v5_requires_tensor_inputs")
+        return _rejected("v6_requires_tensor_inputs")
     for node in placeholders:
         if not isinstance(node.meta.get("val"), torch.Tensor):
             return _rejected(f"non_tensor_input:{node.name}")
@@ -327,6 +330,37 @@ def compile_vulkan_graph_plan(
             value_ids[node] = output_ids[normalized_index]
             value_types[node] = multi_value_types[producer][normalized_index]
             continue
+        if (
+            node.op == "call_function"
+            and node.target is operator.getitem
+            and node.args
+            and isinstance(node.args[0], torch.fx.Node)
+            and node.args[0] in value_ids
+            and value_types[node.args[0]].kind() == "ListType"
+        ):
+            if classifications.get(node.name) != "graph":
+                return _rejected(
+                    f"list_projection_not_admitted:{node.name}:"
+                    f"{classifications.get(node.name, 'unknown')}"
+                )
+            if len(node.args) != 2 or node.kwargs:
+                return _rejected(f"invalid_list_projection:{node.name}")
+            producer = node.args[0]
+            index = node.args[1]
+            if type(index) is not int:
+                return _rejected(f"invalid_list_projection_index:{node.name}")
+            constants.append(index)
+            output_value_id = next_value_id
+            next_value_id += 1
+            value_ids[node] = output_value_id
+            value_types[node] = value_types[producer].getElementType()
+            node_names.append(node.name)
+            operator_names.append(_GRAPH_LIST_GETITEM_OPERATOR_NAME)
+            overload_names.append("")
+            argument_refs.append([[value_ids[producer]], [-len(constants)]])
+            argument_kinds.append([_VALUE_ARGUMENT, _VALUE_ARGUMENT])
+            instruction_output_value_ids.append([output_value_id])
+            continue
         if node.op != "call_function" or not isinstance(
             node.target, torch._ops.OpOverload
         ):
@@ -382,7 +416,7 @@ def compile_vulkan_graph_plan(
         instruction_output_value_ids.append(output_value_ids)
 
     if not node_names:
-        return _rejected("v5_requires_at_least_one_instruction")
+        return _rejected("v6_requires_at_least_one_instruction")
     output_node = next(
         node for node in graph_module.graph.nodes if node.op == "output"
     )
@@ -390,12 +424,12 @@ def compile_vulkan_graph_plan(
     output_value_ids: list[int] = []
     for leaf in output_leaves:
         if not isinstance(leaf, torch.fx.Node) or leaf not in value_ids:
-            return _rejected("v5_requires_tensor_value_outputs")
+            return _rejected("v6_requires_tensor_value_outputs")
         if not value_types[leaf].isSubtypeOf(torch._C.TensorType.get()):
-            return _rejected("v5_requires_tensor_value_outputs")
+            return _rejected("v6_requires_tensor_value_outputs")
         output_value_ids.append(value_ids[leaf])
     if not output_value_ids:
-        return _rejected("v5_requires_tensor_value_outputs")
+        return _rejected("v6_requires_tensor_value_outputs")
 
     input_count = len(placeholders)
     value_count = next_value_id
@@ -427,7 +461,7 @@ def compile_vulkan_graph_plan(
         status="compiled",
         reason="immutable_ivalue_ssa_plan",
         plan_class="VulkanGraphPlan",
-        plan_version="v5",
+        plan_version="v6",
         input_count=input_count,
         instruction_count=len(node_names),
         effect_instruction_count=sum(
@@ -436,6 +470,10 @@ def compile_vulkan_graph_plan(
         ),
         graph_scalar_instruction_count=sum(
             operator_name in _GRAPH_INT_OPERATOR_NAMES.values()
+            for operator_name in operator_names
+        ),
+        list_projection_instruction_count=sum(
+            operator_name == _GRAPH_LIST_GETITEM_OPERATOR_NAME
             for operator_name in operator_names
         ),
         list_argument_count=sum(
@@ -456,13 +494,15 @@ def compile_vulkan_graph_plan(
         != report.effect_instruction_count
         or plan.graph_scalar_instruction_count()
         != report.graph_scalar_instruction_count
+        or plan.list_projection_instruction_count()
+        != report.list_projection_instruction_count
         or plan.list_argument_count() != report.list_argument_count
         or plan.value_count() != report.value_count
         or plan.output_count() != report.output_count
         or tuple(plan.value_use_counts()) != report.value_use_counts
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
-        raise RuntimeError("VulkanGraphPlan.v5 C++ schema disagrees with lowering")
+        raise RuntimeError("VulkanGraphPlan.v6 C++ schema disagrees with lowering")
     return _VulkanGraphPlanCompilation(plan, report)
 
 

@@ -186,6 +186,9 @@ def _execution_plan_summary(
         "graph_scalar_instruction_count": (
             report.graph_scalar_instruction_count
         ),
+        "list_projection_instruction_count": (
+            report.list_projection_instruction_count
+        ),
         "list_argument_count": report.list_argument_count,
         "value_count": report.value_count,
         "output_count": report.output_count,

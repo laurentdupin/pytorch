@@ -22,6 +22,11 @@ graph-runtime fallback, readback, or deferred-value creation. The v5 DAv2 plan
 crosses its former multi-return IValue SSA boundary and first stops at constant
 indexing into the single `Tensor[]` return of `run_vulkan_graph_region_plan`.
 PaddleOCR remains at schema-directed `avg_pool2d` stride canonicalization.
+Caller-owned v6 worktree measurements execute that DAv2 list projection as a
+bounded internal C++ instruction and next stop at mutable `aten::relu_`;
+PaddleOCR remains at the same stride representation boundary. Both retain
+exact graph-versus-eager parity and zero fallback, readback, or deferred-value
+creation.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -41,7 +46,7 @@ The same four-token HY-MT prefill probe captures 3,160 nodes, lowers 225, and
 reports zero unsupported nodes at lower time. It now executes the complete
 immutable C++ plan, returns 65 tensor outputs, and records zero CPU fallback,
 sync readback, or deferred-value creation with no Vulkan behavior overrides.
-The v5 plan contains 2,732 instructions, including 268 ordered effects and 129
+The v6 plan contains 2,732 instructions, including 268 ordered effects and 129
 schema-typed list arguments. The former `[1,16,4,128]` boolean-masked SDPA
 boundary is covered by the generic bounded `MaskedTinySDPAContract` runtime
 family, which converts PyTorch boolean keep masks to an additive buffer on
@@ -50,13 +55,16 @@ not numerical parity, dynamic-shape, repeated-output lifetime, submit,
 peak-memory, or latency evidence; all Migration deletion gates therefore
 remain unchanged.
 
-Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v5`
+Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v6`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
 handles, graph-owned constants and contexts, IValue SSA values, ordered
 zero-return effects, schema-ordered multi-return values, schema-typed
 homogeneous list argument recipes, Tensor output escapes, and C++-validated
 use-count/last-use metadata. Constant-index `getitem` nodes over multi-schema
 returns alias the selected adjacent SSA slot without a runtime instruction.
+Constant-index `getitem` nodes over a represented list value use a bounded
+internal instruction with Python-compatible negative-index normalization and
+runtime range checking.
 The C++ runner
 executes the plan without a Python callback per node, materializes dynamic
 lists as typed IValues, releases every non-escaping leaf after its last
@@ -68,7 +76,7 @@ metadata-checked, and Tensor-list concat graphs run through this path while the
 Python interpreter is disabled, and earlier live outputs remain valid after
 later invocations.
 
-Plan selection is fail-closed. The v5 schema accepts tensor inputs, any
+Plan selection is fail-closed. The v6 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
 homogeneous dynamic list arguments, and literal or graph-owned constants;
 internal returns may be non-Tensor IValues while public outputs remain
@@ -82,26 +90,28 @@ the C++ plan as integer IValues; dynamic view shapes execute without a Python
 node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
 `mul`, and `floordiv` instructions execute as checked C++ plan operations. They
 reject non-integer operands, detect overflow and division by zero, and preserve
-Python floor-division semantics for negative values. The exact-SHA v5 DAv2
-evidence crosses its former symbolic-size, floor-division, and multi-return
+Python floor-division semantics for negative values. The checked-in exact-SHA
+v5 DAv2 evidence crosses its former symbolic-size, floor-division, and multi-return
 blockers and next reports
 `unsupported_node_kind:getitem:call_function` for constant indexing into a
 single `Tensor[]` dispatcher return while retaining zero fallback, readback, or
-deferred-value creation. Mutable dispatch, mismatched boxed argument types,
-deeper or non-list dynamic
-containers, and container-valued return projections retain the Python
-correctness executor with an explicit reason. A generic functionalization pass
+deferred-value creation. The caller-owned v6 DAv2 worktree probe crosses that
+list projection and next reports `mutable_operator:relu_:aten::relu_` with the
+same zero counters. Mutable dispatch, mismatched boxed argument types, deeper
+or non-list dynamic containers, and non-list or nested container projections
+retain the Python correctness executor with an explicit reason. A generic
+functionalization pass
 rewrites `aten::detach_` only when every value in its single-user producer
 chain is proven to lead back to
 `aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
 mutable and fail closed. The four-token HY-MT probe proves this condition for
 all 64 exported detach mutations and now compiles the entire graph as a
-2,732-instruction `VulkanGraphPlan.v5`; it contains no graph-scalar
-instructions, so the v5 probe is also a strict executor regression check. The
-v5 executor does not yet preallocate a memory arena, own
-descriptors/submissions, support deeper containers or container-valued return
-projections, or provide checked-in HY-MT parity/performance evidence, so it
-does not satisfy a Migration deletion gate.
+2,732-instruction `VulkanGraphPlan.v6`; it contains no graph-scalar or list
+projection instructions, so the v6 probe is also a strict executor regression
+check. The v6 executor does not yet preallocate a memory arena, own
+descriptors/submissions, support deeper or non-list containers, or provide
+checked-in HY-MT parity/performance evidence, so it does not satisfy a
+Migration deletion gate.
 
 The existing GQA repeat shader also had its generic coordinate mapping fixed:
 Vulkan buffer metadata orders logical coordinates as width, sequence, heads,
