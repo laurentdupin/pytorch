@@ -19,10 +19,13 @@ Both corpora execute complete v8 C++ plans on both recorded shapes with exact
 graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
 fallback, readback, or deferred-value creation. DAv2 executes 404 instructions
 and proves that all 12 exported `linear_gelu_none` candidates lower without
-rejection. Its 12 linear/GELU and eight conv/ReLU/conv nested region calls keep
-the top-level plan explicitly non-owning. Each two-run shape records 16 nested
-scopes and tokens, 30 pending-command flushes, 56 retire-drain submits, and 92
-total queue submits. PaddleOCR remains the GELU control, represents its
+rejection. That checked-in artifact predates nested-region ownership: each
+two-run shape records 16 nested scopes and tokens, 30 pending-command flushes,
+56 retire-drain submits, and 92 total queue submits. A later caller-owned
+worktree probe lets all 20 region calls reuse the outer graph owner. Each
+two-run shape then records two scopes and final tokens, 48 owner checkpoint
+flushes, no retire-drain submits, and 52 total queue submits while retaining
+exact graph-versus-eager parity. PaddleOCR remains the GELU control, represents its
 schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
 executes 290 instructions. Its top-level plan owns one submission per
 invocation: each two-run shape records two scopes, two tokens, two plan submits,
@@ -90,12 +93,14 @@ its real stream timeline value; the plan exposes the final value with one
 invocation generation. Large-linear checkpoints wait for the exact partition
 token before releasing their captured packed-weight and linear-context batches.
 A command-free plan completes successfully with generation advancement and no
-synthetic token. Direct-buffer `aten::lift_fresh_copy` now remains inside this
-ownership path. Plans containing `VulkanGraphRegionPlan` transactions still
-report `submission_owned=false`; v8 does not claim nested ownership that has not
-transferred. Pool and reduction-dimension softmax retain their eager
-pending-retirement checkpoints but defer those checkpoints while this outer
-transaction is active.
+synthetic token. Direct-buffer `aten::lift_fresh_copy` and
+`VulkanGraphRegionPlan` instructions now remain inside this ownership path.
+Linear regions record normally in the outer partition. Bounded conv regions
+submit an explicit outer-owner checkpoint at region exit so their private
+scratch ring retains the exact timeline token; direct region calls outside a
+graph plan retain their private transaction. Pool and reduction-dimension
+softmax retain their eager pending-retirement checkpoints but defer those
+checkpoints while this outer transaction is active.
 
 Plan selection is fail-closed. The v8 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
@@ -133,10 +138,9 @@ all 64 exported detach mutations and now compiles the entire graph as a
 2,732-instruction `VulkanGraphPlan.v8`; it contains no graph-scalar or list
 projection instructions, so the probe is also a strict executor regression
 check. The current v8 executor still does not preallocate a memory arena, own
-descriptors, transfer nested region submissions, support deeper or non-list
-containers, or provide checked-in HY-MT parity/performance evidence. The
-submission transaction is a real ownership slice, but does not by itself
-satisfy a Migration deletion gate.
+descriptors, support deeper or non-list containers, or provide checked-in HY-MT
+parity/performance evidence. The submission transaction is a real ownership
+slice, but does not by itself satisfy a Migration deletion gate.
 
 Fresh-ReLU functionalization is independently fail-closed: the producer must
 be a non-mutating operator with exactly one non-aliasing Tensor return, and the

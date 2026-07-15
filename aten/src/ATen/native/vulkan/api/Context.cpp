@@ -1314,6 +1314,8 @@ thread_local uint32_t g_submit_pending_work_and_poll_retire_depth = 0u;
 thread_local uint32_t g_retire_deferred_cleanup_depth = 0u;
 thread_local uint32_t g_external_recording_cleanup_depth = 0u;
 thread_local Context* g_graph_program_invocation_context = nullptr;
+thread_local Context::GraphProgramInvocationScope*
+    g_graph_program_invocation_scope = nullptr;
 
 void append_stack_region_recording_depth_guard_log_line(
     const std::string& line) {
@@ -1621,6 +1623,7 @@ Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
       vulkan_graph_program_invocation_counters();
   if (
       g_graph_program_invocation_context != nullptr ||
+      g_graph_program_invocation_scope != nullptr ||
       context_->graph_program_invocation_active_.load(
           std::memory_order_acquire)) {
     counters.rejected_incompatible_state_count.fetch_add(
@@ -1633,6 +1636,7 @@ Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
   lock_ = context.dispatch_lock();
   if (
       g_graph_program_invocation_context != nullptr ||
+      g_graph_program_invocation_scope != nullptr ||
       context_->graph_program_invocation_active_.load(
           std::memory_order_acquire) ||
       context_->is_inside_owned_program_recording() ||
@@ -1664,6 +1668,7 @@ Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
         "GraphProgramInvocationScope could not isolate pending Context work");
   }
   g_graph_program_invocation_context = context_;
+  g_graph_program_invocation_scope = this;
   context_->graph_program_invocation_active_.store(
       true, std::memory_order_release);
   counters.scope_begun_count.fetch_add(1u, std::memory_order_relaxed);
@@ -1761,6 +1766,7 @@ VulkanSubmission Context::GraphProgramInvocationScope::submit() {
     run_post_submit_cleanup(std::move(completion_cleanup));
     lock_.unlock();
     g_graph_program_invocation_context = nullptr;
+    g_graph_program_invocation_scope = nullptr;
     context_->graph_program_invocation_active_.store(
         false, std::memory_order_release);
     state_ = State::Submitted;
@@ -1779,6 +1785,7 @@ VulkanSubmission Context::GraphProgramInvocationScope::submit() {
   run_post_submit_cleanup(context_->take_graph_program_completion_cleanup());
   lock_.unlock();
   g_graph_program_invocation_context = nullptr;
+  g_graph_program_invocation_scope = nullptr;
   context_->graph_program_invocation_active_.store(
       false, std::memory_order_release);
   state_ = State::Submitted;
@@ -1811,6 +1818,7 @@ void Context::GraphProgramInvocationScope::abort() {
   } catch (...) {
     lock_.unlock();
     g_graph_program_invocation_context = nullptr;
+    g_graph_program_invocation_scope = nullptr;
     context_->graph_program_invocation_active_.store(
         false, std::memory_order_release);
     state_ = State::Aborted;
@@ -1818,6 +1826,7 @@ void Context::GraphProgramInvocationScope::abort() {
   }
   lock_.unlock();
   g_graph_program_invocation_context = nullptr;
+  g_graph_program_invocation_scope = nullptr;
   context_->graph_program_invocation_active_.store(
       false, std::memory_order_release);
   state_ = State::Aborted;
@@ -1825,7 +1834,8 @@ void Context::GraphProgramInvocationScope::abort() {
 
 bool Context::GraphProgramInvocationScope::active() const {
   return state_ == State::Active &&
-      g_graph_program_invocation_context == context_;
+      g_graph_program_invocation_context == context_ &&
+      g_graph_program_invocation_scope == this;
 }
 
 Context::GraphProgramInvocationScope::State
@@ -1860,6 +1870,17 @@ bool Context::graph_program_invocation_active() const {
 
 bool Context::owns_graph_program_invocation() const {
   return graph_program_invocation_active_for_current_thread();
+}
+
+VulkanSubmission Context::submit_graph_program_checkpoint() {
+  TORCH_CHECK(
+      owns_graph_program_invocation() &&
+          g_graph_program_invocation_scope != nullptr,
+      "Graph checkpoint submission requires an active graph invocation");
+  if (!g_graph_program_invocation_scope->checkpoint_requested()) {
+    request_graph_program_checkpoint({});
+  }
+  return g_graph_program_invocation_scope->checkpoint();
 }
 
 void Context::request_graph_program_checkpoint(

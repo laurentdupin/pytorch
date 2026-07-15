@@ -727,21 +727,33 @@ namespace {
 
 class RegionMemoryTransaction final {
  private:
-  api::Context::GraphProgramInvocationScope scope_;
+  api::Context& context_;
+  std::optional<api::Context::GraphProgramInvocationScope> private_scope_;
+  api::VulkanSubmission submission_{};
 
  public:
-  explicit RegionMemoryTransaction(api::Context& context) : scope_(context) {}
+  explicit RegionMemoryTransaction(api::Context& context) : context_(context) {
+    if (!context_.owns_graph_program_invocation()) {
+      private_scope_.emplace(context_);
+    }
+  }
 
   api::VulkanSubmission submit() {
-    return scope_.submit();
+    submission_ = private_scope_
+        ? private_scope_->submit()
+        : context_.submit_graph_program_checkpoint();
+    return submission_;
   }
 
   void abort() {
-    scope_.abort();
+    if (private_scope_) {
+      private_scope_->abort();
+      submission_ = private_scope_->submission();
+    }
   }
 
   const api::VulkanSubmission& submission() const {
-    return scope_.submission();
+    return submission_;
   }
 };
 

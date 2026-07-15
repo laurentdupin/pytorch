@@ -487,6 +487,7 @@ class TORCH_API Context final {
   }
 
   bool owns_graph_program_invocation() const;
+  VulkanSubmission submit_graph_program_checkpoint();
   void request_graph_program_checkpoint(
       std::function<void()> cleanup,
       bool wait_for_completion = false);

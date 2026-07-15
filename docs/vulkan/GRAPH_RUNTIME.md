@@ -187,17 +187,18 @@ partition retains its real stream timeline token, and the plan records the
 final token with one invocation generation. Large-linear maintenance waits for
 the exact partition token before releasing its captured cache batches;
 frequency-only checkpoints remain asynchronous. Command-free metadata plans
-complete with no fabricated token. Direct-buffer `aten::lift_fresh_copy`
-executes inside this ownership path. Plans containing a nested
-`VulkanGraphRegionPlan` transaction still report `submission_owned=false` until
-that ownership boundary is unified. Eager-only pending-retirement checkpoints
-in LayerNorm, pool, and reduction-dimension softmax defer to an active outer
-graph scope; plain eager execution retains those checkpoints.
+complete with no fabricated token. Direct-buffer `aten::lift_fresh_copy` and
+`VulkanGraphRegionPlan` instructions execute inside this ownership path.
+Linear regions record into the current partition. Bounded conv regions submit
+an outer-owner checkpoint at region exit and associate their private scratch
+slot with that exact token. A direct region invocation outside a graph plan
+still creates its own private transaction. Eager-only pending-retirement
+checkpoints in LayerNorm, pool, and reduction-dimension softmax defer to an
+active outer graph scope; plain eager execution retains those checkpoints.
 
 The v8 plan does not yet implement deeper or non-list dynamic containers,
 projection from nested, tuple, or dictionary values, preallocated memory slots,
-descriptor/barrier construction, nested submission ownership, or
-generation-gated output reuse.
+descriptor/barrier construction, or generation-gated output reuse.
 Those remain Stage 2 requirements rather than being inferred from the boxed
 eager dispatch used by this slice.
 
@@ -251,9 +252,13 @@ operator with one non-aliasing Tensor return before the node may become
 functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
 values remain mutable. With that schema/alias proof, exact-SHA normal and
 alternate DAv2 runs execute a 404-instruction immutable C++ plan with exact
-graph-versus-eager parity and zero fallback, readback, or deferred values.
-This transfers execution but not memory, descriptor, nested submission, or
-completion ownership.
+graph-versus-eager parity and zero fallback, readback, or deferred values. A
+later caller-owned worktree probe transfers the 12 linear/GELU and eight
+conv/ReLU/conv region calls to one outer owner per invocation. The two-run
+shape evidence drops from 16 scopes and 92 total submits to two scopes and 52
+total submits, including zero retire-drain submits, while repeated-run samples
+drop from about 48.8 ms to 38.8 ms. This transfers execution and top-level
+submission/completion ownership, but not memory or descriptor ownership.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute

@@ -88,8 +88,8 @@ so the generic preparation pass rewrites all 64 to functional `aten::detach`
 with no rejection. Placeholder aliases and branched fresh values are covered
 as adjacent negatives and remain mutable. This removes the last representation
 blocker for the current prefill and transfers per-node execution plus top-level
-submission/completion ownership to C++; it does not claim that memory,
-descriptor, or nested-region ownership has transferred.
+submission/completion ownership to C++; it does not claim that memory or
+descriptor ownership has transferred.
 
 The exact-SHA v7 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
@@ -111,12 +111,20 @@ arguments, and one output. It retains exact graph-versus-eager parity, stays
 within the existing CPU tolerance, and reports zero fallback, readback, or
 deferred-value creation. Each shape runs twice and records two scopes, two token
 captures, two plan submits, two input uploads, two output readbacks, six total
-queue submits, and no frequency or retire-drain submits. DAv2 reports
-`submission_owned=false` because its 12 linear/GELU and eight conv/ReLU/conv
-regions retain nested ownership; each two-run shape records 16 bounded scopes,
-30 pending-command flushes, 56 retire-drain submits, and 92 total queue submits.
-The caller-owned HY-MT worktree probe retains its complete plan and records the
-owned checkpoint/token evidence described above.
+queue submits, and no frequency or retire-drain submits. The checked-in DAv2
+artifact reports `submission_owned=false`; each two-run shape records 16
+bounded scopes, 30 pending-command flushes, 56 retire-drain submits, and 92
+total queue submits. A later caller-owned nested-region worktree probe reports
+`submission_owned=true` for the same complete plan and both shapes. Each
+two-run shape records two outer scopes and final tokens, 48 owner checkpoint
+flushes, zero retire-drain submits, and 52 total submits. Graph versus eager
+Vulkan remains exact, CPU tolerance remains satisfied, and runtime fallback,
+readback, and deferred-value counters remain zero. Its repeated-run samples are
+about 38.8 ms and 38.3 ms versus 48.8 ms and 48.5 ms in the checked-in graph
+artifact. The worktree probe is correctness and direction evidence, not a
+checked-in exact-SHA latency or peak-memory deletion bar. The caller-owned
+HY-MT worktree probe retains its complete plan and records the owned
+checkpoint/token evidence described above.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope for plans without nested graph-region ownership. Multi-instruction plans

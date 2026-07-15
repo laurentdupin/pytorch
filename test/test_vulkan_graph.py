@@ -156,6 +156,8 @@ class TestVulkanGraph(TestCase):
         model = LinearGelu().eval()
         tensor = torch.randn(2, 3, 4)
         program = torch.vulkan.export_and_lower(model, tensor)
+        self.assertTrue(program.cpp_plan_report.submission_owned)
+        self.assertTrue(program.cpp_plan.submission_owned())
         eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
         with torch.inference_mode():
             eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
@@ -1970,8 +1972,8 @@ class TestVulkanGraph(TestCase):
             expected = model(tensor)
             self.assertTrue(torch.any(expected > 0))
             program = torch.vulkan.export_and_lower(model, tensor)
-            self.assertFalse(program.cpp_plan_report.submission_owned)
-            self.assertFalse(program.cpp_plan.submission_owned())
+            self.assertTrue(program.cpp_plan_report.submission_owned)
+            self.assertTrue(program.cpp_plan.submission_owned())
             eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
             with torch.inference_mode():
                 eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
@@ -2040,11 +2042,44 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(program.last_deferred_values_created, 0)
             counters = _graph_program_invocation_counters()
             self.assertEqual(len(counters), 10)
-            self.assertGreaterEqual(counters[0], 1)
-            self.assertGreaterEqual(counters[1], 1)
+            self.assertEqual(counters[0], 1)
+            self.assertEqual(counters[1], 1)
             self.assertEqual(counters[2:5], [0, 0, 0])
             self.assertGreaterEqual(counters[5], 1)
             self.assertEqual(counters[6:], [0, 0, 0, 0])
+
+    def test_direct_conv2d_relu_conv2d_region_keeps_private_scope(self):
+        class ConvReluConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 4, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(4, 2, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv1(torch.relu(self.conv0(tensor)))
+
+        torch.manual_seed(38)
+        model = ConvReluConv().eval()
+        tensor = torch.randn(2, 3, 8, 7)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        plan_attr = next(
+            iter(_static_conv2d_relu_conv2d_plan_attrs(program))
+        )
+        region_plan = getattr(program.graph_module, plan_attr)
+        vulkan_tensor = tensor.to("vulkan")
+
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        output = torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default(
+            [vulkan_tensor], region_plan
+        )[0]
+
+        torch.testing.assert_close(
+            output.cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [1, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+        )
 
     def test_static_conv2d_relu_conv2d_region_rejects_host_sync_requirement(
         self,
@@ -2063,6 +2098,8 @@ class TestVulkanGraph(TestCase):
         tensor = torch.randn(2, 3, 8, 7)
         expected = model(tensor)
         program = torch.vulkan.export_and_lower(model, tensor)
+        self.assertTrue(program.cpp_plan_report.submission_owned)
+        self.assertTrue(program.cpp_plan.submission_owned())
         eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
 
         torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
@@ -2080,7 +2117,7 @@ class TestVulkanGraph(TestCase):
 
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
         )
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)

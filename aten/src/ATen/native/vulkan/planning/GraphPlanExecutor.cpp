@@ -550,11 +550,6 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           has_plan_dispatch(*operator_handle),
           "VulkanGraphPlan.v8 requires a Vulkan or composite kernel for ",
           schema->operator_name());
-      if (
-          operator_names[instruction_index] ==
-              "vulkan_prepack::run_vulkan_graph_region_plan") {
-        state->submission_owned = false;
-      }
     }
     std::vector<int64_t>& output_value_ids_for_instruction =
         instruction_output_value_ids[instruction_index];
