@@ -174,7 +174,7 @@ def _execution_plan_summary(
     report = getattr(program, "cpp_plan_report", None)
     if report is None:
         return None
-    return {
+    summary = {
         "mode": getattr(program, "execution_mode", "python_correctness_executor"),
         "status": report.status,
         "reason": report.reason,
@@ -194,6 +194,16 @@ def _execution_plan_summary(
         "output_count": report.output_count,
         "submission_owned": report.submission_owned,
     }
+    plan = getattr(program, "cpp_plan", None)
+    if plan is not None:
+        summary.update(
+            {
+                "invocation_generation": plan.invocation_generation(),
+                "last_submission_value": plan.last_submission_value(),
+                "last_submission_complete": plan.last_submission_complete(),
+            }
+        )
+    return summary
 
 
 def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:

@@ -461,6 +461,11 @@ class TestVulkanGraphEvidence(TestCase):
         program = SimpleNamespace(
             census=census,
             execution_mode="cpp_plan",
+            cpp_plan=SimpleNamespace(
+                invocation_generation=lambda: 2,
+                last_submission_value=lambda: 37,
+                last_submission_complete=lambda: True,
+            ),
             cpp_plan_report=report,
         )
 
@@ -481,6 +486,9 @@ class TestVulkanGraphEvidence(TestCase):
                 "value_count": 5,
                 "output_count": 2,
                 "submission_owned": True,
+                "invocation_generation": 2,
+                "last_submission_value": 37,
+                "last_submission_complete": True,
             },
         )
         self.assertEqual(
