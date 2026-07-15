@@ -431,15 +431,6 @@ def _classify_node(
         node.target, torch._ops.OpOverload
     ):
         operator_name = node.target.name()
-        if operator_name == "aten::sym_size.int":
-            return VulkanGraphNodeRecord(
-                index,
-                node.name,
-                node.op,
-                operator_name,
-                "graph",
-                "symbolic_shape_query",
-            )
         if operator_name == "vulkan_prepack::run_linear_context":
             if not _is_graph_owned_linear_context(graph_module, node):
                 return VulkanGraphNodeRecord(

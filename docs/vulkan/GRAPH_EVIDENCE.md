@@ -83,6 +83,16 @@ blocker for the current prefill and transfers per-node execution to C++; it
 does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
+A caller-owned DAv2 follow-up admits `aten::sym_size.int` through its immutable
+CompositeImplicitAutograd registration and verifies dynamic symbolic-size C++
+execution independently. The full DAv2 graph then advances from
+`node_not_vulkan_admitted:sym_size_int:graph` to
+`unsupported_node_kind:floordiv:call_function` while retaining zero runtime
+fallback, sync readback, or deferred-value creation. This identifies pure
+integer shape arithmetic as the next generic representation task; the
+checked-in exact-SHA artifact remains the supported parity baseline until the
+change is committed and deliberately remeasured.
+
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach
 functionalization, proven-identity indexing, static GQA repetition, and

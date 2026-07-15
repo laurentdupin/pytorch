@@ -71,10 +71,17 @@ returns may be non-Tensor IValues while public outputs remain Tensors.
 Schema-typed device constants are canonicalized before boxed dispatch. Python
 numeric literals bound to Tensor schema arguments are represented as CPU 0D
 Tensor constants, matching the cross-device scalar form accepted by the Vulkan
-eager kernels without fallback or readback. Mutable dispatch, mismatched boxed
-argument types, deeper or non-list dynamic containers, and multiple dispatcher
-returns retain the Python correctness executor with an explicit reason. A
-generic functionalization pass rewrites `aten::detach_` only when every value
+eager kernels without fallback or readback. Immutable `aten::sym_size.int`
+metadata reads now follow their CompositeImplicitAutograd registration into
+the C++ plan as integer IValues; dynamic view shapes execute without a Python
+node callback, fallback, or readback. Python scalar arithmetic remains graph
+bookkeeping and fail-closed for the plan. A caller-owned DAv2 probe crosses its
+former symbolic-size blocker and next reports
+`unsupported_node_kind:floordiv:call_function`. Mutable dispatch, mismatched
+boxed argument types, deeper or non-list dynamic containers, and multiple
+dispatcher returns retain the Python correctness executor with an explicit
+reason. A generic functionalization pass rewrites `aten::detach_` only when
+every value
 in its single-user producer chain is proven to lead back to
 `aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
 mutable and fail closed. The four-token HY-MT probe proves this condition for

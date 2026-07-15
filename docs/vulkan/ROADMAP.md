@@ -512,10 +512,13 @@ its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
 multiple dispatcher returns, program memory slots, descriptors,
 submission/completion ownership, and checked-in HY-MT parity remain open.
-The exact-SHA DAv2 and PaddleOCR evidence still selects the Python executor:
-DAv2 first reaches graph-classified `sym_size_int`, while PaddleOCR first
-reaches a schema mismatch for the exported `avg_pool2d` stride. These are
-generic plan-representation tasks, not reasons to add corpus routes.
+The exact-SHA DAv2 and PaddleOCR evidence at `7f4dccd660f` selects the Python
+executor: DAv2 first reaches graph-classified `sym_size_int`, while PaddleOCR
+first reaches a schema mismatch for the exported `avg_pool2d` stride. The plan
+now admits immutable composite `aten::sym_size.int` metadata reads as integer
+IValues; a caller-owned DAv2 follow-up advances to Python integer floor
+division. These are generic plan-representation tasks, not reasons to add
+corpus routes.
 
 Exit criteria:
 

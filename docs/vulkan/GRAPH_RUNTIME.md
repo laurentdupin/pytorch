@@ -214,6 +214,11 @@ mutable and fail closed. This transfers per-node dispatch from Python to C++,
 but resource arenas, descriptors, barriers, submission/completion, dynamic
 guards, and repeated-output corpus evidence remain Phase 5 work.
 
+Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
+integer IValues using their composite registration. Python scalar shape
+arithmetic remains outside the dispatcher-backed instruction set and therefore
+retains the Python executor with an explicit unsupported-node reason.
+
 ## Runtime Shader Generation
 
 The retired eager runtime-elementwise experiment remains historical

@@ -2716,6 +2716,51 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.run_count, 4)
         self.assertEqual(_linear_context_attrs(program), context_attrs)
 
+    def test_cpp_graph_plan_executes_dynamic_symbolic_size(self):
+        class DynamicView(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.view(tensor.shape[0], -1)
+
+        batch = torch.export.Dim("batch", min=1, max=8)
+        first_input = torch.randn(2, 3, 4)
+        second_input = torch.randn(7, 3, 4)
+        program = torch.vulkan.export_and_lower(
+            DynamicView().eval(),
+            first_input,
+            dynamic_shapes=({0: batch},),
+        )
+
+        symbolic_size = next(
+            node
+            for node in program.census.nodes
+            if node.target == "aten::sym_size.int"
+        )
+        self.assertEqual(symbolic_size.classification, "composite")
+        self.assertEqual(
+            symbolic_size.reason,
+            "registered_CompositeImplicitAutograd",
+        )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        report = program.cpp_plan_report
+        self.assertEqual(report.status, "compiled")
+        self.assertEqual(report.instruction_count, 2)
+        self.assertEqual(report.list_argument_count, 1)
+        self.assertEqual(report.value_count, 3)
+
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            first_output = program(first_input)
+            second_output = program(second_input)
+
+        self.assertEqual(first_output.cpu(), first_input.view(2, -1))
+        self.assertEqual(second_output.cpu(), second_input.view(7, -1))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
     def test_dynamic_shape_scalar_arithmetic_is_graph_bookkeeping(self):
         class DynamicReshape(torch.nn.Module):
             def forward(self, tensor):
@@ -2741,6 +2786,11 @@ class TestVulkanGraph(TestCase):
         ]
         self.assertTrue(scalar_nodes)
         self.assertTrue(all(node.classification == "graph" for node in scalar_nodes))
+        self.assertEqual(program.execution_mode, "python_correctness_executor")
+        self.assertEqual(
+            program.cpp_plan_report.reason,
+            "unsupported_node_kind:mul:call_function",
+        )
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
