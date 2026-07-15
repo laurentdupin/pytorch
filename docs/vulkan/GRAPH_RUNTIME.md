@@ -127,6 +127,7 @@ exported graph hash
 input guard / dynamic-shape signature
 selected Vulkan device and driver identity
 capability profile
+explicit planning model domain, execution phase, and layout/shape preferences
 dtype and layout policy
 partition and fusion policy versions
 constant / packed-weight version identities
@@ -170,6 +171,16 @@ creation, and non-Vulkan Tensor results. Eligible
 multi-instruction graphs therefore cross Python once per invocation rather than
 once per node. The compiler reports why a graph remains on the Python executor;
 it does not silently mix the two execution modes.
+
+Each program also owns a `VulkanGraphPlanningContext`. Its model domain,
+execution phase, packed-layout preference, and optional fixed graph-input shape
+participate in the program key and are stored in the C++ plan. The same native
+request scope covers packed-context creation during lowering and input
+placement plus execution during invocation. Generic/none is the neutral
+default; vision may select per-operator phases or an explicit backbone/decoder
+phase, while LLM programs must declare prefill or decode. These are semantic
+fields, not model-name routes. A fixed graph-input shape binds the first Tensor
+input and is checked both at export and every invocation.
 
 Python numeric literals bound to Tensor schema arguments are canonicalized to
 CPU 0D Tensor constants before plan construction; Vulkan eager kernels already

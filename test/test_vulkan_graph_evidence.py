@@ -25,6 +25,7 @@ from scripts.benchmarks.vulkan_graph_export_evidence import (
     _lowering_reports,
     _named_counter_snapshot,
     _nonnegative_repeat_count,
+    _planning_context,
     _positive_repeat_count,
     _summarize_latency_samples,
 )
@@ -370,6 +371,21 @@ def _fake_static_conv2d_relu_conv2d_report(
 
 
 class TestVulkanGraphEvidence(TestCase):
+    def test_planning_context_binds_each_case_primary_input_shape(self):
+        args = SimpleNamespace(
+            planning_model_domain="vision",
+            planning_execution_phase="none",
+            planning_prefer_packed_layout_propagation=True,
+            planning_fixed_shape_graph_input=True,
+        )
+
+        context = _planning_context(args, (torch.randn(2, 3, 4),))
+
+        self.assertEqual(context.model_domain, "vision")
+        self.assertEqual(context.execution_phase, "none")
+        self.assertTrue(context.prefer_packed_layout_propagation)
+        self.assertEqual(context.fixed_shape_graph_input_sizes, (2, 3, 4))
+
     def test_named_counter_snapshot_rejects_schema_drift(self):
         self.assertEqual(
             _named_counter_snapshot(("first", "second"), [3, 5], "test"),
@@ -461,6 +477,10 @@ class TestVulkanGraphEvidence(TestCase):
             reason="immutable_ivalue_ssa_plan",
             plan_class="VulkanGraphPlan",
             plan_version="v8",
+            planning_model_domain="vision",
+            planning_execution_phase="none",
+            planning_prefer_packed_layout_propagation=False,
+            planning_fixed_shape_graph_input_sizes=None,
             input_count=2,
             instruction_count=4,
             effect_instruction_count=1,
@@ -490,6 +510,10 @@ class TestVulkanGraphEvidence(TestCase):
                 "reason": "immutable_ivalue_ssa_plan",
                 "plan_class": "VulkanGraphPlan",
                 "plan_version": "v8",
+                "planning_model_domain": "vision",
+                "planning_execution_phase": "none",
+                "planning_prefer_packed_layout_propagation": False,
+                "planning_fixed_shape_graph_input_sizes": None,
                 "input_count": 2,
                 "instruction_count": 4,
                 "effect_instruction_count": 1,
@@ -1181,6 +1205,14 @@ class TestVulkanGraphEvidence(TestCase):
             _is_export_guard_rejection(
                 torch.vulkan.VulkanGraphExecutionError(
                     "Vulkan graph node '_guards_fn' failed: Guard failed: x"
+                )
+            )
+        )
+        self.assertTrue(
+            _is_export_guard_rejection(
+                torch.vulkan.VulkanGraphExecutionError(
+                    "fixed graph input shape mismatch: expected (2, 3), "
+                    "got (4, 3)"
                 )
             )
         )

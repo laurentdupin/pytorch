@@ -93,6 +93,11 @@ class VulkanPlanningRequestScope final {
   std::optional<VulkanPlanningRequest> previous_;
 };
 
+int64_t begin_vulkan_planning_request_scope(
+    const VulkanPlanningRequest& request);
+
+void end_vulkan_planning_request_scope(int64_t token);
+
 const char* workload_class_name(VulkanWorkloadClass);
 
 const char* model_domain_name(VulkanModelDomain);
@@ -100,6 +105,10 @@ const char* model_domain_name(VulkanModelDomain);
 const char* execution_phase_name(VulkanExecutionPhase);
 
 const char* tensor_role_name(VulkanTensorRole);
+
+bool is_valid_vulkan_planning_context(
+    VulkanModelDomain model_domain,
+    VulkanExecutionPhase execution_phase);
 
 VulkanPlanningRequest make_vulkan_planning_request(
     VulkanWorkloadClass workload_class,

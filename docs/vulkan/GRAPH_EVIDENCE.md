@@ -42,6 +42,9 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --checkpoint C:\external\Depth-Anything\checkpoints\depth_anything_v2_vits.pth \
   --output-dir C:\results\dav2_vits_graph \
   --source-git-sha <full-HEAD-SHA> \
+  --planning-model-domain vision --planning-execution-phase none \
+  --planning-prefer-packed-layout-propagation \
+  --planning-fixed-shape-graph-input \
   --eager-atol 0.0 --eager-rtol 0.0 \
   --cpu-atol 0.004 --cpu-rtol 0.0 \
   --latency-warmup-repeats 3 --latency-measurement-repeats 10

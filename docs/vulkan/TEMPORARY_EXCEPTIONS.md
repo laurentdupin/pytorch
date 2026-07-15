@@ -11,9 +11,13 @@ condition and migration target.
 - Location: `aten/src/ATen/native/vulkan/planning/Request.cpp`
 - Status: temporary
 - Reason: runtime/allocation labels still infer broad planning lanes from text
-  such as LLM, decoder, depth, DINO, patch embed, and refinenet.
-- Expiry: benchmark/model wrappers pass explicit `VulkanPlanningRequest`
-  scopes.
+  such as LLM, decoder, depth, DINO, patch embed, and refinenet. Graph programs
+  now carry an explicit `VulkanGraphPlanningContext` through packed-context
+  lowering and execution; supported eager callers still use the inference
+  fallback.
+- Expiry: HY-MT and PaddleOCR supported eager/graph paths record lane,
+  residency, fallback/readback, and peak-memory parity on 8 GB adapters, and no
+  remaining caller depends on inferred labels or tensor shapes.
 - Migration target: explicit planning-scope API and lane selection independent
   of model-name string matching.
 

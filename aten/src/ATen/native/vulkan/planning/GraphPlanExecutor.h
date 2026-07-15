@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,11 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t value_count() const;
   int64_t output_count() const;
   bool submission_owned() const;
+  int64_t planning_model_domain() const;
+  int64_t planning_execution_phase() const;
+  bool planning_prefer_packed_layout_propagation() const;
+  std::optional<std::vector<int64_t>>
+  planning_fixed_shape_graph_input_sizes() const;
   int64_t invocation_generation() const;
   int64_t last_submission_value() const;
   bool last_submission_complete() const;
@@ -66,7 +72,12 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<std::vector<int64_t>> instruction_output_value_ids,
     const c10::List<c10::IValue>& constants,
     int64_t input_count,
-    std::vector<int64_t> output_value_ids);
+    std::vector<int64_t> output_value_ids,
+    int64_t planning_model_domain,
+    int64_t planning_execution_phase,
+    bool planning_prefer_packed_layout_propagation,
+    std::optional<std::vector<int64_t>>
+        planning_fixed_shape_graph_input_sizes);
 
 std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,

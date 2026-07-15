@@ -176,6 +176,23 @@ def _input_shapes(args: tuple[Any, ...]) -> list[list[int]]:
     return [list(tensor.shape) for tensor in _tensor_leaves(args)]
 
 
+def _planning_context(
+    args: argparse.Namespace,
+    inputs: tuple[Any, ...],
+) -> torch.vulkan.VulkanGraphPlanningContext:
+    fixed_shape = None
+    if args.planning_fixed_shape_graph_input:
+        fixed_shape = tuple(_input_shapes(inputs)[0])
+    return torch.vulkan.VulkanGraphPlanningContext(
+        model_domain=args.planning_model_domain,
+        execution_phase=args.planning_execution_phase,
+        prefer_packed_layout_propagation=(
+            args.planning_prefer_packed_layout_propagation
+        ),
+        fixed_shape_graph_input_sizes=fixed_shape,
+    )
+
+
 def _parity(actual: Any, expected: Any) -> dict[str, float | int]:
     actual_tensors = _tensor_leaves(actual)
     expected_tensors = _tensor_leaves(expected)
@@ -240,6 +257,14 @@ def _execution_plan_summary(
         "reason": report.reason,
         "plan_class": report.plan_class,
         "plan_version": report.plan_version,
+        "planning_model_domain": report.planning_model_domain,
+        "planning_execution_phase": report.planning_execution_phase,
+        "planning_prefer_packed_layout_propagation": (
+            report.planning_prefer_packed_layout_propagation
+        ),
+        "planning_fixed_shape_graph_input_sizes": (
+            report.planning_fixed_shape_graph_input_sizes
+        ),
         "input_count": report.input_count,
         "instruction_count": report.instruction_count,
         "effect_instruction_count": report.effect_instruction_count,
@@ -661,7 +686,9 @@ def _out_of_range_guard(
 
 def _is_export_guard_rejection(error: Exception) -> bool:
     return isinstance(error, torch.vulkan.VulkanGraphExecutionError) and (
-        "Guard failed:" in str(error) or "_guards_fn" in str(error)
+        "Guard failed:" in str(error)
+        or "_guards_fn" in str(error)
+        or "fixed graph input shape mismatch" in str(error)
     )
 
 
@@ -679,6 +706,24 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--eager-rtol", type=float, default=0.0)
     parser.add_argument("--cpu-atol", type=float, default=0.0)
     parser.add_argument("--cpu-rtol", type=float, default=0.0)
+    parser.add_argument(
+        "--planning-model-domain",
+        choices=("generic", "vision", "llm"),
+        default="generic",
+    )
+    parser.add_argument(
+        "--planning-execution-phase",
+        choices=("none", "prefill", "decode", "backbone", "decoder"),
+        default="none",
+    )
+    parser.add_argument(
+        "--planning-prefer-packed-layout-propagation",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--planning-fixed-shape-graph-input",
+        action="store_true",
+    )
     parser.add_argument(
         "--latency-warmup-repeats", type=_nonnegative_repeat_count, default=3
     )
@@ -726,6 +771,7 @@ def main() -> int:
         )
     dynamic_shapes = adapter.get("dynamic_shapes")
     device = torch.device("vulkan")
+    planning_context = _planning_context(args, normal)
     original_export_start = time.perf_counter()
     original_export = torch.export.export(
         model, normal, dynamic_shapes=dynamic_shapes, strict=False
@@ -733,7 +779,11 @@ def main() -> int:
     original_export_seconds = time.perf_counter() - original_export_start
     lower_start = time.perf_counter()
     program = torch.vulkan.export_and_lower(
-        model, normal, dynamic_shapes=dynamic_shapes, device=device
+        model,
+        normal,
+        dynamic_shapes=dynamic_shapes,
+        device=device,
+        planning_context=planning_context,
     )
     lower_seconds = time.perf_counter() - lower_start
     normal_program = program
@@ -766,8 +816,13 @@ def main() -> int:
         if not _is_export_guard_rejection(error):
             raise
         variant_start = time.perf_counter()
+        alternate_planning_context = _planning_context(args, alternate)
         alternate_program = torch.vulkan.export_and_lower(
-            model, alternate, dynamic_shapes=dynamic_shapes, device=device
+            model,
+            alternate,
+            dynamic_shapes=dynamic_shapes,
+            device=device,
+            planning_context=alternate_planning_context,
         )
         variant_seconds = time.perf_counter() - variant_start
         alternate_census, alternate_parity = _run_case(

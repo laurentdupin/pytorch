@@ -5,6 +5,7 @@
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
+#include <ATen/native/vulkan/planning/Request.h>
 
 #include <c10/core/DispatchKey.h>
 #include <c10/util/Exception.h>
@@ -254,6 +255,7 @@ struct VulkanGraphPlan::State final {
   std::vector<int64_t> output_value_ids;
   int64_t input_count{0};
   bool submission_owned{true};
+  VulkanPlanningRequest planning_request;
   mutable std::mutex submission_mutex;
   c10::DeviceIndex submission_device_index{-1};
   api::VulkanSubmission last_submission{};
@@ -335,6 +337,27 @@ int64_t VulkanGraphPlan::output_count() const {
 
 bool VulkanGraphPlan::submission_owned() const {
   return state_ && state_->submission_owned;
+}
+
+int64_t VulkanGraphPlan::planning_model_domain() const {
+  return state_ ? static_cast<int64_t>(state_->planning_request.model_domain)
+                : 0;
+}
+
+int64_t VulkanGraphPlan::planning_execution_phase() const {
+  return state_ ? static_cast<int64_t>(state_->planning_request.execution_phase)
+                : 0;
+}
+
+bool VulkanGraphPlan::planning_prefer_packed_layout_propagation() const {
+  return state_ &&
+      state_->planning_request.prefer_packed_layout_propagation;
+}
+
+std::optional<std::vector<int64_t>>
+VulkanGraphPlan::planning_fixed_shape_graph_input_sizes() const {
+  return state_ ? state_->planning_request.fixed_shape_graph_input_sizes
+                : std::nullopt;
 }
 
 int64_t VulkanGraphPlan::invocation_generation() const {
@@ -485,7 +508,12 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<std::vector<int64_t>> instruction_output_value_ids,
     const c10::List<c10::IValue>& constants,
     const int64_t input_count,
-    std::vector<int64_t> output_value_ids) {
+    std::vector<int64_t> output_value_ids,
+    const int64_t planning_model_domain,
+    const int64_t planning_execution_phase,
+    const bool planning_prefer_packed_layout_propagation,
+    std::optional<std::vector<int64_t>>
+        planning_fixed_shape_graph_input_sizes) {
   TORCH_CHECK(
       input_count > 0,
       "VulkanGraphPlan.v8 requires at least one tensor input");
@@ -500,6 +528,32 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
   TORCH_CHECK(
       !output_value_ids.empty(),
       "VulkanGraphPlan.v8 requires at least one output value");
+  TORCH_CHECK(
+      planning_model_domain >=
+              static_cast<int64_t>(VulkanModelDomain::Generic) &&
+          planning_model_domain <= static_cast<int64_t>(VulkanModelDomain::LLM),
+      "VulkanGraphPlan.v8 has an invalid planning model domain");
+  TORCH_CHECK(
+      planning_execution_phase >=
+              static_cast<int64_t>(VulkanExecutionPhase::None) &&
+          planning_execution_phase <=
+              static_cast<int64_t>(VulkanExecutionPhase::Decoder),
+      "VulkanGraphPlan.v8 has an invalid planning execution phase");
+  const auto model_domain =
+      static_cast<VulkanModelDomain>(planning_model_domain);
+  const auto execution_phase =
+      static_cast<VulkanExecutionPhase>(planning_execution_phase);
+  TORCH_CHECK(
+      is_valid_vulkan_planning_context(model_domain, execution_phase),
+      "VulkanGraphPlan.v8 has incompatible planning semantics");
+  TORCH_CHECK(
+      !planning_fixed_shape_graph_input_sizes.has_value() ||
+          (!planning_fixed_shape_graph_input_sizes->empty() &&
+           std::all_of(
+               planning_fixed_shape_graph_input_sizes->begin(),
+               planning_fixed_shape_graph_input_sizes->end(),
+               [](const int64_t size) { return size > 0; })),
+      "VulkanGraphPlan.v8 fixed graph input sizes must be positive");
 
   int64_t next_value_id = input_count;
   for (const auto& instruction_output_ids : instruction_output_value_ids) {
@@ -513,6 +567,15 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
 
   auto state = std::make_shared<VulkanGraphPlan::State>();
   state->input_count = input_count;
+  state->planning_request = make_vulkan_planning_request(
+      VulkanWorkloadClass::Generic,
+      VulkanTensorRole::Input,
+      model_domain,
+      execution_phase);
+  state->planning_request.prefer_packed_layout_propagation =
+      planning_prefer_packed_layout_propagation;
+  state->planning_request.fixed_shape_graph_input_sizes =
+      std::move(planning_fixed_shape_graph_input_sizes);
   state->constants.assign(constants.begin(), constants.end());
   state->output_value_ids = std::move(output_value_ids);
   state->values.resize(static_cast<size_t>(next_value_id));
@@ -696,6 +759,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
           }),
       "VulkanGraphPlan.v8 requires inputs on one Vulkan device");
   VulkanGraphPlanInvocation invocation(*plan);
+  VulkanPlanningRequestScope planning_scope(state.planning_request);
   std::optional<api::Context::GraphProgramInvocationScope> submission_scope;
   if (state.submission_owned) {
     submission_scope.emplace(*api::context(device_index));

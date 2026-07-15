@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import inspect
@@ -13,7 +14,11 @@ from typing import TYPE_CHECKING, Any
 import torch
 import torch.utils._pytree as pytree
 
-from ._graph_plan import VulkanGraphPlanReport, compile_vulkan_graph_plan
+from ._graph_plan import (
+    VulkanGraphPlanningContext,
+    VulkanGraphPlanReport,
+    compile_vulkan_graph_plan,
+)
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanFreshDetachFunctionalizationReport,
@@ -90,6 +95,7 @@ class VulkanGraphProgramKey:
     device_id: int
     driver_version: int
     api_version: str
+    planning_context: VulkanGraphPlanningContext
 
 
 @dataclasses.dataclass(frozen=True)
@@ -864,6 +870,34 @@ def _begin_graph_execution_scope() -> int:
         ) from error
 
 
+@contextlib.contextmanager
+def _vulkan_graph_planning_scope(
+    planning_context: VulkanGraphPlanningContext,
+):
+    try:
+        token = int(
+            torch.ops.vulkan_prepack.begin_vulkan_planning_request_scope(
+                planning_context.model_domain_value,
+                planning_context.execution_phase_value,
+                planning_context.prefer_packed_layout_propagation,
+                planning_context.fixed_shape_graph_input_sizes,
+            )
+        )
+    except (AttributeError, RuntimeError, TypeError) as error:
+        raise VulkanGraphExecutionError(
+            f"Vulkan graph planning scope begin failed: {error}"
+        ) from error
+    try:
+        yield
+    finally:
+        try:
+            torch.ops.vulkan_prepack.end_vulkan_planning_request_scope(token)
+        except (AttributeError, RuntimeError, TypeError) as error:
+            raise VulkanGraphExecutionError(
+                f"Vulkan graph planning scope end failed: {error}"
+            ) from error
+
+
 def _end_graph_execution_scope(token: int) -> tuple[int, int, int]:
     try:
         counters = tuple(
@@ -1003,6 +1037,22 @@ def _tensor_leaves(value: Any) -> tuple[torch.Tensor, ...]:
     )
 
 
+def _fixed_shape_graph_input_error(
+    planning_context: VulkanGraphPlanningContext,
+    inputs: Any,
+) -> str | None:
+    expected = planning_context.fixed_shape_graph_input_sizes
+    if expected is None:
+        return None
+    tensors = _tensor_leaves(inputs)
+    if not tensors:
+        return "fixed graph input shape requires at least one Tensor input"
+    actual = tuple(int(size) for size in tensors[0].shape)
+    if actual != expected:
+        return f"fixed graph input shape mismatch: expected {expected}, got {actual}"
+    return None
+
+
 class _VulkanGraphInterpreter(torch.fx.Interpreter):
     def __init__(self, module: torch.fx.GraphModule, device: torch.device) -> None:
         super().__init__(module)
@@ -1065,6 +1115,7 @@ class VulkanGraphProgram:
         exported_input_guard: torch.nn.Module | None,
         device: torch.device,
         key: VulkanGraphProgramKey,
+        planning_context: VulkanGraphPlanningContext,
         census: VulkanGraphCensus,
         input_normalization: VulkanGraphInputNormalizationReport,
         static_factory_constants: VulkanStaticFactoryConstantReport,
@@ -1089,6 +1140,7 @@ class VulkanGraphProgram:
         self._exported_input_guard = exported_input_guard
         self._device = device
         self._key = key
+        self._planning_context = planning_context
         self._census = census
         self._input_normalization = input_normalization
         self._static_factory_constants = static_factory_constants
@@ -1131,6 +1183,10 @@ class VulkanGraphProgram:
     @property
     def key(self) -> VulkanGraphProgramKey:
         return self._key
+
+    @property
+    def planning_context(self) -> VulkanGraphPlanningContext:
+        return self._planning_context
 
     @property
     def census(self) -> VulkanGraphCensus:
@@ -1272,13 +1328,21 @@ class VulkanGraphProgram:
         with self._execution_lock:
             self._reset_last_run_diagnostics()
             bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
+            fixed_shape_error = _fixed_shape_graph_input_error(
+                self._planning_context,
+                bound_args,
+            )
+            if fixed_shape_error is not None:
+                raise VulkanGraphExecutionError(fixed_shape_error)
             self._run_exported_input_guard(bound_args)
             normalized_args = _normalize_graph_runtime_inputs(
                 self._graph_module,
                 bound_args,
                 self._input_normalization,
             )
-            with torch.vulkan.device(self._device):
+            with torch.vulkan.device(self._device), _vulkan_graph_planning_scope(
+                self._planning_context
+            ):
                 moved_args = _move_graph_runtime_inputs_to_device(
                     self._graph_module,
                     normalized_args,
@@ -1371,6 +1435,7 @@ def export_and_lower(
     dynamic_shapes: Any = None,
     device: Any = None,
     fallback_policy: str = "error",
+    planning_context: VulkanGraphPlanningContext | None = None,
 ) -> VulkanGraphProgram:
     if not isinstance(model, torch.nn.Module):
         raise TypeError("torch.vulkan.export_and_lower expects an nn.Module")
@@ -1381,12 +1446,24 @@ def export_and_lower(
             "Only fallback_policy='error' is implemented; CPU partitions must "
             "be explicit before another policy is exposed"
         )
+    if planning_context is None:
+        planning_context = VulkanGraphPlanningContext()
+    elif not isinstance(planning_context, VulkanGraphPlanningContext):
+        raise TypeError(
+            "planning_context must be a VulkanGraphPlanningContext or None"
+        )
     if not torch.vulkan.is_available():
         raise RuntimeError("No Vulkan devices are available")
 
     args = _normalize_example_inputs(example_inputs)
     kwargs = dict(example_kwargs or {})
     _validate_cpu_capture_inputs(args, kwargs)
+    fixed_shape_error = _fixed_shape_graph_input_error(
+        planning_context,
+        (args, kwargs),
+    )
+    if fixed_shape_error is not None:
+        raise ValueError(fixed_shape_error)
     device_index = torch.vulkan._get_device_index(device, optional=True)
     target_device = torch.device("vulkan", device_index)
 
@@ -1420,7 +1497,9 @@ def export_and_lower(
         static_factory_constants,
         lifted_tensor_constants,
     )
-    with torch.vulkan.device(target_device):
+    with torch.vulkan.device(target_device), _vulkan_graph_planning_scope(
+        planning_context
+    ):
         linear_lowering = lower_static_linear_to_vulkan_contexts(
             graph_module, cpu_state_snapshot
         )
@@ -1518,6 +1597,7 @@ def export_and_lower(
     cpp_plan_compilation = compile_vulkan_graph_plan(
         graph_module,
         {node.name: node.classification for node in census.nodes},
+        planning_context,
     )
 
     graph_fingerprint = "\n".join(
@@ -1541,6 +1621,7 @@ def export_and_lower(
             repr(static_conv2d_relu_conv2d_regions),
             repr(static_conv2d_relu_regions),
             repr(vulkan_graph_regions),
+            repr(planning_context),
             repr(cpp_plan_compilation.report),
         )
     )
@@ -1554,12 +1635,14 @@ def export_and_lower(
         device_id=properties.device_id,
         driver_version=properties.driver_version,
         api_version=properties.api_version,
+        planning_context=planning_context,
     )
     return VulkanGraphProgram(
         graph_module,
         exported_input_guard,
         target_device,
         key,
+        planning_context,
         census,
         input_normalization,
         static_factory_constants,
@@ -1596,6 +1679,7 @@ __all__ = [
     "VulkanGraphNodeRecord",
     "VulkanGraphProgram",
     "VulkanGraphProgramKey",
+    "VulkanGraphPlanningContext",
     "VulkanGraphPlanReport",
     "VulkanConv2dLoweringReport",
     "VulkanLayernormLoweringReport",

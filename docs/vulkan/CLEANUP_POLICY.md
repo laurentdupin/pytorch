@@ -112,7 +112,9 @@ and supported-default parity required by their ledger gates.
 `ModelLanePolicy.*` follow a strict order: graph lowering first supplies
 explicit semantic `VulkanPlanningRequest` fields, supported eager and graph
 paths demonstrate allocation-lane parity, and only then may those heuristics be
-deleted. The temporary exception remains live until those conditions hold.
+deleted. `VulkanGraphPlanningContext` now supplies and program-keys those fields
+for lowering and invocation. The temporary exception remains live while the
+supported eager/graph parity and remaining-caller conditions are unproven.
 
 Delete subsystem-era documentation with the subsystem. This includes large
 stack documents such as `STACK_REGION_DEPENDENCY_GRAPH.md`,

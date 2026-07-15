@@ -186,10 +186,19 @@ the supported packed-weight residency substrate with them.
 
 Explicit planning-request construction and scope application remain in
 `Request.*`, and device capability discovery remains in `DevicePolicy.*`.
-Temporary allocation-label reads, model-token matching, bounded LLM
-tensor-shape inference, and GPU-name overrides are isolated in
-`LegacyPlanningInference.*` and `LegacyDeviceNamePolicy.h`; their existing
-lane-parity deletion gate remains unchanged.
+`VulkanGraphPlanningContext` now carries an explicit model domain, execution
+phase, packed-layout preference, and optional fixed graph-input shape in the
+program key and immutable C++ plan. Graph lowering applies that request while
+creating packed contexts, and every graph invocation reapplies it across input
+placement, Python correctness execution, and direct C++ plan execution. A
+fixed shape binds and checks the first Tensor graph input. Even the explicit
+generic/none default suppresses allocation-label and tensor-shape inference;
+vision and LLM contexts select their declared semantic lanes. Temporary
+allocation-label reads, model-token matching, bounded LLM tensor-shape
+inference, and GPU-name overrides remain isolated in
+`LegacyPlanningInference.*` and `LegacyDeviceNamePolicy.h`. They cannot be
+deleted until checked HY-MT and PaddleOCR lane/residency evidence proves the
+explicit route on 8 GB adapters and eager callers no longer depend on inference.
 
 The benchmark-local `python_private_baton` deep-split canary was retired on
 2026-07-14. Production only ever implemented the native private-device-baton

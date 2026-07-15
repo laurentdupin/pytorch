@@ -152,6 +152,20 @@ int register_vulkan_graph_plan() {
           .def("output_count", &utils::VulkanGraphPlan::output_count)
           .def("submission_owned", &utils::VulkanGraphPlan::submission_owned)
           .def(
+              "planning_model_domain",
+              &utils::VulkanGraphPlan::planning_model_domain)
+          .def(
+              "planning_execution_phase",
+              &utils::VulkanGraphPlan::planning_execution_phase)
+          .def(
+              "planning_prefer_packed_layout_propagation",
+              &utils::VulkanGraphPlan::
+                  planning_prefer_packed_layout_propagation)
+          .def(
+              "planning_fixed_shape_graph_input_sizes",
+              &utils::VulkanGraphPlan::
+                  planning_fixed_shape_graph_input_sizes)
+          .def(
               "invocation_generation",
               &utils::VulkanGraphPlan::invocation_generation)
           .def(
@@ -1024,6 +1038,38 @@ utils::VulkanPlanningRequest make_runtime_planning_request(
       static_cast<utils::VulkanTensorRole>(tensor_role),
       static_cast<utils::VulkanModelDomain>(model_domain),
       static_cast<utils::VulkanExecutionPhase>(execution_phase));
+}
+
+int64_t begin_vulkan_planning_request_scope_runtime(
+    const int64_t model_domain,
+    const int64_t execution_phase,
+    const bool prefer_packed_layout_propagation,
+    const std::optional<std::vector<int64_t>>& fixed_shape_graph_input_sizes) {
+  TORCH_CHECK(
+      model_domain >= static_cast<int64_t>(utils::VulkanModelDomain::Generic) &&
+          model_domain <= static_cast<int64_t>(utils::VulkanModelDomain::LLM),
+      "Invalid Vulkan planning model domain ",
+      model_domain);
+  TORCH_CHECK(
+      execution_phase >=
+              static_cast<int64_t>(utils::VulkanExecutionPhase::None) &&
+          execution_phase <=
+              static_cast<int64_t>(utils::VulkanExecutionPhase::Decoder),
+      "Invalid Vulkan planning execution phase ",
+      execution_phase);
+  auto request = make_runtime_planning_request(
+      static_cast<int64_t>(utils::VulkanWorkloadClass::Generic),
+      model_domain,
+      execution_phase,
+      static_cast<int64_t>(utils::VulkanTensorRole::Input));
+  request.prefer_packed_layout_propagation =
+      prefer_packed_layout_propagation;
+  request.fixed_shape_graph_input_sizes = fixed_shape_graph_input_sizes;
+  return utils::begin_vulkan_planning_request_scope(request);
+}
+
+void end_vulkan_planning_request_scope_runtime(const int64_t token) {
+  utils::end_vulkan_planning_request_scope(token);
 }
 
 std::vector<int64_t> query_runtime_policy(
@@ -2755,12 +2801,22 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_vulkan_graph_region_plan(Tensor[] inputs, "
       "__torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::begin_vulkan_planning_request_scope("
+      "int model_domain, int execution_phase, "
+      "bool prefer_packed_layout_propagation=False, "
+      "int[]? fixed_shape_graph_input_sizes=None) -> int"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::end_vulkan_planning_request_scope(int token) -> ()"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_vulkan_graph_plan("
       "str[] node_names, str[] operator_names, str[] overload_names, "
       "int[][][] argument_refs, int[][] argument_kinds, "
       "int[][] instruction_output_value_ids, "
       "Any[] constants, int input_count, "
-      "int[] output_value_ids) "
+      "int[] output_value_ids, int planning_model_domain=0, "
+      "int planning_execution_phase=0, "
+      "bool planning_prefer_packed_layout_propagation=False, "
+      "int[]? planning_fixed_shape_graph_input_sizes=None) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vulkan_graph_plan(Tensor[] inputs, "
@@ -2830,6 +2886,14 @@ TORCH_LIBRARY(vulkan_prepack, m) {
 }
 
 TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::begin_vulkan_planning_request_scope"),
+      TORCH_FN(begin_vulkan_planning_request_scope_runtime));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::end_vulkan_planning_request_scope"),
+      TORCH_FN(end_vulkan_planning_request_scope_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::swap_runtime_label"),
       TORCH_FN(swap_runtime_label_runtime));

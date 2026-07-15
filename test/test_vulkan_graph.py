@@ -2,6 +2,7 @@ import copy
 import gc
 import os
 import operator
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -141,6 +142,134 @@ def _raise_graph_node_error(tensor):
 
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
+    def test_graph_planning_context_is_explicit_and_program_keyed(self):
+        class Linear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 6)
+
+            def forward(self, tensor):
+                return self.linear(tensor)
+
+        torch.manual_seed(9)
+        model = Linear().eval()
+        tensor = torch.randn(2, 3, 4)
+        planning_context = torch.vulkan.VulkanGraphPlanningContext(
+            model_domain="vision",
+            execution_phase="backbone",
+            prefer_packed_layout_propagation=True,
+            fixed_shape_graph_input_sizes=(2, 3, 4),
+        )
+        program = torch.vulkan.export_and_lower(
+            model,
+            tensor,
+            planning_context=planning_context,
+        )
+
+        self.assertEqual(program.planning_context, planning_context)
+        self.assertEqual(program.key.planning_context, planning_context)
+        self.assertEqual(
+            program.cpp_plan_report.planning_model_domain,
+            "vision",
+        )
+        self.assertEqual(
+            program.cpp_plan_report.planning_execution_phase,
+            "backbone",
+        )
+        self.assertTrue(
+            program.cpp_plan_report.planning_prefer_packed_layout_propagation
+        )
+        self.assertEqual(
+            program.cpp_plan_report.planning_fixed_shape_graph_input_sizes,
+            (2, 3, 4),
+        )
+        self.assertEqual(program.cpp_plan.planning_model_domain(), 1)
+        self.assertEqual(program.cpp_plan.planning_execution_phase(), 3)
+        self.assertTrue(
+            program.cpp_plan.planning_prefer_packed_layout_propagation()
+        )
+        self.assertEqual(
+            program.cpp_plan.planning_fixed_shape_graph_input_sizes(),
+            [2, 3, 4],
+        )
+        self.assertEqual(
+            program(tensor).cpu(),
+            model(tensor),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "fixed graph input shape mismatch",
+        ):
+            program(torch.randn(1, 3, 4))
+        with self.assertRaisesRegex(ValueError, "fixed graph input shape mismatch"):
+            torch.vulkan.export_and_lower(
+                model,
+                tensor,
+                planning_context=torch.vulkan.VulkanGraphPlanningContext(
+                    fixed_shape_graph_input_sizes=(1, 3, 4),
+                ),
+            )
+
+        generic_program = torch.vulkan.export_and_lower(model, tensor)
+        self.assertNotEqual(program.key.graph_hash, generic_program.key.graph_hash)
+
+    def test_explicit_generic_graph_context_suppresses_label_inference(self):
+        class Linear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(64, 64)
+
+            def forward(self, tensor):
+                return self.linear(tensor)
+
+        model = Linear().eval()
+        tensor = torch.randn(2, 64)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            policy_log_path = os.path.join(temp_dir, "runtime_policy.log")
+            with patch.dict(
+                os.environ,
+                {"PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_path},
+            ):
+                previous_label = torch.ops.vulkan_prepack.swap_runtime_label("llama")
+                try:
+                    program = torch.vulkan.export_and_lower(model, tensor)
+                    self.assertEqual(
+                        program(tensor).cpu(),
+                        model(tensor),
+                        rtol=1e-4,
+                        atol=1e-4,
+                    )
+                finally:
+                    torch.ops.vulkan_prepack.swap_runtime_label(previous_label)
+
+            with open(policy_log_path, encoding="utf-8") as policy_log:
+                policy_rows = [
+                    row
+                    for row in policy_log.read().splitlines()
+                    if row.startswith("runtime_policy ")
+                ]
+        self.assertTrue(policy_rows)
+        for row in policy_rows:
+            self.assertIn("model_domain=Generic", row)
+            self.assertIn("execution_phase=None", row)
+            self.assertIn("inferred_from_label=0", row)
+
+    def test_graph_planning_context_rejects_incompatible_semantics(self):
+        with self.assertRaisesRegex(ValueError, "incompatible with model_domain"):
+            torch.vulkan.VulkanGraphPlanningContext(
+                model_domain="llm",
+                execution_phase="backbone",
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "non-empty tuple of positive integers",
+        ):
+            torch.vulkan.VulkanGraphPlanningContext(
+                fixed_shape_graph_input_sizes=(2, 0, 4),
+            )
+
     def test_static_linear_tanh_gelu_region_matches_cpu_and_transfers_context(self):
         class LinearGelu(torch.nn.Module):
             def __init__(self):

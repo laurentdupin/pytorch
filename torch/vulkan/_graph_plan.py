@@ -11,12 +11,74 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 
+_MODEL_DOMAIN_VALUES = {"generic": 0, "vision": 1, "llm": 2}
+_EXECUTION_PHASE_VALUES = {
+    "none": 0,
+    "prefill": 1,
+    "decode": 2,
+    "backbone": 3,
+    "decoder": 4,
+}
+_MODEL_DOMAIN_PHASES = {
+    "generic": frozenset(("none",)),
+    "vision": frozenset(("none", "backbone", "decoder")),
+    "llm": frozenset(("prefill", "decode")),
+}
+
+
+@dataclass(frozen=True)
+class VulkanGraphPlanningContext:
+    model_domain: str = "generic"
+    execution_phase: str = "none"
+    prefer_packed_layout_propagation: bool = False
+    fixed_shape_graph_input_sizes: tuple[int, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.model_domain not in _MODEL_DOMAIN_VALUES:
+            raise ValueError(
+                "Vulkan graph model_domain must be generic, vision, or llm"
+            )
+        if self.execution_phase not in _EXECUTION_PHASE_VALUES:
+            raise ValueError(
+                "Vulkan graph execution_phase must be none, prefill, decode, "
+                "backbone, or decoder"
+            )
+        if self.execution_phase not in _MODEL_DOMAIN_PHASES[self.model_domain]:
+            raise ValueError(
+                "Vulkan graph execution_phase is incompatible with model_domain"
+            )
+        if type(self.prefer_packed_layout_propagation) is not bool:
+            raise TypeError("prefer_packed_layout_propagation must be bool")
+        sizes = self.fixed_shape_graph_input_sizes
+        if sizes is not None and (
+            type(sizes) is not tuple
+            or not sizes
+            or any(type(size) is not int or size <= 0 for size in sizes)
+        ):
+            raise ValueError(
+                "fixed_shape_graph_input_sizes must be a non-empty tuple of "
+                "positive integers"
+            )
+
+    @property
+    def model_domain_value(self) -> int:
+        return _MODEL_DOMAIN_VALUES[self.model_domain]
+
+    @property
+    def execution_phase_value(self) -> int:
+        return _EXECUTION_PHASE_VALUES[self.execution_phase]
+
+
 @dataclass(frozen=True)
 class VulkanGraphPlanReport:
     status: str
     reason: str
     plan_class: str
     plan_version: str
+    planning_model_domain: str
+    planning_execution_phase: str
+    planning_prefer_packed_layout_propagation: bool
+    planning_fixed_shape_graph_input_sizes: tuple[int, ...] | None
     input_count: int
     instruction_count: int
     effect_instruction_count: int
@@ -48,7 +110,10 @@ _GRAPH_INT_OPERATOR_NAMES = {
 _GRAPH_LIST_GETITEM_OPERATOR_NAME = "vulkan_graph::list_getitem"
 
 
-def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
+def _rejected(
+    reason: str,
+    planning_context: VulkanGraphPlanningContext,
+) -> _VulkanGraphPlanCompilation:
     return _VulkanGraphPlanCompilation(
         plan=None,
         report=VulkanGraphPlanReport(
@@ -56,6 +121,14 @@ def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
             reason=reason,
             plan_class="VulkanGraphPlan",
             plan_version="v8",
+            planning_model_domain=planning_context.model_domain,
+            planning_execution_phase=planning_context.execution_phase,
+            planning_prefer_packed_layout_propagation=(
+                planning_context.prefer_packed_layout_propagation
+            ),
+            planning_fixed_shape_graph_input_sizes=(
+                planning_context.fixed_shape_graph_input_sizes
+            ),
             input_count=0,
             instruction_count=0,
             effect_instruction_count=0,
@@ -169,15 +242,22 @@ def _canonicalize_argument(value: Any, expected_type: Any) -> Any:
 def compile_vulkan_graph_plan(
     graph_module: torch.fx.GraphModule,
     classifications: Mapping[str, str],
+    planning_context: VulkanGraphPlanningContext | None = None,
 ) -> _VulkanGraphPlanCompilation:
+    if planning_context is None:
+        planning_context = VulkanGraphPlanningContext()
+
+    def rejected(reason: str) -> _VulkanGraphPlanCompilation:
+        return _rejected(reason, planning_context)
+
     placeholders = [
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
     if not placeholders:
-        return _rejected("v8_requires_tensor_inputs")
+        return rejected("v8_requires_tensor_inputs")
     for node in placeholders:
         if not isinstance(node.meta.get("val"), torch.Tensor):
-            return _rejected(f"non_tensor_input:{node.name}")
+            return rejected(f"non_tensor_input:{node.name}")
 
     value_ids = {node: index for index, node in enumerate(placeholders)}
     value_types = {
@@ -279,12 +359,12 @@ def compile_vulkan_graph_plan(
         )
         if graph_int_operator is not None:
             if classifications.get(node.name) != "graph":
-                return _rejected(
+                return rejected(
                     f"graph_scalar_not_admitted:{node.name}:"
                     f"{classifications.get(node.name, 'unknown')}"
                 )
             if len(node.args) != 2 or node.kwargs:
-                return _rejected(f"invalid_graph_scalar_arguments:{node.name}")
+                return rejected(f"invalid_graph_scalar_arguments:{node.name}")
             refs: list[list[int]] = []
             for argument_index, argument in enumerate(node.args):
                 encoded = encode_bound_argument(
@@ -294,10 +374,10 @@ def compile_vulkan_graph_plan(
                     f"operand_{argument_index}",
                 )
                 if isinstance(encoded, str):
-                    return _rejected(encoded)
+                    return rejected(encoded)
                 kind, encoded_refs = encoded
                 if kind != _VALUE_ARGUMENT:
-                    return _rejected(
+                    return rejected(
                         f"graph_scalar_container_argument:{node.name}:"
                         f"operand_{argument_index}"
                     )
@@ -321,20 +401,20 @@ def compile_vulkan_graph_plan(
             and node.args[0] in multi_value_ids
         ):
             if classifications.get(node.name) != "graph":
-                return _rejected(
+                return rejected(
                     f"multi_return_getitem_not_admitted:{node.name}:"
                     f"{classifications.get(node.name, 'unknown')}"
                 )
             if len(node.args) != 2 or node.kwargs:
-                return _rejected(f"invalid_multi_return_getitem:{node.name}")
+                return rejected(f"invalid_multi_return_getitem:{node.name}")
             producer = node.args[0]
             index = node.args[1]
             if type(index) is not int:
-                return _rejected(f"invalid_multi_return_index:{node.name}")
+                return rejected(f"invalid_multi_return_index:{node.name}")
             output_ids = multi_value_ids[producer]
             normalized_index = index if index >= 0 else len(output_ids) + index
             if normalized_index < 0 or normalized_index >= len(output_ids):
-                return _rejected(f"multi_return_index_out_of_range:{node.name}")
+                return rejected(f"multi_return_index_out_of_range:{node.name}")
             value_ids[node] = output_ids[normalized_index]
             value_types[node] = multi_value_types[producer][normalized_index]
             continue
@@ -347,16 +427,16 @@ def compile_vulkan_graph_plan(
             and value_types[node.args[0]].kind() == "ListType"
         ):
             if classifications.get(node.name) != "graph":
-                return _rejected(
+                return rejected(
                     f"list_projection_not_admitted:{node.name}:"
                     f"{classifications.get(node.name, 'unknown')}"
                 )
             if len(node.args) != 2 or node.kwargs:
-                return _rejected(f"invalid_list_projection:{node.name}")
+                return rejected(f"invalid_list_projection:{node.name}")
             producer = node.args[0]
             index = node.args[1]
             if type(index) is not int:
-                return _rejected(f"invalid_list_projection_index:{node.name}")
+                return rejected(f"invalid_list_projection_index:{node.name}")
             constants.append(index)
             output_value_id = next_value_id
             next_value_id += 1
@@ -372,22 +452,22 @@ def compile_vulkan_graph_plan(
         if node.op != "call_function" or not isinstance(
             node.target, torch._ops.OpOverload
         ):
-            return _rejected(f"unsupported_node_kind:{node.name}:{node.op}")
+            return rejected(f"unsupported_node_kind:{node.name}:{node.op}")
         if classifications.get(node.name) not in (
             "direct_vulkan",
             "lowered_vulkan",
             "composite",
         ):
-            return _rejected(
+            return rejected(
                 f"node_not_vulkan_admitted:{node.name}:"
                 f"{classifications.get(node.name, 'unknown')}"
             )
         schema = node.target._schema
         if schema.is_mutable:
-            return _rejected(f"mutable_operator:{node.name}:{schema.name}")
+            return rejected(f"mutable_operator:{node.name}:{schema.name}")
         bound_arguments = _bound_operator_arguments(node)
         if isinstance(bound_arguments, str):
-            return _rejected(bound_arguments)
+            return rejected(bound_arguments)
         refs: list[list[int]] = []
         kinds: list[int] = []
         for schema_argument, argument in zip(schema.arguments, bound_arguments):
@@ -398,7 +478,7 @@ def compile_vulkan_graph_plan(
                 schema_argument.name,
             )
             if isinstance(encoded, str):
-                return _rejected(encoded)
+                return rejected(encoded)
             kind, encoded_refs = encoded
             kinds.append(kind)
             refs.append(encoded_refs)
@@ -424,7 +504,7 @@ def compile_vulkan_graph_plan(
         instruction_output_value_ids.append(output_value_ids)
 
     if not node_names:
-        return _rejected("v8_requires_at_least_one_instruction")
+        return rejected("v8_requires_at_least_one_instruction")
     output_node = next(
         node for node in graph_module.graph.nodes if node.op == "output"
     )
@@ -432,12 +512,12 @@ def compile_vulkan_graph_plan(
     output_value_ids: list[int] = []
     for leaf in output_leaves:
         if not isinstance(leaf, torch.fx.Node) or leaf not in value_ids:
-            return _rejected("v8_requires_tensor_value_outputs")
+            return rejected("v8_requires_tensor_value_outputs")
         if not value_types[leaf].isSubtypeOf(torch._C.TensorType.get()):
-            return _rejected("v8_requires_tensor_value_outputs")
+            return rejected("v8_requires_tensor_value_outputs")
         output_value_ids.append(value_ids[leaf])
     if not output_value_ids:
-        return _rejected("v8_requires_tensor_value_outputs")
+        return rejected("v8_requires_tensor_value_outputs")
 
     input_count = len(placeholders)
     value_count = next_value_id
@@ -464,12 +544,24 @@ def compile_vulkan_graph_plan(
         constants,
         input_count,
         output_value_ids,
+        planning_context.model_domain_value,
+        planning_context.execution_phase_value,
+        planning_context.prefer_packed_layout_propagation,
+        planning_context.fixed_shape_graph_input_sizes,
     )
     report = VulkanGraphPlanReport(
         status="compiled",
         reason="immutable_ivalue_ssa_plan",
         plan_class="VulkanGraphPlan",
         plan_version="v8",
+        planning_model_domain=planning_context.model_domain,
+        planning_execution_phase=planning_context.execution_phase,
+        planning_prefer_packed_layout_propagation=(
+            planning_context.prefer_packed_layout_propagation
+        ),
+        planning_fixed_shape_graph_input_sizes=(
+            planning_context.fixed_shape_graph_input_sizes
+        ),
         input_count=input_count,
         instruction_count=len(node_names),
         effect_instruction_count=sum(
@@ -509,6 +601,18 @@ def compile_vulkan_graph_plan(
         or plan.value_count() != report.value_count
         or plan.output_count() != report.output_count
         or plan.submission_owned() != report.submission_owned
+        or plan.planning_model_domain()
+        != planning_context.model_domain_value
+        or plan.planning_execution_phase()
+        != planning_context.execution_phase_value
+        or plan.planning_prefer_packed_layout_propagation()
+        != planning_context.prefer_packed_layout_propagation
+        or (
+            tuple(plan.planning_fixed_shape_graph_input_sizes())
+            if plan.planning_fixed_shape_graph_input_sizes() is not None
+            else None
+        )
+        != planning_context.fixed_shape_graph_input_sizes
         or tuple(plan.value_use_counts()) != report.value_use_counts
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
@@ -516,4 +620,8 @@ def compile_vulkan_graph_plan(
     return _VulkanGraphPlanCompilation(plan, report)
 
 
-__all__ = ["VulkanGraphPlanReport", "compile_vulkan_graph_plan"]
+__all__ = [
+    "VulkanGraphPlanningContext",
+    "VulkanGraphPlanReport",
+    "compile_vulkan_graph_plan",
+]

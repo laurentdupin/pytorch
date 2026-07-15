@@ -524,6 +524,15 @@ exact scratch timeline token, and the plan exposes the completed final token
 by invocation generation. Command-free plans complete without a synthetic
 token. Repeated executions preserve an earlier live output.
 
+`VulkanGraphPlanningContext` now supplies the model domain, execution phase,
+packed-layout preference, and optional fixed graph-input shape explicitly.
+Those fields participate in the program key, are applied while graph lowering
+creates packed contexts, and are stored and reapplied by the immutable C++ plan
+at invocation. This completes the plumbing prerequisite for removing label and
+tensor-shape inference. The removal gate remains open until supported HY-MT and
+PaddleOCR eager/graph runs record lane, residency, fallback/readback, and
+peak-memory parity on 8 GB adapters.
+
 The exact-SHA DAv2 and PaddleOCR evidence at `2d3c8492f2f` records complete
 executor outcomes on both shapes. DAv2 executes a 404-instruction plan with two
 scopes, no retire-drain submits, and 52 total submits per two-run case.

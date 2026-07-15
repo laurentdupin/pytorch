@@ -2,6 +2,13 @@
 
 #include <ATen/native/vulkan/planning/LegacyPlanningInference.h>
 
+#include <c10/util/Exception.h>
+
+#include <algorithm>
+#include <limits>
+#include <utility>
+#include <vector>
+
 namespace at {
 namespace native {
 namespace vulkan {
@@ -13,6 +20,21 @@ namespace {
 std::optional<VulkanPlanningRequest>& mutable_scoped_planning_request() {
   static thread_local std::optional<VulkanPlanningRequest> request;
   return request;
+}
+
+struct VulkanPlanningRequestScopeFrame final {
+  int64_t token{0};
+  std::optional<VulkanPlanningRequest> previous;
+};
+
+std::vector<VulkanPlanningRequestScopeFrame>& mutable_planning_scope_stack() {
+  static thread_local std::vector<VulkanPlanningRequestScopeFrame> stack;
+  return stack;
+}
+
+int64_t& mutable_next_planning_scope_token() {
+  static thread_local int64_t token = 0;
+  return token;
 }
 
 bool has_explicit_planning_context(const VulkanPlanningRequest& request) {
@@ -74,6 +96,7 @@ VulkanPlanningRequest apply_scoped_planning_request(
     const VulkanPlanningRequest& fallback_request,
     const VulkanPlanningRequest& scope_request) {
   VulkanPlanningRequest request = fallback_request;
+  request.inferred_from_label = false;
   if (
       !request.fixed_shape_graph_input_sizes.has_value() &&
       scope_request.fixed_shape_graph_input_sizes.has_value()) {
@@ -105,6 +128,42 @@ VulkanPlanningRequestScope::VulkanPlanningRequestScope(
 
 VulkanPlanningRequestScope::~VulkanPlanningRequestScope() {
   mutable_scoped_planning_request() = previous_;
+}
+
+int64_t begin_vulkan_planning_request_scope(
+    const VulkanPlanningRequest& request) {
+  TORCH_CHECK(
+      is_valid_vulkan_planning_context(
+          request.model_domain, request.execution_phase),
+      "Vulkan planning request has incompatible model domain and execution "
+      "phase");
+  TORCH_CHECK(
+      !request.fixed_shape_graph_input_sizes.has_value() ||
+          (!request.fixed_shape_graph_input_sizes->empty() &&
+           std::all_of(
+               request.fixed_shape_graph_input_sizes->begin(),
+               request.fixed_shape_graph_input_sizes->end(),
+               [](const int64_t size) { return size > 0; })),
+      "Vulkan planning request fixed graph input sizes must be positive");
+  int64_t& next_token = mutable_next_planning_scope_token();
+  TORCH_CHECK(
+      next_token < std::numeric_limits<int64_t>::max(),
+      "Vulkan planning request scope token overflow");
+  ++next_token;
+  mutable_planning_scope_stack().push_back(
+      VulkanPlanningRequestScopeFrame{
+          next_token, mutable_scoped_planning_request()});
+  mutable_scoped_planning_request() = request;
+  return next_token;
+}
+
+void end_vulkan_planning_request_scope(const int64_t token) {
+  auto& stack = mutable_planning_scope_stack();
+  TORCH_CHECK(
+      !stack.empty() && stack.back().token == token,
+      "Vulkan planning request scopes must end in LIFO order");
+  mutable_scoped_planning_request() = std::move(stack.back().previous);
+  stack.pop_back();
 }
 
 const char* workload_class_name(const VulkanWorkloadClass workload_class) {
@@ -163,6 +222,23 @@ const char* execution_phase_name(const VulkanExecutionPhase execution_phase) {
       return "Decoder";
   }
   return "None";
+}
+
+bool is_valid_vulkan_planning_context(
+    const VulkanModelDomain model_domain,
+    const VulkanExecutionPhase execution_phase) {
+  switch (model_domain) {
+    case VulkanModelDomain::Generic:
+      return execution_phase == VulkanExecutionPhase::None;
+    case VulkanModelDomain::Vision:
+      return execution_phase == VulkanExecutionPhase::None ||
+          execution_phase == VulkanExecutionPhase::Backbone ||
+          execution_phase == VulkanExecutionPhase::Decoder;
+    case VulkanModelDomain::LLM:
+      return execution_phase == VulkanExecutionPhase::Prefill ||
+          execution_phase == VulkanExecutionPhase::Decode;
+  }
+  return false;
 }
 
 const char* tensor_role_name(const VulkanTensorRole tensor_role) {
@@ -263,9 +339,7 @@ VulkanPlanningRequest infer_vulkan_planning_request(
   if (mutable_scoped_planning_request().has_value()) {
     request = apply_scoped_planning_request(
         request, *mutable_scoped_planning_request());
-    if (has_explicit_planning_context(request)) {
-      return request;
-    }
+    return request;
   }
 
   switch (legacy::infer_model_domain_from_planning_label()) {
@@ -293,6 +367,11 @@ VulkanPlanningRequest specialize_vulkan_planning_request_for_tensor(
     const Tensor& tensor,
     const VulkanPlanningRequest& fallback_request) {
   VulkanPlanningRequest request = fallback_request;
+
+  if (mutable_scoped_planning_request().has_value()) {
+    return apply_scoped_planning_request(
+        request, *mutable_scoped_planning_request());
+  }
 
   if (
       request.workload_class == VulkanWorkloadClass::LLMDecode ||
