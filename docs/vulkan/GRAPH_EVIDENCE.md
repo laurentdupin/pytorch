@@ -48,15 +48,16 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence was deliberately
-refreshed after the cleanup wave and first C++ executor transfer at source
-commit `7f4dccd660fc709383b766d0af657903cf8e7735`. The DAv2 census lowers all 12
+refreshed after the checked integer-scalar executor transfer at source commit
+`291ecd5f3a1279820e05ffb5c79f24f84e767858`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
 with no such candidates. Both corpora report zero unsupported nodes, exact
 graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
 or deferred-value creation. The immutable-plan summaries keep both on the
 Python correctness executor for explicit generic reasons: DAv2 first reaches
-`node_not_vulkan_admitted:sym_size_int:graph`, and PaddleOCR first reaches
-`argument_type_mismatch:avg_pool2d:stride`. Future measurements are
+`multiple_dispatch_returns:run_graph_add_layernorm_plan_default`, and
+PaddleOCR first reaches `argument_type_mismatch:avg_pool2d:stride`. Future
+measurements are
 caller-owned until they are deliberately reviewed and replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
@@ -68,8 +69,8 @@ plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
 129 typed list arguments. A v4 regression probe reports zero graph-scalar
 instructions, as expected for this static prefill. Runtime counters remain
 zero for CPU fallback, sync readback, and deferred-value creation, with no
-Vulkan behavior overrides. This
-proves that static constants, boolean mask construction, identity indexing,
+Vulkan behavior overrides. This proves that static constants, boolean mask
+construction, identity indexing,
 GQA repetition, boolean-masked SDPA, and boxed C++ dispatch compose through one
 real prefill. It is not a checked-in parity artifact: it does not compare
 output values, exercise alternate dynamic guards, repeat live outputs, or
@@ -85,15 +86,14 @@ blocker for the current prefill and transfers per-node execution to C++; it
 does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
-A caller-owned DAv2 follow-up admits `aten::sym_size.int` through its immutable
+The exact-SHA DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
 graph crosses both former representation blockers and next reaches
 `multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while
-retaining zero runtime fallback, sync readback, or deferred-value creation.
-This identifies multi-return IValue SSA as the next generic representation
-task; the checked-in exact-SHA artifact remains the supported parity baseline
-until the change is committed and deliberately remeasured.
+retaining exact graph-versus-eager parity and zero runtime fallback, sync
+readback, or deferred-value creation. This identifies multi-return IValue SSA
+as the next generic representation task.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach

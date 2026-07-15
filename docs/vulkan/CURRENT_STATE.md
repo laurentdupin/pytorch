@@ -13,17 +13,18 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the
-cleanup wave and first C++ executor transfer at source commit
-`7f4dccd660fc709383b766d0af657903cf8e7735` against the matching
+checked integer-scalar executor transfer at source commit
+`291ecd5f3a1279820e05ffb5c79f24f84e767858` against the matching
 `torch_cpu.dll`. DAv2 proves that all 12 exported `linear_gelu_none` candidates
 lower without rejection, while PaddleOCR remains the control. Both runs retain
 exact graph-versus-eager Vulkan parity, zero unsupported nodes, and zero
-graph-runtime fallback, readback, or deferred-value creation. The new plan
+graph-runtime fallback, readback, or deferred-value creation. The v4 plan
 summary also records why neither corpus has transferred yet: DAv2 first needs
-graph-value admission for `sym_size_int`, while PaddleOCR first needs
-schema-directed `avg_pool2d` stride canonicalization. The GELU `none` CPU
-tolerance is documented in `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the
-existing eager tanh-kernel behavior rather than a graph-only approximation.
+generic multi-return IValue SSA for `run_graph_add_layernorm_plan`, while
+PaddleOCR first needs schema-directed `avg_pool2d` stride canonicalization.
+The GELU `none` CPU tolerance is documented in
+`docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
+behavior rather than a graph-only approximation.
 
 The Python correctness executor now normalizes false inference/gradient
 wrappers, creates packed contexts before generic state placement, materializes
@@ -77,10 +78,11 @@ the C++ plan as integer IValues; dynamic view shapes execute without a Python
 node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
 `mul`, and `floordiv` instructions execute as checked C++ plan operations. They
 reject non-integer operands, detect overflow and division by zero, and preserve
-Python floor-division semantics for negative values. A caller-owned DAv2 probe
-crosses both its former symbolic-size and floor-division blockers and next
-reports `multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while
-retaining zero fallback, readback, or deferred-value creation. Mutable
+Python floor-division semantics for negative values. The exact-SHA DAv2
+evidence crosses both its former symbolic-size and floor-division blockers and
+next reports
+`multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while retaining
+zero fallback, readback, or deferred-value creation. Mutable
 dispatch, mismatched boxed argument types, deeper or non-list dynamic
 containers, and multiple dispatcher returns retain the Python correctness
 executor with an explicit reason. A generic functionalization pass rewrites

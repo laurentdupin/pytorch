@@ -514,13 +514,12 @@ its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
 multiple dispatcher returns, program memory slots, descriptors,
 submission/completion ownership, and checked-in HY-MT parity remain open.
-The exact-SHA DAv2 and PaddleOCR evidence at `7f4dccd660f` selects the Python
-executor: DAv2 first reaches graph-classified `sym_size_int`, while PaddleOCR
-first reaches a schema mismatch for the exported `avg_pool2d` stride. The plan
-now admits immutable composite `aten::sym_size.int` metadata reads and bounded
-integer shape arithmetic. A caller-owned DAv2 follow-up crosses both boundaries
-and next reaches the first multi-return dispatcher instruction,
-`vulkan_prepack::run_graph_add_layernorm_plan`. These are generic
+The exact-SHA DAv2 and PaddleOCR evidence at `291ecd5f3a1` selects the Python
+executor for explicit generic reasons. DAv2 crosses immutable composite
+`aten::sym_size.int` metadata reads and bounded integer shape arithmetic, then
+reaches the first multi-return dispatcher instruction,
+`vulkan_prepack::run_graph_add_layernorm_plan`. PaddleOCR first reaches a
+schema mismatch for the exported `avg_pool2d` stride. These are generic
 plan-representation tasks, not reasons to add corpus routes.
 
 Exit criteria:
