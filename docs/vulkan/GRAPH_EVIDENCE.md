@@ -57,6 +57,17 @@ measurements are caller-owned until they are deliberately reviewed and
 replaced. The harness requires an explicit source SHA when `git` is not on
 `PATH`, so a sanitized runtime cannot emit unproven provenance.
 
+A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
+captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
+executes the complete Python correctness program, and returns 65 tensor
+outputs. Runtime counters remain zero for CPU fallback, sync readback, and
+deferred-value creation, with no Vulkan behavior overrides. This proves that
+static constants, boolean mask construction, identity indexing, GQA repetition,
+and boolean-masked SDPA compose through one real prefill. It is not a checked-in
+parity artifact: it does not compare output values, exercise alternate dynamic
+guards, repeat live outputs, or measure submits, memory, or latency, and cannot
+satisfy a subsystem deletion gate by itself.
+
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, proven-identity indexing,
 static GQA repetition, and explicit tensor placement. It also records guard

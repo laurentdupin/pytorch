@@ -462,9 +462,14 @@ program without capturing from Vulkan opaque tensors.
 Current status: the Python correctness executor has model-independent passes
 for inference-wrapper normalization, packed-context ordering, static factory
 and lifted-literal constants, explicit bool tensor placement, proven-identity
-advanced indexing, and static GQA head repetition. HY-MT prefill reaches its
-first masked SDPA with zero lower-time unsupported nodes; masked-SDPA semantic
-admission is the next boundary, not a corpus-specific rewrite.
+advanced indexing, and static GQA head repetition. The generic bounded
+boolean-mask SDPA runtime family converts PyTorch keep masks to additive buffers
+on device. A four-token HY-MT prefill now executes the complete Python program
+with zero lower-time unsupported nodes, CPU fallback, sync readback, or
+deferred-value creation. Numerical parity, repeated-output lifetime, dynamic
+guards, submit, memory, and latency evidence remain open before this result can
+contribute to a Migration deletion gate; the next architectural step remains
+the C++ graph plan executor, not a corpus-specific route.
 
 Exit criteria:
 

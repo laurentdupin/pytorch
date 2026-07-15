@@ -2318,8 +2318,9 @@ Tensor scaled_dot_product_attention_direct_gqa_4d_buffer_vulkan(
       {query, key, value});
 }
 
-Tensor expand_attention_mask_3d(
+void validate_attention_mask_shape(
     const Tensor& attn_mask,
+    const int64_t attention_rank,
     const int64_t batch,
     const int64_t heads,
     const int64_t target_len,
@@ -2332,23 +2333,18 @@ Tensor expand_attention_mask_3d(
     TORCH_CHECK(
         attn_mask.size(0) == target_len && attn_mask.size(1) == source_len,
         "Vulkan SDPA 2D attention mask must match [T, S]");
-    return attn_mask.unsqueeze(0).expand({batch * heads, target_len, source_len});
+    return;
   }
 
   if (attn_mask.dim() == 3) {
     TORCH_CHECK(
         attn_mask.size(1) == target_len && attn_mask.size(2) == source_len,
         "Vulkan SDPA 3D attention mask must match [N, T, S]");
-    if (attn_mask.size(0) == batch * heads) {
-      return attn_mask;
-    }
+    const int64_t leading_dim = attention_rank == 4 ? heads : batch;
     TORCH_CHECK(
-        attn_mask.size(0) == batch || attn_mask.size(0) == 1,
-        "Vulkan SDPA 3D attention mask batch dimension must be 1, batch, or batch*heads");
-    return attn_mask.unsqueeze(1)
-        .expand({attn_mask.size(0), heads, target_len, source_len})
-        .reshape({attn_mask.size(0) * heads, target_len, source_len})
-        .expand({batch * heads, target_len, source_len});
+        attn_mask.size(0) == leading_dim || attn_mask.size(0) == 1,
+        "Vulkan SDPA 3D attention mask leading dimension must be 1 or match the attention batch/head dimension");
+    return;
   }
 
   TORCH_CHECK(
@@ -2358,11 +2354,103 @@ Tensor expand_attention_mask_3d(
       (attn_mask.size(0) == batch || attn_mask.size(0) == 1) &&
           (attn_mask.size(1) == heads || attn_mask.size(1) == 1),
       "Vulkan SDPA 4D attention mask batch/head dimensions must be 1 or match the input");
+}
+
+Tensor expand_attention_mask_3d(
+    const Tensor& attn_mask,
+    const int64_t attention_rank,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  validate_attention_mask_shape(
+      attn_mask, attention_rank, batch, heads, target_len, source_len);
+  if (attn_mask.dim() == 2) {
+    return attn_mask.unsqueeze(0).expand({batch * heads, target_len, source_len});
+  }
+  if (attn_mask.dim() == 3) {
+    if (attention_rank == 3) {
+      return attn_mask.expand({batch, target_len, source_len});
+    }
+    return attn_mask.unsqueeze(0)
+        .expand({batch, heads, target_len, source_len})
+        .reshape({batch * heads, target_len, source_len});
+  }
   if (attn_mask.size(0) == 1 && attn_mask.size(1) == 1) {
     return attn_mask.reshape({1, target_len, source_len});
   }
   return attn_mask.expand({batch, heads, target_len, source_len})
       .reshape({batch * heads, target_len, source_len});
+}
+
+Tensor make_bool_attention_mask_additive_buffer(
+    const Tensor& attn_mask,
+    const int64_t attention_rank,
+    const int64_t batch,
+    const int64_t heads,
+    const int64_t target_len,
+    const int64_t source_len) {
+  TORCH_CHECK(
+      attn_mask.is_vulkan() && attn_mask.scalar_type() == kBool,
+      "Vulkan boolean SDPA mask conversion expects a Vulkan bool tensor");
+  validate_attention_mask_shape(
+      attn_mask, attention_rank, batch, heads, target_len, source_len);
+
+  api::Context* const context = api::context();
+  Tensor mask = utils::ensure_buffer_storage(
+      attn_mask, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+  Tensor output = utils::create_buffer_tensor(
+      {batch * heads, target_len, source_len}, kFloat);
+  const vTensor& v_mask = convert(mask);
+  vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      utils::supports_buffer_elementwise_compute(v_mask),
+      "Vulkan boolean SDPA mask conversion requires buffer-compatible storage");
+
+  const struct Block final {
+    uvec4 info;
+    vec4 values;
+  } block{
+      {safe_downcast<uint32_t>(batch),
+       safe_downcast<uint32_t>(heads),
+       safe_downcast<uint32_t>(attn_mask.dim()),
+       safe_downcast<uint32_t>(attention_rank)},
+      {0.0f, -std::numeric_limits<float>::infinity(), 0.0f, 0.0f},
+  };
+  api::UniformParamsBuffer output_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer mask_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_mask);
+  api::UniformParamsBuffer params(context, block);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size{
+      safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      1u,
+      1u,
+  };
+
+  utils::log_vulkan_op_hit(
+      "aten::scaled_dot_product_attention.bool_mask_to_additive_buffer");
+  context->submit_compute_job(
+      VK_KERNEL(sdpa_bool_mask_to_additive_buffer_float),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      output_meta.buffer(),
+      v_mask.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      mask_meta.buffer(),
+      params.buffer());
+
+  return record_tensor_write_and_return(
+      output,
+      "aten::scaled_dot_product_attention",
+      "bool_mask_to_additive_buffer",
+      {attn_mask});
 }
 
 Tensor make_attention_mask_additive(
@@ -2373,24 +2461,16 @@ Tensor make_attention_mask_additive(
     const int64_t target_len,
     const int64_t source_len) {
   if (attn_mask.scalar_type() == kBool) {
-    report_vulkan_cpu_fallback(
-        "aten::scaled_dot_product_attention",
-        "bool_attention_mask_cpu_materialization",
-        {attn_mask, query});
-    Tensor mask_cpu = expand_attention_mask_3d(
-                           attn_mask.is_vulkan() ? attn_mask.cpu() : attn_mask,
-                           batch,
-                           heads,
-                           target_len,
-                           source_len)
-                          .to(kBool);
-    Tensor additive_mask = at::zeros(
-        mask_cpu.sizes(), query.options().device(at::kCPU).dtype(kFloat));
-    additive_mask.masked_fill_(mask_cpu.logical_not(), -std::numeric_limits<float>::infinity());
-    return additive_mask.to(query.scalar_type());
+    return make_bool_attention_mask_additive_buffer(
+        attn_mask,
+        query.dim(),
+        batch,
+        heads,
+        target_len,
+        source_len);
   }
   Tensor mask = expand_attention_mask_3d(
-      attn_mask, batch, heads, target_len, source_len);
+      attn_mask, query.dim(), batch, heads, target_len, source_len);
   return mask.to(query.scalar_type());
 }
 

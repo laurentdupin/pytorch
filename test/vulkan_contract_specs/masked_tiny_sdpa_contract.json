@@ -293,7 +293,7 @@
       {
         "violates": "attn_mask_dtype",
         "adjacent": "wrong_value",
-        "value": "bool"
+        "value": "float16"
       },
       {
         "violates": "dropout_zero",
@@ -434,7 +434,7 @@
   ],
   "negative_cases": [
     {
-      "name": "bool_mask",
+      "name": "float16_mask",
       "query_shape": [
         1,
         16,
@@ -460,7 +460,7 @@
         2
       ],
       "dtype": "float32",
-      "attn_mask_dtype": "bool",
+      "attn_mask_dtype": "float16",
       "has_attn_mask": true,
       "dropout_p": 0.0,
       "is_causal": false,

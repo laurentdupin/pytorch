@@ -183,6 +183,12 @@ HY-MT prefill and decode are separate program families. Python generation
 control remains outside the tensor program unless a later graph representation
 can express it without host synchronization.
 
+The Python correctness executor currently runs a four-token HY-MT prefill to
+completion with zero fallback or readback. That result proves graph coverage
+through boolean-masked SDPA, but does not transfer resource, descriptor,
+barrier, completion, or repeated-output ownership from Python to the C++ graph
+plan. Those ownership requirements remain Phase 5 work.
+
 ## Runtime Shader Generation
 
 The retired eager runtime-elementwise experiment remains historical

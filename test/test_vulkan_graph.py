@@ -2112,6 +2112,35 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_boolean_masked_sdpa_stays_on_device(self):
+        class BooleanMaskedAttention(torch.nn.Module):
+            def forward(self, query, key, value, mask):
+                return torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    attn_mask=mask,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=0.0883883,
+                )
+
+        torch.manual_seed(0)
+        query = torch.randn(1, 16, 4, 128)
+        key = torch.randn(1, 16, 4, 128)
+        value = torch.randn(1, 16, 4, 128)
+        mask = torch.tril(torch.ones(1, 1, 4, 4, dtype=torch.bool))
+        model = BooleanMaskedAttention().eval()
+        expected = model(query, key, value, mask)
+        program = torch.vulkan.export_and_lower(model, (query, key, value, mask))
+
+        actual = program(query, key, value, mask).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+        self.assertEqual(program.census.unsupported_node_count, 0)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_rejects_static_advanced_index_that_reorders_values(self):
         class ReverseMask(torch.nn.Module):
             def forward(self, attention_mask):

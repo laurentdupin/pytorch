@@ -177,6 +177,7 @@ enum class MaskedTinySDPAFamily : uint8_t {
   None = 0u,
   AdditiveFloatMask,
   AdditiveFloatMaskRuntimeShape,
+  BooleanKeepMaskRuntimeShape,
 };
 
 struct MaskedTinySDPAMatch final {

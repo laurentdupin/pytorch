@@ -40,7 +40,12 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from torch.testing._internal.common_utils import TestCase, run_tests
+from torch.testing._internal.common_utils import (
+    instantiate_parametrized_tests,
+    parametrize,
+    TestCase,
+    run_tests,
+)
 from torch.testing import FileCheck
 import io
 
@@ -4355,6 +4360,11 @@ class TestVulkanGovernance(TestCase):
             '"masked_tiny_sdpa_dynamic_random_shape_tests"',
             "result.family = MaskedTinySDPAFamily::AdditiveFloatMaskRuntimeShape",
             "result.metadata = &kMaskedTinySDPARuntimeMetadata",
+            '"BooleanKeepMaskRuntimeShape"',
+            '"masked_tiny_sdpa_boolean_dynamic_random_shape_tests"',
+            '"expanded_additive_buffer"',
+            "result.family = MaskedTinySDPAFamily::BooleanKeepMaskRuntimeShape",
+            "result.metadata = &kMaskedTinySDPABooleanRuntimeMetadata",
         ):
             self.assertIn(expected, source)
 
@@ -21545,6 +21555,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         def dtype_for_name(dtype_name):
             return {
                 "bool": torch.bool,
+                "float16": torch.float16,
                 "float32": torch.float32,
             }[dtype_name]
 
@@ -22111,11 +22122,151 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
                 self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
 
-    def test_scaled_dot_product_attention_tiny_bool_mask_still_rejected(self):
+    def test_scaled_dot_product_attention_boolean_keep_mask_matches_cpu(self):
+        torch.manual_seed(0)
         query = torch.randn(1, 16, 2, 64)
         key = torch.randn(1, 16, 2, 64)
         value = torch.randn(1, 16, 2, 64)
         mask = torch.tensor([[[[True, False], [False, False]]]])
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            scale=0.125,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    @parametrize(
+        "mask_shape",
+        (
+            (5, 7),
+            (1, 5, 7),
+            (3, 5, 7),
+            (2, 1, 5, 7),
+            (1, 3, 5, 7),
+            (2, 3, 5, 7),
+        ),
+    )
+    def test_scaled_dot_product_attention_boolean_keep_mask_broadcasts(
+            self, mask_shape):
+        torch.manual_seed(sum(mask_shape))
+        query = torch.randn(2, 3, 5, 32)
+        key = torch.randn(2, 3, 7, 32)
+        value = torch.randn(2, 3, 7, 24)
+        mask = torch.rand(*mask_shape) > 0.35
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            scale=0.25,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.25,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_scaled_dot_product_attention_boolean_keep_mask_rank3_attention(self):
+        torch.manual_seed(0)
+        query = torch.randn(2, 5, 32)
+        key = torch.randn(2, 7, 32)
+        value = torch.randn(2, 7, 24)
+        mask = torch.rand(2, 5, 7) > 0.35
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            scale=0.25,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.25,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_scaled_dot_product_attention_boolean_keep_mask_head_dim128(self):
+        torch.manual_seed(0)
+        query = torch.randn(1, 16, 4, 128)
+        key = torch.randn(1, 16, 4, 128)
+        value = torch.randn(1, 16, 4, 128)
+        mask = torch.tril(torch.ones(1, 1, 4, 4, dtype=torch.bool))
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=mask,
+            dropout_p=0.0,
+            is_causal=False,
+            scale=0.0883883,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.0883883,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_scaled_dot_product_attention_boolean_keep_mask_shape_guard(self):
+        query = torch.randn(1, 16, 4, 128)
+        key = torch.randn(1, 16, 4, 128)
+        value = torch.randn(1, 16, 4, 128)
+        mask = torch.ones(1, 1, 4, 5, dtype=torch.bool)
 
         with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
             F.scaled_dot_product_attention(
@@ -22125,7 +22276,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 attn_mask=mask.to("vulkan"),
                 dropout_p=0.0,
                 is_causal=False,
-                scale=0.125,
+                scale=0.0883883,
             )
 
     def test_scaled_dot_product_attention_tiny_float_mask_shape_guard(self):
@@ -42801,6 +42952,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     *args,
                     exc_type=exc_type,
                     message=message)
+
+instantiate_parametrized_tests(TestVulkanEagerRuntime)
+
 
 if __name__ == "__main__":
     run_tests()

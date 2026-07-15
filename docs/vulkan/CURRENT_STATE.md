@@ -33,12 +33,16 @@ visible and unsupported. The exact static `unsqueeze -> expand -> reshape`
 form used for GQA head repetition lowers to the generic `GQARepeatContract`
 kernel family rather than constructing an unsupported rank-5 Vulkan value.
 
-An HY-MT prefill probe after these changes captures 3,160 nodes, lowers 225,
-and reports zero unsupported nodes at lower time. Execution advances through
-the bool mask, static identity index, lifted empty cache tensors, and both GQA
-repeats before failing loud at the existing masked-SDPA policy for
-`[1,16,4,128]` Q/K/V. That SDPA admission boundary is the next forward task;
-it is not a reason to weaken graph fallback policy or add an HY-MT route.
+The same four-token HY-MT prefill probe captures 3,160 nodes, lowers 225, and
+reports zero unsupported nodes at lower time. It now executes the complete
+Python correctness program, returns 65 tensor outputs, and records zero CPU
+fallback, sync readback, or deferred-value creation with no Vulkan behavior
+overrides. The former `[1,16,4,128]` boolean-masked SDPA boundary is covered by
+the generic bounded `MaskedTinySDPAContract` runtime family, which converts
+PyTorch boolean keep masks to an additive buffer on device. This integration
+probe establishes graph coverage, not numerical parity, dynamic-shape,
+repeated-output lifetime, submit, peak-memory, or latency evidence; all
+Migration deletion gates therefore remain unchanged.
 
 The existing GQA repeat shader also had its generic coordinate mapping fixed:
 Vulkan buffer metadata orders logical coordinates as width, sequence, heads,
