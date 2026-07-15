@@ -570,6 +570,7 @@ def _run_case(
         _assert_close(graph_cpu, eager_expected, eager_atol, eager_rtol)
         _assert_close(graph_cpu, cpu_expected, cpu_atol, cpu_rtol)
         graph_first_memory = _finish_memory_phase(graph_first_memory_baseline)
+        torch.ops.vulkan_prepack.synchronize()
         graph_repeat_memory_baseline = _begin_memory_phase()
         repeat_start = time.perf_counter()
         repeat_output = program(*args)

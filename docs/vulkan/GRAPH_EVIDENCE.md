@@ -154,8 +154,12 @@ baseline live bytes, end live bytes, absolute high-water bytes, and peak delta
 from the baseline. Eager temporaries are released and synchronized before the
 graph phase. Absolute high-water comparisons are therefore meaningful within
 the same case process, while peak deltas identify incremental activation and
-temporary pressure. Checked-in evidence requires the first graph phase and the
-repeat-with-prior-output-live phase to stay within 5% of their same-process
+temporary pressure. After capturing the first graph high-water mark, the
+harness settles completed work before resetting the repeat-phase high-water
+mark; the first graph output remains live throughout that repeat. Any queue
+submission created by this boundary remains visible in the already-active
+submit-origin counters. Checked-in evidence requires the first graph phase and
+the repeat-with-prior-output-live phase to stay within 5% of their same-process
 supported eager high-water mark. DAv2 is 0.9% to 1.7% below eager across the
 recorded graph phases; PaddleOCR ranges from 0.5% below to 2.5% above. These
 fields do not authorize model-name production dispatch, exact-shape admission,
