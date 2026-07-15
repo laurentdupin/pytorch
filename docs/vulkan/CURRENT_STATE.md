@@ -35,14 +35,16 @@ kernel family rather than constructing an unsupported rank-5 Vulkan value.
 
 The same four-token HY-MT prefill probe captures 3,160 nodes, lowers 225, and
 reports zero unsupported nodes at lower time. It now executes the complete
-Python correctness program, returns 65 tensor outputs, and records zero CPU
-fallback, sync readback, or deferred-value creation with no Vulkan behavior
-overrides. The former `[1,16,4,128]` boolean-masked SDPA boundary is covered by
-the generic bounded `MaskedTinySDPAContract` runtime family, which converts
-PyTorch boolean keep masks to an additive buffer on device. This integration
-probe establishes graph coverage, not numerical parity, dynamic-shape,
-repeated-output lifetime, submit, peak-memory, or latency evidence; all
-Migration deletion gates therefore remain unchanged.
+immutable C++ plan, returns 65 tensor outputs, and records zero CPU fallback,
+sync readback, or deferred-value creation with no Vulkan behavior overrides.
+The plan contains 2,732 instructions, including 268 ordered effects and 129
+schema-typed list arguments. The former `[1,16,4,128]` boolean-masked SDPA
+boundary is covered by the generic bounded `MaskedTinySDPAContract` runtime
+family, which converts PyTorch boolean keep masks to an additive buffer on
+device. This integration probe establishes graph coverage and C++ dispatch,
+not numerical parity, dynamic-shape, repeated-output lifetime, submit,
+peak-memory, or latency evidence; all Migration deletion gates therefore
+remain unchanged.
 
 Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v3`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
@@ -68,17 +70,16 @@ numeric literals bound to Tensor schema arguments are represented as CPU 0D
 Tensor constants, matching the cross-device scalar form accepted by the Vulkan
 eager kernels without fallback or readback. Mutable dispatch, mismatched boxed
 argument types, deeper or non-list dynamic containers, and multiple dispatcher
-returns retain the Python correctness executor with an explicit reason. The
-four-token HY-MT probe now crosses `aten::_assert_tensor_metadata`, all 129
-dynamic `Tensor[]` arguments to `aten::cat`, and the Python float bound to
-`aten::mul.Tensor`, then stops at
-`mutable_operator:detach_:aten::detach_`. That mutation targets the result of
-`aten::lift_fresh_copy`; it remains rejected until a generic fresh-alias proof
-can rewrite it to functional `aten::detach`. HY-MT still executes through the
-Python correctness path. The v3 executor does not yet preallocate a memory
-arena, own descriptors/submissions, support deeper containers or multi-output
-values, or provide corpus parity/performance evidence, so it does not satisfy
-a Migration deletion gate.
+returns retain the Python correctness executor with an explicit reason. A
+generic functionalization pass rewrites `aten::detach_` only when every value
+in its single-user producer chain is proven to lead back to
+`aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
+mutable and fail closed. The four-token HY-MT probe proves this condition for
+all 64 exported detach mutations and now compiles the entire graph as a
+2,732-instruction `VulkanGraphPlan.v3`. The v3 executor does not yet preallocate
+a memory arena, own descriptors/submissions, support deeper containers or
+multiple dispatcher returns, or provide checked-in HY-MT parity/performance
+evidence, so it does not satisfy a Migration deletion gate.
 
 The existing GQA repeat shader also had its generic coordinate mapping fixed:
 Vulkan buffer metadata orders logical coordinates as width, sequence, heads,

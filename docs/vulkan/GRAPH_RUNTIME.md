@@ -205,14 +205,14 @@ HY-MT prefill and decode are separate program families. Python generation
 control remains outside the tensor program unless a later graph representation
 can express it without host synchronization.
 
-The Python correctness executor currently runs a four-token HY-MT prefill to
-completion with zero fallback or readback. That result proves graph coverage
-through boolean-masked SDPA, but does not transfer resource, descriptor,
-barrier, completion, or repeated-output ownership from Python to the C++ graph
-plan. The first v1 compilation blocker is the non-Tensor return from
-`aten::_assert_tensor_metadata`; the complete HY-MT graph therefore remains on
-the Python executor. Those representation and ownership requirements remain
-Phase 5 work.
+The immutable C++ graph plan currently runs a four-token HY-MT prefill to
+completion with zero fallback or readback. The graph has no stateful mutable
+operator after graph preparation: all 64 `aten::detach_` nodes are proven to
+consume single-user chains rooted at `aten::lift_fresh_copy` and are rewritten
+to functional `aten::detach`. Input aliases and branched fresh values remain
+mutable and fail closed. This transfers per-node dispatch from Python to C++,
+but resource arenas, descriptors, barriers, submission/completion, dynamic
+guards, and repeated-output corpus evidence remain Phase 5 work.
 
 ## Runtime Shader Generation
 

@@ -16,6 +16,7 @@ import torch.utils._pytree as pytree
 from ._graph_plan import VulkanGraphPlanReport, compile_vulkan_graph_plan
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
+    VulkanFreshDetachFunctionalizationReport,
     VulkanGraphInputNormalizationReport,
     VulkanGraphRegionLoweringReport,
     VulkanGraphTensorPlacementReport,
@@ -30,6 +31,7 @@ from ._graph_lowering import (
     VulkanStaticIdentityAdvancedIndexReport,
     VulkanStaticLinearGeluRegionReport,
     extract_verified_exported_input_guard,
+    functionalize_fresh_detach_mutations,
     is_verified_exported_input_guard_call,
     lower_lifted_tensor_constants,
     lower_static_conv2d_relu_regions,
@@ -1074,6 +1076,7 @@ class VulkanGraphProgram:
         input_normalization: VulkanGraphInputNormalizationReport,
         static_factory_constants: VulkanStaticFactoryConstantReport,
         lifted_tensor_constants: VulkanLiftedTensorConstantReport,
+        fresh_detach_functionalization: VulkanFreshDetachFunctionalizationReport,
         static_identity_advanced_indices: VulkanStaticIdentityAdvancedIndexReport,
         static_gqa_repeats: VulkanStaticGQARepeatReport,
         tensor_placement: VulkanGraphTensorPlacementReport,
@@ -1096,6 +1099,7 @@ class VulkanGraphProgram:
         self._input_normalization = input_normalization
         self._static_factory_constants = static_factory_constants
         self._lifted_tensor_constants = lifted_tensor_constants
+        self._fresh_detach_functionalization = fresh_detach_functionalization
         self._static_identity_advanced_indices = static_identity_advanced_indices
         self._static_gqa_repeats = static_gqa_repeats
         self._tensor_placement = tensor_placement
@@ -1148,6 +1152,12 @@ class VulkanGraphProgram:
     @property
     def lifted_tensor_constants(self) -> VulkanLiftedTensorConstantReport:
         return self._lifted_tensor_constants
+
+    @property
+    def fresh_detach_functionalization(
+        self,
+    ) -> VulkanFreshDetachFunctionalizationReport:
+        return self._fresh_detach_functionalization
 
     @property
     def static_identity_advanced_indices(
@@ -1395,6 +1405,9 @@ def export_and_lower(
     input_normalization = lower_graph_input_dtype_normalizations(graph_module)
     static_factory_constants = lower_static_factory_constants(graph_module)
     lifted_tensor_constants = lower_lifted_tensor_constants(graph_module)
+    fresh_detach_functionalization = functionalize_fresh_detach_mutations(
+        graph_module
+    )
     static_identity_advanced_indices = lower_static_identity_advanced_indices(
         graph_module
     )
@@ -1513,6 +1526,7 @@ def export_and_lower(
             repr(input_normalization),
             repr(static_factory_constants),
             repr(lifted_tensor_constants),
+            repr(fresh_detach_functionalization),
             repr(static_identity_advanced_indices),
             repr(static_gqa_repeats),
             repr(tensor_placement),
@@ -1547,6 +1561,7 @@ def export_and_lower(
         input_normalization,
         static_factory_constants,
         lifted_tensor_constants,
+        fresh_detach_functionalization,
         static_identity_advanced_indices,
         static_gqa_repeats,
         tensor_placement,
@@ -1566,6 +1581,7 @@ def export_and_lower(
 __all__ = [
     "VulkanGraphCensus",
     "VulkanGraphExecutionError",
+    "VulkanFreshDetachFunctionalizationReport",
     "VulkanGraphImplicitBoundaryAttribution",
     "VulkanGraphInputNormalizationReport",
     "VulkanGraphTensorPlacementReport",

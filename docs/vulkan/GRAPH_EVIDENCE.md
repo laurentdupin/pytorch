@@ -59,37 +59,34 @@ replaced. The harness requires an explicit source SHA when `git` is not on
 
 A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
-executes the complete Python correctness program, and returns 65 tensor
-outputs. Runtime counters remain zero for CPU fallback, sync readback, and
-deferred-value creation, with no Vulkan behavior overrides. This proves that
-static constants, boolean mask construction, identity indexing, GQA repetition,
-and boolean-masked SDPA compose through one real prefill. It is not a checked-in
-parity artifact: it does not compare output values, exercise alternate dynamic
-guards, repeat live outputs, or measure submits, memory, or latency, and cannot
-satisfy a subsystem deletion gate by itself.
+executes the complete immutable C++ plan, and returns 65 tensor outputs. The
+plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
+129 typed list arguments. Runtime counters remain zero for CPU fallback, sync
+readback, and deferred-value creation, with no Vulkan behavior overrides. This
+proves that static constants, boolean mask construction, identity indexing,
+GQA repetition, boolean-masked SDPA, and boxed C++ dispatch compose through one
+real prefill. It is not a checked-in parity artifact: it does not compare
+output values, exercise alternate dynamic guards, repeat live outputs, or
+measure submits, memory, or latency, and cannot satisfy a subsystem deletion
+gate by itself.
 
-The same caller-owned probe was repeated after `VulkanGraphPlan.v3` added
-schema-typed homogeneous list argument recipes. Capture and runtime counts
-remain unchanged. Plan compilation now crosses `aten::_assert_tensor_metadata`,
-including its schema-typed device constant, and all 129 dynamic `Tensor[]`
-arguments to `aten::cat`. It explicitly selects
-`python_correctness_executor` with first reason
-`mutable_operator:detach_:aten::detach_`. Plan compilation now canonicalizes
-the Python float `1.0` bound to `aten::mul.Tensor` as the same CPU 0D Tensor
-scalar form accepted by Vulkan eager execution. The mutable detach targets an
-`aten::lift_fresh_copy` result and needs a generic fresh-alias proof plus
-functional rewrite rather than mutable C++ dispatch. This establishes
-functionalization as the next generic representation blocker without claiming
-that HY-MT has transferred execution, memory, descriptor, or submission
-ownership to C++.
+The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
+candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
+so the generic preparation pass rewrites all 64 to functional `aten::detach`
+with no rejection. Placeholder aliases and branched fresh values are covered
+as adjacent negatives and remain mutable. This removes the last representation
+blocker for the current prefill and transfers per-node execution to C++; it
+does not claim that memory, descriptor, submission, or completion ownership
+has transferred.
 
 The machine-readable evidence records graph census and lowerings, including
-input normalization, static and lifted constants, proven-identity indexing,
-static GQA repetition, and explicit tensor placement. It also records guard
+input normalization, static and lifted constants, fresh-detach
+functionalization, proven-identity indexing, static GQA repetition, and
+explicit tensor placement. It also records an immutable-plan summary, guard
 outcomes, program key, Vulkan runtime identity and DLL hashes, timing,
 fallback/readback/deferred-value counters, and CPU/eager Vulkan parity. It does
 not authorize model-name production dispatch, exact-shape admission, or
-Python-executor performance tuning.
+executor performance tuning.
 
 The default tolerances are zero. A nonzero tolerance is an explicit corpus
 evidence choice and is written into the measured parity artifact. Graph versus

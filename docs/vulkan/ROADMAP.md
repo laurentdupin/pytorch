@@ -464,13 +464,14 @@ for inference-wrapper normalization, packed-context ordering, static factory
 and lifted-literal constants, explicit bool tensor placement, proven-identity
 advanced indexing, and static GQA head repetition. The generic bounded
 boolean-mask SDPA runtime family converts PyTorch keep masks to additive buffers
-on device. A four-token HY-MT prefill now executes the complete Python program
-with zero lower-time unsupported nodes, CPU fallback, sync readback, or
-deferred-value creation. Numerical parity, repeated-output lifetime, dynamic
-guards, submit, memory, and latency evidence remain open before this result can
-contribute to a Migration deletion gate. The first generic C++ plan slice now
-executes eligible tensor-only SSA graphs without Python per-node callbacks; the
-remaining work is to extend that executor and its ownership model, not add a
+on device. A four-token HY-MT prefill now executes the complete program as an
+immutable C++ plan with zero lower-time unsupported nodes, CPU fallback, sync
+readback, or deferred-value creation. All 64 mutable detach nodes satisfy a
+generic single-user fresh-chain proof and are rewritten functionally; aliased
+or branched cases remain fail-closed. Numerical parity, repeated-output
+lifetime, dynamic guards, submit, memory, and latency evidence remain open
+before this result can contribute to a Migration deletion gate. The remaining
+work is to extend the generic executor and its ownership model, not add a
 corpus-specific route.
 
 Exit criteria:
@@ -503,14 +504,14 @@ concurrent invocation, and checks each instruction for implicit host
 boundaries. Repeated multi-instruction Tensor, metadata-effect, and Tensor-list
 graphs execute without Python node callbacks and preserve earlier live outputs.
 Unsupported plan structure reports a reason and retains the Python correctness
-executor. HY-MT now crosses the zero-return `aten::_assert_tensor_metadata`
-instruction and all 129 dynamic `Tensor[]` arguments to `aten::cat`, then stops
-after canonicalizing the Python scalar bound to `aten::mul.Tensor` as a CPU 0D
-Tensor constant. Its next blocker is mutable `aten::detach_` over an
-`aten::lift_fresh_copy` result; it therefore remains Python-executed. Deeper
-list/tuple/dict values, proof-driven functionalization of fresh mutations,
-multiple-return values, program memory slots, descriptors,
-submission/completion ownership, and corpus parity remain open.
+executor. A generic single-user fresh-chain proof rewrites `aten::detach_` to
+functional `aten::detach` only when the chain is rooted at
+`aten::lift_fresh_copy`; adjacent aliasing cases remain mutable and rejected.
+This proves all 64 detach mutations in the four-token HY-MT graph and allows
+its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
+and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
+multiple dispatcher returns, program memory slots, descriptors,
+submission/completion ownership, and checked-in HY-MT parity remain open.
 
 Exit criteria:
 

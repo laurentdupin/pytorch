@@ -18,6 +18,7 @@ from scripts.benchmarks.vulkan_graph_export_evidence import (
     _adapter_identity,
     _artifact_output_paths,
     _artifact_prefix,
+    _execution_plan_summary,
     _graph_counts,
     _is_export_guard_rejection,
     _lowering_reports,
@@ -424,6 +425,65 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             counts["lowered_vulkan_by_target"], {"aten::layer_norm": 2}
         )
+        self.assertEqual(
+            counts["partition_candidates"],
+            {
+                "status": "not_planned_python_correctness_executor",
+                "vulkan_only_candidate_count": 0,
+            },
+        )
+
+    def test_graph_counts_and_evidence_describe_compiled_cpp_plan(self):
+        census = SimpleNamespace(
+            captured_node_count=6,
+            call_function_node_count=4,
+            lowered_vulkan_node_count=1,
+            direct_vulkan_node_count=2,
+            composite_node_count=1,
+            unsupported_node_count=0,
+            nodes=(),
+        )
+        report = SimpleNamespace(
+            status="compiled",
+            reason="immutable_ivalue_ssa_plan",
+            plan_class="VulkanGraphPlan",
+            plan_version="v3",
+            input_count=2,
+            instruction_count=4,
+            effect_instruction_count=1,
+            list_argument_count=1,
+            value_count=5,
+            output_count=2,
+        )
+        program = SimpleNamespace(
+            census=census,
+            execution_mode="cpp_plan",
+            cpp_plan_report=report,
+        )
+
+        self.assertEqual(
+            _execution_plan_summary(program),
+            {
+                "mode": "cpp_plan",
+                "status": "compiled",
+                "reason": "immutable_ivalue_ssa_plan",
+                "plan_class": "VulkanGraphPlan",
+                "plan_version": "v3",
+                "input_count": 2,
+                "instruction_count": 4,
+                "effect_instruction_count": 1,
+                "list_argument_count": 1,
+                "value_count": 5,
+                "output_count": 2,
+            },
+        )
+        self.assertEqual(
+            _graph_counts(program)["partition_candidates"],
+            {
+                "status": "compiled",
+                "vulkan_only_candidate_count": 1,
+            },
+        )
 
     def test_lowering_reports_keep_single_family_programs_additive(self):
         linear_only = SimpleNamespace(
@@ -438,6 +498,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "input_normalization": None,
                 "static_factory_constants": None,
                 "lifted_tensor_constants": None,
+                "fresh_detach_functionalization": None,
                 "static_identity_advanced_indices": None,
                 "static_gqa_repeats": None,
                 "tensor_placement": None,
@@ -457,6 +518,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "input_normalization": None,
                 "static_factory_constants": None,
                 "lifted_tensor_constants": None,
+                "fresh_detach_functionalization": None,
                 "static_identity_advanced_indices": None,
                 "static_gqa_repeats": None,
                 "tensor_placement": None,
@@ -476,9 +538,10 @@ class TestVulkanGraphEvidence(TestCase):
             "input_normalization": {"normalized_input_count": 1},
             "static_factory_constants": {"created_constant_count": 2},
             "lifted_tensor_constants": {"created_constant_count": 3},
-            "static_identity_advanced_indices": {"lowered_count": 4},
-            "static_gqa_repeats": {"lowered_count": 5},
-            "tensor_placement": {"buffer_direct_count": 6},
+            "fresh_detach_functionalization": {"functionalized_count": 4},
+            "static_identity_advanced_indices": {"lowered_count": 5},
+            "static_gqa_repeats": {"lowered_count": 6},
+            "tensor_placement": {"buffer_direct_count": 7},
         }
         reports = _lowering_reports(SimpleNamespace(**preparation_reports))
         self.assertEqual(

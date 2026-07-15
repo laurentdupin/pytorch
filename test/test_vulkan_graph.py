@@ -764,6 +764,121 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
+    def test_cpp_graph_plan_functionalizes_fresh_detach_chain(self):
+        class FreshDetachCat(torch.nn.Module):
+            def forward(self, tensor):
+                fresh = torch.tensor([1.0, 2.0])
+                return torch.cat([tensor, fresh.detach_()])
+
+        model = FreshDetachCat().eval()
+        first_input = torch.randn(2)
+        second_input = torch.randn(2)
+        program = torch.vulkan.export_and_lower(model, first_input)
+
+        functionalization = program.fresh_detach_functionalization
+        self.assertEqual(functionalization.candidate_count, 2)
+        self.assertEqual(functionalization.functionalized_count, 2)
+        self.assertEqual(functionalization.rejected_count, 0)
+        self.assertEqual(
+            tuple(node.status for node in functionalization.nodes),
+            ("functionalized", "functionalized"),
+        )
+        self.assertEqual(
+            tuple(node.reason for node in functionalization.nodes),
+            (
+                "fresh_single_user_detach_chain",
+                "fresh_single_user_detach_chain",
+            ),
+        )
+        self.assertEqual(
+            tuple(node.replacement_target for node in functionalization.nodes),
+            ("aten::detach", "aten::detach"),
+        )
+        self.assertFalse(
+            any(
+                node.target == torch.ops.aten.detach_.default
+                for node in program.graph_module.graph.nodes
+            )
+        )
+        self.assertEqual(
+            sum(
+                node.target == torch.ops.aten.detach.default
+                for node in program.graph_module.graph.nodes
+            ),
+            2,
+        )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.status, "compiled")
+
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            first_output = program(first_input)
+            second_output = program(second_input)
+
+        self.assertEqual(first_output.cpu(), model(first_input))
+        self.assertEqual(second_output.cpu(), model(second_input))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_fresh_detach_functionalization_rejects_input_alias(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        detached = graph.call_function(
+            torch.ops.aten.detach_.default,
+            (tensor,),
+        )
+        graph.output(detached)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.functionalize_fresh_detach_mutations(
+            graph_module
+        )
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.functionalized_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].status, "rejected")
+        self.assertEqual(
+            report.nodes[0].reason,
+            "input_is_not_a_fresh_detach_chain",
+        )
+        self.assertEqual(detached.target, torch.ops.aten.detach_.default)
+
+    def test_fresh_detach_functionalization_rejects_branched_fresh_value(self):
+        root = torch.nn.Module()
+        root.register_buffer("constant", torch.ones(2), persistent=False)
+        graph = torch.fx.Graph()
+        constant = graph.get_attr("constant")
+        fresh = graph.call_function(
+            torch.ops.aten.lift_fresh_copy.default,
+            (constant,),
+        )
+        detached = graph.call_function(
+            torch.ops.aten.detach_.default,
+            (fresh,),
+        )
+        other = graph.call_function(torch.ops.aten.sin.default, (fresh,))
+        graph.output((detached, other))
+        graph_module = torch.fx.GraphModule(root, graph)
+
+        report = vulkan_graph_lowering.functionalize_fresh_detach_mutations(
+            graph_module
+        )
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.functionalized_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].status, "rejected")
+        self.assertEqual(
+            report.nodes[0].reason,
+            "fresh_chain_value_has_other_users",
+        )
+        self.assertEqual(detached.target, torch.ops.aten.detach_.default)
+
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
             def __init__(self):

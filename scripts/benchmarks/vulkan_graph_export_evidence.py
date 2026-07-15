@@ -168,8 +168,31 @@ def _device_runtime_identity(device: torch.device) -> dict[str, Any]:
     }
 
 
+def _execution_plan_summary(
+    program: torch.vulkan.VulkanGraphProgram,
+) -> dict[str, Any] | None:
+    report = getattr(program, "cpp_plan_report", None)
+    if report is None:
+        return None
+    return {
+        "mode": getattr(program, "execution_mode", "python_correctness_executor"),
+        "status": report.status,
+        "reason": report.reason,
+        "plan_class": report.plan_class,
+        "plan_version": report.plan_version,
+        "input_count": report.input_count,
+        "instruction_count": report.instruction_count,
+        "effect_instruction_count": report.effect_instruction_count,
+        "list_argument_count": report.list_argument_count,
+        "value_count": report.value_count,
+        "output_count": report.output_count,
+    }
+
+
 def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
     census = program.census
+    execution_plan = _execution_plan_summary(program)
+
     def target_counts(classification: str) -> dict[str, int]:
         counts: dict[str, int] = Counter(
             node.target
@@ -196,8 +219,14 @@ def _graph_counts(program: torch.vulkan.VulkanGraphProgram) -> dict[str, Any]:
         "lowered_vulkan_by_target": target_counts("lowered_vulkan"),
         "unsupported_by_target": target_counts("unsupported"),
         "partition_candidates": {
-            "status": "not_planned_python_correctness_executor",
-            "vulkan_only_candidate_count": 0,
+            "status": (
+                execution_plan["status"]
+                if execution_plan is not None
+                else "not_planned_python_correctness_executor"
+            ),
+            "vulkan_only_candidate_count": int(
+                execution_plan is not None and execution_plan["mode"] == "cpp_plan"
+            ),
         },
     }
 
@@ -212,6 +241,9 @@ def _lowering_report_objects(
         ),
         "lifted_tensor_constants": getattr(
             program, "lifted_tensor_constants", None
+        ),
+        "fresh_detach_functionalization": getattr(
+            program, "fresh_detach_functionalization", None
         ),
         "static_identity_advanced_indices": getattr(
             program, "static_identity_advanced_indices", None
@@ -313,6 +345,7 @@ def _run_case(
                 "repeated_run_seconds_reference_only": repeated_run_seconds,
             },
             "guard": {"status": "accepted"},
+            "execution_plan": _execution_plan_summary(program),
             "runtime_counters": counters,
         },
         {
@@ -323,6 +356,7 @@ def _run_case(
                 "repeated_run_seconds_reference_only": repeated_run_seconds,
             },
             "guard": {"status": "accepted"},
+            "execution_plan": _execution_plan_summary(program),
             "graph_vs_eager_vulkan": graph_eager,
             "graph_vs_cpu": graph_cpu_parity,
             "tolerance": {
@@ -493,6 +527,7 @@ def main() -> int:
         "program_key": _jsonable(program.key),
         "graph_structure": _graph_structure(program),
         "graph_census": _graph_counts(program),
+        "execution_plan": _execution_plan_summary(program),
         **lowering_reports,
     }
     census = {

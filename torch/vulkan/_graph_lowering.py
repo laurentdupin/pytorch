@@ -264,6 +264,23 @@ class VulkanGraphInputNormalizationReport:
 
 
 @dataclasses.dataclass(frozen=True)
+class VulkanFreshDetachFunctionalizationNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    source_node_name: str | None
+    replacement_target: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanFreshDetachFunctionalizationReport:
+    candidate_count: int
+    functionalized_count: int
+    rejected_count: int
+    nodes: tuple[VulkanFreshDetachFunctionalizationNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
 class VulkanStaticFactoryConstantNodeReport:
     node_name: str
     status: str
@@ -1156,6 +1173,76 @@ def lower_static_factory_constants(
         skipped_count=sum(report.status == "skipped" for report in reports),
         created_constant_count=created_constant_count,
         reused_constant_count=reused_constant_count,
+        nodes=tuple(reports),
+    )
+
+
+def _fresh_detach_chain_rejection(
+    producer: Any,
+    consumer: torch.fx.Node,
+) -> str | None:
+    if not isinstance(producer, torch.fx.Node):
+        return "input_is_not_a_graph_value"
+    if producer.op != "call_function" or producer.target not in (
+        torch.ops.aten.lift_fresh_copy.default,
+        torch.ops.aten.detach.default,
+    ):
+        return "input_is_not_a_fresh_detach_chain"
+    if len(producer.args) != 1 or producer.kwargs:
+        return "fresh_chain_node_has_invalid_arguments"
+    if len(producer.users) != 1 or consumer not in producer.users:
+        return "fresh_chain_value_has_other_users"
+    if producer.target == torch.ops.aten.lift_fresh_copy.default:
+        return None
+    return _fresh_detach_chain_rejection(producer.args[0], producer)
+
+
+def functionalize_fresh_detach_mutations(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanFreshDetachFunctionalizationReport:
+    reports: list[VulkanFreshDetachFunctionalizationNodeReport] = []
+    for node in tuple(graph_module.graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.detach_.default
+        ):
+            continue
+        source = node.args[0] if len(node.args) == 1 and not node.kwargs else None
+        rejection = _fresh_detach_chain_rejection(source, node)
+        if rejection is not None:
+            reports.append(
+                VulkanFreshDetachFunctionalizationNodeReport(
+                    node_name=node.name,
+                    status="rejected",
+                    reason=rejection,
+                    source_node_name=(
+                        source.name if isinstance(source, torch.fx.Node) else None
+                    ),
+                    replacement_target=None,
+                )
+            )
+            continue
+        node.target = torch.ops.aten.detach.default
+        reports.append(
+            VulkanFreshDetachFunctionalizationNodeReport(
+                node_name=node.name,
+                status="functionalized",
+                reason="fresh_single_user_detach_chain",
+                source_node_name=source.name,
+                replacement_target="aten::detach",
+            )
+        )
+
+    functionalized_count = sum(
+        report.status == "functionalized" for report in reports
+    )
+    if functionalized_count:
+        graph_module.graph.lint()
+        graph_module.recompile()
+    return VulkanFreshDetachFunctionalizationReport(
+        candidate_count=len(reports),
+        functionalized_count=functionalized_count,
+        rejected_count=len(reports) - functionalized_count,
         nodes=tuple(reports),
     )
 
