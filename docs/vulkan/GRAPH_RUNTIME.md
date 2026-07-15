@@ -151,6 +151,21 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
+`VulkanGraphPlan.v1` is the first bounded implementation slice. It consumes
+tensor inputs and a graph-owned immutable instruction/constant table, dispatches
+non-mutating Vulkan or composite operators in C++, and tracks Tensor SSA
+use-count, last-use, and output escape. Per-instruction graph scopes reject
+fallback, readback, deferred-value creation, and non-Vulkan results. Eligible
+multi-instruction graphs therefore cross Python once per invocation rather than
+once per node. The compiler reports why a graph remains on the Python executor;
+it does not silently mix the two execution modes.
+
+The v1 plan does not yet implement effect-only or non-Tensor values, nested
+dynamic arguments, multi-output operators, preallocated memory slots,
+descriptor/barrier construction, submission ownership, or generation-gated
+output reuse. Those remain Stage 2 requirements rather than being inferred from
+the boxed eager dispatch used by this first slice.
+
 ### Stage 3: Recorded Command Partitions
 
 Eligible Vulkan-only partitions record command buffers against stable
@@ -187,7 +202,10 @@ The Python correctness executor currently runs a four-token HY-MT prefill to
 completion with zero fallback or readback. That result proves graph coverage
 through boolean-masked SDPA, but does not transfer resource, descriptor,
 barrier, completion, or repeated-output ownership from Python to the C++ graph
-plan. Those ownership requirements remain Phase 5 work.
+plan. The first v1 compilation blocker is the non-Tensor return from
+`aten::_assert_tensor_metadata`; the complete HY-MT graph therefore remains on
+the Python executor. Those representation and ownership requirements remain
+Phase 5 work.
 
 ## Runtime Shader Generation
 

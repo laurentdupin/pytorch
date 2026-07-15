@@ -468,8 +468,10 @@ on device. A four-token HY-MT prefill now executes the complete Python program
 with zero lower-time unsupported nodes, CPU fallback, sync readback, or
 deferred-value creation. Numerical parity, repeated-output lifetime, dynamic
 guards, submit, memory, and latency evidence remain open before this result can
-contribute to a Migration deletion gate; the next architectural step remains
-the C++ graph plan executor, not a corpus-specific route.
+contribute to a Migration deletion gate. The first generic C++ plan slice now
+executes eligible tensor-only SSA graphs without Python per-node callbacks; the
+remaining work is to extend that executor and its ownership model, not add a
+corpus-specific route.
 
 Exit criteria:
 
@@ -490,6 +492,19 @@ structural.
 - attach execution to a stream/timeline completion token;
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
+
+Current status: `VulkanGraphPlan.v1` is an immutable C++ Tensor-SSA plan for
+fully bound, non-mutating Vulkan/composite operators with single-Tensor returns.
+It owns operator handles and constants, validates use-count/last-use metadata,
+releases non-escaping values after last use, rejects concurrent invocation, and
+checks each instruction for implicit host boundaries. A multi-instruction
+linear/GELU/residual graph executes repeatedly without Python node callbacks and
+preserves an earlier live output. Unsupported plan structure reports a reason
+and retains the Python correctness executor. HY-MT currently stops plan
+compilation at the non-Tensor return from `aten::_assert_tensor_metadata` and
+therefore remains Python-executed. Effect-only/control values, nested dynamic
+arguments, list/tuple and multi-output values, program memory slots,
+descriptors, submission/completion ownership, and corpus parity remain open.
 
 Exit criteria:
 

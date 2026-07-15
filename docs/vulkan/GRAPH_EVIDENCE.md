@@ -68,6 +68,14 @@ parity artifact: it does not compare output values, exercise alternate dynamic
 guards, repeat live outputs, or measure submits, memory, or latency, and cannot
 satisfy a subsystem deletion gate by itself.
 
+The same caller-owned probe was repeated after `VulkanGraphPlan.v1` was added
+to the working tree. Capture and runtime counts remain unchanged, while the plan
+report explicitly selects `python_correctness_executor` with first reason
+`non_tensor_return:_assert_tensor_metadata_default:aten::_assert_tensor_metadata`.
+This establishes the next generic representation blocker without claiming that
+HY-MT has transferred execution, memory, descriptor, or submission ownership to
+C++.
+
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, proven-identity indexing,
 static GQA repetition, and explicit tensor placement. It also records guard

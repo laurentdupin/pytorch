@@ -28,6 +28,7 @@
 #include <ATen/native/vulkan/ops/Zero.h>
 #include <ATen/native/vulkan/planning/DevicePolicy.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
+#include <ATen/native/vulkan/planning/GraphPlanExecutor.h>
 #include <ATen/native/vulkan/planning/GraphProgramPlans.h>
 #include <ATen/native/vulkan/planning/PackedWeightCache.h>
 #include <ATen/native/vulkan/planning/Runtime.h>
@@ -126,6 +127,19 @@ int register_vulkan_graph_region_plan() {
   static auto register_vulkan_graph_region_plan =
       torch::selective_class_<utils::VulkanGraphRegionPlan>(
           "vulkan", TORCH_SELECTIVE_CLASS("VulkanGraphRegionPlan"));
+  return 0;
+}
+
+int register_vulkan_graph_plan() {
+  static auto register_vulkan_graph_plan =
+      torch::selective_class_<utils::VulkanGraphPlan>(
+          "vulkan", TORCH_SELECTIVE_CLASS("VulkanGraphPlan"))
+          .def("input_count", &utils::VulkanGraphPlan::input_count)
+          .def("instruction_count", &utils::VulkanGraphPlan::instruction_count)
+          .def("value_count", &utils::VulkanGraphPlan::value_count)
+          .def("output_count", &utils::VulkanGraphPlan::output_count)
+          .def("value_use_counts", &utils::VulkanGraphPlan::value_use_counts)
+          .def("value_last_uses", &utils::VulkanGraphPlan::value_last_uses);
   return 0;
 }
 
@@ -2163,6 +2177,7 @@ TORCH_LIBRARY(vulkan, m) {
   register_vulkan_conv2d_packed_context();
   register_vulkan_conv1d_packed_context();
   register_vulkan_linear_packed_context();
+  register_vulkan_graph_plan();
   register_vulkan_graph_region_plan();
   register_vulkan_graph_add_layernorm_plan();
   register_vulkan_graph_conv2d_relu_plan();
@@ -2706,6 +2721,15 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::run_vulkan_graph_region_plan(Tensor[] inputs, "
       "__torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::create_vulkan_graph_plan("
+      "str[] node_names, str[] operator_names, str[] overload_names, "
+      "int[][] argument_refs, Any[] constants, int input_count, "
+      "int[] output_value_ids) "
+      "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_vulkan_graph_plan(Tensor[] inputs, "
+      "__torch__.torch.classes.vulkan.VulkanGraphPlan plan) -> Tensor[]"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_graph_add_layernorm_plan("
       "__torch__.torch.classes.vulkan.LayernormPackedContext context, "
       "SymInt[] normalized_shape) "
@@ -2824,6 +2848,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::create_vulkan_graph_region_plan_conv2d_relu_conv2d"),
       TORCH_FN(utils::create_vulkan_graph_region_plan_conv2d_relu_conv2d));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::create_vulkan_graph_plan"),
+      TORCH_FN(utils::create_vulkan_graph_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_fallback_phase_counters"),
       TORCH_FN(reset_fallback_phase_counters_runtime));
@@ -3489,6 +3516,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_vulkan_graph_region_plan"),
       TORCH_FN(utils::run_vulkan_graph_region_plan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_vulkan_graph_plan"),
+      TORCH_FN(utils::run_vulkan_graph_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv2d_clamp_run"),
       TORCH_FN(conv2d_clamp_run)); // Backwards compatibility

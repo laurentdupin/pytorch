@@ -13,6 +13,7 @@ from typing import Any
 import torch
 import torch.utils._pytree as pytree
 
+from ._graph_plan import VulkanGraphPlanReport, compile_vulkan_graph_plan
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanGraphInputNormalizationReport,
@@ -1052,6 +1053,8 @@ class VulkanGraphProgram:
         static_conv2d_relu_conv2d_regions: VulkanStaticConv2dReluConv2dRegionReport,
         static_conv2d_relu_regions: VulkanStaticConv2dReluRegionReport,
         vulkan_graph_regions: VulkanGraphRegionLoweringReport,
+        cpp_plan: Any | None,
+        cpp_plan_report: VulkanGraphPlanReport,
     ) -> None:
         self._graph_module = graph_module
         self._exported_input_guard = exported_input_guard
@@ -1074,6 +1077,8 @@ class VulkanGraphProgram:
         )
         self._static_conv2d_relu_regions = static_conv2d_relu_regions
         self._vulkan_graph_regions = vulkan_graph_regions
+        self._cpp_plan = cpp_plan
+        self._cpp_plan_report = cpp_plan_report
         self._run_count = 0
         self._last_executed_nodes: tuple[str, ...] = ()
         self._last_cpu_fallback_count = 0
@@ -1161,6 +1166,22 @@ class VulkanGraphProgram:
         return self._vulkan_graph_regions
 
     @property
+    def cpp_plan(self) -> Any | None:
+        return self._cpp_plan
+
+    @property
+    def cpp_plan_report(self) -> VulkanGraphPlanReport:
+        return self._cpp_plan_report
+
+    @property
+    def execution_mode(self) -> str:
+        return (
+            "cpp_plan"
+            if self._cpp_plan_report.status == "compiled"
+            else "python_correctness_executor"
+        )
+
+    @property
     def run_count(self) -> int:
         return self._run_count
 
@@ -1221,21 +1242,46 @@ class VulkanGraphProgram:
                     self._device,
                     self._tensor_placement,
                 )
-                interpreter = _VulkanGraphInterpreter(
-                    self._graph_module, self._device
-                )
+                interpreter: _VulkanGraphInterpreter | None = None
                 scope_token = _begin_graph_execution_scope()
                 try:
                     with torch.inference_mode():
-                        output = interpreter.run(*moved_args)
+                        if self._cpp_plan is not None:
+                            try:
+                                flat_output = (
+                                    torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                                        list(moved_args), self._cpp_plan
+                                    )
+                                )
+                            except Exception as error:
+                                raise VulkanGraphExecutionError(
+                                    "Vulkan C++ graph plan execution failed: "
+                                    f"{error}"
+                                ) from error
+                            output = self._graph_module.graph.process_outputs(
+                                tuple(flat_output)
+                            )
+                            self._last_executed_nodes = (
+                                self._cpp_plan_report.node_names
+                            )
+                        else:
+                            interpreter = _VulkanGraphInterpreter(
+                                self._graph_module, self._device
+                            )
+                            output = interpreter.run(*moved_args)
                 finally:
                     (
                         self._last_cpu_fallback_count,
                         self._last_sync_readback_count,
                         self._last_deferred_values_created,
                     ) = _end_graph_execution_scope(scope_token)
-                    self._last_executed_nodes = tuple(interpreter.executed_nodes)
-                    self._last_implicit_boundary = interpreter.last_implicit_boundary
+                    if interpreter is not None:
+                        self._last_executed_nodes = tuple(
+                            interpreter.executed_nodes
+                        )
+                        self._last_implicit_boundary = (
+                            interpreter.last_implicit_boundary
+                        )
 
             if (
                 self._last_cpu_fallback_count
@@ -1405,6 +1451,22 @@ def export_and_lower(
             + "\n".join(lowering_rejections)
         )
 
+    census = _build_census(graph_module)
+    if census.unsupported_node_count:
+        unsupported = [
+            f"{node.name} ({node.target}): {node.reason}"
+            for node in census.nodes
+            if node.classification == "unsupported"
+        ]
+        raise VulkanGraphExecutionError(
+            "Exported graph contains unsupported Vulkan nodes:\n"
+            + "\n".join(unsupported)
+        )
+    cpp_plan_compilation = compile_vulkan_graph_plan(
+        graph_module,
+        {node.name: node.classification for node in census.nodes},
+    )
+
     graph_fingerprint = "\n".join(
         (
             graph_module.code,
@@ -1424,6 +1486,7 @@ def export_and_lower(
             repr(static_conv2d_relu_conv2d_regions),
             repr(static_conv2d_relu_regions),
             repr(vulkan_graph_regions),
+            repr(cpp_plan_compilation.report),
         )
     )
     properties = torch.vulkan.get_device_properties(target_device)
@@ -1437,17 +1500,6 @@ def export_and_lower(
         driver_version=properties.driver_version,
         api_version=properties.api_version,
     )
-    census = _build_census(graph_module)
-    if census.unsupported_node_count:
-        unsupported = [
-            f"{node.name} ({node.target}): {node.reason}"
-            for node in census.nodes
-            if node.classification == "unsupported"
-        ]
-        raise VulkanGraphExecutionError(
-            "Exported graph contains unsupported Vulkan nodes:\n"
-            + "\n".join(unsupported)
-        )
     return VulkanGraphProgram(
         graph_module,
         exported_input_guard,
@@ -1468,6 +1520,8 @@ def export_and_lower(
         static_conv2d_relu_conv2d_regions,
         static_conv2d_relu_regions,
         vulkan_graph_regions,
+        cpp_plan_compilation.plan,
+        cpp_plan_compilation.report,
     )
 
 
@@ -1483,6 +1537,7 @@ __all__ = [
     "VulkanGraphNodeRecord",
     "VulkanGraphProgram",
     "VulkanGraphProgramKey",
+    "VulkanGraphPlanReport",
     "VulkanConv2dLoweringReport",
     "VulkanLayernormLoweringReport",
     "VulkanStaticAddLayernormRegionReport",

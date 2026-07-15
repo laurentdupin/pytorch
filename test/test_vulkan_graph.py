@@ -454,6 +454,102 @@ class TestVulkanGraph(TestCase):
                 self.assertFalse(_static_linear_gelu_plan_attrs(program))
                 self.assertEqual(len(_linear_context_attrs(program)), 1)
 
+    def test_cpp_graph_plan_executes_tensor_ssa_without_python_nodes(self):
+        class LinearGeluResidual(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(3, 4)
+
+            def forward(self, tensor):
+                linear = self.linear(tensor)
+                return torch.nn.functional.gelu(
+                    linear, approximate="tanh"
+                ) + linear
+
+        torch.manual_seed(18)
+        model = LinearGeluResidual().eval()
+        first_input = torch.randn(2, 3)
+        second_input = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, first_input)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertIsInstance(program.cpp_plan, torch.ScriptObject)
+        report = program.cpp_plan_report
+        self.assertEqual(report.status, "compiled")
+        self.assertEqual(report.reason, "immutable_tensor_ssa_plan")
+        self.assertEqual(report.plan_class, "VulkanGraphPlan")
+        self.assertEqual(report.plan_version, "v1")
+        self.assertEqual(report.input_count, 1)
+        self.assertEqual(report.instruction_count, 3)
+        self.assertEqual(report.value_count, 4)
+        self.assertEqual(report.output_count, 1)
+        self.assertEqual(report.value_use_counts, (1, 2, 1, 0))
+        self.assertEqual(report.value_last_uses, (0, 2, 2, 2))
+        self.assertEqual(program.cpp_plan.input_count(), 1)
+        self.assertEqual(program.cpp_plan.instruction_count(), 3)
+        self.assertEqual(program.cpp_plan.value_count(), 4)
+        self.assertEqual(program.cpp_plan.output_count(), 1)
+        self.assertEqual(
+            tuple(program.cpp_plan.value_use_counts()),
+            report.value_use_counts,
+        )
+        self.assertEqual(
+            tuple(program.cpp_plan.value_last_uses()),
+            report.value_last_uses,
+        )
+
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            first_output = program(first_input)
+            second_output = program(second_input)
+
+        torch.testing.assert_close(
+            first_output.cpu(), model(first_input), rtol=1e-4, atol=1e-4
+        )
+        torch.testing.assert_close(
+            second_output.cpu(), model(second_input), rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(program.run_count, 2)
+        self.assertEqual(program.last_executed_nodes, report.node_names)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_rejects_mutable_dispatch(self):
+        with self.assertRaisesRegex(RuntimeError, "rejects mutable operator"):
+            torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+                ["mutable_add"],
+                ["aten::add_"],
+                ["Tensor"],
+                [[0, 1, -1]],
+                [1],
+                2,
+                [2],
+            )
+
+    def test_cpp_graph_plan_attributes_dispatch_failure_to_node(self):
+        plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+            ["invalid_mm"],
+            ["aten::mm"],
+            [""],
+            [[0, 1]],
+            [],
+            2,
+            [2],
+        )
+        left = torch.randn(2, 3, device="vulkan")
+        right = torch.randn(4, 2, device="vulkan")
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "VulkanGraphPlan.v1 node 'invalid_mm'.*failed",
+        ):
+            torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                [left, right], plan
+            )
+
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
             def __init__(self):
@@ -1922,6 +2018,11 @@ class TestVulkanGraph(TestCase):
         model = NoGradPointwise().eval()
         tensor = torch.randn(2, 3)
         program = torch.vulkan.export_and_lower(model, tensor)
+        self.assertEqual(program.execution_mode, "python_correctness_executor")
+        self.assertEqual(
+            program.cpp_plan_report.reason,
+            "argument_type_mismatch:add_1:other",
+        )
         self.assertFalse(
             any(
                 node.target is torch.ops.higher_order.wrap_with_set_grad_enabled
