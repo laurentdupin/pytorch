@@ -48,19 +48,19 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
-at source commit `6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2` and
+at source commit `bc331fcfc9d3b69d5d57845453da6320e74fa6e9` and
 `torch_cpu.dll` SHA-256
-`4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94`.
+`50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2`.
 The DAv2 census lowers all 12 `linear_gelu_none` candidates with no rejection;
 PaddleOCR remains the control with no such candidates. Both corpora report zero
 unsupported nodes, exact graph-versus-eager Vulkan parity, and zero runtime CPU
 fallback, sync readback, or deferred-value creation. DAv2 executes its complete
-404-instruction C++ plan but remains top-level non-owning because it invokes 20
-nested graph-region plans. PaddleOCR encodes its omitted `avg_pool2d` stride as
-a schema-typed empty list recipe, executes its complete 290-instruction C++
-plan, and records top-level invocation generations, completed nonzero timeline
-tokens, graph-invocation counters, and submit origins. Future
-measurements are caller-owned until they are deliberately reviewed and
+404-instruction C++ plan with all 20 graph-region calls under the outer owner.
+PaddleOCR encodes its omitted `avg_pool2d` stride as a schema-typed empty list
+recipe and executes its complete 290-instruction C++ plan. Both record
+top-level invocation generations, completed nonzero final timeline tokens,
+bounded owner checkpoints, graph-invocation counters, and submit origins.
+Future measurements are caller-owned until they are deliberately reviewed and
 replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
@@ -91,7 +91,7 @@ blocker for the current prefill and transfers per-node execution plus top-level
 submission/completion ownership to C++; it does not claim that memory or
 descriptor ownership has transferred.
 
-The exact-SHA v7 DAv2 evidence admits `aten::sym_size.int` through its immutable
+The exact-SHA v8 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
 graph crosses those former representation blockers plus multi-schema-return
@@ -109,27 +109,26 @@ proofs. The matching exact-SHA v8 PaddleOCR measurement executes both shapes as
 a complete 290-instruction, 294-value C++ plan with one ordered effect, 14 list
 arguments, and one output. It retains exact graph-versus-eager parity, stays
 within the existing CPU tolerance, and reports zero fallback, readback, or
-deferred-value creation. Each shape runs twice and records two scopes, two token
-captures, two plan submits, two input uploads, two output readbacks, six total
-queue submits, and no frequency or retire-drain submits. The checked-in DAv2
-artifact reports `submission_owned=false`; each two-run shape records 16
-bounded scopes, 30 pending-command flushes, 56 retire-drain submits, and 92
-total queue submits. A later caller-owned nested-region worktree probe reports
-`submission_owned=true` for the same complete plan and both shapes. Each
-two-run shape records two outer scopes and final tokens, 48 owner checkpoint
-flushes, zero retire-drain submits, and 52 total submits. Graph versus eager
-Vulkan remains exact, CPU tolerance remains satisfied, and runtime fallback,
-readback, and deferred-value counters remain zero. Its repeated-run samples are
-about 38.8 ms and 38.3 ms versus 48.8 ms and 48.5 ms in the checked-in graph
-artifact. The worktree probe is correctness and direction evidence, not a
-checked-in exact-SHA latency or peak-memory deletion bar. The caller-owned
-HY-MT worktree probe retains its complete plan and records the owned
-checkpoint/token evidence described above.
+deferred-value creation. Each PaddleOCR shape runs twice and records two scopes,
+two final-token captures, 42 owner checkpoint flushes, two input uploads, two
+output readbacks, 46 total queue submits, and no normal-frequency or
+retire-drain submits. DAv2 reports `submission_owned=true` for the complete
+plan and both shapes. Each two-run shape records two outer scopes and final
+tokens, 48 owner checkpoint flushes, zero retire-drain submits, and 52 total
+submits. The prior supported graph artifact recorded 16 scopes, 56
+retire-drain submits, and 92 total submits. Graph versus eager Vulkan remains
+exact, CPU tolerance remains satisfied, and runtime fallback, readback, and
+deferred-value counters remain zero. DAv2 repeated-run samples are about 43.8
+ms and 39.7 ms versus 48.8 ms and 48.5 ms in the prior artifact. These samples
+are direction evidence, not a latency or peak-memory deletion bar. The
+caller-owned HY-MT worktree probe retains its complete plan and records the
+owned checkpoint/token evidence described above.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
-scope for plans without nested graph-region ownership. Multi-instruction plans
-capture the final timeline token per invocation, preserve an earlier unread
-output across a later generation, and report completion after readback.
+scope across ordinary instructions, lifted copies, and bounded graph regions.
+Multi-instruction plans capture the final timeline token per invocation,
+preserve an earlier unread output across a later generation, and report
+completion after readback.
 Lifted-copy tests retain direct-buffer layout and the same ownership scope.
 Large-linear tests force multiple owner checkpoints while the Python executor
 is disabled. Command-free metadata plans advance generation without

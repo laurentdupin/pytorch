@@ -250,22 +250,23 @@ DAv2 uses the same fail-closed preparation principle for two exported
 `aten::relu_` nodes. Each source must be a single-use result of a non-mutating
 operator with one non-aliasing Tensor return before the node may become
 functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
-values remain mutable. With that schema/alias proof, exact-SHA normal and
-alternate DAv2 runs execute a 404-instruction immutable C++ plan with exact
-graph-versus-eager parity and zero fallback, readback, or deferred values. A
-later caller-owned worktree probe transfers the 12 linear/GELU and eight
-conv/ReLU/conv region calls to one outer owner per invocation. The two-run
+values remain mutable. Exact-SHA normal and alternate DAv2 runs execute a
+404-instruction immutable C++ plan with exact graph-versus-eager parity and zero
+fallback, readback, or deferred values. Its 12 linear/GELU and eight
+conv/ReLU/conv region calls use one outer owner per invocation. The two-run
 shape evidence drops from 16 scopes and 92 total submits to two scopes and 52
-total submits, including zero retire-drain submits, while repeated-run samples
-drop from about 48.8 ms to 38.8 ms. This transfers execution and top-level
-submission/completion ownership, but not memory or descriptor ownership.
+total submits, including zero retire-drain submits; repeated-run samples move
+from about 48.8 ms and 48.5 ms to 43.8 ms and 39.7 ms. This transfers execution
+and top-level submission/completion ownership, but not memory or descriptor
+ownership.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and
-zero fallback, readback, or deferred values. It transfers boxed execution and
-top-level submission/completion ownership, but not memory or descriptor
-ownership.
+zero fallback, readback, or deferred values. The two-run evidence records 42
+bounded owner checkpoints and 46 total submits rather than one unbounded
+command partition. It transfers boxed execution and top-level
+submission/completion ownership, but not memory or descriptor ownership.
 
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
 integer IValues using their composite registration. The bounded pure-integer

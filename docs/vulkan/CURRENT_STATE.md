@@ -13,24 +13,22 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed at source commit
-`6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2` against `torch_cpu.dll` SHA-256
-`4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94`.
+`bc331fcfc9d3b69d5d57845453da6320e74fa6e9` against `torch_cpu.dll` SHA-256
+`50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2`.
 Both corpora execute complete v8 C++ plans on both recorded shapes with exact
 graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
 fallback, readback, or deferred-value creation. DAv2 executes 404 instructions
 and proves that all 12 exported `linear_gelu_none` candidates lower without
-rejection. That checked-in artifact predates nested-region ownership: each
-two-run shape records 16 nested scopes and tokens, 30 pending-command flushes,
-56 retire-drain submits, and 92 total queue submits. A later caller-owned
-worktree probe lets all 20 region calls reuse the outer graph owner. Each
-two-run shape then records two scopes and final tokens, 48 owner checkpoint
-flushes, no retire-drain submits, and 52 total queue submits while retaining
-exact graph-versus-eager parity. PaddleOCR remains the GELU control, represents its
+rejection. All 20 region calls reuse the outer graph owner. Each two-run shape
+records two scopes and final tokens, 48 owner checkpoint flushes, no
+retire-drain submits, and 52 total queue submits. The previous supported graph
+artifact recorded 16 nested scopes, 56 retire-drain submits, and 92 total
+submits. PaddleOCR remains the GELU control, represents its
 schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
-executes 290 instructions. Its top-level plan owns one submission per
-invocation: each two-run shape records two scopes, two tokens, two plan submits,
-two input uploads, two output readbacks, six total queue submits, and no
-frequency or retire-drain submits. A later caller-owned HY-MT worktree probe
+executes 290 instructions. Its top-level plan records two scopes and final
+tokens per two-run shape, 42 owner checkpoint flushes, two input uploads, two
+output readbacks, 46 total queue submits, and no normal-frequency or
+retire-drain submits. A later caller-owned HY-MT worktree probe
 transfers lifted-copy and large-linear checkpoint submission ownership across
 its complete plan; its evidence is described below but is not a checked-in
 parity artifact.

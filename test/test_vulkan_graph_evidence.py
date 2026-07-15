@@ -776,7 +776,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2"},
+            {"bc331fcfc9d3b69d5d57845453da6320e74fa6e9"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -785,7 +785,7 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94"
+                "50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2"
             },
         )
         for payload in payloads:
@@ -812,14 +812,15 @@ class TestVulkanGraphEvidence(TestCase):
                 ),
                 (404, 2, 8, 20, 53, 425, 1),
             )
-            self.assertFalse(payload["execution_plan"]["submission_owned"])
+            self.assertTrue(payload["execution_plan"]["submission_owned"])
             self.assertEqual(
-                (
-                    payload["execution_plan"]["invocation_generation"],
-                    payload["execution_plan"]["last_submission_value"],
-                    payload["execution_plan"]["last_submission_complete"],
-                ),
-                (0, 0, True),
+                payload["execution_plan"]["invocation_generation"], 2
+            )
+            self.assertGreater(
+                payload["execution_plan"]["last_submission_value"], 0
+            )
+            self.assertTrue(
+                payload["execution_plan"]["last_submission_complete"]
             )
             self.assertEqual(
                 (
@@ -887,8 +888,8 @@ class TestVulkanGraphEvidence(TestCase):
             for case in census["cases"]:
                 self.assertEqual(set(case["runtime_counters"].values()), {0})
         expected_dav2_graph_counters = {
-            "scope_begun": 16,
-            "normal_submit_token_capture": 16,
+            "scope_begun": 2,
+            "normal_submit_token_capture": 2,
             "aborted_submit": 0,
             "rejected_incompatible_state": 0,
             "bounded_region_host_sync_rejected": 0,
@@ -899,8 +900,8 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_dav2_submit_origins = {
-            "total_queue_submits": 92,
-            "normal_cmd_submit_frequency": 2,
+            "total_queue_submits": 52,
+            "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
             "post_stack_flush": 0,
@@ -908,24 +909,23 @@ class TestVulkanGraphEvidence(TestCase):
             "tensor_cpu_readback": 2,
             "host_upload": 2,
             "fallback_readback": 0,
-            "retire_queue_drain": 56,
+            "retire_queue_drain": 0,
             "profiling_timestamp_reset": 0,
             "profiling_timestamp_readback": 0,
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 30,
+            "pending_command_flush": 48,
             "unknown": 0,
         }
         for payload in (dav2_census, dav2_parity):
             for case in payload["cases"]:
-                self.assertFalse(case["execution_plan"]["submission_owned"])
+                self.assertTrue(case["execution_plan"]["submission_owned"])
                 self.assertEqual(
-                    (
-                        case["execution_plan"]["invocation_generation"],
-                        case["execution_plan"]["last_submission_value"],
-                    ),
-                    (0, 0),
+                    case["execution_plan"]["invocation_generation"], 2
+                )
+                self.assertGreater(
+                    case["execution_plan"]["last_submission_value"], 0
                 )
                 self.assertTrue(
                     case["execution_plan"]["last_submission_complete"]
@@ -951,7 +951,7 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_paddle_submit_origins = {
-            "total_queue_submits": 6,
+            "total_queue_submits": 46,
             "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
@@ -966,7 +966,7 @@ class TestVulkanGraphEvidence(TestCase):
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 2,
+            "pending_command_flush": 42,
             "unknown": 0,
         }
         for payload in (paddle_census, paddle_parity):

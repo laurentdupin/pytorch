@@ -9,7 +9,7 @@
         "instruction_count": 290,
         "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 1282,
+        "last_submission_value": 1322,
         "list_argument_count": 14,
         "list_projection_instruction_count": 0,
         "mode": "cpp_plan",
@@ -63,7 +63,7 @@
           "fallback_readback": 0,
           "host_upload": 2,
           "normal_cmd_submit_frequency": 0,
-          "pending_command_flush": 2,
+          "pending_command_flush": 42,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
@@ -72,13 +72,13 @@
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 6,
+          "total_queue_submits": 46,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.05477970000356436,
-        "repeated_run_seconds_reference_only": 0.06665729999804171
+        "first_run_seconds": 0.0390218000029563,
+        "repeated_run_seconds_reference_only": 0.04482619999907911
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -99,7 +99,7 @@
         "instruction_count": 290,
         "invocation_generation": 4,
         "last_submission_complete": true,
-        "last_submission_value": 1323,
+        "last_submission_value": 1403,
         "list_argument_count": 14,
         "list_projection_instruction_count": 0,
         "mode": "cpp_plan",
@@ -153,7 +153,7 @@
           "fallback_readback": 0,
           "host_upload": 2,
           "normal_cmd_submit_frequency": 0,
-          "pending_command_flush": 2,
+          "pending_command_flush": 42,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
@@ -162,13 +162,13 @@
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 6,
+          "total_queue_submits": 46,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.05077259999961825,
-        "repeated_run_seconds_reference_only": 0.09214120000251569
+        "first_run_seconds": 0.04181949999474455,
+        "repeated_run_seconds_reference_only": 0.05454260000260547
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -974,7 +974,7 @@
     "instruction_count": 290,
     "invocation_generation": 4,
     "last_submission_complete": true,
-    "last_submission_value": 1323,
+    "last_submission_value": 1403,
     "list_argument_count": 14,
     "list_projection_instruction_count": 0,
     "mode": "cpp_plan",
@@ -1276,13 +1276,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94"
+        "sha256": "50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2",
+  "source_git_sha": "bc331fcfc9d3b69d5d57845453da6320e74fa6e9",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 4,

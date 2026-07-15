@@ -7,9 +7,9 @@
         "graph_scalar_instruction_count": 8,
         "input_count": 1,
         "instruction_count": 404,
-        "invocation_generation": 0,
+        "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 0,
+        "last_submission_value": 614,
         "list_argument_count": 53,
         "list_projection_instruction_count": 20,
         "mode": "cpp_plan",
@@ -18,12 +18,12 @@
         "plan_version": "v8",
         "reason": "immutable_ivalue_ssa_plan",
         "status": "compiled",
-        "submission_owned": false,
+        "submission_owned": true,
         "value_count": 425
       },
       "graph_vs_cpu": {
-        "max_abs": 0.003577709197998047,
-        "mean_abs": 0.002767107682302594,
+        "max_abs": 0.00311279296875,
+        "mean_abs": 0.002402833430096507,
         "tensor_leaf_count": 1
       },
       "graph_vs_eager_vulkan": {
@@ -47,9 +47,9 @@
         "graph_program_invocation": {
           "aborted_submit": 0,
           "bounded_region_host_sync_rejected": 0,
-          "normal_submit_token_capture": 16,
+          "normal_submit_token_capture": 2,
           "rejected_incompatible_state": 0,
-          "scope_begun": 16,
+          "scope_begun": 2,
           "scratch_captured": 8,
           "scratch_immediate_release": 0,
           "scratch_retire_enqueued": 0,
@@ -62,23 +62,23 @@
           "explicit_synchronize": 0,
           "fallback_readback": 0,
           "host_upload": 2,
-          "normal_cmd_submit_frequency": 2,
-          "pending_command_flush": 30,
+          "normal_cmd_submit_frequency": 0,
+          "pending_command_flush": 48,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
           "profiling_timestamp_reset": 0,
-          "retire_queue_drain": 56,
+          "retire_queue_drain": 0,
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 92,
+          "total_queue_submits": 52,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.051163000003725756,
-        "repeated_run_seconds_reference_only": 0.04882009999710135
+        "first_run_seconds": 0.04803920000267681,
+        "repeated_run_seconds_reference_only": 0.043780900006822776
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -97,9 +97,9 @@
         "graph_scalar_instruction_count": 8,
         "input_count": 1,
         "instruction_count": 404,
-        "invocation_generation": 0,
+        "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 0,
+        "last_submission_value": 1069,
         "list_argument_count": 53,
         "list_projection_instruction_count": 20,
         "mode": "cpp_plan",
@@ -108,12 +108,12 @@
         "plan_version": "v8",
         "reason": "immutable_ivalue_ssa_plan",
         "status": "compiled",
-        "submission_owned": false,
+        "submission_owned": true,
         "value_count": 425
       },
       "graph_vs_cpu": {
-        "max_abs": 0.001529693603515625,
-        "mean_abs": 0.0006073581171222031,
+        "max_abs": 0.0015354156494140625,
+        "mean_abs": 0.0005480061518028378,
         "tensor_leaf_count": 1
       },
       "graph_vs_eager_vulkan": {
@@ -124,13 +124,13 @@
       "guard": {
         "rejected_program_message": "VulkanGraphProgram exported input guard failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.8371728000056464,
+        "variant_compile_seconds": 2.7233486999975867,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "0e5d72799ba5a9115f9ca0105d4ac944b85ffc81ff4f85c5edb6156ee2f25e68",
+          "graph_hash": "3dc43cb7b2addcf20d10c8662946feb298bdeabe2d577d3a7ec5a933c53ba9ec",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -151,9 +151,9 @@
         "graph_program_invocation": {
           "aborted_submit": 0,
           "bounded_region_host_sync_rejected": 0,
-          "normal_submit_token_capture": 16,
+          "normal_submit_token_capture": 2,
           "rejected_incompatible_state": 0,
-          "scope_begun": 16,
+          "scope_begun": 2,
           "scratch_captured": 8,
           "scratch_immediate_release": 0,
           "scratch_retire_enqueued": 0,
@@ -166,23 +166,23 @@
           "explicit_synchronize": 0,
           "fallback_readback": 0,
           "host_upload": 2,
-          "normal_cmd_submit_frequency": 2,
-          "pending_command_flush": 30,
+          "normal_cmd_submit_frequency": 0,
+          "pending_command_flush": 48,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
           "profiling_timestamp_reset": 0,
-          "retire_queue_drain": 56,
+          "retire_queue_drain": 0,
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 92,
+          "total_queue_submits": 52,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.057282000001578126,
-        "repeated_run_seconds_reference_only": 0.048453499999595806
+        "first_run_seconds": 0.0409395000024233,
+        "repeated_run_seconds_reference_only": 0.039685899995674845
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -491,9 +491,9 @@
     "graph_scalar_instruction_count": 8,
     "input_count": 1,
     "instruction_count": 404,
-    "invocation_generation": 0,
+    "invocation_generation": 2,
     "last_submission_complete": true,
-    "last_submission_value": 0,
+    "last_submission_value": 614,
     "list_argument_count": 53,
     "list_projection_instruction_count": 20,
     "mode": "cpp_plan",
@@ -502,7 +502,7 @@
     "plan_version": "v8",
     "reason": "immutable_ivalue_ssa_plan",
     "status": "compiled",
-    "submission_owned": false,
+    "submission_owned": true,
     "value_count": 425
   },
   "external_assets": {
@@ -553,8 +553,8 @@
       "aten::squeeze.dim": 1,
       "aten::sym_size.int": 2,
       "aten::to.dtype": 2,
-      "aten::upsample_bicubic2d.vec": 1,
-      "aten::upsample_bilinear2d.vec": 5
+      "aten::upsample_bilinear2d.vec": 5,
+      "aten::upsample_nearest2d.vec": 1
     },
     "composite_runtime_verified": 129,
     "conditionally_supported": 0,
@@ -1456,7 +1456,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "728796ea6285abec0cb9c9aa49f00bf3d3b652b32b44be48aec8d1817ff97f6f",
+    "graph_hash": "17fc9d80b12dc6b1a97b63d53176c868cfc50c966d334277836052f97bbe83e0",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1475,13 +1475,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94"
+        "sha256": "50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2",
+  "source_git_sha": "bc331fcfc9d3b69d5d57845453da6320e74fa6e9",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,
