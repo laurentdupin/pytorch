@@ -179,21 +179,25 @@ checked C++ arithmetic with Python floor semantics and no dispatcher or Python
 callback. Non-integer operands, overflow, and division by zero fail closed.
 
 When every instruction uses the normal Context ownership path, v8 executes the
-invocation inside one `GraphProgramInvocationScope`. The scope suppresses
-frequency submits and rejects flush, sync, fenced recording, or cross-thread
-use. The plan submits once after the last instruction and records both an
-invocation generation and the returned stream timeline token; command-free
-metadata plans complete with no fabricated token. Plans containing a nested
-`VulkanGraphRegionPlan` transaction or `aten::lift_fresh_copy` report
-`submission_owned=false` until those ownership boundaries are unified.
-Eager-only pending-retirement checkpoints in LayerNorm, pool, and
-reduction-dimension softmax defer to an active outer graph scope; plain eager
-execution retains those checkpoints.
+invocation inside one `GraphProgramInvocationScope`. The scope rejects
+unowned flush, sync, fenced recording, or cross-thread use. Frequency and
+large-linear maintenance boundaries request owner-serviced checkpoints, which
+run only after the current instruction and its last-use releases. Each
+partition retains its real stream timeline token, and the plan records the
+final token with one invocation generation. Large-linear maintenance waits for
+the exact partition token before releasing its captured cache batches;
+frequency-only checkpoints remain asynchronous. Command-free metadata plans
+complete with no fabricated token. Direct-buffer `aten::lift_fresh_copy`
+executes inside this ownership path. Plans containing a nested
+`VulkanGraphRegionPlan` transaction still report `submission_owned=false` until
+that ownership boundary is unified. Eager-only pending-retirement checkpoints
+in LayerNorm, pool, and reduction-dimension softmax defer to an active outer
+graph scope; plain eager execution retains those checkpoints.
 
 The v8 plan does not yet implement deeper or non-list dynamic containers,
 projection from nested, tuple, or dictionary values, preallocated memory slots,
-descriptor/barrier
-construction, nested submission ownership, or generation-gated output reuse.
+descriptor/barrier construction, nested submission ownership, or
+generation-gated output reuse.
 Those remain Stage 2 requirements rather than being inferred from the boxed
 eager dispatch used by this slice.
 
@@ -234,9 +238,12 @@ completion with zero fallback or readback. The graph has no stateful mutable
 operator after graph preparation: all 64 `aten::detach_` nodes are proven to
 consume single-user chains rooted at `aten::lift_fresh_copy` and are rewritten
 to functional `aten::detach`. Input aliases and branched fresh values remain
-mutable and fail closed. This transfers per-node dispatch from Python to C++,
-but resource arenas, descriptors, barriers, submission/completion, dynamic
-guards, and repeated-output corpus evidence remain Phase 5 work.
+mutable and fail closed. A caller-owned worktree probe transfers top-level
+submission and completion ownership across lifted copies and 225 linear
+contexts, including bounded large-linear maintenance checkpoints. Resource
+arenas, descriptors, explicit barrier construction, dynamic guards,
+repeated-output corpus evidence, and supported-default memory/latency parity
+remain Phase 5 work.
 
 DAv2 uses the same fail-closed preparation principle for two exported
 `aten::relu_` nodes. Each source must be a single-use result of a non-mutating
@@ -245,14 +252,15 @@ functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
 values remain mutable. With that schema/alias proof, exact-SHA normal and
 alternate DAv2 runs execute a 404-instruction immutable C++ plan with exact
 graph-versus-eager parity and zero fallback, readback, or deferred values.
-This transfers execution, not memory, descriptor, submission, or completion
-ownership.
+This transfers execution but not memory, descriptor, nested submission, or
+completion ownership.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and
-zero fallback, readback, or deferred values. As with DAv2, this transfers boxed
-execution but not memory, descriptor, submission, or completion ownership.
+zero fallback, readback, or deferred values. It transfers boxed execution and
+top-level submission/completion ownership, but not memory or descriptor
+ownership.
 
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
 integer IValues using their composite registration. The bounded pure-integer

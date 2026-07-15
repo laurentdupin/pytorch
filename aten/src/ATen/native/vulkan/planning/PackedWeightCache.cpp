@@ -438,28 +438,40 @@ void defer_retired_packed_weight_entries(
   retired_entries.clear();
 }
 
-bool release_retired_packed_weight_entries_impl() {
-  std::deque<PackedWeightHandle> retired_handles;
-  std::deque<RetiredPackedWeightMetadata> retired_metadata;
+std::function<void()> take_retired_packed_weight_cleanup_impl() {
+  auto retired_handles = std::make_shared<std::deque<PackedWeightHandle>>();
+  auto retired_metadata =
+      std::make_shared<std::deque<RetiredPackedWeightMetadata>>();
   {
     std::lock_guard<std::mutex> lock(retired_packed_weight_mutex());
-    retired_handles.swap(retired_packed_weight_handles());
-    retired_metadata.swap(leaked_retired_packed_weight_metadata());
+    retired_handles->swap(retired_packed_weight_handles());
+    retired_metadata->swap(leaked_retired_packed_weight_metadata());
   }
-  if (retired_handles.empty()) {
+  if (retired_handles->empty()) {
+    return {};
+  }
+  return [retired_handles = std::move(retired_handles),
+          retired_metadata = std::move(retired_metadata)]() mutable {
+    const size_t retired_count = retired_handles->size();
+    if (c10::InferenceMode::is_enabled()) {
+      c10::InferenceMode inference_mode_guard(false);
+      retired_handles->clear();
+    } else {
+      retired_handles->clear();
+    }
+    retired_metadata->clear();
+    log_vulkan_op_hit(
+        std::string("vulkan_packed_weight_release.released count=") +
+        std::to_string(retired_count));
+  };
+}
+
+bool release_retired_packed_weight_entries_impl() {
+  std::function<void()> cleanup = take_retired_packed_weight_cleanup_impl();
+  if (!cleanup) {
     return false;
   }
-  const size_t retired_count = retired_handles.size();
-  if (c10::InferenceMode::is_enabled()) {
-    c10::InferenceMode inference_mode_guard(false);
-    retired_handles.clear();
-  } else {
-    retired_handles.clear();
-  }
-  retired_metadata.clear();
-  log_vulkan_op_hit(
-      std::string("vulkan_packed_weight_release.released count=") +
-      std::to_string(retired_count));
+  cleanup();
   return true;
 }
 
@@ -1421,16 +1433,27 @@ void retire_linear_context_after_prune(
   retired_linear_contexts().emplace_back(std::move(context));
 }
 
-bool release_retired_linear_contexts_impl() {
-  std::deque<c10::intrusive_ptr<LinearPackedContext>> retired_contexts;
+std::function<void()> take_retired_linear_context_cleanup_impl() {
+  auto retired_contexts = std::make_shared<
+      std::deque<c10::intrusive_ptr<LinearPackedContext>>>();
   {
     std::lock_guard<std::mutex> lock(retired_linear_context_mutex());
-    retired_contexts.swap(retired_linear_contexts());
+    retired_contexts->swap(retired_linear_contexts());
   }
-  if (retired_contexts.empty()) {
+  if (retired_contexts->empty()) {
+    return {};
+  }
+  return [retired_contexts = std::move(retired_contexts)]() mutable {
+    retired_contexts->clear();
+  };
+}
+
+bool release_retired_linear_contexts_impl() {
+  std::function<void()> cleanup = take_retired_linear_context_cleanup_impl();
+  if (!cleanup) {
     return false;
   }
-  retired_contexts.clear();
+  cleanup();
   return true;
 }
 
@@ -1501,8 +1524,16 @@ bool release_retired_linear_contexts() {
   return release_retired_linear_contexts_impl();
 }
 
+std::function<void()> take_retired_linear_context_cleanup() {
+  return take_retired_linear_context_cleanup_impl();
+}
+
 bool release_retired_packed_weight_entries() {
   return release_retired_packed_weight_entries_impl();
+}
+
+std::function<void()> take_retired_packed_weight_cleanup() {
+  return take_retired_packed_weight_cleanup_impl();
 }
 
 std::vector<std::string> packed_weight_residency_snapshot() {

@@ -552,8 +552,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           schema->operator_name());
       if (
           operator_names[instruction_index] ==
-              "vulkan_prepack::run_vulkan_graph_region_plan" ||
-          operator_names[instruction_index] == "aten::lift_fresh_copy") {
+              "vulkan_prepack::run_vulkan_graph_region_plan") {
         state->submission_owned = false;
       }
     }
@@ -844,6 +843,9 @@ std::vector<Tensor> run_vulkan_graph_plan(
         values[static_cast<size_t>(output_value_id)] = c10::IValue();
         value_live[static_cast<size_t>(output_value_id)] = false;
       }
+    }
+    if (submission_scope && submission_scope->checkpoint_requested()) {
+      submission_scope->checkpoint();
     }
   }
 

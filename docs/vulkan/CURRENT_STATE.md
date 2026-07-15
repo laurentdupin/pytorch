@@ -27,8 +27,10 @@ schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
 executes 290 instructions. Its top-level plan owns one submission per
 invocation: each two-run shape records two scopes, two tokens, two plan submits,
 two input uploads, two output readbacks, six total queue submits, and no
-frequency or retire-drain submits. The caller-owned HY-MT probe also retains its
-complete plan and zero implicit-boundary counters.
+frequency or retire-drain submits. A later caller-owned HY-MT worktree probe
+transfers lifted-copy and large-linear checkpoint submission ownership across
+its complete plan; its evidence is described below but is not a checked-in
+parity artifact.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -48,14 +50,16 @@ The same four-token HY-MT prefill probe captures 3,160 nodes, lowers 225, and
 reports zero unsupported nodes at lower time. It now executes the complete
 immutable C++ plan, returns 65 tensor outputs, and records zero CPU fallback,
 sync readback, or deferred-value creation with no Vulkan behavior overrides.
-The v7 plan contains 2,732 instructions, including 268 ordered effects and 129
+The v8 plan contains 2,732 instructions, including 268 ordered effects and 129
 schema-typed list arguments. The former `[1,16,4,128]` boolean-masked SDPA
 boundary is covered by the generic bounded `MaskedTinySDPAContract` runtime
 family, which converts PyTorch boolean keep masks to an additive buffer on
-device. This integration probe establishes graph coverage and C++ dispatch,
-not numerical parity, dynamic-shape, repeated-output lifetime, submit,
-peak-memory, or latency evidence; all Migration deletion gates therefore
-remain unchanged.
+device. The latest worktree probe also records one owned invocation generation,
+a completed final timeline token, 168 graph-owner checkpoint flushes, and two
+host uploads. This establishes graph coverage, C++ dispatch, and top-level
+submission/completion ownership, not numerical parity, dynamic-shape,
+repeated-output lifetime, peak-memory, or latency evidence; all Migration
+deletion gates therefore remain unchanged.
 
 Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v8`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
@@ -78,16 +82,20 @@ metadata-checked, and Tensor-list concat graphs run through this path while the
 Python interpreter is disabled, and earlier live outputs remain valid after
 later invocations.
 
-The v8 plan can also own one normal Context recording transaction for the
-whole invocation. Compatible plans suppress frequency submits, reject nested
-flush/sync escape, submit once after all instructions, and retain the real
-stream timeline value with an invocation generation. A command-free plan
-completes successfully with generation advancement and no synthetic token.
-Plans containing `VulkanGraphRegionPlan` transactions or
-`aten::lift_fresh_copy` report `submission_owned=false` and retain their prior
-ownership path; v8 does not claim nested ownership that has not transferred.
-Pool and reduction-dimension softmax retain their eager pending-retirement
-checkpoints but defer those checkpoints while this outer transaction is active.
+The v8 plan can also own a bounded sequence of normal Context recording
+transactions for the whole invocation. The outer scope converts frequency and
+large-linear maintenance boundaries into graph-owner checkpoints serviced only
+after a complete instruction and its last-use releases. Every partition keeps
+its real stream timeline value; the plan exposes the final value with one
+invocation generation. Large-linear checkpoints wait for the exact partition
+token before releasing their captured packed-weight and linear-context batches.
+A command-free plan completes successfully with generation advancement and no
+synthetic token. Direct-buffer `aten::lift_fresh_copy` now remains inside this
+ownership path. Plans containing `VulkanGraphRegionPlan` transactions still
+report `submission_owned=false`; v8 does not claim nested ownership that has not
+transferred. Pool and reduction-dimension softmax retain their eager
+pending-retirement checkpoints but defer those checkpoints while this outer
+transaction is active.
 
 Plan selection is fail-closed. The v8 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
@@ -122,13 +130,13 @@ chain is proven to lead back to
 `aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
 mutable and fail closed. The four-token HY-MT probe proves this condition for
 all 64 exported detach mutations and now compiles the entire graph as a
-2,732-instruction `VulkanGraphPlan.v7`; it contains no graph-scalar or list
-projection instructions, so the v7 probe is also a strict executor regression
+2,732-instruction `VulkanGraphPlan.v8`; it contains no graph-scalar or list
+projection instructions, so the probe is also a strict executor regression
 check. The current v8 executor still does not preallocate a memory arena, own
-descriptors, transfer nested region or lifted-copy submissions, support deeper
-or non-list containers, or provide checked-in HY-MT parity/performance
-evidence. The submission transaction is a real ownership slice, but does not
-by itself satisfy a Migration deletion gate.
+descriptors, transfer nested region submissions, support deeper or non-list
+containers, or provide checked-in HY-MT parity/performance evidence. The
+submission transaction is a real ownership slice, but does not by itself
+satisfy a Migration deletion gate.
 
 Fresh-ReLU functionalization is independently fail-closed: the producer must
 be a non-mutating operator with exactly one non-aliasing Tensor return, and the

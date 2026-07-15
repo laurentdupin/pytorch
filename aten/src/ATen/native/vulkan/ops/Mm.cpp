@@ -1072,9 +1072,33 @@ void maybe_synchronize_after_large_linear_checkpoint(
 
   api::AllocationScope allocation_scope("linear.large_stack_checkpoint");
   api::Context* const context = api::context();
+  std::function<void()> packed_weight_cleanup =
+      utils::take_retired_packed_weight_cleanup();
+  std::function<void()> linear_context_cleanup =
+      utils::take_retired_linear_context_cleanup();
+  if (context->owns_graph_program_invocation()) {
+    context->request_graph_program_checkpoint(
+        [packed_weight_cleanup = std::move(packed_weight_cleanup),
+         linear_context_cleanup = std::move(linear_context_cleanup)]() mutable {
+          if (packed_weight_cleanup) {
+            packed_weight_cleanup();
+          }
+          if (linear_context_cleanup) {
+            linear_context_cleanup();
+          }
+        },
+        true);
+    utils::log_vulkan_op_hit(
+        "aten::linear.large_stack_checkpoint.requested_graph_checkpoint");
+    return;
+  }
   context->synchronize_stream(context->current_c10_stream());
-  utils::release_retired_packed_weight_entries();
-  utils::release_retired_linear_contexts();
+  if (packed_weight_cleanup) {
+    packed_weight_cleanup();
+  }
+  if (linear_context_cleanup) {
+    linear_context_cleanup();
+  }
 }
 
 static Tensor reshape_to_2d(const Tensor& input_arg);

@@ -692,6 +692,52 @@ class TestVulkanGraph(TestCase):
         )
         self.assertEqual(output.cpu(), model(tensor))
 
+    def test_cpp_graph_plan_owns_large_linear_checkpoint_submissions(self):
+        class RepeatedLinear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(1024, 1024, bias=False)
+
+            def forward(self, tensor):
+                value = tensor
+                for _ in range(49):
+                    linear = self.linear(value)
+                    value = torch.nn.functional.gelu(
+                        linear, approximate="tanh"
+                    ) + linear
+                return value
+
+        model = RepeatedLinear().eval()
+        tensor = torch.randn(1, 1024)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertTrue(program.cpp_plan_report.submission_owned)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor)
+
+        submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
+        self.assertEqual(output.shape, (1, 1024))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertEqual(program.cpp_plan.invocation_generation(), 1)
+        self.assertGreater(program.cpp_plan.last_submission_value(), 0)
+        self.assertGreaterEqual(submit_origins[15], 2)
+        self.assertEqual(
+            submit_origins[0], submit_origins[7] + submit_origins[15]
+        )
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+
     def test_cpp_graph_plan_rejects_mutable_dispatch(self):
         with self.assertRaisesRegex(RuntimeError, "rejects mutable operator"):
             torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
@@ -1021,7 +1067,9 @@ class TestVulkanGraph(TestCase):
         )
         self.assertEqual(program.execution_mode, "cpp_plan")
         self.assertEqual(program.cpp_plan_report.status, "compiled")
+        self.assertTrue(program.cpp_plan_report.submission_owned)
 
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
         with patch.object(
             vulkan_graph._VulkanGraphInterpreter,
             "run_node",
@@ -1035,6 +1083,13 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertEqual(program.cpp_plan.invocation_generation(), 2)
+        self.assertGreater(program.cpp_plan.last_submission_value(), 0)
+        self.assertTrue(program.cpp_plan.last_submission_complete())
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
 
     def test_fresh_detach_functionalization_rejects_input_alias(self):
         graph = torch.fx.Graph()
@@ -2834,17 +2889,28 @@ class TestVulkanGraph(TestCase):
         program = torch.vulkan.export_and_lower(model, tensor)
         report = program.lifted_tensor_constants
         self.assertEqual(report.lowered_count, 1)
-        self.assertFalse(program.cpp_plan_report.submission_owned)
-        self.assertFalse(program.cpp_plan.submission_owned())
+        self.assertTrue(program.cpp_plan_report.submission_owned)
+        self.assertTrue(program.cpp_plan.submission_owned())
         constant_attr = report.nodes[0].constant_attr
         self.assertIsNotNone(constant_attr)
         self.assertEqual(
             program.tensor_placement.buffer_constant_attrs,
             (constant_attr,),
         )
-        self.assertEqual(program(tensor).cpu(), model(tensor))
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        first = program(tensor)
+        second = program(tensor)
+        self.assertEqual(first.cpu(), model(tensor))
+        self.assertEqual(second.cpu(), model(tensor))
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.cpp_plan.invocation_generation(), 2)
+        self.assertGreater(program.cpp_plan.last_submission_value(), 0)
+        self.assertTrue(program.cpp_plan.last_submission_complete())
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
 
     def test_static_causal_mask_and_runtime_attention_mask_stay_on_device(self):
         class CausalAttentionMask(torch.nn.Module):

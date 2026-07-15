@@ -7,6 +7,7 @@
 #include <c10/util/intrusive_ptr.h>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -90,8 +91,10 @@ void store_labeled_linear_context(
     const c10::intrusive_ptr<LinearPackedContext>& context);
 
 bool release_retired_linear_contexts();
+std::function<void()> take_retired_linear_context_cleanup();
 
 bool release_retired_packed_weight_entries();
+std::function<void()> take_retired_packed_weight_cleanup();
 
 } // namespace utils
 } // namespace ops

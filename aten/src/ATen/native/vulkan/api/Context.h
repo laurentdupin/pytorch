@@ -156,6 +156,8 @@ class TORCH_API Context final {
 
     ~GraphProgramInvocationScope() noexcept;
 
+    bool checkpoint_requested() const;
+    VulkanSubmission checkpoint();
     VulkanSubmission submit();
     void abort();
     bool active() const;
@@ -163,6 +165,10 @@ class TORCH_API Context final {
     const VulkanSubmission& submission() const;
 
    private:
+    void run_post_submit_cleanup(
+        std::function<void()> cleanup,
+        bool wait_for_completion = false);
+
     Context* context_{nullptr};
     std::unique_lock<std::mutex> lock_;
     VulkanSubmission submission_{};
@@ -209,6 +215,9 @@ class TORCH_API Context final {
   // Command buffers submission
   std::mutex cmd_mutex_;
   std::atomic<bool> graph_program_invocation_active_{false};
+  bool graph_program_checkpoint_requested_{false};
+  bool graph_program_checkpoint_requires_wait_{false};
+  std::vector<std::function<void()>> graph_program_completion_cleanups_;
   CommandBuffer cmd_;
   CommandBuffer stack_region_owned_cmd_;
   uint32_t submit_count_;
@@ -416,6 +425,7 @@ class TORCH_API Context final {
   bool is_inside_owned_program_recording() const;
   bool graph_program_invocation_active_for_current_thread() const;
   bool graph_program_invocation_active() const;
+  std::function<void()> take_graph_program_completion_cleanup();
   bool stack_planned_recording_owned_by_current_thread() const;
   DescriptorPool& active_descriptor_pool();
   CommandBuffer& active_cmd();
@@ -477,6 +487,9 @@ class TORCH_API Context final {
   }
 
   bool owns_graph_program_invocation() const;
+  void request_graph_program_checkpoint(
+      std::function<void()> cleanup,
+      bool wait_for_completion = false);
 
   inline void enable_op_profiling() {
     enable_op_profiling_ = true;
@@ -1299,6 +1312,10 @@ inline bool Context::submit_copy(
             : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
   } else if (
+      graph_program_invocation && config_.cmdSubmitFrequency > 0u &&
+      submit_count_ >= config_.cmdSubmitFrequency) {
+    request_graph_program_checkpoint({});
+  } else if (
       stack_planned_recording &&
       submit_count_ >= config_.cmdSubmitFrequency) {
     stack_planned_recording_stats_.suppressed_frequency_flushes++;
@@ -1510,6 +1527,10 @@ inline bool Context::submit_compute_job(
             ? VulkanSubmitOrigin::TensorCpuReadback
             : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
+  } else if (
+      graph_program_invocation && config_.cmdSubmitFrequency > 0u &&
+      submit_count_ >= config_.cmdSubmitFrequency) {
+    request_graph_program_checkpoint({});
   }
 
   if (cpu_timeline) {

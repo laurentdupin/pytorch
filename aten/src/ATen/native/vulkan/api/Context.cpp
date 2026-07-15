@@ -1643,6 +1643,15 @@ Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
         false,
         "GraphProgramInvocationScope requires an idle normal Vulkan Context");
   }
+  TORCH_CHECK(
+      !context_->graph_program_checkpoint_requested_,
+      "GraphProgramInvocationScope found a stale checkpoint request");
+  TORCH_CHECK(
+      !context_->graph_program_checkpoint_requires_wait_,
+      "GraphProgramInvocationScope found a stale checkpoint wait");
+  TORCH_CHECK(
+      context_->graph_program_completion_cleanups_.empty(),
+      "GraphProgramInvocationScope found stale completion cleanup state");
   if (context_->cmd_) {
     context_->submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
@@ -1669,21 +1678,105 @@ Context::GraphProgramInvocationScope::~GraphProgramInvocationScope() noexcept {
   }
 }
 
+bool Context::GraphProgramInvocationScope::checkpoint_requested() const {
+  return active() && context_->graph_program_checkpoint_requested_;
+}
+
+void Context::GraphProgramInvocationScope::run_post_submit_cleanup(
+    std::function<void()> cleanup,
+    const bool wait_for_completion) {
+  if (!cleanup && !wait_for_completion) {
+    return;
+  }
+  lock_.unlock();
+  try {
+    if (wait_for_completion && submission_.timeline_value > 0u) {
+      VulkanStreamState& stream = vulkan_stream_pool().get_stream(
+          context_->device_index_, submission_.stream_id);
+      vulkan_stream_pool().wait_complete(
+          stream,
+          submission_.timeline_value,
+          VulkanForcedSyncReason::ExplicitSynchronize);
+      context_->poll_retire_queue();
+    }
+    if (cleanup) {
+      cleanup();
+    }
+  } catch (...) {
+    lock_.lock();
+    throw;
+  }
+  lock_.lock();
+  if (submission_.timeline_value > 0u) {
+    context_->retire_deferred_cleanup(
+        submission_, VulkanSubmitOrigin::PendingCommandFlush);
+  }
+  if (wait_for_completion) {
+    context_->poll_retire_queue();
+    context_->command_pool_.flush();
+    context_->descriptor_pool_.flush();
+    context_->flush_persistent_external_recording_pools_if_idle();
+    if (context_->cmd_) {
+      context_->cmd_.invalidate();
+    }
+    context_->submit_count_ = 0u;
+    context_->command_buffer_recording_id_ = 0u;
+  }
+}
+
+VulkanSubmission Context::GraphProgramInvocationScope::checkpoint() {
+  TORCH_CHECK(active(), "GraphProgramInvocationScope is not active");
+  TORCH_CHECK(
+      context_->graph_program_checkpoint_requested_,
+      "GraphProgramInvocationScope has no checkpoint request");
+  context_->graph_program_checkpoint_requested_ = false;
+  const bool wait_for_completion =
+      context_->graph_program_checkpoint_requires_wait_;
+  context_->graph_program_checkpoint_requires_wait_ = false;
+  if (!context_->cmd_ && context_->submit_count_ == 0u) {
+    std::function<void()> completion_cleanup =
+        context_->take_graph_program_completion_cleanup();
+    run_post_submit_cleanup(
+        std::move(completion_cleanup), wait_for_completion);
+    return submission_;
+  }
+  submission_ = context_->submit_cmd_to_gpu(
+      VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+  TORCH_CHECK(
+      submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
+      "GraphProgramInvocationScope checkpoint requires a submission token");
+  run_post_submit_cleanup(
+      context_->take_graph_program_completion_cleanup(), wait_for_completion);
+  return submission_;
+}
+
 VulkanSubmission Context::GraphProgramInvocationScope::submit() {
   TORCH_CHECK(active(), "GraphProgramInvocationScope is not active");
+  if (checkpoint_requested()) {
+    checkpoint();
+  }
   if (!context_->cmd_ && context_->submit_count_ == 0u) {
+    std::function<void()> completion_cleanup =
+        context_->take_graph_program_completion_cleanup();
+    run_post_submit_cleanup(std::move(completion_cleanup));
     lock_.unlock();
     g_graph_program_invocation_context = nullptr;
     context_->graph_program_invocation_active_.store(
         false, std::memory_order_release);
     state_ = State::Submitted;
-    return {};
+    if (submission_.timeline_value > 0u) {
+      vulkan_graph_program_invocation_counters()
+          .normal_submit_token_capture_count.fetch_add(
+              1u, std::memory_order_relaxed);
+    }
+    return submission_;
   }
   submission_ = context_->submit_cmd_to_gpu(
       VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
   TORCH_CHECK(
       submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
       "GraphProgramInvocationScope requires a normal submission token");
+  run_post_submit_cleanup(context_->take_graph_program_completion_cleanup());
   lock_.unlock();
   g_graph_program_invocation_context = nullptr;
   context_->graph_program_invocation_active_.store(
@@ -1698,7 +1791,11 @@ void Context::GraphProgramInvocationScope::abort() {
   if (!active()) {
     return;
   }
+  const bool wait_for_completion =
+      context_->graph_program_checkpoint_requires_wait_;
   try {
+    context_->graph_program_checkpoint_requested_ = false;
+    context_->graph_program_checkpoint_requires_wait_ = false;
     if (context_->cmd_) {
       submission_ = context_->submit_cmd_to_gpu(
           VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
@@ -1709,6 +1806,8 @@ void Context::GraphProgramInvocationScope::abort() {
       vulkan_graph_program_invocation_counters()
           .aborted_submit_count.fetch_add(1u, std::memory_order_relaxed);
     }
+    run_post_submit_cleanup(
+        context_->take_graph_program_completion_cleanup(), wait_for_completion);
   } catch (...) {
     lock_.unlock();
     g_graph_program_invocation_context = nullptr;
@@ -1761,6 +1860,34 @@ bool Context::graph_program_invocation_active() const {
 
 bool Context::owns_graph_program_invocation() const {
   return graph_program_invocation_active_for_current_thread();
+}
+
+void Context::request_graph_program_checkpoint(
+    std::function<void()> cleanup,
+    const bool wait_for_completion) {
+  TORCH_CHECK(
+      owns_graph_program_invocation(),
+      "Graph checkpoint request requires an active graph invocation");
+  graph_program_checkpoint_requested_ = true;
+  graph_program_checkpoint_requires_wait_ |= wait_for_completion;
+  if (cleanup) {
+    graph_program_completion_cleanups_.push_back(std::move(cleanup));
+  }
+}
+
+std::function<void()> Context::take_graph_program_completion_cleanup() {
+  if (graph_program_completion_cleanups_.empty()) {
+    return {};
+  }
+  auto cleanups = std::make_shared<std::vector<std::function<void()>>>(
+      std::move(graph_program_completion_cleanups_));
+  graph_program_completion_cleanups_.clear();
+  return [cleanups = std::move(cleanups)]() mutable {
+    for (auto& cleanup : *cleanups) {
+      cleanup();
+    }
+    cleanups->clear();
+  };
 }
 
 bool Context::is_stack_planned_recording_active() const {

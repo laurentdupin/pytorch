@@ -69,25 +69,27 @@ A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
 executes the complete immutable C++ plan, and returns 65 tensor outputs. The
 plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
-129 typed list arguments. A v7 regression probe reports zero graph-scalar and
+129 typed list arguments. The regression probe reports zero graph-scalar and
 list-projection instructions, as expected for this static prefill. Runtime
 counters remain zero for CPU fallback, sync readback, and deferred-value
-creation, with no Vulkan behavior overrides. This proves that static constants,
-boolean mask construction, identity indexing,
-GQA repetition, boolean-masked SDPA, and boxed C++ dispatch compose through one
-real prefill. It is not a checked-in parity artifact: it does not compare
-output values, exercise alternate dynamic guards, repeat live outputs, or
-measure submits, memory, or latency, and cannot satisfy a subsystem deletion
-gate by itself.
+creation, with no Vulkan behavior overrides. The latest worktree run records
+`submission_owned=true`, one invocation generation, completed final timeline
+token 756, 168 graph-owner checkpoint flushes, and two host uploads. This proves
+that static constants, boolean mask construction, identity indexing, GQA
+repetition, boolean-masked SDPA, boxed C++ dispatch, lifted copies, and bounded
+large-linear maintenance compose through one owner. It is not a checked-in
+parity artifact: it does not compare output values, exercise alternate dynamic
+guards, repeat live outputs, or measure peak memory or latency, and cannot
+satisfy a subsystem deletion gate by itself.
 
 The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
 candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
 so the generic preparation pass rewrites all 64 to functional `aten::detach`
 with no rejection. Placeholder aliases and branched fresh values are covered
 as adjacent negatives and remain mutable. This removes the last representation
-blocker for the current prefill and transfers per-node execution to C++; it
-does not claim that memory, descriptor, submission, or completion ownership
-has transferred.
+blocker for the current prefill and transfers per-node execution plus top-level
+submission/completion ownership to C++; it does not claim that memory,
+descriptor, or nested-region ownership has transferred.
 
 The exact-SHA v7 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
@@ -113,14 +115,17 @@ queue submits, and no frequency or retire-drain submits. DAv2 reports
 `submission_owned=false` because its 12 linear/GELU and eight conv/ReLU/conv
 regions retain nested ownership; each two-run shape records 16 bounded scopes,
 30 pending-command flushes, 56 retire-drain submits, and 92 total queue submits.
-The caller-owned v7 HY-MT probe retains its complete plan and zero counters.
+The caller-owned HY-MT worktree probe retains its complete plan and records the
+owned checkpoint/token evidence described above.
 
-Checked-in corpus and unit-level v8 evidence add one real normal-Context
-submission transaction for plans without nested graph-region or lifted-copy
-ownership. Multi-instruction plans capture one timeline token per invocation,
-preserve an earlier unread output across a later generation, and report
-completion after readback. Command-free metadata plans advance generation
-without fabricating a token.
+Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
+scope for plans without nested graph-region ownership. Multi-instruction plans
+capture the final timeline token per invocation, preserve an earlier unread
+output across a later generation, and report completion after readback.
+Lifted-copy tests retain direct-buffer layout and the same ownership scope.
+Large-linear tests force multiple owner checkpoints while the Python executor
+is disabled. Command-free metadata plans advance generation without
+fabricating a token.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach and fresh-ReLU

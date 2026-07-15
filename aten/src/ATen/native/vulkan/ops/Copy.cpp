@@ -1127,6 +1127,15 @@ void retire_after_fence_wait_and_release(
   release_retired_objects_after_context_unlock(context);
 }
 
+bool can_copy_vulkan_buffer_to_buffer_direct(
+    const vTensor& src,
+    const vTensor& dst) {
+  return src.has_direct_buffer_layout() && dst.has_direct_buffer_layout() &&
+      src.storage_offset() == 0 && dst.storage_offset() == 0 &&
+      src.gpu_memory_layout() == dst.gpu_memory_layout() &&
+      src.strides() == dst.strides() && src.gpu_nbytes() == dst.gpu_nbytes();
+}
+
 bool can_copy_vulkan_buffer_to_buffer_on_device(
     const vTensor& src,
     const vTensor& dst) {
@@ -1140,6 +1149,9 @@ bool can_copy_vulkan_buffer_to_buffer_on_device(
     return false;
   }
 
+  if (can_copy_vulkan_buffer_to_buffer_direct(src, dst)) {
+    return true;
+  }
   return src.dtype() == api::kFloat || src.dtype() == api::kByte;
 }
 
@@ -1169,11 +1181,7 @@ void copy_vulkan_buffer_to_buffer_on_device(
       consumer_role);
 
   api::Context* const context = dst.context();
-  if (
-      src.has_direct_buffer_layout() && dst.has_direct_buffer_layout() &&
-      src.storage_offset() == 0 && dst.storage_offset() == 0 &&
-      src.gpu_nbytes() == dst.gpu_nbytes() &&
-      !src.last_write_was_compute()) {
+  if (can_copy_vulkan_buffer_to_buffer_direct(src, dst)) {
     log_buffer_to_buffer_copy_submit("direct_transfer", src, dst);
     api::PipelineBarrier pipeline_barrier{};
     context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(

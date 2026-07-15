@@ -1,5 +1,6 @@
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/TensorProvenance.h>
+#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -24,7 +25,13 @@ Tensor clone(
       "Vulkan supports Preserve and Contiguous memory formats");
 
   Tensor self;
-  if (memory_format == MemoryFormat::Preserve) {
+  const vTensor& v_src = convert(src);
+  if (
+      src.is_contiguous() &&
+      v_src.storage_type() == api::StorageType::BUFFER &&
+      v_src.has_direct_buffer_layout()) {
+    self = utils::create_buffer_tensor(src.sizes(), src.scalar_type());
+  } else if (memory_format == MemoryFormat::Preserve) {
     if (src.is_non_overlapping_and_dense()) {
       // Copy all strides, this is marginally faster than calling empty_like
       self = at::empty_strided(src.sizes(), src.strides(), src.options());
