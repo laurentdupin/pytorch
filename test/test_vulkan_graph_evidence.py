@@ -17,14 +17,19 @@ from torch.vulkan._graph_evidence import (
 )
 from scripts.benchmarks.vulkan_graph_export_evidence import (
     _adapter_identity,
+    _allocator_residency_summary,
     _artifact_output_paths,
     _artifact_prefix,
+    _device_index,
     _execution_plan_summary,
     _graph_counts,
+    _int_summary_row,
     _is_export_guard_rejection,
+    _linear_pack_residency_summary,
     _lowering_reports,
     _named_counter_snapshot,
     _nonnegative_repeat_count,
+    _planning_diagnostic_summary,
     _planning_context,
     _positive_repeat_count,
     _summarize_latency_samples,
@@ -371,6 +376,102 @@ def _fake_static_conv2d_relu_conv2d_report(
 
 
 class TestVulkanGraphEvidence(TestCase):
+    def test_device_and_planning_diagnostics_are_structured(self):
+        self.assertEqual(_device_index("1"), 1)
+        with self.assertRaises(argparse.ArgumentTypeError):
+            _device_index("-1")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            _device_index("not-an-index")
+
+        route_row = (
+            "vulkan_route op=aten::convolution lane=AdjacentDepthVision "
+            "decision=VulkanBufferDirectKernel reason=None "
+            "family=buffer_float_conv2d telemetry=SelectedBufferFloatConv2d "
+            "hard_fail=0 shape={input=[1, 4, 8, 8]}"
+        )
+        runtime_policy_row = (
+            "runtime_policy workload=VisionDecoder "
+            "source_workload=Convolution model_domain=Vision "
+            "execution_phase=Decoder tensor_role=Input fixed_shape_graph=1 "
+            "prefer_packed_layout_propagation=1 backend_route=Vulkan "
+            "linear_kernel_family=TexturePacked "
+            "norm_kernel_family=TextureWidth "
+            "attention_kernel_family=TextureMath "
+            "attention_execution_strategy=GenericMath "
+            "inferred_from_label=0"
+        )
+
+        summary = _planning_diagnostic_summary(
+            [route_row, route_row],
+            [runtime_policy_row, "runtime_policy workload=VisionDecoder builds=2"],
+        )
+
+        self.assertEqual(summary["route_lanes"], ["AdjacentDepthVision"])
+        self.assertEqual(summary["route_decisions"][0]["count"], 2)
+        self.assertEqual(summary["runtime_model_domains"], ["Vision"])
+        self.assertEqual(summary["runtime_execution_phases"], ["Decoder"])
+        self.assertEqual(summary["runtime_inferred_from_label_count"], 0)
+        self.assertEqual(summary["runtime_policies"][0]["count"], 1)
+
+    def test_residency_snapshots_exclude_allocation_identities(self):
+        memory_rows = [
+            "vulkan_memory_summary live_bytes=384 high_water_bytes=512",
+            (
+                "vulkan_memory_residency id=1 generation=1 kind=buffer "
+                "state=live role=packed_weight requested_bytes=128 "
+                "allocated_bytes=128 owns_memory=1 label=linear"
+            ),
+            (
+                "vulkan_memory_residency id=2 generation=2 kind=image "
+                "state=pending_retire role=activation requested_bytes=200 "
+                "allocated_bytes=256 owns_memory=1 label=convolution"
+            ),
+        ]
+        allocator = _allocator_residency_summary(memory_rows)
+        self.assertEqual(allocator["allocation_count"], 2)
+        self.assertEqual(allocator["requested_bytes"], 328)
+        self.assertEqual(allocator["allocated_bytes"], 384)
+        self.assertEqual(
+            allocator["by_state"],
+            [
+                {
+                    "value": "live",
+                    "allocation_count": 1,
+                    "allocated_bytes": 128,
+                },
+                {
+                    "value": "pending_retire",
+                    "allocation_count": 1,
+                    "allocated_bytes": 256,
+                },
+            ],
+        )
+        self.assertNotIn("id", allocator)
+        self.assertEqual(
+            _int_summary_row(memory_rows, "vulkan_memory_summary "),
+            {"high_water_bytes": 512, "live_bytes": 384},
+        )
+
+        linear_pack = _linear_pack_residency_summary(
+            [
+                (
+                    "linear_pack_residency shape=4x4 count=1 created=1 "
+                    "reused=0 packed_bytes=64 raw_weight_bytes=64 "
+                    "raw_bias_bytes=16 raw_weight_vulkan=0 retain_unpacked=0"
+                ),
+                (
+                    "linear_pack_residency shape=8x8 count=2 created=1 "
+                    "reused=1 packed_bytes=256 raw_weight_bytes=256 "
+                    "raw_bias_bytes=32 raw_weight_vulkan=1 retain_unpacked=1"
+                ),
+            ]
+        )
+        self.assertEqual(linear_pack["row_count"], 2)
+        self.assertEqual(linear_pack["count"], 3)
+        self.assertEqual(linear_pack["created"], 2)
+        self.assertEqual(linear_pack["reused"], 1)
+        self.assertEqual(linear_pack["packed_bytes"], 320)
+
     def test_planning_context_binds_each_case_primary_input_shape(self):
         args = SimpleNamespace(
             planning_model_domain="vision",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import dataclasses
 import importlib
@@ -8,6 +9,7 @@ import importlib.util
 import os
 import statistics
 import sys
+import tempfile
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping
@@ -60,6 +62,40 @@ _SUBMIT_ORIGIN_COUNTER_NAMES = (
     "pending_command_flush",
     "unknown",
 )
+_ROUTE_DIAGNOSTIC_FIELDS = (
+    "op",
+    "lane",
+    "decision",
+    "reason",
+    "family",
+    "telemetry",
+    "hard_fail",
+)
+_RUNTIME_POLICY_DIAGNOSTIC_FIELDS = (
+    "workload",
+    "source_workload",
+    "model_domain",
+    "execution_phase",
+    "tensor_role",
+    "fixed_shape_graph",
+    "prefer_packed_layout_propagation",
+    "backend_route",
+    "linear_kernel_family",
+    "norm_kernel_family",
+    "attention_kernel_family",
+    "attention_execution_strategy",
+    "inferred_from_label",
+)
+_LINEAR_PACK_RESIDENCY_FIELDS = (
+    "count",
+    "created",
+    "reused",
+    "packed_bytes",
+    "raw_weight_bytes",
+    "raw_bias_bytes",
+    "raw_weight_vulkan",
+    "retain_unpacked",
+)
 
 
 def _named_counter_snapshot(
@@ -104,6 +140,16 @@ def _positive_repeat_count(value: str) -> int:
     if count == 0:
         raise argparse.ArgumentTypeError("measurement repeat count must be positive")
     return count
+
+
+def _device_index(value: str) -> int:
+    try:
+        index = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("device index must be an integer") from error
+    if index < 0:
+        raise argparse.ArgumentTypeError("device index must be nonnegative")
+    return index
 
 
 def _artifact_output_paths(output_dir: Path, prefix: str) -> tuple[Path, Path]:
@@ -237,6 +283,10 @@ def _device_runtime_identity(device: torch.device) -> dict[str, Any]:
         }
     return {
         "device": str(device),
+        "device_index": properties.index,
+        "device_name": properties.name,
+        "device_type": properties.type,
+        "total_memory_bytes": properties.total_memory,
         "vendor_id": properties.vendor_id,
         "device_id": properties.device_id,
         "driver_version": properties.driver_version,
@@ -391,28 +441,216 @@ def _graph_structure(program: torch.vulkan.VulkanGraphProgram) -> dict[str, int]
     }
 
 
-def _memory_usage_snapshot() -> dict[str, int]:
-    rows = torch.ops.vulkan_prepack.vulkan_memory_residency_snapshot()
-    prefix = "vulkan_memory_summary "
-    summary = next((row for row in rows if row.startswith(prefix)), None)
-    if summary is None:
-        raise RuntimeError("Vulkan memory snapshot is missing its summary row")
-    fields = dict(
-        field.split("=", 1)
-        for field in summary[len(prefix) :].split()
+def _row_fields(row: str, prefix: str) -> dict[str, str]:
+    return {
+        key: value
+        for token in row[len(prefix) :].split()
+        if "=" in token
+        for key, value in (token.split("=", 1),)
+    }
+
+
+def _aggregate_diagnostic_rows(
+    rows: list[str],
+    prefix: str,
+    field_names: tuple[str, ...],
+    required_field: str,
+) -> list[dict[str, Any]]:
+    counts: Counter[tuple[str, ...]] = Counter()
+    for row in rows:
+        if not row.startswith(prefix):
+            continue
+        fields = _row_fields(row, prefix)
+        if required_field not in fields:
+            continue
+        missing = [field for field in field_names if field not in fields]
+        if missing:
+            raise RuntimeError(
+                f"{prefix.strip()} diagnostic row is missing fields: {missing}"
+            )
+        counts[tuple(fields[field] for field in field_names)] += 1
+    return [
+        {
+            **dict(zip(field_names, values, strict=True)),
+            "count": count,
+        }
+        for values, count in sorted(counts.items())
+    ]
+
+
+def _planning_diagnostic_summary(
+    route_rows: list[str], runtime_policy_rows: list[str]
+) -> dict[str, Any]:
+    route_decisions = _aggregate_diagnostic_rows(
+        route_rows,
+        "vulkan_route ",
+        _ROUTE_DIAGNOSTIC_FIELDS,
+        "lane",
+    )
+    runtime_policies = _aggregate_diagnostic_rows(
+        runtime_policy_rows,
+        "runtime_policy ",
+        _RUNTIME_POLICY_DIAGNOSTIC_FIELDS,
+        "source_workload",
     )
     return {
-        "live_bytes": int(fields["live_bytes"]),
-        "high_water_bytes": int(fields["high_water_bytes"]),
+        "route_lanes": sorted({row["lane"] for row in route_decisions}),
+        "route_decisions": route_decisions,
+        "runtime_model_domains": sorted(
+            {row["model_domain"] for row in runtime_policies}
+        ),
+        "runtime_execution_phases": sorted(
+            {row["execution_phase"] for row in runtime_policies}
+        ),
+        "runtime_inferred_from_label_count": sum(
+            row["count"]
+            for row in runtime_policies
+            if row["inferred_from_label"] == "1"
+        ),
+        "runtime_policies": runtime_policies,
+    }
+
+
+@contextlib.contextmanager
+def _planning_diagnostic_capture(directory: Path, phase: str):
+    route_path = directory / f"{phase}_route.log"
+    runtime_policy_path = directory / f"{phase}_runtime_policy.log"
+    environment = {
+        "PYTORCH_VULKAN_ROUTE_LOG": str(route_path),
+        "PYTORCH_VULKAN_RUNTIME_POLICY_LOG": str(runtime_policy_path),
+    }
+    previous = {name: os.environ.get(name) for name in environment}
+    os.environ.update(environment)
+    try:
+        yield route_path, runtime_policy_path
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _captured_planning_diagnostics(
+    paths: tuple[Path, Path]
+) -> dict[str, Any]:
+    route_path, runtime_policy_path = paths
+    route_rows = (
+        route_path.read_text(encoding="utf-8").splitlines()
+        if route_path.is_file()
+        else []
+    )
+    runtime_policy_rows = (
+        runtime_policy_path.read_text(encoding="utf-8").splitlines()
+        if runtime_policy_path.is_file()
+        else []
+    )
+    return _planning_diagnostic_summary(route_rows, runtime_policy_rows)
+
+
+def _int_summary_row(rows: list[str], prefix: str) -> dict[str, int]:
+    summary = next((row for row in rows if row.startswith(prefix)), None)
+    if summary is None:
+        raise RuntimeError(f"Vulkan snapshot is missing {prefix.strip()!r}")
+    fields = _row_fields(summary, prefix)
+    return {key: int(value) for key, value in sorted(fields.items())}
+
+
+def _allocation_group_summary(
+    records: list[dict[str, str]], field_name: str
+) -> list[dict[str, int | str]]:
+    counts: Counter[str] = Counter()
+    allocated_bytes: Counter[str] = Counter()
+    for record in records:
+        value = record[field_name]
+        counts[value] += 1
+        allocated_bytes[value] += int(record["allocated_bytes"])
+    return [
+        {
+            "value": value,
+            "allocation_count": counts[value],
+            "allocated_bytes": allocated_bytes[value],
+        }
+        for value in sorted(counts)
+    ]
+
+
+def _allocator_residency_summary(rows: list[str]) -> dict[str, Any]:
+    prefix = "vulkan_memory_residency "
+    records = [
+        _row_fields(row, prefix) for row in rows if row.startswith(prefix)
+    ]
+    required_fields = {
+        "kind",
+        "state",
+        "role",
+        "requested_bytes",
+        "allocated_bytes",
+        "owns_memory",
+        "label",
+    }
+    for record in records:
+        missing = required_fields.difference(record)
+        if missing:
+            raise RuntimeError(
+                "Vulkan memory residency row is missing fields: "
+                f"{sorted(missing)}"
+            )
+    return {
+        "allocation_count": len(records),
+        "requested_bytes": sum(int(row["requested_bytes"]) for row in records),
+        "allocated_bytes": sum(int(row["allocated_bytes"]) for row in records),
+        "owned_allocated_bytes": sum(
+            int(row["allocated_bytes"])
+            for row in records
+            if row["owns_memory"] == "1"
+        ),
+        "by_kind": _allocation_group_summary(records, "kind"),
+        "by_state": _allocation_group_summary(records, "state"),
+        "by_role": _allocation_group_summary(records, "role"),
+        "by_label": _allocation_group_summary(records, "label"),
+    }
+
+
+def _linear_pack_residency_summary(rows: list[str]) -> dict[str, int]:
+    prefix = "linear_pack_residency "
+    totals = {field: 0 for field in _LINEAR_PACK_RESIDENCY_FIELDS}
+    row_count = 0
+    for row in rows:
+        if not row.startswith(prefix):
+            continue
+        fields = _row_fields(row, prefix)
+        missing = [
+            field for field in _LINEAR_PACK_RESIDENCY_FIELDS if field not in fields
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Linear pack residency row is missing fields: {missing}"
+            )
+        row_count += 1
+        for field in _LINEAR_PACK_RESIDENCY_FIELDS:
+            totals[field] += int(fields[field])
+    return {"row_count": row_count, **totals}
+
+
+def _memory_usage_snapshot() -> dict[str, Any]:
+    rows = list(torch.ops.vulkan_prepack.vulkan_memory_residency_snapshot())
+    fields = _int_summary_row(rows, "vulkan_memory_summary ")
+    return {
+        "live_bytes": fields["live_bytes"],
+        "high_water_bytes": fields["high_water_bytes"],
+        "allocator_residency": _allocator_residency_summary(rows),
     }
 
 
 def _begin_memory_phase() -> int:
     torch.ops.vulkan_prepack.reset_vulkan_memory_residency_snapshot()
+    torch.ops.vulkan_prepack.reset_packed_weight_residency_snapshot()
+    torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
     return _memory_usage_snapshot()["live_bytes"]
 
 
-def _finish_memory_phase(baseline_live_bytes: int) -> dict[str, int]:
+def _finish_memory_phase(baseline_live_bytes: int) -> dict[str, Any]:
     snapshot = _memory_usage_snapshot()
     return {
         "baseline_live_bytes": baseline_live_bytes,
@@ -421,6 +659,16 @@ def _finish_memory_phase(baseline_live_bytes: int) -> dict[str, int]:
         "peak_delta_bytes": max(
             0, snapshot["high_water_bytes"] - baseline_live_bytes
         ),
+        "residency": {
+            "allocator": snapshot["allocator_residency"],
+            "packed_weight_cache": _int_summary_row(
+                list(torch.ops.vulkan_prepack.packed_weight_residency_snapshot()),
+                "packed_weight_residency_summary ",
+            ),
+            "linear_pack": _linear_pack_residency_summary(
+                list(torch.ops.vulkan_prepack.linear_pack_residency_snapshot())
+            ),
+        },
     }
 
 
@@ -562,49 +810,77 @@ def _run_case(
     cpu_atol: float,
     cpu_rtol: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    with torch.inference_mode():
-        cpu_expected = cpu_model(*args)
-        eager_memory_baseline = _begin_memory_phase()
-        eager_args = pytree.tree_map(
-            lambda value: value.to("vulkan")
-            if isinstance(value, torch.Tensor)
-            else value,
-            args,
-        )
-        eager_output = eager_model(*eager_args)
-        eager_expected = pytree.tree_map(
-            lambda value: value.cpu() if isinstance(value, torch.Tensor) else value,
-            eager_output,
-        )
-        eager_memory = _finish_memory_phase(eager_memory_baseline)
-        del eager_output
-        del eager_args
-        torch.ops.vulkan_prepack.synchronize()
-        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
-        torch.ops.vulkan_prepack.reset_submit_origin_counters()
-        graph_first_memory_baseline = _begin_memory_phase()
-        first_start = time.perf_counter()
-        graph_output = program(*args)
-        first_run_seconds = time.perf_counter() - first_start
-        graph_cpu = pytree.tree_map(
-            lambda value: value.cpu() if isinstance(value, torch.Tensor) else value,
-            graph_output,
-        )
-        graph_eager = _parity(graph_cpu, eager_expected)
-        graph_cpu_parity = _parity(graph_cpu, cpu_expected)
-        _assert_close(graph_cpu, eager_expected, eager_atol, eager_rtol)
-        _assert_close(graph_cpu, cpu_expected, cpu_atol, cpu_rtol)
-        graph_first_memory = _finish_memory_phase(graph_first_memory_baseline)
-        torch.ops.vulkan_prepack.synchronize()
-        graph_repeat_memory_baseline = _begin_memory_phase()
-        repeat_start = time.perf_counter()
-        repeat_output = program(*args)
-        _ = pytree.tree_map(
-            lambda value: value.cpu() if isinstance(value, torch.Tensor) else value,
-            repeat_output,
-        )
-        repeated_run_seconds = time.perf_counter() - repeat_start
-        graph_repeat_memory = _finish_memory_phase(graph_repeat_memory_baseline)
+    with tempfile.TemporaryDirectory(prefix=f"vulkan_{name}_diagnostics_") as temp_dir:
+        diagnostic_dir = Path(temp_dir)
+        with torch.inference_mode():
+            cpu_expected = cpu_model(*args)
+            eager_memory_baseline = _begin_memory_phase()
+            with _planning_diagnostic_capture(
+                diagnostic_dir, "supported_eager"
+            ) as eager_diagnostic_paths:
+                eager_args = pytree.tree_map(
+                    lambda value: value.to("vulkan")
+                    if isinstance(value, torch.Tensor)
+                    else value,
+                    args,
+                )
+                eager_output = eager_model(*eager_args)
+                eager_expected = pytree.tree_map(
+                    lambda value: value.cpu()
+                    if isinstance(value, torch.Tensor)
+                    else value,
+                    eager_output,
+                )
+            eager_diagnostics = _captured_planning_diagnostics(
+                eager_diagnostic_paths
+            )
+            eager_memory = _finish_memory_phase(eager_memory_baseline)
+            del eager_output
+            del eager_args
+            torch.ops.vulkan_prepack.synchronize()
+            torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+            torch.ops.vulkan_prepack.reset_submit_origin_counters()
+            graph_first_memory_baseline = _begin_memory_phase()
+            with _planning_diagnostic_capture(
+                diagnostic_dir, "vulkan_graph_program_first"
+            ) as graph_first_diagnostic_paths:
+                first_start = time.perf_counter()
+                graph_output = program(*args)
+                first_run_seconds = time.perf_counter() - first_start
+                graph_cpu = pytree.tree_map(
+                    lambda value: value.cpu()
+                    if isinstance(value, torch.Tensor)
+                    else value,
+                    graph_output,
+                )
+            graph_first_diagnostics = _captured_planning_diagnostics(
+                graph_first_diagnostic_paths
+            )
+            graph_eager = _parity(graph_cpu, eager_expected)
+            graph_cpu_parity = _parity(graph_cpu, cpu_expected)
+            _assert_close(graph_cpu, eager_expected, eager_atol, eager_rtol)
+            _assert_close(graph_cpu, cpu_expected, cpu_atol, cpu_rtol)
+            graph_first_memory = _finish_memory_phase(graph_first_memory_baseline)
+            torch.ops.vulkan_prepack.synchronize()
+            graph_repeat_memory_baseline = _begin_memory_phase()
+            with _planning_diagnostic_capture(
+                diagnostic_dir, "vulkan_graph_program_repeat"
+            ) as graph_repeat_diagnostic_paths:
+                repeat_start = time.perf_counter()
+                repeat_output = program(*args)
+                _ = pytree.tree_map(
+                    lambda value: value.cpu()
+                    if isinstance(value, torch.Tensor)
+                    else value,
+                    repeat_output,
+                )
+                repeated_run_seconds = time.perf_counter() - repeat_start
+            graph_repeat_diagnostics = _captured_planning_diagnostics(
+                graph_repeat_diagnostic_paths
+            )
+            graph_repeat_memory = _finish_memory_phase(
+                graph_repeat_memory_baseline
+            )
     submission_counters = {
         "graph_program_invocation": _named_counter_snapshot(
             _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES,
@@ -629,6 +905,11 @@ def _run_case(
         "graph_first": graph_first_memory,
         "graph_repeat_with_prior_output_live": graph_repeat_memory,
     }
+    planning_diagnostics = {
+        "supported_eager": eager_diagnostics,
+        "vulkan_graph_program_first": graph_first_diagnostics,
+        "vulkan_graph_program_repeat": graph_repeat_diagnostics,
+    }
     return (
         {
             "name": name,
@@ -642,6 +923,7 @@ def _run_case(
             "runtime_counters": counters,
             "submission_counters": submission_counters,
             "memory": memory,
+            "planning_diagnostics": planning_diagnostics,
         },
         {
             "name": name,
@@ -654,6 +936,7 @@ def _run_case(
             "execution_plan": _execution_plan_summary(program),
             "submission_counters": submission_counters,
             "memory": memory,
+            "planning_diagnostics": planning_diagnostics,
             "graph_vs_eager_vulkan": graph_eager,
             "graph_vs_cpu": graph_cpu_parity,
             "tolerance": {
@@ -702,6 +985,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--artifact-prefix", default="dav2_vits", type=_artifact_prefix)
     parser.add_argument("--source-git-sha", default=None)
+    parser.add_argument("--device-index", type=_device_index, default=None)
     parser.add_argument("--eager-atol", type=float, default=0.0)
     parser.add_argument("--eager-rtol", type=float, default=0.0)
     parser.add_argument("--cpu-atol", type=float, default=0.0)
@@ -743,6 +1027,20 @@ def main() -> int:
             "Source Git SHA is required; pass --source-git-sha when git is not "
             "available on PATH"
         )
+    device_count = torch.vulkan.device_count()
+    if device_count < 1:
+        raise RuntimeError("No Vulkan devices are available")
+    device_index = (
+        torch.vulkan.current_device()
+        if args.device_index is None
+        else args.device_index
+    )
+    if device_index >= device_count:
+        raise ValueError(
+            f"--device-index {device_index} is outside [0, {device_count})"
+        )
+    torch.vulkan.set_device(device_index)
+    device = torch.device("vulkan", device_index)
     external_root, checkpoint = require_external_assets(
         args.external_root, args.checkpoint
     )
@@ -770,7 +1068,6 @@ def main() -> int:
             "--alternate-input-shape disagrees with adapter alternate_inputs"
         )
     dynamic_shapes = adapter.get("dynamic_shapes")
-    device = torch.device("vulkan")
     planning_context = _planning_context(args, normal)
     original_export_start = time.perf_counter()
     original_export = torch.export.export(

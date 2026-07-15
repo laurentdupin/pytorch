@@ -42,6 +42,7 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --checkpoint C:\external\Depth-Anything\checkpoints\depth_anything_v2_vits.pth \
   --output-dir C:\results\dav2_vits_graph \
   --source-git-sha <full-HEAD-SHA> \
+  --device-index 1 \
   --planning-model-domain vision --planning-execution-phase none \
   --planning-prefer-packed-layout-propagation \
   --planning-fixed-shape-graph-input \
@@ -49,6 +50,12 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --cpu-atol 0.004 --cpu-rtol 0.0 \
   --latency-warmup-repeats 3 --latency-measurement-repeats 10
 ```
+
+`--device-index` selects the adapter before constructing the external model or
+any Vulkan tensor. The artifact records that index, device name and type, and
+reported total memory with the existing driver and loaded-DLL identity. This
+makes constrained-adapter evidence explicit instead of depending on process
+device order.
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
@@ -171,6 +178,18 @@ supported eager high-water mark. DAv2 is 0.7% to 1.4% below eager across the
 recorded graph phases; PaddleOCR ranges from 0.2% to 3.3% above. These
 fields do not authorize model-name production dispatch, exact-shape admission,
 or executor performance tuning.
+
+New measurements record structured residency evidence for the same three
+phases. Allocator rows are aggregated by storage kind, lifetime state, semantic
+role, and allocation label with counts and bytes; allocation IDs and pointer
+identities are omitted.
+Packed-weight cache summaries record live and persistent bytes plus lookup,
+store, and eviction counters, while linear-pack summaries record created,
+reused, packed, raw-weight, and unpacked-retention totals. Each supported eager
+and graph run also captures route lanes and resolved runtime-policy fields. The
+graph rows must report `inferred_from_label=0` before label inference can become
+delete-ready; the eager rows preserve the supported-default comparison rather
+than silently applying a harness-only planning scope.
 
 Each case separately measures supported-default latency with preuploaded Vulkan
 inputs and Vulkan outputs that are not read back in the timed region. Plain
