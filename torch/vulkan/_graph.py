@@ -6,9 +6,9 @@ import dataclasses
 import hashlib
 import inspect
 import operator
+import re
 import threading
-from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.utils._pytree as pytree
@@ -46,6 +46,9 @@ from ._graph_lowering import (
     make_vulkan_graph_region_lowering_report,
     plan_graph_tensor_placements,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 @dataclasses.dataclass(frozen=True)
@@ -96,6 +99,41 @@ class VulkanGraphImplicitBoundaryAttribution:
 
 class VulkanGraphExecutionError(RuntimeError):
     pass
+
+
+_CPP_PLAN_IMPLICIT_BOUNDARY_PATTERN = re.compile(
+    r"VulkanGraphPlan\.v[0-9]+ node '([^']+)' \(([^)]+)\) crossed an "
+    r"implicit host boundary: cpu_fallback=([0-9]+), sync_readback=([0-9]+), "
+    r"deferred_values_created=([0-9]+)"
+)
+
+
+def _implicit_boundary_error(
+    attribution: VulkanGraphImplicitBoundaryAttribution,
+) -> VulkanGraphExecutionError:
+    return VulkanGraphExecutionError(
+        f"Vulkan graph node {attribution.node_name!r} ({attribution.target}) "
+        "crossed an implicit host boundary: "
+        f"cpu_fallback={attribution.cpu_fallback_count}, "
+        f"sync_readback={attribution.sync_readback_count}, "
+        f"deferred_values_created={attribution.deferred_values_created}. "
+        "Explicit CPU partitions and deferred values are not implemented"
+    )
+
+
+def _cpp_plan_implicit_boundary(
+    error: Exception,
+) -> VulkanGraphImplicitBoundaryAttribution | None:
+    match = _CPP_PLAN_IMPLICIT_BOUNDARY_PATTERN.search(str(error))
+    if match is None:
+        return None
+    return VulkanGraphImplicitBoundaryAttribution(
+        node_name=match.group(1),
+        target=match.group(2),
+        cpu_fallback_count=int(match.group(3)),
+        sync_readback_count=int(match.group(4)),
+        deferred_values_created=int(match.group(5)),
+    )
 
 
 _PYTHON_SCALAR_ARITHMETIC_TARGETS = frozenset(
@@ -995,21 +1033,15 @@ class _VulkanGraphInterpreter(torch.fx.Interpreter):
                 else (0, 0, 0)
             )
         if is_dispatch and any(counters):
-            self.last_implicit_boundary = VulkanGraphImplicitBoundaryAttribution(
+            attribution = VulkanGraphImplicitBoundaryAttribution(
                 node_name=node.name,
                 target=_target_name(node.target),
                 cpu_fallback_count=counters[0],
                 sync_readback_count=counters[1],
                 deferred_values_created=counters[2],
             )
-            error = VulkanGraphExecutionError(
-                f"Vulkan graph node {node.name!r} ({_target_name(node.target)}) "
-                "crossed an implicit host boundary: "
-                f"cpu_fallback={counters[0]}, "
-                f"sync_readback={counters[1]}, "
-                f"deferred_values_created={counters[2]}. "
-                "Explicit CPU partitions and deferred values are not implemented"
-            )
+            self.last_implicit_boundary = attribution
+            error = _implicit_boundary_error(attribution)
             if node_error is not None:
                 raise error from node_error
             raise error
@@ -1254,6 +1286,12 @@ class VulkanGraphProgram:
                                     )
                                 )
                             except Exception as error:
+                                attribution = _cpp_plan_implicit_boundary(error)
+                                if attribution is not None:
+                                    self._last_implicit_boundary = attribution
+                                    raise _implicit_boundary_error(
+                                        attribution
+                                    ) from error
                                 raise VulkanGraphExecutionError(
                                     "Vulkan C++ graph plan execution failed: "
                                     f"{error}"

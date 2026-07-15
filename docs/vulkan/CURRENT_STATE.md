@@ -44,27 +44,32 @@ probe establishes graph coverage, not numerical parity, dynamic-shape,
 repeated-output lifetime, submit, peak-memory, or latency evidence; all
 Migration deletion gates therefore remain unchanged.
 
-Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v1`
+Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v2`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
-handles, graph-owned constants and contexts, Tensor SSA values, output escapes,
-and C++-validated use-count/last-use metadata. The C++ runner executes the plan
-without a Python callback per node, releases non-escaping values after their
-last instruction, rejects concurrent invocation, and checks every instruction
-for fallback, readback, deferred-value creation, or a non-Vulkan result. A
-three-instruction linear/GELU/residual graph runs twice through this path while
-the Python interpreter is disabled, and the first live output remains valid
-after the second invocation.
+handles, graph-owned constants and contexts, IValue SSA values, ordered
+zero-return effects, Tensor output escapes, and C++-validated
+use-count/last-use metadata. The C++ runner executes the plan without a Python
+callback per node, releases non-escaping values after their last instruction,
+rejects concurrent invocation, and checks every instruction for fallback,
+readback, deferred-value creation, or a non-Vulkan Tensor result. It tracks
+liveness separately from IValue contents so a valid `None` cannot be confused
+with a released slot. Repeated linear/GELU/residual and metadata-checked graphs
+run through this path while the Python interpreter is disabled, and earlier
+live outputs remain valid after later invocations.
 
-Plan selection is fail-closed. The v1 schema currently accepts tensor inputs,
-single-Tensor operator returns, direct argument references, and literal or
-graph-owned constants; mutable dispatch, mismatched boxed argument types,
-nested dynamic argument containers, and non-Tensor returns retain the Python
-correctness executor with an explicit reason. The four-token HY-MT probe still
-executes there because `aten::_assert_tensor_metadata` has a non-Tensor return,
-which is the first current representation blocker. The v1 executor does not
-yet preallocate a memory arena, own descriptors/submissions, support effect-only
-or multi-output instructions, or provide corpus parity/performance evidence, so
-it does not satisfy a Migration deletion gate.
+Plan selection is fail-closed. The v2 schema accepts tensor inputs, zero or one
+dispatcher return per instruction, direct SSA references, and literal or
+graph-owned constants; internal single returns may be non-Tensor IValues while
+public outputs remain Tensors. Schema-typed device constants are canonicalized
+before boxed dispatch. Mutable dispatch, mismatched boxed argument types,
+nested dynamic argument containers, and multiple dispatcher returns retain the
+Python correctness executor with an explicit reason. The four-token HY-MT
+probe now crosses `aten::_assert_tensor_metadata` and stops at
+`nested_dynamic_argument:cat`, the first current representation blocker. It
+still executes through the Python correctness path. The v2 executor does not
+yet preallocate a memory arena, own descriptors/submissions, support nested
+container or multi-output values, or provide corpus parity/performance
+evidence, so it does not satisfy a Migration deletion gate.
 
 The existing GQA repeat shader also had its generic coordinate mapping fixed:
 Vulkan buffer metadata orders logical coordinates as width, sequence, heads,

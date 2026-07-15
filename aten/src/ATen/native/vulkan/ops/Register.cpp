@@ -136,6 +136,9 @@ int register_vulkan_graph_plan() {
           "vulkan", TORCH_SELECTIVE_CLASS("VulkanGraphPlan"))
           .def("input_count", &utils::VulkanGraphPlan::input_count)
           .def("instruction_count", &utils::VulkanGraphPlan::instruction_count)
+          .def(
+              "effect_instruction_count",
+              &utils::VulkanGraphPlan::effect_instruction_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)
           .def("output_count", &utils::VulkanGraphPlan::output_count)
           .def("value_use_counts", &utils::VulkanGraphPlan::value_use_counts)
@@ -2723,7 +2726,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_vulkan_graph_plan("
       "str[] node_names, str[] operator_names, str[] overload_names, "
-      "int[][] argument_refs, Any[] constants, int input_count, "
+      "int[][] argument_refs, int[] instruction_output_value_ids, "
+      "Any[] constants, int input_count, "
       "int[] output_value_ids) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(

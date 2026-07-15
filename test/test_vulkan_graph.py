@@ -476,17 +476,19 @@ class TestVulkanGraph(TestCase):
         self.assertIsInstance(program.cpp_plan, torch.ScriptObject)
         report = program.cpp_plan_report
         self.assertEqual(report.status, "compiled")
-        self.assertEqual(report.reason, "immutable_tensor_ssa_plan")
+        self.assertEqual(report.reason, "immutable_ivalue_ssa_plan")
         self.assertEqual(report.plan_class, "VulkanGraphPlan")
-        self.assertEqual(report.plan_version, "v1")
+        self.assertEqual(report.plan_version, "v2")
         self.assertEqual(report.input_count, 1)
         self.assertEqual(report.instruction_count, 3)
+        self.assertEqual(report.effect_instruction_count, 0)
         self.assertEqual(report.value_count, 4)
         self.assertEqual(report.output_count, 1)
         self.assertEqual(report.value_use_counts, (1, 2, 1, 0))
         self.assertEqual(report.value_last_uses, (0, 2, 2, 2))
         self.assertEqual(program.cpp_plan.input_count(), 1)
         self.assertEqual(program.cpp_plan.instruction_count(), 3)
+        self.assertEqual(program.cpp_plan.effect_instruction_count(), 0)
         self.assertEqual(program.cpp_plan.value_count(), 4)
         self.assertEqual(program.cpp_plan.output_count(), 1)
         self.assertEqual(
@@ -525,6 +527,7 @@ class TestVulkanGraph(TestCase):
                 ["aten::add_"],
                 ["Tensor"],
                 [[0, 1, -1]],
+                [2],
                 [1],
                 2,
                 [2],
@@ -536,6 +539,7 @@ class TestVulkanGraph(TestCase):
             ["aten::mm"],
             [""],
             [[0, 1]],
+            [2],
             [],
             2,
             [2],
@@ -544,11 +548,123 @@ class TestVulkanGraph(TestCase):
         right = torch.randn(4, 2, device="vulkan")
         with self.assertRaisesRegex(
             RuntimeError,
-            "VulkanGraphPlan.v1 node 'invalid_mm'.*failed",
+            "VulkanGraphPlan.v2 node 'invalid_mm'.*failed",
         ):
             torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
                 [left, right], plan
             )
+
+    def test_cpp_graph_plan_executes_ordered_metadata_effect(self):
+        class MetadataCheckedSin(torch.nn.Module):
+            def forward(self, tensor):
+                torch._assert_tensor_metadata(
+                    tensor,
+                    dtype=torch.float32,
+                    device=torch.device("cpu"),
+                )
+                return torch.sin(tensor)
+
+        model = MetadataCheckedSin().eval()
+        first_input = torch.randn(2, 3)
+        second_input = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, first_input)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        report = program.cpp_plan_report
+        self.assertEqual(report.status, "compiled")
+        self.assertEqual(report.reason, "immutable_ivalue_ssa_plan")
+        self.assertEqual(report.plan_version, "v2")
+        self.assertEqual(report.input_count, 1)
+        self.assertEqual(report.instruction_count, 2)
+        self.assertEqual(report.effect_instruction_count, 1)
+        self.assertEqual(report.value_count, 2)
+        self.assertEqual(report.output_count, 1)
+        self.assertEqual(report.value_use_counts, (2, 0))
+        self.assertEqual(report.value_last_uses, (1, 1))
+        self.assertEqual(program.cpp_plan.effect_instruction_count(), 1)
+
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            first_output = program(first_input)
+            second_output = program(second_input)
+
+        torch.testing.assert_close(first_output.cpu(), model(first_input))
+        torch.testing.assert_close(second_output.cpu(), model(second_input))
+        self.assertEqual(program.run_count, 2)
+        self.assertEqual(program.last_executed_nodes, report.node_names)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_attributes_effect_failure_before_later_op(self):
+        plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+            ["metadata_check", "sin"],
+            ["aten::_assert_tensor_metadata", "aten::sin"],
+            ["", ""],
+            [[0, -1, -2, -3, -4, -5], [0]],
+            [-1, 1],
+            [None, None, torch.float64, None, None],
+            1,
+            [1],
+        )
+        tensor = torch.randn(2, 3, device="vulkan")
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "VulkanGraphPlan.v2 node 'metadata_check'.*failed",
+        ):
+            torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                [tensor], plan
+            )
+
+    def test_cpp_graph_plan_carries_non_tensor_ivalue(self):
+        plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+            ["is_contiguous", "assert_contiguous", "sin"],
+            ["aten::is_contiguous", "aten::_assert_scalar", "aten::sin"],
+            ["", "", ""],
+            [[0], [1, -1], [0]],
+            [1, -1, 2],
+            ["Vulkan input must be contiguous"],
+            1,
+            [2],
+        )
+        tensor = torch.randn(2, 3, device="vulkan")
+        output = torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+            [tensor], plan
+        )
+        torch.testing.assert_close(output[0].cpu(), tensor.cpu().sin())
+        self.assertEqual(plan.effect_instruction_count(), 1)
+        self.assertEqual(tuple(plan.value_use_counts()), (2, 1, 0))
+        self.assertEqual(tuple(plan.value_last_uses()), (2, 1, 2))
+
+    def test_cpp_graph_plan_compiles_non_tensor_ivalue(self):
+        class ContiguityObservedSin(torch.nn.Module):
+            def forward(self, tensor):
+                torch.ops.aten.is_contiguous.default(tensor)
+                return torch.sin(tensor)
+
+        model = ContiguityObservedSin().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        report = program.cpp_plan_report
+        self.assertEqual(report.status, "compiled")
+        self.assertEqual(report.effect_instruction_count, 0)
+        self.assertEqual(report.instruction_count, 2)
+        self.assertEqual(report.value_count, 3)
+        self.assertEqual(report.value_use_counts, (2, 0, 0))
+        self.assertEqual(report.value_last_uses, (1, 0, 1))
+
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor)
+        torch.testing.assert_close(output.cpu(), model(tensor))
 
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):

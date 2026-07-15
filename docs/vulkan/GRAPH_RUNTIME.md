@@ -151,20 +151,22 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v1` is the first bounded implementation slice. It consumes
+`VulkanGraphPlan.v2` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
-non-mutating Vulkan or composite operators in C++, and tracks Tensor SSA
-use-count, last-use, and output escape. Per-instruction graph scopes reject
-fallback, readback, deferred-value creation, and non-Vulkan results. Eligible
-multi-instruction graphs therefore cross Python once per invocation rather than
-once per node. The compiler reports why a graph remains on the Python executor;
-it does not silently mix the two execution modes.
+non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
+use-count, last-use, liveness, and Tensor output escape. Instructions may have
+one arbitrary boxed return or no return for an ordered effect. Per-instruction
+graph scopes reject fallback, readback, deferred-value creation, and non-Vulkan
+Tensor results. Eligible multi-instruction graphs therefore cross Python once
+per invocation rather than once per node. The compiler reports why a graph
+remains on the Python executor; it does not silently mix the two execution
+modes.
 
-The v1 plan does not yet implement effect-only or non-Tensor values, nested
-dynamic arguments, multi-output operators, preallocated memory slots,
-descriptor/barrier construction, submission ownership, or generation-gated
-output reuse. Those remain Stage 2 requirements rather than being inferred from
-the boxed eager dispatch used by this first slice.
+The v2 plan does not yet implement nested dynamic containers, multiple-return
+operators, preallocated memory slots, descriptor/barrier construction,
+submission ownership, or generation-gated output reuse. Those remain Stage 2
+requirements rather than being inferred from the boxed eager dispatch used by
+this slice.
 
 ### Stage 3: Recorded Command Partitions
 

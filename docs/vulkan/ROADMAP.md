@@ -493,17 +493,18 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v1` is an immutable C++ Tensor-SSA plan for
-fully bound, non-mutating Vulkan/composite operators with single-Tensor returns.
-It owns operator handles and constants, validates use-count/last-use metadata,
-releases non-escaping values after last use, rejects concurrent invocation, and
-checks each instruction for implicit host boundaries. A multi-instruction
-linear/GELU/residual graph executes repeatedly without Python node callbacks and
-preserves an earlier live output. Unsupported plan structure reports a reason
-and retains the Python correctness executor. HY-MT currently stops plan
-compilation at the non-Tensor return from `aten::_assert_tensor_metadata` and
-therefore remains Python-executed. Effect-only/control values, nested dynamic
-arguments, list/tuple and multi-output values, program memory slots,
+Current status: `VulkanGraphPlan.v2` is an immutable C++ IValue-SSA plan for
+fully bound, non-mutating Vulkan/composite operators with zero or one dispatcher
+return. It owns operator handles and constants, preserves ordered effect-only
+instructions, validates use-count/last-use metadata, tracks liveness separately
+from values, releases non-escaping values after last use, rejects concurrent
+invocation, and checks each instruction for implicit host boundaries. Repeated
+multi-instruction Tensor graphs and metadata-effect graphs execute without
+Python node callbacks and preserve earlier live outputs. Unsupported plan
+structure reports a reason and retains the Python correctness executor. HY-MT
+now crosses the zero-return `aten::_assert_tensor_metadata` instruction and
+stops at `nested_dynamic_argument:cat`; it therefore remains Python-executed.
+Nested list/tuple values, multiple-return values, program memory slots,
 descriptors, submission/completion ownership, and corpus parity remain open.
 
 Exit criteria:
