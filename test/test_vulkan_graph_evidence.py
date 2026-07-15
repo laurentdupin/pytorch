@@ -645,6 +645,57 @@ class TestVulkanGraphEvidence(TestCase):
             self.assertIsInstance(payload["source_git_sha"], str)
             self.assertEqual(validate_evidence_payload(payload), [])
 
+    def test_checked_in_corpus_evidence_records_linear_gelu_none_payoff(self):
+        evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"
+
+        def load(name):
+            return json.loads((evidence_dir / name).read_text(encoding="utf-8"))
+
+        dav2_census = load("dav2_vits_export_census.json")
+        dav2_parity = load("dav2_vits_export_parity.json")
+        paddle_census = load("paddleocr_recognition_export_census.json")
+        paddle_parity = load("paddleocr_recognition_export_parity.json")
+        payloads = (dav2_census, dav2_parity, paddle_census, paddle_parity)
+        source_shas = {payload["source_git_sha"] for payload in payloads}
+        self.assertEqual(source_shas, {dav2_census["source_git_sha"]})
+        torch_cpu_shas = {
+            payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
+            for payload in payloads
+        }
+        self.assertEqual(
+            torch_cpu_shas,
+            {
+                dav2_census["runtime"]["loaded_files"]["torch_cpu.dll"][
+                    "sha256"
+                ]
+            },
+        )
+        self.assertEqual(
+            (
+                dav2_census["static_linear_gelu_regions"]["candidate_count"],
+                dav2_census["static_linear_gelu_regions"]["lowered_count"],
+                dav2_census["static_linear_gelu_regions"]["rejected_count"],
+            ),
+            (12, 12, 0),
+        )
+        self.assertEqual(
+            (
+                paddle_census["static_linear_gelu_regions"]["candidate_count"],
+                paddle_census["static_linear_gelu_regions"]["lowered_count"],
+                paddle_census["static_linear_gelu_regions"]["rejected_count"],
+            ),
+            (0, 0, 0),
+        )
+        for census in (dav2_census, paddle_census):
+            self.assertEqual(
+                census["graph_census"]["unsupported_at_lower_time"], 0
+            )
+            for case in census["cases"]:
+                self.assertEqual(set(case["runtime_counters"].values()), {0})
+        for parity in (dav2_parity, paddle_parity):
+            for case in parity["cases"]:
+                self.assertEqual(case["graph_vs_eager_vulkan"]["max_abs"], 0.0)
+
     def test_template_helper_does_not_claim_machine_measurement(self):
         payload = template_payload("export_census")
         self.assertEqual(payload["status"], "template_not_measured")

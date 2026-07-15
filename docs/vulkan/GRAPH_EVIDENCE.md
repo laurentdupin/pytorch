@@ -46,9 +46,13 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --cpu-atol 0.002 --cpu-rtol 0.0
 ```
 
-The caller-owned output directory receives measured
-`dav2_vits_export_census.json` and `dav2_vits_export_parity.json`. The
-checked-in DAv2 evidence records the first verified corpus milestone; future
+The caller-owned output directory receives measured census and parity
+artifacts. The checked-in DAv2 and PaddleOCR evidence was deliberately
+refreshed after the cleanup wave at source commit
+`ec8e6a99995cbc9661b79aab488797b87f556a28`. The DAv2 census lowers all 12
+`linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
+with no such candidates. Both corpora report zero unsupported nodes and zero
+runtime CPU fallback, sync readback, or deferred-value creation. Future
 measurements are caller-owned until they are deliberately reviewed and
 replaced. The harness requires an explicit source SHA when `git` is not on
 `PATH`, so a sanitized runtime cannot emit unproven provenance.
@@ -63,3 +67,15 @@ The default tolerances are zero. A nonzero tolerance is an explicit corpus
 evidence choice and is written into the measured parity artifact. Graph versus
 eager Vulkan should remain exact unless a documented backend precision contract
 requires otherwise.
+
+## GELU `none` precision contract
+
+Eager Vulkan currently executes `aten::gelu(approximate="none")` with the tanh
+kernel. A graph-owned `linear_gelu_none` region must therefore match eager
+Vulkan exactly; it does not introduce a second approximation. Unit coverage
+uses CPU tolerances of `atol=5e-4` and `rtol=5e-3` for this existing eager
+kernel gap. The full DAv2 artifact retains its explicit corpus tolerance of
+`atol=0.004`, `rtol=0.0` and records a maximum CPU difference of about
+`0.00358`, while graph versus eager Vulkan remains exact. If eager Vulkan gains
+true non-approximate GELU semantics, tighten this contract and refresh the
+corpus evidence with the implementation change.

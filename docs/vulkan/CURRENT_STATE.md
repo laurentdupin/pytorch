@@ -12,6 +12,16 @@ defined by `docs/vulkan/CLEANUP_POLICY.md`; the exact live-surface states are in
 guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
+The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the
+cleanup wave at source commit `ec8e6a99995cbc9661b79aab488797b87f556a28`
+against the matching `torch_cpu.dll`. DAv2 now proves that all 12 exported
+`linear_gelu_none` candidates lower without rejection, while PaddleOCR remains
+an unchanged control. Both runs retain exact graph-versus-eager Vulkan parity,
+zero unsupported nodes, and zero graph-runtime fallback, readback, or
+deferred-value creation. The GELU `none` CPU tolerance is documented in
+`docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
+behavior rather than a graph-only approximation.
+
 The supported sync accounting substrate is now isolated in `SyncCounters.*`.
 It owns sync and forced-sync counters, graph-program invocation accounting,
 submit-origin/phase attribution, and retire-drain/call-site accounting without
