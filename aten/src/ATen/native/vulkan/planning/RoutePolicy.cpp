@@ -179,7 +179,7 @@ VulkanRouteDecision make_hard_fail_route(
   decision.kind = VulkanRouteKind::HardFail;
   decision.reject_reason = reason;
   decision.runtime_policy = build_vulkan_runtime_policy(request);
-  decision.lane = infer_model_lane(request);
+  decision.lane = infer_model_lane(decision.runtime_policy.request);
   decision.kernel_family = "none";
   decision.telemetry_label = route_reject_reason_name(reason);
   decision.shape_summary = shape_summary;
@@ -258,7 +258,7 @@ VulkanRouteDecision select_softmax_route(
   decision.kind = VulkanRouteKind::VulkanBufferDirectKernel;
   decision.reject_reason = VulkanRouteRejectReason::None;
   decision.runtime_policy = build_vulkan_runtime_policy(request);
-  decision.lane = infer_model_lane(request);
+  decision.lane = infer_model_lane(decision.runtime_policy.request);
   decision.kernel_family = "buffer_softmax_lastdim_float";
   decision.telemetry_label = "SelectedBufferLastDimSoftmax";
   decision.shape_summary = softmax_shape_summary(input, dim);
@@ -281,7 +281,7 @@ VulkanRouteDecision select_sdpa_route(
   const std::string shape_summary = sdpa_shape_summary(
       query, key, value, attn_mask, dropout_p, is_causal, scale, enable_gqa);
   const VulkanRuntimePolicy runtime_policy = build_vulkan_runtime_policy(request);
-  const VulkanModelLane lane = infer_model_lane(request);
+  const VulkanModelLane lane = infer_model_lane(runtime_policy.request);
   const bool has_attn_mask = attn_mask && attn_mask->defined();
   const IntArrayRef attn_mask_sizes =
       has_attn_mask ? attn_mask->sizes() : IntArrayRef{};
@@ -529,7 +529,7 @@ VulkanRouteDecision select_conv2d_route(
       dtype,
       input_requires_grad);
   const VulkanRuntimePolicy runtime_policy = build_vulkan_runtime_policy(request);
-  const VulkanModelLane lane = infer_model_lane(request);
+  const VulkanModelLane lane = infer_model_lane(runtime_policy.request);
 
   if (
       device_policy.disable_large_buffer_conv_3x3 &&

@@ -256,6 +256,47 @@ class TestVulkanGraph(TestCase):
             self.assertIn("execution_phase=None", row)
             self.assertIn("inferred_from_label=0", row)
 
+    def test_graph_route_lane_uses_explicit_planning_context(self):
+        class Conv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(4, 6, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv(tensor)
+
+        torch.manual_seed(10)
+        model = Conv().eval()
+        tensor = torch.randn(1, 4, 8, 8)
+        planning_context = torch.vulkan.VulkanGraphPlanningContext(
+            model_domain="vision",
+            execution_phase="decoder",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            route_log_path = os.path.join(temp_dir, "route.log")
+            with patch.dict(
+                os.environ,
+                {"PYTORCH_VULKAN_ROUTE_LOG": route_log_path},
+            ):
+                program = torch.vulkan.export_and_lower(
+                    model,
+                    tensor,
+                    planning_context=planning_context,
+                )
+                actual = program(tensor).cpu()
+
+            with open(route_log_path, encoding="utf-8") as route_log:
+                convolution_rows = [
+                    row
+                    for row in route_log.read().splitlines()
+                    if " op=aten::convolution " in row
+                ]
+
+        self.assertEqual(actual, model(tensor), rtol=1e-4, atol=1e-4)
+        self.assertTrue(convolution_rows)
+        for row in convolution_rows:
+            self.assertIn("lane=AdjacentDepthVision", row)
+
     def test_graph_planning_context_rejects_incompatible_semantics(self):
         with self.assertRaisesRegex(ValueError, "incompatible with model_domain"):
             torch.vulkan.VulkanGraphPlanningContext(

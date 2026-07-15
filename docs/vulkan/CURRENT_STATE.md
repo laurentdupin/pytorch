@@ -193,7 +193,10 @@ creating packed contexts, and every graph invocation reapplies it across input
 placement, Python correctness execution, and direct C++ plan execution. A
 fixed shape binds and checks the first Tensor graph input. Even the explicit
 generic/none default suppresses allocation-label and tensor-shape inference;
-vision and LLM contexts select their declared semantic lanes. Temporary
+vision and LLM contexts select their declared semantic lanes. Route decisions
+derive their lane from the same resolved request stored in the runtime policy,
+so an explicit graph scope cannot be discarded after policy construction.
+Temporary
 allocation-label reads, model-token matching, bounded LLM tensor-shape
 inference, and GPU-name overrides remain isolated in
 `LegacyPlanningInference.*` and `LegacyDeviceNamePolicy.h`. They cannot be
