@@ -47,29 +47,22 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 ```
 
 The caller-owned output directory receives measured census and parity
-artifacts. The checked-in DAv2 and PaddleOCR evidence records the checked
-integer-scalar executor transfer at source commit
-`291ecd5f3a1279820e05ffb5c79f24f84e767858`. The DAv2 census lowers all 12
+artifacts. The checked-in DAv2 and PaddleOCR evidence records the multi-return
+executor transfer at source commit
+`dd9bc1a749d8fafe9e2b842689a9977cd3693fd2`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
 with no such candidates. Both corpora report zero unsupported nodes, exact
 graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
-or deferred-value creation. The immutable-plan summaries keep both on the
-Python correctness executor for explicit generic reasons: DAv2 first reaches
-`multiple_dispatch_returns:run_graph_add_layernorm_plan_default`, and
-PaddleOCR first reaches `argument_type_mismatch:avg_pool2d:stride`. Future
-measurements are
+or deferred-value creation. The v5 immutable-plan summaries keep both on the
+Python correctness executor for explicit generic reasons: DAv2 crosses its
+former multi-return boundary and first reaches
+`unsupported_node_kind:getitem:call_function`, where the graph projects a
+constant index from the single `Tensor[]` return of
+`run_vulkan_graph_region_plan`; PaddleOCR remains at
+`argument_type_mismatch:avg_pool2d:stride`. Future measurements are
 caller-owned until they are deliberately reviewed and replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
-
-A caller-owned v5 worktree validation crosses DAv2's checked-in
-`multiple_dispatch_returns` boundary. Its first remaining plan rejection is
-`unsupported_node_kind:getitem:call_function`, where the graph projects a
-constant index from the single `Tensor[]` return of
-`run_vulkan_graph_region_plan`. The same validation retains exact
-graph-versus-eager Vulkan parity and zero runtime fallback, readback, or
-deferred-value creation. PaddleOCR remains at
-`argument_type_mismatch:avg_pool2d:stride`.
 
 A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
@@ -95,15 +88,14 @@ blocker for the current prefill and transfers per-node execution to C++; it
 does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
-The exact-SHA v4 DAv2 evidence admits `aten::sym_size.int` through its immutable
+The exact-SHA v5 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
-graph crosses both former representation blockers and next reaches
-`multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while
-retaining exact graph-versus-eager parity and zero runtime fallback, sync
-readback, or deferred-value creation. The subsequent v5 worktree validation
-crosses that representation boundary and identifies constant projection from
-a container-valued dispatcher return as the next generic representation task.
+graph crosses those former representation blockers plus multi-schema-return
+SSA and next identifies constant projection from a container-valued dispatcher
+return as the next generic representation task. It retains exact
+graph-versus-eager parity and zero runtime fallback, sync readback, or
+deferred-value creation.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach
