@@ -89,10 +89,16 @@ Python floor-division semantics for negative values. The checked-in exact-SHA
 v6 DAv2 evidence crosses its former symbolic-size, floor-division,
 multi-return, and list-projection blockers and next reports
 `mutable_operator:relu_:aten::relu_` while retaining zero fallback, readback,
-or deferred-value creation. Mutable dispatch, mismatched boxed argument types, deeper
-or non-list dynamic containers, and non-list or nested container projections
-retain the Python correctness executor with an explicit reason. A generic
-functionalization pass
+or deferred-value creation. A caller-owned worktree probe proves both DAv2
+`relu_` inputs are single-use, non-aliasing results of functional `aten::conv2d`
+and rewrites them to functional `aten::relu`. The complete normal and alternate
+graphs then execute as a 404-instruction C++ plan with 425 values, two ordered
+effects, eight graph-scalar instructions, 20 list projections, 53 list
+arguments, and one output. Both retain exact graph-versus-eager parity and zero
+fallback, readback, or deferred-value creation. Mutable dispatch, mismatched
+boxed argument types, deeper or non-list dynamic containers, and non-list or
+nested container projections retain the Python correctness executor with an
+explicit reason. A generic functionalization pass
 rewrites `aten::detach_` only when every value in its single-user producer
 chain is proven to lead back to
 `aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
@@ -104,6 +110,13 @@ check. The v6 executor does not yet preallocate a memory arena, own
 descriptors/submissions, support deeper or non-list containers, or provide
 checked-in HY-MT parity/performance evidence, so it does not satisfy a
 Migration deletion gate.
+
+Fresh-ReLU functionalization is independently fail-closed: the producer must
+be a non-mutating operator with exactly one non-aliasing Tensor return, and the
+produced value must have only the `relu_` consumer. Placeholder inputs,
+view/alias returns, mutable producers, multi-return producers, and branched
+fresh values are rejected without rewriting. This is an operator/schema proof,
+not a DAv2 route.
 
 The existing GQA repeat shader also had its generic coordinate mapping fixed:
 Vulkan buffer metadata orders logical coordinates as width, sequence, heads,

@@ -223,6 +223,16 @@ mutable and fail closed. This transfers per-node dispatch from Python to C++,
 but resource arenas, descriptors, barriers, submission/completion, dynamic
 guards, and repeated-output corpus evidence remain Phase 5 work.
 
+DAv2 uses the same fail-closed preparation principle for two exported
+`aten::relu_` nodes. Each source must be a single-use result of a non-mutating
+operator with one non-aliasing Tensor return before the node may become
+functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
+values remain mutable. With that schema/alias proof, caller-owned normal and
+alternate DAv2 runs execute a 404-instruction immutable C++ plan with exact
+graph-versus-eager parity and zero fallback, readback, or deferred values.
+This transfers execution, not memory, descriptor, submission, or completion
+ownership.
+
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
 integer IValues using their composite registration. The bounded pure-integer
 instruction set consumes those values directly, while every other Python

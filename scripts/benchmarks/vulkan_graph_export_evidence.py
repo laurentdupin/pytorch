@@ -251,6 +251,9 @@ def _lowering_report_objects(
         "fresh_detach_functionalization": getattr(
             program, "fresh_detach_functionalization", None
         ),
+        "fresh_relu_functionalization": getattr(
+            program, "fresh_relu_functionalization", None
+        ),
         "static_identity_advanced_indices": getattr(
             program, "static_identity_advanced_indices", None
         ),

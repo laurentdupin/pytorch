@@ -97,8 +97,19 @@ deferred-value creation. The matching exact-SHA v6 PaddleOCR measurement remains
 `argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
 counters.
 
+A caller-owned DAv2 worktree probe records two `aten::relu_` candidates, both
+fed by single-use, non-aliasing functional `aten::conv2d` results. The generic
+fresh-ReLU pass functionalizes both with no rejection. Normal and alternate
+shapes then compile and execute a 404-instruction, 425-value C++ plan with two
+ordered effects, eight graph-scalar instructions, 20 list projections, 53 list
+arguments, and one output. Both cases retain exact graph-versus-eager parity,
+stay within the existing CPU tolerance, and report zero CPU fallback, sync
+readback, or deferred-value creation. Placeholder, aliasing-view, and branched
+producer tests remain fail-closed. This is not exact-SHA checked-in evidence
+until the implementation commit is anchored.
+
 The machine-readable evidence records graph census and lowerings, including
-input normalization, static and lifted constants, fresh-detach
+input normalization, static and lifted constants, fresh-detach and fresh-ReLU
 functionalization, proven-identity indexing, static GQA repetition, and
 explicit tensor placement. It also records an immutable-plan summary including
 the graph-scalar and list-projection instruction counts, guard outcomes,

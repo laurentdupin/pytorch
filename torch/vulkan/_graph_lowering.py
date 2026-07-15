@@ -281,6 +281,24 @@ class VulkanFreshDetachFunctionalizationReport:
 
 
 @dataclasses.dataclass(frozen=True)
+class VulkanFreshReluFunctionalizationNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    source_node_name: str | None
+    source_operator_name: str | None
+    replacement_target: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanFreshReluFunctionalizationReport:
+    candidate_count: int
+    functionalized_count: int
+    rejected_count: int
+    nodes: tuple[VulkanFreshReluFunctionalizationNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
 class VulkanStaticFactoryConstantNodeReport:
     node_name: str
     status: str
@@ -1240,6 +1258,84 @@ def functionalize_fresh_detach_mutations(
         graph_module.graph.lint()
         graph_module.recompile()
     return VulkanFreshDetachFunctionalizationReport(
+        candidate_count=len(reports),
+        functionalized_count=functionalized_count,
+        rejected_count=len(reports) - functionalized_count,
+        nodes=tuple(reports),
+    )
+
+
+def _fresh_single_user_tensor_rejection(
+    source: Any,
+    consumer: torch.fx.Node,
+) -> str | None:
+    if not isinstance(source, torch.fx.Node):
+        return "input_is_not_a_graph_value"
+    if source.op != "call_function" or not isinstance(
+        source.target, torch._ops.OpOverload
+    ):
+        return "source_is_not_an_operator_result"
+    schema = source.target._schema
+    if schema.is_mutable:
+        return "source_operator_is_mutable"
+    if len(schema.returns) != 1:
+        return "source_return_count_is_not_one"
+    result = schema.returns[0]
+    if result.alias_info is not None:
+        return "source_result_may_alias"
+    if not result.type.isSubtypeOf(torch._C.TensorType.get()):
+        return "source_result_is_not_a_tensor"
+    if len(source.users) != 1 or consumer not in source.users:
+        return "fresh_value_has_other_users"
+    return None
+
+
+def functionalize_fresh_relu_mutations(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanFreshReluFunctionalizationReport:
+    reports: list[VulkanFreshReluFunctionalizationNodeReport] = []
+    for node in tuple(graph_module.graph.nodes):
+        if node.op != "call_function" or node.target != torch.ops.aten.relu_.default:
+            continue
+        source = node.args[0] if len(node.args) == 1 and not node.kwargs else None
+        rejection = _fresh_single_user_tensor_rejection(source, node)
+        if rejection is not None:
+            reports.append(
+                VulkanFreshReluFunctionalizationNodeReport(
+                    node_name=node.name,
+                    status="rejected",
+                    reason=rejection,
+                    source_node_name=(
+                        source.name if isinstance(source, torch.fx.Node) else None
+                    ),
+                    source_operator_name=(
+                        str(source.target)
+                        if isinstance(source, torch.fx.Node)
+                        else None
+                    ),
+                    replacement_target=None,
+                )
+            )
+            continue
+        node.target = torch.ops.aten.relu.default
+        reports.append(
+            VulkanFreshReluFunctionalizationNodeReport(
+                node_name=node.name,
+                status="functionalized",
+                reason="fresh_single_user_non_aliasing_tensor_result",
+                source_node_name=source.name,
+                source_operator_name=str(source.target),
+                replacement_target="aten::relu",
+            )
+        )
+
+    functionalized_count = sum(
+        report.status == "functionalized" for report in reports
+    )
+    if functionalized_count:
+        graph_module.graph.lint()
+        graph_module.recompile()
+    return VulkanFreshReluFunctionalizationReport(
         candidate_count=len(reports),
         functionalized_count=functionalized_count,
         rejected_count=len(reports) - functionalized_count,

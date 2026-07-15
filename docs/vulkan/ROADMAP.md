@@ -474,6 +474,15 @@ before this result can contribute to a Migration deletion gate. The remaining
 work is to extend the generic executor and its ownership model, not add a
 corpus-specific route.
 
+A caller-owned DAv2 worktree probe also proves both remaining `aten::relu_`
+nodes consume single-use, non-aliasing results from functional `aten::conv2d`.
+The schema/alias proof rewrites only those fresh mutations; input aliases,
+views, and branched values remain fail-closed. Normal and alternate DAv2 shapes
+then execute a 404-instruction C++ plan with exact graph-versus-eager parity
+and zero fallback, readback, or deferred values. This clears graph execution,
+but not the repeated-output lifetime, submit, memory, or latency deletion
+gates.
+
 Exit criteria:
 
 - DAv2 runs through the product graph API with Vulkan/eager parity;
@@ -527,6 +536,10 @@ the exported `avg_pool2d` stride. Both retain exact graph-versus-eager Vulkan
 parity and zero runtime fallback, readback, or deferred-value creation. These
 are generic plan-representation tasks, not reasons to add corpus routes.
 HY-MT retains its complete 2,732-instruction C++ plan under v6.
+Caller-owned worktree evidence applies the generic fresh-ReLU proof and moves
+DAv2 to a complete 404-instruction C++ plan without changing PaddleOCR or
+HY-MT. It remains caller-owned until the implementation has a source commit
+and the exact-SHA artifacts are deliberately replaced.
 
 Exit criteria:
 

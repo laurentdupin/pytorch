@@ -994,6 +994,106 @@ class TestVulkanGraph(TestCase):
         )
         self.assertEqual(detached.target, torch.ops.aten.detach_.default)
 
+    def test_cpp_graph_plan_functionalizes_fresh_relu(self):
+        class FreshRelu(torch.nn.Module):
+            def forward(self, tensor):
+                fresh = tensor.clone()
+                return torch.ops.aten.relu_.default(fresh)
+
+        model = FreshRelu().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        functionalization = program.fresh_relu_functionalization
+        self.assertEqual(functionalization.candidate_count, 1)
+        self.assertEqual(functionalization.functionalized_count, 1)
+        self.assertEqual(functionalization.rejected_count, 0)
+        self.assertEqual(functionalization.nodes[0].status, "functionalized")
+        self.assertEqual(
+            functionalization.nodes[0].reason,
+            "fresh_single_user_non_aliasing_tensor_result",
+        )
+        self.assertEqual(
+            functionalization.nodes[0].source_operator_name,
+            "aten.clone.default",
+        )
+        self.assertEqual(
+            functionalization.nodes[0].replacement_target,
+            "aten::relu",
+        )
+        self.assertFalse(
+            any(
+                node.target == torch.ops.aten.relu_.default
+                for node in program.graph_module.graph.nodes
+            )
+        )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.status, "compiled")
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor)
+        self.assertEqual(output.cpu(), model(tensor))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_fresh_relu_functionalization_rejects_input_alias(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        relu = graph.call_function(torch.ops.aten.relu_.default, (tensor,))
+        graph.output(relu)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.functionalize_fresh_relu_mutations(
+            graph_module
+        )
+
+        self.assertEqual(report.functionalized_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "source_is_not_an_operator_result",
+        )
+        self.assertEqual(relu.target, torch.ops.aten.relu_.default)
+
+    def test_fresh_relu_functionalization_rejects_aliasing_source(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        view = graph.call_function(torch.ops.aten.view.default, (tensor, [6]))
+        relu = graph.call_function(torch.ops.aten.relu_.default, (view,))
+        graph.output(relu)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.functionalize_fresh_relu_mutations(
+            graph_module
+        )
+
+        self.assertEqual(report.functionalized_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].reason, "source_result_may_alias")
+        self.assertEqual(relu.target, torch.ops.aten.relu_.default)
+
+    def test_fresh_relu_functionalization_rejects_branched_source(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        fresh = graph.call_function(torch.ops.aten.clone.default, (tensor,))
+        relu = graph.call_function(torch.ops.aten.relu_.default, (fresh,))
+        other = graph.call_function(torch.ops.aten.sin.default, (fresh,))
+        graph.output((relu, other))
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.functionalize_fresh_relu_mutations(
+            graph_module
+        )
+
+        self.assertEqual(report.functionalized_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(report.nodes[0].reason, "fresh_value_has_other_users")
+        self.assertEqual(relu.target, torch.ops.aten.relu_.default)
+
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
             def __init__(self):

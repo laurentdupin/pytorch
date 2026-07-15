@@ -17,6 +17,7 @@ from ._graph_plan import VulkanGraphPlanReport, compile_vulkan_graph_plan
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanFreshDetachFunctionalizationReport,
+    VulkanFreshReluFunctionalizationReport,
     VulkanGraphInputNormalizationReport,
     VulkanGraphRegionLoweringReport,
     VulkanGraphTensorPlacementReport,
@@ -32,6 +33,7 @@ from ._graph_lowering import (
     VulkanStaticLinearGeluRegionReport,
     extract_verified_exported_input_guard,
     functionalize_fresh_detach_mutations,
+    functionalize_fresh_relu_mutations,
     is_verified_exported_input_guard_call,
     lower_lifted_tensor_constants,
     lower_static_conv2d_relu_regions,
@@ -1068,6 +1070,7 @@ class VulkanGraphProgram:
         static_factory_constants: VulkanStaticFactoryConstantReport,
         lifted_tensor_constants: VulkanLiftedTensorConstantReport,
         fresh_detach_functionalization: VulkanFreshDetachFunctionalizationReport,
+        fresh_relu_functionalization: VulkanFreshReluFunctionalizationReport,
         static_identity_advanced_indices: VulkanStaticIdentityAdvancedIndexReport,
         static_gqa_repeats: VulkanStaticGQARepeatReport,
         tensor_placement: VulkanGraphTensorPlacementReport,
@@ -1091,6 +1094,7 @@ class VulkanGraphProgram:
         self._static_factory_constants = static_factory_constants
         self._lifted_tensor_constants = lifted_tensor_constants
         self._fresh_detach_functionalization = fresh_detach_functionalization
+        self._fresh_relu_functionalization = fresh_relu_functionalization
         self._static_identity_advanced_indices = static_identity_advanced_indices
         self._static_gqa_repeats = static_gqa_repeats
         self._tensor_placement = tensor_placement
@@ -1149,6 +1153,12 @@ class VulkanGraphProgram:
         self,
     ) -> VulkanFreshDetachFunctionalizationReport:
         return self._fresh_detach_functionalization
+
+    @property
+    def fresh_relu_functionalization(
+        self,
+    ) -> VulkanFreshReluFunctionalizationReport:
+        return self._fresh_relu_functionalization
 
     @property
     def static_identity_advanced_indices(
@@ -1399,6 +1409,7 @@ def export_and_lower(
     fresh_detach_functionalization = functionalize_fresh_detach_mutations(
         graph_module
     )
+    fresh_relu_functionalization = functionalize_fresh_relu_mutations(graph_module)
     static_identity_advanced_indices = lower_static_identity_advanced_indices(
         graph_module
     )
@@ -1518,6 +1529,7 @@ def export_and_lower(
             repr(static_factory_constants),
             repr(lifted_tensor_constants),
             repr(fresh_detach_functionalization),
+            repr(fresh_relu_functionalization),
             repr(static_identity_advanced_indices),
             repr(static_gqa_repeats),
             repr(tensor_placement),
@@ -1553,6 +1565,7 @@ def export_and_lower(
         static_factory_constants,
         lifted_tensor_constants,
         fresh_detach_functionalization,
+        fresh_relu_functionalization,
         static_identity_advanced_indices,
         static_gqa_repeats,
         tensor_placement,
@@ -1573,6 +1586,7 @@ __all__ = [
     "VulkanGraphCensus",
     "VulkanGraphExecutionError",
     "VulkanFreshDetachFunctionalizationReport",
+    "VulkanFreshReluFunctionalizationReport",
     "VulkanGraphImplicitBoundaryAttribution",
     "VulkanGraphInputNormalizationReport",
     "VulkanGraphTensorPlacementReport",
