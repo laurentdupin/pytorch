@@ -527,20 +527,17 @@ its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
 nested or non-list container projection, program memory slots,
 descriptors, submission/completion ownership, and checked-in HY-MT parity
-remain open. The exact-SHA DAv2 and PaddleOCR evidence at `672b08bb1db`
-records distinct executor outcomes. DAv2 crosses
+remain open. The exact-SHA DAv2 and PaddleOCR evidence at `b0b484a7dfa`
+records complete executor outcomes. DAv2 crosses
 immutable composite `aten::sym_size.int` metadata reads, bounded integer shape
 arithmetic, multi-schema-return instructions, and bounded list projection,
 then functionalizes both proven-fresh `aten::relu_` nodes and executes a
-complete 404-instruction C++ plan. PaddleOCR remains at the schema mismatch for
-the exported `avg_pool2d` stride. Both retain exact graph-versus-eager Vulkan
-parity and zero runtime fallback, readback, or deferred-value creation. These
-are generic plan-representation tasks, not reasons to add corpus routes.
-HY-MT retains its complete 2,732-instruction C++ plan under v7. Caller-owned v7
-evidence also moves PaddleOCR to a complete 290-instruction C++ plan by
-preserving its schema-default empty `avg_pool2d` stride as a typed list recipe;
-DAv2 and HY-MT retain their complete plans and zero counters. Exact-SHA v7
-artifacts remain pending the implementation commit.
+complete 404-instruction C++ plan. PaddleOCR preserves its schema-default empty
+`avg_pool2d` stride as a typed list recipe and executes a complete
+290-instruction C++ plan. Both retain exact graph-versus-eager Vulkan parity and
+zero runtime fallback, readback, or deferred-value creation. HY-MT retains its
+complete 2,732-instruction caller-owned C++ plan under v7. These are generic
+plan-representation results, not corpus-specific routes.
 
 Exit criteria:
 

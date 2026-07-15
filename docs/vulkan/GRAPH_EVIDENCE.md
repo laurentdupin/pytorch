@@ -47,16 +47,16 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 ```
 
 The caller-owned output directory receives measured census and parity
-artifacts. The checked-in DAv2 and PaddleOCR evidence records the fresh-ReLU
-executor transfer at source commit
-`672b08bb1dbac19b0b8deb0f24239c7df96ee44a`. The DAv2 census lowers all 12
+artifacts. The checked-in DAv2 and PaddleOCR evidence records the v7 executor
+at source commit `b0b484a7dfa233fb8ba881cbd0d0cbc83b8bc9a4`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
 with no such candidates. Both corpora report zero unsupported nodes, exact
 graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
-or deferred-value creation. DAv2 now executes its complete v6 C++ plan;
-PaddleOCR remains on the Python correctness executor for the explicit generic
-reason `argument_type_mismatch:avg_pool2d:stride`. Future measurements are
-caller-owned until they are deliberately reviewed and replaced. The harness
+or deferred-value creation. DAv2 executes its complete 404-instruction C++
+plan. PaddleOCR encodes its omitted `avg_pool2d` stride as a schema-typed empty
+list recipe and executes its complete 290-instruction C++ plan. Future
+measurements are caller-owned until they are deliberately reviewed and
+replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
 
@@ -84,7 +84,7 @@ blocker for the current prefill and transfers per-node execution to C++; it
 does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
-The exact-SHA v6 DAv2 evidence admits `aten::sym_size.int` through its immutable
+The exact-SHA v7 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
 graph crosses those former representation blockers plus multi-schema-return
@@ -98,19 +98,12 @@ stay within the existing CPU tolerance, and report zero CPU fallback, sync
 readback, or deferred-value creation. Placeholder, aliasing-view, and branched
 producer tests remain fail-closed. The positive corpus result is exact-SHA
 checked-in evidence; the adjacent rejection cases are unit-level contract
-proofs. The matching exact-SHA v6 PaddleOCR measurement remains at
-`argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
-counters.
-
-Caller-owned v7 PaddleOCR evidence encodes the omitted `avg_pool2d` stride as
-a schema-typed empty-list recipe and executes both shapes as a complete
-290-instruction, 294-value C++ plan with one ordered effect, 14 list arguments,
-and one output. It retains exact graph-versus-eager parity, stays within the
-existing CPU tolerance, and reports zero fallback, readback, or deferred-value
-creation. Matching v7 DAv2 and HY-MT probes retain their complete plans and
-zero counters. These measurements remain caller-owned until the v7
-implementation is committed and exact-SHA artifacts deliberately replace the
-checked-in v6 evidence.
+proofs. The matching exact-SHA v7 PaddleOCR measurement executes both shapes as
+a complete 290-instruction, 294-value C++ plan with one ordered effect, 14 list
+arguments, and one output. It retains exact graph-versus-eager parity, stays
+within the existing CPU tolerance, and reports zero fallback, readback, or
+deferred-value creation. The caller-owned v7 HY-MT probe retains its complete
+plan and zero counters.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach and fresh-ReLU

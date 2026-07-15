@@ -12,19 +12,16 @@ defined by `docs/vulkan/CLEANUP_POLICY.md`; the exact live-surface states are in
 guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
-The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the
-fresh-ReLU executor transfer at source commit
-`672b08bb1dbac19b0b8deb0f24239c7df96ee44a` against the matching
+The checked-in DAv2 and PaddleOCR graph evidence was refreshed at source commit
+`b0b484a7dfa233fb8ba881cbd0d0cbc83b8bc9a4` against the matching
 `torch_cpu.dll`. DAv2 proves that all 12 exported `linear_gelu_none` candidates
-lower without rejection, while PaddleOCR remains the control. Both runs retain
-exact graph-versus-eager Vulkan parity, zero unsupported nodes, and zero
-graph-runtime fallback, readback, or deferred-value creation. DAv2 now executes
-its complete 404-instruction v6 C++ plan on both recorded shapes. PaddleOCR
-remains at schema-directed `avg_pool2d` stride canonicalization.
-Caller-owned v7 worktree evidence represents the schema-default empty stride
-as a typed zero-leaf list recipe. PaddleOCR then executes a complete
-290-instruction C++ plan on both shapes, while DAv2 and HY-MT retain their
-complete plans and zero implicit-boundary counters.
+lower without rejection, while PaddleOCR remains the control. Both corpora
+execute complete v7 C++ plans on both recorded shapes with exact
+graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
+fallback, readback, or deferred-value creation. DAv2 executes 404 instructions;
+PaddleOCR represents its schema-default empty `avg_pool2d` stride as a typed
+zero-leaf list recipe and executes 290 instructions. The caller-owned HY-MT
+probe also retains its complete plan and zero implicit-boundary counters.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -76,10 +73,10 @@ later invocations.
 
 Plan selection is fail-closed. The v7 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
-homogeneous dynamic list arguments, and literal or graph-owned constants;
-an empty schema-list constant is represented as a typed zero-leaf list recipe
-rather than an untyped `Any[]` constant.
-internal returns may be non-Tensor IValues while public outputs remain
+homogeneous dynamic list arguments, and literal or graph-owned constants. An
+empty schema-list constant is represented as a typed zero-leaf list recipe
+rather than an untyped `Any[]` constant. Internal returns may be non-Tensor
+IValues while public outputs remain
 Tensors.
 Schema-typed device constants are canonicalized before boxed dispatch. Python
 numeric literals bound to Tensor schema arguments are represented as CPU 0D
@@ -91,7 +88,7 @@ node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
 `mul`, and `floordiv` instructions execute as checked C++ plan operations. They
 reject non-integer operands, detect overflow and division by zero, and preserve
 Python floor-division semantics for negative values. The checked-in exact-SHA
-v6 DAv2 evidence crosses its former symbolic-size, floor-division,
+v7 DAv2 evidence crosses its former symbolic-size, floor-division,
 multi-return, list-projection, and mutable-ReLU blockers. Both `relu_` inputs
 are proven single-use, non-aliasing results of functional `aten::conv2d` and
 are rewritten to functional `aten::relu`. The complete normal and alternate

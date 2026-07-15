@@ -235,6 +235,12 @@ graph-versus-eager parity and zero fallback, readback, or deferred values.
 This transfers execution, not memory, descriptor, submission, or completion
 ownership.
 
+PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
+schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
+a 290-instruction immutable C++ plan with exact graph-versus-eager parity and
+zero fallback, readback, or deferred values. As with DAv2, this transfers boxed
+execution but not memory, descriptor, submission, or completion ownership.
+
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
 integer IValues using their composite registration. The bounded pure-integer
 instruction set consumes those values directly, while every other Python
