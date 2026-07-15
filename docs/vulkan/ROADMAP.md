@@ -518,18 +518,15 @@ its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
 nested or non-list container projection, program memory slots,
 descriptors, submission/completion ownership, and checked-in HY-MT parity
-remain open. The exact-SHA DAv2 and PaddleOCR evidence at `dd9bc1a749d`
+remain open. The exact-SHA DAv2 and PaddleOCR evidence at `fe44b9d6f5c`
 selects the Python executor for explicit generic reasons. DAv2 crosses
 immutable composite `aten::sym_size.int` metadata reads, bounded integer shape
-arithmetic, and its first multi-schema-return instruction, then stops at
-constant indexing into the single `Tensor[]` return of
-`run_vulkan_graph_region_plan`. PaddleOCR remains at the schema mismatch for
+arithmetic, multi-schema-return instructions, and bounded list projection,
+then stops at mutable `aten::relu_`. PaddleOCR remains at the schema mismatch for
 the exported `avg_pool2d` stride. Both retain exact graph-versus-eager Vulkan
 parity and zero runtime fallback, readback, or deferred-value creation. These
 are generic plan-representation tasks, not reasons to add corpus routes.
-Caller-owned v6 worktree evidence crosses the DAv2 list projection and next
-fails closed at mutable `aten::relu_`; PaddleOCR remains at the same stride
-boundary, and HY-MT retains its complete 2,732-instruction C++ plan.
+HY-MT retains its complete 2,732-instruction C++ plan under v6.
 
 Exit criteria:
 

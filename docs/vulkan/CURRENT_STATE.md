@@ -12,21 +12,16 @@ defined by `docs/vulkan/CLEANUP_POLICY.md`; the exact live-surface states are in
 guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
-The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the
-multi-return executor transfer at source commit
-`dd9bc1a749d8fafe9e2b842689a9977cd3693fd2` against the matching
+The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the list
+projection executor transfer at source commit
+`fe44b9d6f5cc07daff8a1389597cfb3b1d43c852` against the matching
 `torch_cpu.dll`. DAv2 proves that all 12 exported `linear_gelu_none` candidates
 lower without rejection, while PaddleOCR remains the control. Both runs retain
 exact graph-versus-eager Vulkan parity, zero unsupported nodes, and zero
-graph-runtime fallback, readback, or deferred-value creation. The v5 DAv2 plan
-crosses its former multi-return IValue SSA boundary and first stops at constant
-indexing into the single `Tensor[]` return of `run_vulkan_graph_region_plan`.
-PaddleOCR remains at schema-directed `avg_pool2d` stride canonicalization.
-Caller-owned v6 worktree measurements execute that DAv2 list projection as a
-bounded internal C++ instruction and next stop at mutable `aten::relu_`;
-PaddleOCR remains at the same stride representation boundary. Both retain
-exact graph-versus-eager parity and zero fallback, readback, or deferred-value
-creation.
+graph-runtime fallback, readback, or deferred-value creation. The v6 DAv2 plan
+crosses its former multi-return and list-projection boundaries and first stops
+at mutable `aten::relu_`. PaddleOCR remains at schema-directed `avg_pool2d`
+stride canonicalization.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -91,13 +86,10 @@ node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
 `mul`, and `floordiv` instructions execute as checked C++ plan operations. They
 reject non-integer operands, detect overflow and division by zero, and preserve
 Python floor-division semantics for negative values. The checked-in exact-SHA
-v5 DAv2 evidence crosses its former symbolic-size, floor-division, and multi-return
-blockers and next reports
-`unsupported_node_kind:getitem:call_function` for constant indexing into a
-single `Tensor[]` dispatcher return while retaining zero fallback, readback, or
-deferred-value creation. The caller-owned v6 DAv2 worktree probe crosses that
-list projection and next reports `mutable_operator:relu_:aten::relu_` with the
-same zero counters. Mutable dispatch, mismatched boxed argument types, deeper
+v6 DAv2 evidence crosses its former symbolic-size, floor-division,
+multi-return, and list-projection blockers and next reports
+`mutable_operator:relu_:aten::relu_` while retaining zero fallback, readback,
+or deferred-value creation. Mutable dispatch, mismatched boxed argument types, deeper
 or non-list dynamic containers, and non-list or nested container projections
 retain the Python correctness executor with an explicit reason. A generic
 functionalization pass

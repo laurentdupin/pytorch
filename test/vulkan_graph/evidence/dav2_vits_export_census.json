@@ -8,11 +8,12 @@
         "input_count": 0,
         "instruction_count": 0,
         "list_argument_count": 0,
+        "list_projection_instruction_count": 0,
         "mode": "python_correctness_executor",
         "output_count": 0,
         "plan_class": "VulkanGraphPlan",
-        "plan_version": "v5",
-        "reason": "unsupported_node_kind:getitem:call_function",
+        "plan_version": "v6",
+        "reason": "mutable_operator:relu_:aten::relu_",
         "status": "python_correctness_executor",
         "value_count": 0
       },
@@ -34,8 +35,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.07089239999913843,
-        "repeated_run_seconds_reference_only": 0.06881640000210609
+        "first_run_seconds": 0.09755059999952209,
+        "repeated_run_seconds_reference_only": 0.07083589999820106
       }
     },
     {
@@ -45,24 +46,25 @@
         "input_count": 0,
         "instruction_count": 0,
         "list_argument_count": 0,
+        "list_projection_instruction_count": 0,
         "mode": "python_correctness_executor",
         "output_count": 0,
         "plan_class": "VulkanGraphPlan",
-        "plan_version": "v5",
-        "reason": "unsupported_node_kind:getitem:call_function",
+        "plan_version": "v6",
+        "reason": "mutable_operator:relu_:aten::relu_",
         "status": "python_correctness_executor",
         "value_count": 0
       },
       "guard": {
         "rejected_program_message": "VulkanGraphProgram exported input guard failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.982205000000249,
+        "variant_compile_seconds": 3.0512963000001037,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "0e79ead8e102404d398cd3dcf5723914d43e7c9199b268d483e1b37ac06a98a8",
+          "graph_hash": "aca2df556c1994bdb8879262659addd3cf4161898c3719b0eb0865709beaf658",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -85,8 +87,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.08272090000173193,
-        "repeated_run_seconds_reference_only": 0.08501609999802895
+        "first_run_seconds": 0.08407880000231671,
+        "repeated_run_seconds_reference_only": 0.0709703000029549
       }
     }
   ],
@@ -386,11 +388,12 @@
     "input_count": 0,
     "instruction_count": 0,
     "list_argument_count": 0,
+    "list_projection_instruction_count": 0,
     "mode": "python_correctness_executor",
     "output_count": 0,
     "plan_class": "VulkanGraphPlan",
-    "plan_version": "v5",
-    "reason": "unsupported_node_kind:getitem:call_function",
+    "plan_version": "v6",
+    "reason": "mutable_operator:relu_:aten::relu_",
     "status": "python_correctness_executor",
     "value_count": 0
   },
@@ -1324,7 +1327,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "0d40f60c860ae4c5e20699af36666044b47e635edb33f157632ff517e082a285",
+    "graph_hash": "78bd401249c56ab26dc49d1a4f3eb433b1c03883d1bf98e94bcc40a4756d1bec",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1343,13 +1346,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "09286a92518dc00dca20b7632d7496e0423808ef800e42a38ce168d9c789c7d6"
+        "sha256": "463cd1645fa975902c569608f987d15c6b3ec4541572684bf13815968917d835"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "dd9bc1a749d8fafe9e2b842689a9977cd3693fd2",
+  "source_git_sha": "fe44b9d6f5cc07daff8a1389597cfb3b1d43c852",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,
@@ -2890,8 +2893,8 @@
     "upload_operator": "vulkan_prepack::upload_graph_tensor_to_buffer"
   },
   "timing": {
-    "cpu_export_seconds": 2.880483799999638,
-    "export_and_lower_seconds": 11.68883619999906
+    "cpu_export_seconds": 3.6623283000008087,
+    "export_and_lower_seconds": 12.843300900000031
   },
   "vulkan_graph_regions": {
     "families": [

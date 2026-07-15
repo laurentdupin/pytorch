@@ -47,18 +47,16 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 ```
 
 The caller-owned output directory receives measured census and parity
-artifacts. The checked-in DAv2 and PaddleOCR evidence records the multi-return
-executor transfer at source commit
-`dd9bc1a749d8fafe9e2b842689a9977cd3693fd2`. The DAv2 census lowers all 12
+artifacts. The checked-in DAv2 and PaddleOCR evidence records the list
+projection executor transfer at source commit
+`fe44b9d6f5cc07daff8a1389597cfb3b1d43c852`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
 with no such candidates. Both corpora report zero unsupported nodes, exact
 graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
-or deferred-value creation. The v5 immutable-plan summaries keep both on the
+or deferred-value creation. The v6 immutable-plan summaries keep both on the
 Python correctness executor for explicit generic reasons: DAv2 crosses its
-former multi-return boundary and first reaches
-`unsupported_node_kind:getitem:call_function`, where the graph projects a
-constant index from the single `Tensor[]` return of
-`run_vulkan_graph_region_plan`; PaddleOCR remains at
+former multi-return and list-projection boundaries and first reaches
+`mutable_operator:relu_:aten::relu_`; PaddleOCR remains at
 `argument_type_mismatch:avg_pool2d:stride`. Future measurements are
 caller-owned until they are deliberately reviewed and replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
@@ -88,25 +86,16 @@ blocker for the current prefill and transfers per-node execution to C++; it
 does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
-The exact-SHA v5 DAv2 evidence admits `aten::sym_size.int` through its immutable
+The exact-SHA v6 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
 graph crosses those former representation blockers plus multi-schema-return
-SSA and next identifies constant projection from a container-valued dispatcher
-return as the next generic representation task. It retains exact
-graph-versus-eager parity and zero runtime fallback, sync readback, or
-deferred-value creation.
-
-Caller-owned v6 DAv2 evidence executes the constant projection from the
-single `Tensor[]` return as a bounded internal C++ instruction and next
-identifies mutable `aten::relu_` as the fail-closed boundary. Its normal and
-alternate guards retain exact graph-versus-eager parity and zero runtime
-fallback, sync readback, or deferred-value creation. The matching v6
-PaddleOCR worktree measurement remains at
+SSA and bounded list projection, then identifies mutable `aten::relu_` as the
+next generic representation task. Its normal and alternate guards retain
+exact graph-versus-eager parity and zero runtime fallback, sync readback, or
+deferred-value creation. The matching exact-SHA v6 PaddleOCR measurement remains at
 `argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
-counters. These measurements are not checked-in exact-SHA evidence until the
-implementation commit is anchored and the artifacts are deliberately
-replaced.
+counters.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach

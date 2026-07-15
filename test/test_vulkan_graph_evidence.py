@@ -754,7 +754,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"dd9bc1a749d8fafe9e2b842689a9977cd3693fd2"},
+            {"fe44b9d6f5cc07daff8a1389597cfb3b1d43c852"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -763,11 +763,17 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "09286a92518dc00dca20b7632d7496e0423808ef800e42a38ce168d9c789c7d6"
+                "463cd1645fa975902c569608f987d15c6b3ec4541572684bf13815968917d835"
             },
         )
         for payload in payloads:
-            self.assertEqual(payload["execution_plan"]["plan_version"], "v5")
+            self.assertEqual(payload["execution_plan"]["plan_version"], "v6")
+            self.assertEqual(
+                payload["execution_plan"][
+                    "list_projection_instruction_count"
+                ],
+                0,
+            )
             self.assertEqual(
                 payload["execution_plan"]["status"],
                 "python_correctness_executor",
@@ -775,7 +781,7 @@ class TestVulkanGraphEvidence(TestCase):
         for payload in (dav2_census, dav2_parity):
             self.assertEqual(
                 payload["execution_plan"]["reason"],
-                "unsupported_node_kind:getitem:call_function",
+                "mutable_operator:relu_:aten::relu_",
             )
         for payload in (paddle_census, paddle_parity):
             self.assertEqual(
