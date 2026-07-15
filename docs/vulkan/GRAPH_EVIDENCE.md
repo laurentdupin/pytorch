@@ -48,9 +48,9 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
-at source commit `bc331fcfc9d3b69d5d57845453da6320e74fa6e9` and
+at source commit `7b53498bcd8eb7f835c64668f6b33ca9d4231027` and
 `torch_cpu.dll` SHA-256
-`50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2`.
+`1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a`.
 The DAv2 census lowers all 12 `linear_gelu_none` candidates with no rejection;
 PaddleOCR remains the control with no such candidates. Both corpora report zero
 unsupported nodes, exact graph-versus-eager Vulkan parity, and zero runtime CPU
@@ -118,11 +118,12 @@ tokens, 48 owner checkpoint flushes, zero retire-drain submits, and 52 total
 submits. The prior supported graph artifact recorded 16 scopes, 56
 retire-drain submits, and 92 total submits. Graph versus eager Vulkan remains
 exact, CPU tolerance remains satisfied, and runtime fallback, readback, and
-deferred-value counters remain zero. DAv2 repeated-run samples are about 43.8
-ms and 39.7 ms versus 48.8 ms and 48.5 ms in the prior artifact. These samples
-are direction evidence, not a latency or peak-memory deletion bar. The
-caller-owned HY-MT worktree probe retains its complete plan and records the
-owned checkpoint/token evidence described above.
+deferred-value counters remain zero. The current DAv2 repeated-run samples are
+about 45.1 ms and 71.5 ms versus 48.8 ms and 48.5 ms in the prior artifact;
+PaddleOCR records about 83.6 ms and 73.3 ms versus 66.7 ms and 92.1 ms. These
+mixed single samples do not establish latency parity. The caller-owned HY-MT
+worktree probe retains its complete plan and records the owned checkpoint/token
+evidence described above.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.
@@ -152,8 +153,12 @@ baseline live bytes, end live bytes, absolute high-water bytes, and peak delta
 from the baseline. Eager temporaries are released and synchronized before the
 graph phase. Absolute high-water comparisons are therefore meaningful within
 the same case process, while peak deltas identify incremental activation and
-temporary pressure. These fields do not authorize model-name production
-dispatch, exact-shape admission, or executor performance tuning.
+temporary pressure. Checked-in evidence requires the first graph phase and the
+repeat-with-prior-output-live phase to stay within 5% of their same-process
+supported eager high-water mark. DAv2 is 0.9% to 1.7% below eager across the
+recorded graph phases; PaddleOCR ranges from 0.5% below to 2.5% above. These
+fields do not authorize model-name production dispatch, exact-shape admission,
+or executor performance tuning.
 
 The default tolerances are zero. A nonzero tolerance is an explicit corpus
 evidence choice and is written into the measured parity artifact. Graph versus

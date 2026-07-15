@@ -42,6 +42,26 @@
           140
         ]
       ],
+      "memory": {
+        "eager": {
+          "baseline_live_bytes": 211762480,
+          "end_live_bytes": 297094256,
+          "high_water_bytes": 313946696,
+          "peak_delta_bytes": 102184216
+        },
+        "graph_first": {
+          "baseline_live_bytes": 297094256,
+          "end_live_bytes": 300468144,
+          "high_water_bytes": 310997316,
+          "peak_delta_bytes": 13903060
+        },
+        "graph_repeat_with_prior_output_live": {
+          "baseline_live_bytes": 300468144,
+          "end_live_bytes": 300546544,
+          "high_water_bytes": 311075716,
+          "peak_delta_bytes": 10607572
+        }
+      },
       "name": "normal",
       "submission_counters": {
         "graph_program_invocation": {
@@ -77,8 +97,8 @@
         }
       },
       "timing": {
-        "first_run_seconds": 0.04803920000267681,
-        "repeated_run_seconds_reference_only": 0.043780900006822776
+        "first_run_seconds": 0.05679969999619061,
+        "repeated_run_seconds_reference_only": 0.045119200003682636
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -124,13 +144,13 @@
       "guard": {
         "rejected_program_message": "VulkanGraphProgram exported input guard failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.7233486999975867,
+        "variant_compile_seconds": 3.5109108000033302,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "3dc43cb7b2addcf20d10c8662946feb298bdeabe2d577d3a7ec5a933c53ba9ec",
+          "graph_hash": "c9336406c5279ca5916df5746518a4151c175c8ed05a8514ab54a445d91efa09",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -146,6 +166,26 @@
           280
         ]
       ],
+      "memory": {
+        "eager": {
+          "baseline_live_bytes": 406526464,
+          "end_live_bytes": 406858368,
+          "high_water_bytes": 442047900,
+          "peak_delta_bytes": 35521436
+        },
+        "graph_first": {
+          "baseline_live_bytes": 406858368,
+          "end_live_bytes": 413575936,
+          "high_water_bytes": 434631508,
+          "peak_delta_bytes": 27773140
+        },
+        "graph_repeat_with_prior_output_live": {
+          "baseline_live_bytes": 413575936,
+          "end_live_bytes": 413732736,
+          "high_water_bytes": 436428016,
+          "peak_delta_bytes": 22852080
+        }
+      },
       "name": "alternate",
       "submission_counters": {
         "graph_program_invocation": {
@@ -181,8 +221,8 @@
         }
       },
       "timing": {
-        "first_run_seconds": 0.0409395000024233,
-        "repeated_run_seconds_reference_only": 0.039685899995674845
+        "first_run_seconds": 0.12068690000160132,
+        "repeated_run_seconds_reference_only": 0.07149489999574143
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -1456,7 +1496,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "17fc9d80b12dc6b1a97b63d53176c868cfc50c966d334277836052f97bbe83e0",
+    "graph_hash": "061c36b1a594986e85ac8ecb47eccd0ed28e0641e93dc5afed4d12151b740094",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1475,13 +1515,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2"
+        "sha256": "1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "bc331fcfc9d3b69d5d57845453da6320e74fa6e9",
+  "source_git_sha": "7b53498bcd8eb7f835c64668f6b33ca9d4231027",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,

@@ -32,6 +32,26 @@
           320
         ]
       ],
+      "memory": {
+        "eager": {
+          "baseline_live_bytes": 504479248,
+          "end_live_bytes": 511856512,
+          "high_water_bytes": 529607400,
+          "peak_delta_bytes": 25128152
+        },
+        "graph_first": {
+          "baseline_live_bytes": 511856512,
+          "end_live_bytes": 511673008,
+          "high_water_bytes": 540071300,
+          "peak_delta_bytes": 28214788
+        },
+        "graph_repeat_with_prior_output_live": {
+          "baseline_live_bytes": 511673008,
+          "end_live_bytes": 514615088,
+          "high_water_bytes": 543014196,
+          "peak_delta_bytes": 31341188
+        }
+      },
       "name": "normal",
       "runtime_counters": {
         "deferred_values_created": 0,
@@ -72,8 +92,8 @@
         }
       },
       "timing": {
-        "first_run_seconds": 0.0390218000029563,
-        "repeated_run_seconds_reference_only": 0.04482619999907911
+        "first_run_seconds": 0.07956520000152523,
+        "repeated_run_seconds_reference_only": 0.08363139999710256
       }
     },
     {
@@ -107,6 +127,26 @@
           640
         ]
       ],
+      "memory": {
+        "eager": {
+          "baseline_live_bytes": 514615088,
+          "end_live_bytes": 520948848,
+          "high_water_bytes": 587504276,
+          "peak_delta_bytes": 72889188
+        },
+        "graph_first": {
+          "baseline_live_bytes": 520948848,
+          "end_live_bytes": 520580208,
+          "high_water_bytes": 584626740,
+          "peak_delta_bytes": 63677892
+        },
+        "graph_repeat_with_prior_output_live": {
+          "baseline_live_bytes": 520580208,
+          "end_live_bytes": 526464368,
+          "high_water_bytes": 594325684,
+          "peak_delta_bytes": 73745476
+        }
+      },
       "name": "alternate",
       "runtime_counters": {
         "deferred_values_created": 0,
@@ -147,8 +187,8 @@
         }
       },
       "timing": {
-        "first_run_seconds": 0.04181949999474455,
-        "repeated_run_seconds_reference_only": 0.05454260000260547
+        "first_run_seconds": 0.06885950000287266,
+        "repeated_run_seconds_reference_only": 0.07332809999934398
       }
     }
   ],
@@ -1247,13 +1287,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2"
+        "sha256": "1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "bc331fcfc9d3b69d5d57845453da6320e74fa6e9",
+  "source_git_sha": "7b53498bcd8eb7f835c64668f6b33ca9d4231027",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 4,
@@ -1464,8 +1504,8 @@
     "upload_operator": "vulkan_prepack::upload_graph_tensor_to_buffer"
   },
   "timing": {
-    "cpu_export_seconds": 3.0854334000032395,
-    "export_and_lower_seconds": 10.360020699998131
+    "cpu_export_seconds": 4.092759699997259,
+    "export_and_lower_seconds": 15.204120600006718
   },
   "vulkan_graph_regions": {
     "families": [

@@ -776,7 +776,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"bc331fcfc9d3b69d5d57845453da6320e74fa6e9"},
+            {"7b53498bcd8eb7f835c64668f6b33ca9d4231027"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -785,7 +785,7 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2"
+                "1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a"
             },
         )
         for payload in payloads:
@@ -887,6 +887,48 @@ class TestVulkanGraphEvidence(TestCase):
             )
             for case in census["cases"]:
                 self.assertEqual(set(case["runtime_counters"].values()), {0})
+        for payload in payloads:
+            for case in payload["cases"]:
+                memory = case["memory"]
+                self.assertEqual(
+                    set(memory),
+                    {
+                        "eager",
+                        "graph_first",
+                        "graph_repeat_with_prior_output_live",
+                    },
+                )
+                for phase in memory.values():
+                    self.assertEqual(
+                        set(phase),
+                        {
+                            "baseline_live_bytes",
+                            "end_live_bytes",
+                            "high_water_bytes",
+                            "peak_delta_bytes",
+                        },
+                    )
+                    self.assertGreaterEqual(
+                        phase["high_water_bytes"],
+                        phase["baseline_live_bytes"],
+                    )
+                    self.assertGreaterEqual(
+                        phase["high_water_bytes"], phase["end_live_bytes"]
+                    )
+                    self.assertEqual(
+                        phase["peak_delta_bytes"],
+                        phase["high_water_bytes"]
+                        - phase["baseline_live_bytes"],
+                    )
+                eager_peak = memory["eager"]["high_water_bytes"]
+                for graph_phase in (
+                    "graph_first",
+                    "graph_repeat_with_prior_output_live",
+                ):
+                    self.assertLessEqual(
+                        memory[graph_phase]["high_water_bytes"],
+                        eager_peak * 1.05,
+                    )
         expected_dav2_graph_counters = {
             "scope_begun": 2,
             "normal_submit_token_capture": 2,

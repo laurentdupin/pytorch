@@ -263,9 +263,10 @@ values remain mutable. Exact-SHA normal and alternate DAv2 runs execute a
 fallback, readback, or deferred values. Its 12 linear/GELU and eight
 conv/ReLU/conv region calls use one outer owner per invocation. The two-run
 shape evidence drops from 16 scopes and 92 total submits to two scopes and 52
-total submits, including zero retire-drain submits; repeated-run samples move
-from about 48.8 ms and 48.5 ms to 43.8 ms and 39.7 ms. This transfers execution
-and top-level submission/completion ownership, but not memory or descriptor
+total submits, including zero retire-drain submits. The latest repeated-run
+samples are mixed rather than a latency proof: about 45.1 ms and 71.5 ms versus
+48.8 ms and 48.5 ms in the prior artifact. This transfers execution and
+top-level submission/completion ownership, but not memory or descriptor
 ownership.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a

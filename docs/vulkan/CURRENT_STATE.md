@@ -13,8 +13,8 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed at source commit
-`bc331fcfc9d3b69d5d57845453da6320e74fa6e9` against `torch_cpu.dll` SHA-256
-`50790da4ed9f7f60bfa0a5419e28142cafc0de33d1b688de1a90750aeb2584c2`.
+`7b53498bcd8eb7f835c64668f6b33ca9d4231027` against `torch_cpu.dll` SHA-256
+`1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a`.
 Both corpora execute complete v8 C++ plans on both recorded shapes with exact
 graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
 fallback, readback, or deferred-value creation. DAv2 executes 404 instructions
@@ -32,6 +32,13 @@ retire-drain submits. A later caller-owned HY-MT worktree probe
 transfers lifted-copy and large-linear checkpoint submission ownership across
 its complete plan; its evidence is described below but is not a checked-in
 parity artifact.
+The same checked-in cases record allocator high-water phases for eager, first
+graph execution, and repeated graph execution with the prior output live. DAv2
+graph peaks are 0.9% to 1.7% below eager. PaddleOCR graph peaks range from 0.5%
+below to 2.5% above eager. All recorded graph phases remain within the evidence
+gate of 5% above their same-process supported eager peak. This proves bounded
+peak-memory parity for the recorded shapes, not program-owned arenas or stable
+allocation addresses.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
