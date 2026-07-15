@@ -186,6 +186,9 @@ invocation generation and the returned stream timeline token; command-free
 metadata plans complete with no fabricated token. Plans containing a nested
 `VulkanGraphRegionPlan` transaction or `aten::lift_fresh_copy` report
 `submission_owned=false` until those ownership boundaries are unified.
+Eager-only pending-retirement checkpoints in LayerNorm, pool, and
+reduction-dimension softmax defer to an active outer graph scope; plain eager
+execution retains those checkpoints.
 
 The v8 plan does not yet implement deeper or non-list dynamic containers,
 projection from nested, tuple, or dictionary values, preallocated memory slots,

@@ -47,14 +47,19 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 ```
 
 The caller-owned output directory receives measured census and parity
-artifacts. The checked-in DAv2 and PaddleOCR evidence records the v7 executor
-at source commit `b0b484a7dfa233fb8ba881cbd0d0cbc83b8bc9a4`. The DAv2 census lowers all 12
-`linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
-with no such candidates. Both corpora report zero unsupported nodes, exact
-graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
-or deferred-value creation. DAv2 executes its complete 404-instruction C++
-plan. PaddleOCR encodes its omitted `avg_pool2d` stride as a schema-typed empty
-list recipe and executes its complete 290-instruction C++ plan. Future
+artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
+at source commit `6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2` and
+`torch_cpu.dll` SHA-256
+`4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94`.
+The DAv2 census lowers all 12 `linear_gelu_none` candidates with no rejection;
+PaddleOCR remains the control with no such candidates. Both corpora report zero
+unsupported nodes, exact graph-versus-eager Vulkan parity, and zero runtime CPU
+fallback, sync readback, or deferred-value creation. DAv2 executes its complete
+404-instruction C++ plan but remains top-level non-owning because it invokes 20
+nested graph-region plans. PaddleOCR encodes its omitted `avg_pool2d` stride as
+a schema-typed empty list recipe, executes its complete 290-instruction C++
+plan, and records top-level invocation generations, completed nonzero timeline
+tokens, graph-invocation counters, and submit origins. Future
 measurements are caller-owned until they are deliberately reviewed and
 replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
@@ -98,28 +103,33 @@ stay within the existing CPU tolerance, and report zero CPU fallback, sync
 readback, or deferred-value creation. Placeholder, aliasing-view, and branched
 producer tests remain fail-closed. The positive corpus result is exact-SHA
 checked-in evidence; the adjacent rejection cases are unit-level contract
-proofs. The matching exact-SHA v7 PaddleOCR measurement executes both shapes as
+proofs. The matching exact-SHA v8 PaddleOCR measurement executes both shapes as
 a complete 290-instruction, 294-value C++ plan with one ordered effect, 14 list
 arguments, and one output. It retains exact graph-versus-eager parity, stays
 within the existing CPU tolerance, and reports zero fallback, readback, or
-deferred-value creation. The caller-owned v7 HY-MT probe retains its complete
-plan and zero counters.
+deferred-value creation. Each shape runs twice and records two scopes, two token
+captures, two plan submits, two input uploads, two output readbacks, six total
+queue submits, and no frequency or retire-drain submits. DAv2 reports
+`submission_owned=false` because its 12 linear/GELU and eight conv/ReLU/conv
+regions retain nested ownership; each two-run shape records 16 bounded scopes,
+30 pending-command flushes, 56 retire-drain submits, and 92 total queue submits.
+The caller-owned v7 HY-MT probe retains its complete plan and zero counters.
 
-Unit-level v8 evidence adds one real normal-Context submission transaction for
-plans without nested graph-region or lifted-copy ownership. Multi-instruction
-plans capture one timeline token per invocation, preserve an earlier unread
-output across a later generation, and report completion after readback.
-Command-free metadata plans advance generation without fabricating a token.
-Exact corpus submission evidence remains caller-owned until v8 artifacts are
-measured against a committed source SHA.
+Checked-in corpus and unit-level v8 evidence add one real normal-Context
+submission transaction for plans without nested graph-region or lifted-copy
+ownership. Multi-instruction plans capture one timeline token per invocation,
+preserve an earlier unread output across a later generation, and report
+completion after readback. Command-free metadata plans advance generation
+without fabricating a token.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach and fresh-ReLU
 functionalization, proven-identity indexing, static GQA repetition, and
 explicit tensor placement. It also records an immutable-plan summary including
 the graph-scalar and list-projection instruction counts, guard outcomes,
-program key, Vulkan runtime identity and DLL hashes, timing,
-fallback/readback/deferred-value counters, and CPU/eager Vulkan parity. It does
+program key, Vulkan runtime identity and DLL hashes, timing, graph-invocation
+and submit-origin counters, fallback/readback/deferred-value counters, and
+CPU/eager Vulkan parity. It does
 not authorize model-name production dispatch, exact-shape admission, or
 executor performance tuning.
 

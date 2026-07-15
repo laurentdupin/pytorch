@@ -13,15 +13,22 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed at source commit
-`b0b484a7dfa233fb8ba881cbd0d0cbc83b8bc9a4` against the matching
-`torch_cpu.dll`. DAv2 proves that all 12 exported `linear_gelu_none` candidates
-lower without rejection, while PaddleOCR remains the control. Both corpora
-execute complete v7 C++ plans on both recorded shapes with exact
+`6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2` against `torch_cpu.dll` SHA-256
+`4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94`.
+Both corpora execute complete v8 C++ plans on both recorded shapes with exact
 graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
-fallback, readback, or deferred-value creation. DAv2 executes 404 instructions;
-PaddleOCR represents its schema-default empty `avg_pool2d` stride as a typed
-zero-leaf list recipe and executes 290 instructions. The caller-owned HY-MT
-probe also retains its complete plan and zero implicit-boundary counters.
+fallback, readback, or deferred-value creation. DAv2 executes 404 instructions
+and proves that all 12 exported `linear_gelu_none` candidates lower without
+rejection. Its 12 linear/GELU and eight conv/ReLU/conv nested region calls keep
+the top-level plan explicitly non-owning. Each two-run shape records 16 nested
+scopes and tokens, 30 pending-command flushes, 56 retire-drain submits, and 92
+total queue submits. PaddleOCR remains the GELU control, represents its
+schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
+executes 290 instructions. Its top-level plan owns one submission per
+invocation: each two-run shape records two scopes, two tokens, two plan submits,
+two input uploads, two output readbacks, six total queue submits, and no
+frequency or retire-drain submits. The caller-owned HY-MT probe also retains its
+complete plan and zero implicit-boundary counters.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -79,6 +86,8 @@ completes successfully with generation advancement and no synthetic token.
 Plans containing `VulkanGraphRegionPlan` transactions or
 `aten::lift_fresh_copy` report `submission_owned=false` and retain their prior
 ownership path; v8 does not claim nested ownership that has not transferred.
+Pool and reduction-dimension softmax retain their eager pending-retirement
+checkpoints but defer those checkpoints while this outer transaction is active.
 
 Plan selection is fail-closed. The v8 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat

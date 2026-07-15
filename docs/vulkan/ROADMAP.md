@@ -532,18 +532,22 @@ its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
 nested or non-list container projection, program memory slots, descriptors,
 nested submission ownership, generation-gated output reuse, and checked-in
-HY-MT parity remain open. The exact-SHA DAv2 and PaddleOCR evidence at
-`b0b484a7dfa`
-records complete executor outcomes. DAv2 crosses
+HY-MT parity remain open. The exact-SHA DAv2 and PaddleOCR v8 evidence at
+`6cffc662e19` records complete executor outcomes. DAv2 crosses
 immutable composite `aten::sym_size.int` metadata reads, bounded integer shape
 arithmetic, multi-schema-return instructions, and bounded list projection,
 then functionalizes both proven-fresh `aten::relu_` nodes and executes a
 complete 404-instruction C++ plan. PaddleOCR preserves its schema-default empty
 `avg_pool2d` stride as a typed list recipe and executes a complete
 290-instruction C++ plan. Both retain exact graph-versus-eager Vulkan parity and
-zero runtime fallback, readback, or deferred-value creation. HY-MT retains its
-complete 2,732-instruction caller-owned C++ plan under v7. These are generic
-plan-representation results, not corpus-specific routes.
+zero runtime fallback, readback, or deferred-value creation. PaddleOCR also
+proves top-level ownership: each two-run shape records two scopes, two plan
+submits, six total submits including input/output transfer, and no frequency or
+retire-drain submits. DAv2 remains top-level non-owning: each two-run shape
+records 16 nested scopes, 30 pending-command flushes, 56 retire-drain submits,
+and 92 total submits. HY-MT retains its complete 2,732-instruction caller-owned
+C++ plan under v7. These are generic plan-representation results, not
+corpus-specific routes.
 
 Exit criteria:
 

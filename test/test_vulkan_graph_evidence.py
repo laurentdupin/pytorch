@@ -776,7 +776,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"b0b484a7dfa233fb8ba881cbd0d0cbc83b8bc9a4"},
+            {"6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -785,11 +785,11 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "7ffffc8e79d9495285ad2bd9588a6d0552927f9a5967c609a665fc8ae46fb20b"
+                "4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94"
             },
         )
         for payload in payloads:
-            self.assertEqual(payload["execution_plan"]["plan_version"], "v7")
+            self.assertEqual(payload["execution_plan"]["plan_version"], "v8")
             self.assertEqual(payload["execution_plan"]["status"], "compiled")
             self.assertEqual(
                 payload["execution_plan"]["reason"],
@@ -811,6 +811,15 @@ class TestVulkanGraphEvidence(TestCase):
                     payload["execution_plan"]["output_count"],
                 ),
                 (404, 2, 8, 20, 53, 425, 1),
+            )
+            self.assertFalse(payload["execution_plan"]["submission_owned"])
+            self.assertEqual(
+                (
+                    payload["execution_plan"]["invocation_generation"],
+                    payload["execution_plan"]["last_submission_value"],
+                    payload["execution_plan"]["last_submission_complete"],
+                ),
+                (0, 0, True),
             )
             self.assertEqual(
                 (
@@ -841,6 +850,16 @@ class TestVulkanGraphEvidence(TestCase):
                 ),
                 (290, 1, 0, 0, 14, 294, 1),
             )
+            self.assertTrue(payload["execution_plan"]["submission_owned"])
+            self.assertEqual(
+                payload["execution_plan"]["invocation_generation"], 4
+            )
+            self.assertGreater(
+                payload["execution_plan"]["last_submission_value"], 0
+            )
+            self.assertTrue(
+                payload["execution_plan"]["last_submission_complete"]
+            )
             self.assertEqual(
                 payload["fresh_relu_functionalization"]["candidate_count"],
                 0,
@@ -867,6 +886,113 @@ class TestVulkanGraphEvidence(TestCase):
             )
             for case in census["cases"]:
                 self.assertEqual(set(case["runtime_counters"].values()), {0})
+        expected_dav2_graph_counters = {
+            "scope_begun": 16,
+            "normal_submit_token_capture": 16,
+            "aborted_submit": 0,
+            "rejected_incompatible_state": 0,
+            "bounded_region_host_sync_rejected": 0,
+            "scratch_captured": 8,
+            "scratch_reused": 8,
+            "scratch_transient_overflow": 0,
+            "scratch_retire_enqueued": 0,
+            "scratch_immediate_release": 0,
+        }
+        expected_dav2_submit_origins = {
+            "total_queue_submits": 92,
+            "normal_cmd_submit_frequency": 2,
+            "stack_planned_recording_submit": 0,
+            "pre_stack_flush": 0,
+            "post_stack_flush": 0,
+            "explicit_synchronize": 0,
+            "tensor_cpu_readback": 2,
+            "host_upload": 2,
+            "fallback_readback": 0,
+            "retire_queue_drain": 56,
+            "profiling_timestamp_reset": 0,
+            "profiling_timestamp_readback": 0,
+            "shutdown": 0,
+            "debug_validation": 0,
+            "conv_prepack_upload": 0,
+            "pending_command_flush": 30,
+            "unknown": 0,
+        }
+        for payload in (dav2_census, dav2_parity):
+            for case in payload["cases"]:
+                self.assertFalse(case["execution_plan"]["submission_owned"])
+                self.assertEqual(
+                    (
+                        case["execution_plan"]["invocation_generation"],
+                        case["execution_plan"]["last_submission_value"],
+                    ),
+                    (0, 0),
+                )
+                self.assertTrue(
+                    case["execution_plan"]["last_submission_complete"]
+                )
+                self.assertEqual(
+                    case["submission_counters"]["graph_program_invocation"],
+                    expected_dav2_graph_counters,
+                )
+                self.assertEqual(
+                    case["submission_counters"]["submit_origin"],
+                    expected_dav2_submit_origins,
+                )
+        expected_paddle_graph_counters = {
+            "scope_begun": 2,
+            "normal_submit_token_capture": 2,
+            "aborted_submit": 0,
+            "rejected_incompatible_state": 0,
+            "bounded_region_host_sync_rejected": 0,
+            "scratch_captured": 0,
+            "scratch_reused": 0,
+            "scratch_transient_overflow": 0,
+            "scratch_retire_enqueued": 0,
+            "scratch_immediate_release": 0,
+        }
+        expected_paddle_submit_origins = {
+            "total_queue_submits": 6,
+            "normal_cmd_submit_frequency": 0,
+            "stack_planned_recording_submit": 0,
+            "pre_stack_flush": 0,
+            "post_stack_flush": 0,
+            "explicit_synchronize": 0,
+            "tensor_cpu_readback": 2,
+            "host_upload": 2,
+            "fallback_readback": 0,
+            "retire_queue_drain": 0,
+            "profiling_timestamp_reset": 0,
+            "profiling_timestamp_readback": 0,
+            "shutdown": 0,
+            "debug_validation": 0,
+            "conv_prepack_upload": 0,
+            "pending_command_flush": 2,
+            "unknown": 0,
+        }
+        for payload in (paddle_census, paddle_parity):
+            self.assertEqual(
+                [
+                    case["execution_plan"]["invocation_generation"]
+                    for case in payload["cases"]
+                ],
+                [2, 4],
+            )
+            for case in payload["cases"]:
+                self.assertTrue(case["execution_plan"]["submission_owned"])
+                self.assertGreater(
+                    case["execution_plan"]["last_submission_value"], 0
+                )
+                self.assertTrue(
+                    case["execution_plan"]["last_submission_complete"]
+                )
+                self.assertEqual(
+                    case["submission_counters"]["graph_program_invocation"],
+                    expected_paddle_graph_counters,
+                )
+                self.assertEqual(
+                    case["submission_counters"]["submit_origin"],
+                    expected_paddle_submit_origins,
+                )
         for parity in (dav2_parity, paddle_parity):
             for case in parity["cases"]:
                 self.assertEqual(case["graph_vs_eager_vulkan"]["max_abs"], 0.0)

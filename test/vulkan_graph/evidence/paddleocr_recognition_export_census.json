@@ -7,14 +7,18 @@
         "graph_scalar_instruction_count": 0,
         "input_count": 1,
         "instruction_count": 290,
+        "invocation_generation": 2,
+        "last_submission_complete": true,
+        "last_submission_value": 1282,
         "list_argument_count": 14,
         "list_projection_instruction_count": 0,
         "mode": "cpp_plan",
         "output_count": 1,
         "plan_class": "VulkanGraphPlan",
-        "plan_version": "v7",
+        "plan_version": "v8",
         "reason": "immutable_ivalue_ssa_plan",
         "status": "compiled",
+        "submission_owned": true,
         "value_count": 294
       },
       "guard": {
@@ -34,9 +38,42 @@
         "runtime_cpu_fallback": 0,
         "runtime_sync_readback_escape": 0
       },
+      "submission_counters": {
+        "graph_program_invocation": {
+          "aborted_submit": 0,
+          "bounded_region_host_sync_rejected": 0,
+          "normal_submit_token_capture": 2,
+          "rejected_incompatible_state": 0,
+          "scope_begun": 2,
+          "scratch_captured": 0,
+          "scratch_immediate_release": 0,
+          "scratch_retire_enqueued": 0,
+          "scratch_reused": 0,
+          "scratch_transient_overflow": 0
+        },
+        "submit_origin": {
+          "conv_prepack_upload": 0,
+          "debug_validation": 0,
+          "explicit_synchronize": 0,
+          "fallback_readback": 0,
+          "host_upload": 2,
+          "normal_cmd_submit_frequency": 0,
+          "pending_command_flush": 2,
+          "post_stack_flush": 0,
+          "pre_stack_flush": 0,
+          "profiling_timestamp_readback": 0,
+          "profiling_timestamp_reset": 0,
+          "retire_queue_drain": 0,
+          "shutdown": 0,
+          "stack_planned_recording_submit": 0,
+          "tensor_cpu_readback": 2,
+          "total_queue_submits": 6,
+          "unknown": 0
+        }
+      },
       "timing": {
-        "first_run_seconds": 0.04301100000157021,
-        "repeated_run_seconds_reference_only": 0.04892580000159796
+        "first_run_seconds": 0.05477970000356436,
+        "repeated_run_seconds_reference_only": 0.06665729999804171
       }
     },
     {
@@ -45,14 +82,18 @@
         "graph_scalar_instruction_count": 0,
         "input_count": 1,
         "instruction_count": 290,
+        "invocation_generation": 4,
+        "last_submission_complete": true,
+        "last_submission_value": 1323,
         "list_argument_count": 14,
         "list_projection_instruction_count": 0,
         "mode": "cpp_plan",
         "output_count": 1,
         "plan_class": "VulkanGraphPlan",
-        "plan_version": "v7",
+        "plan_version": "v8",
         "reason": "immutable_ivalue_ssa_plan",
         "status": "compiled",
+        "submission_owned": true,
         "value_count": 294
       },
       "guard": {
@@ -72,9 +113,42 @@
         "runtime_cpu_fallback": 0,
         "runtime_sync_readback_escape": 0
       },
+      "submission_counters": {
+        "graph_program_invocation": {
+          "aborted_submit": 0,
+          "bounded_region_host_sync_rejected": 0,
+          "normal_submit_token_capture": 2,
+          "rejected_incompatible_state": 0,
+          "scope_begun": 2,
+          "scratch_captured": 0,
+          "scratch_immediate_release": 0,
+          "scratch_retire_enqueued": 0,
+          "scratch_reused": 0,
+          "scratch_transient_overflow": 0
+        },
+        "submit_origin": {
+          "conv_prepack_upload": 0,
+          "debug_validation": 0,
+          "explicit_synchronize": 0,
+          "fallback_readback": 0,
+          "host_upload": 2,
+          "normal_cmd_submit_frequency": 0,
+          "pending_command_flush": 2,
+          "post_stack_flush": 0,
+          "pre_stack_flush": 0,
+          "profiling_timestamp_readback": 0,
+          "profiling_timestamp_reset": 0,
+          "retire_queue_drain": 0,
+          "shutdown": 0,
+          "stack_planned_recording_submit": 0,
+          "tensor_cpu_readback": 2,
+          "total_queue_submits": 6,
+          "unknown": 0
+        }
+      },
       "timing": {
-        "first_run_seconds": 0.044146600004751235,
-        "repeated_run_seconds_reference_only": 0.051451500003167894
+        "first_run_seconds": 0.05077259999961825,
+        "repeated_run_seconds_reference_only": 0.09214120000251569
       }
     }
   ],
@@ -868,14 +942,18 @@
     "graph_scalar_instruction_count": 0,
     "input_count": 1,
     "instruction_count": 290,
+    "invocation_generation": 4,
+    "last_submission_complete": true,
+    "last_submission_value": 1323,
     "list_argument_count": 14,
     "list_projection_instruction_count": 0,
     "mode": "cpp_plan",
     "output_count": 1,
     "plan_class": "VulkanGraphPlan",
-    "plan_version": "v7",
+    "plan_version": "v8",
     "reason": "immutable_ivalue_ssa_plan",
     "status": "compiled",
+    "submission_owned": true,
     "value_count": 294
   },
   "external_assets": {
@@ -1150,7 +1228,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "819dfedd74ba6b0551d514828035afb714f692d0b4014472edd8e5281dddbb0a",
+    "graph_hash": "48f6311ba142a938f7e73e5e4f133068c7d56c39beb92dab32f249992ce6372a",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '48', '8*s38')"
     ],
@@ -1169,13 +1247,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "7ffffc8e79d9495285ad2bd9588a6d0552927f9a5967c609a665fc8ae46fb20b"
+        "sha256": "4b6648d8b978b0bc123bdd4c96cb7b754ec440c546465d7091a6803eaaf3ac94"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "b0b484a7dfa233fb8ba881cbd0d0cbc83b8bc9a4",
+  "source_git_sha": "6cffc662e194ef4dbcee03aa1dcb95fd2dd757c2",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 4,
@@ -1386,8 +1464,8 @@
     "upload_operator": "vulkan_prepack::upload_graph_tensor_to_buffer"
   },
   "timing": {
-    "cpu_export_seconds": 2.5616872000027797,
-    "export_and_lower_seconds": 9.793572300004598
+    "cpu_export_seconds": 2.608499699999811,
+    "export_and_lower_seconds": 9.630075699998997
   },
   "vulkan_graph_regions": {
     "families": [
