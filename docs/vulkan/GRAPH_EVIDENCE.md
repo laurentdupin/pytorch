@@ -165,9 +165,9 @@ Each case separately measures supported-default latency with preuploaded Vulkan
 inputs and Vulkan outputs that are not read back in the timed region. Plain
 concrete eager and `VulkanGraphProgram` receive the same device-resident inputs,
 alternate which surface runs first in each measurement round, and synchronize
-after every measured invocation. The artifact records every sample plus mean,
-median, standard deviation, minimum, maximum, p90, and p95. The default is three
-warmups and ten measurements per surface. This phase runs after parity,
+after every warmup and measured invocation. The artifact records every sample
+plus mean, median, standard deviation, minimum, maximum, p90, and p95. The
+default is three warmups and ten measurements per surface. This phase runs after parity,
 submission, repeated-output, and memory snapshots have been captured, so its
 explicit synchronization does not contaminate those counters. The raw samples
 remain direction evidence until a reviewed deletion unit names its supported

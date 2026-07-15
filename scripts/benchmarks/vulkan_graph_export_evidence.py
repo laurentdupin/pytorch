@@ -448,6 +448,7 @@ def _measure_latency_pair(
         ordered_surfaces = surfaces if index % 2 == 0 else tuple(reversed(surfaces))
         for _, run in ordered_surfaces:
             output = run()
+            torch.ops.vulkan_prepack.synchronize()
             del output
     torch.ops.vulkan_prepack.synchronize()
 
