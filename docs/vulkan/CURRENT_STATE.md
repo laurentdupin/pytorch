@@ -13,14 +13,17 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the
-cleanup wave at source commit `ec8e6a99995cbc9661b79aab488797b87f556a28`
-against the matching `torch_cpu.dll`. DAv2 now proves that all 12 exported
-`linear_gelu_none` candidates lower without rejection, while PaddleOCR remains
-an unchanged control. Both runs retain exact graph-versus-eager Vulkan parity,
-zero unsupported nodes, and zero graph-runtime fallback, readback, or
-deferred-value creation. The GELU `none` CPU tolerance is documented in
-`docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
-behavior rather than a graph-only approximation.
+cleanup wave and first C++ executor transfer at source commit
+`7f4dccd660fc709383b766d0af657903cf8e7735` against the matching
+`torch_cpu.dll`. DAv2 proves that all 12 exported `linear_gelu_none` candidates
+lower without rejection, while PaddleOCR remains the control. Both runs retain
+exact graph-versus-eager Vulkan parity, zero unsupported nodes, and zero
+graph-runtime fallback, readback, or deferred-value creation. The new plan
+summary also records why neither corpus has transferred yet: DAv2 first needs
+graph-value admission for `sym_size_int`, while PaddleOCR first needs
+schema-directed `avg_pool2d` stride canonicalization. The GELU `none` CPU
+tolerance is documented in `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the
+existing eager tanh-kernel behavior rather than a graph-only approximation.
 
 The Python correctness executor now normalizes false inference/gradient
 wrappers, creates packed contexts before generic state placement, materializes

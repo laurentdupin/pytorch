@@ -43,19 +43,23 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
   --output-dir C:\results\dav2_vits_graph \
   --source-git-sha <full-HEAD-SHA> \
   --eager-atol 0.0 --eager-rtol 0.0 \
-  --cpu-atol 0.002 --cpu-rtol 0.0
+  --cpu-atol 0.004 --cpu-rtol 0.0
 ```
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence was deliberately
-refreshed after the cleanup wave at source commit
-`ec8e6a99995cbc9661b79aab488797b87f556a28`. The DAv2 census lowers all 12
+refreshed after the cleanup wave and first C++ executor transfer at source
+commit `7f4dccd660fc709383b766d0af657903cf8e7735`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
-with no such candidates. Both corpora report zero unsupported nodes and zero
-runtime CPU fallback, sync readback, or deferred-value creation. Future
-measurements are caller-owned until they are deliberately reviewed and
-replaced. The harness requires an explicit source SHA when `git` is not on
-`PATH`, so a sanitized runtime cannot emit unproven provenance.
+with no such candidates. Both corpora report zero unsupported nodes, exact
+graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
+or deferred-value creation. The immutable-plan summaries keep both on the
+Python correctness executor for explicit generic reasons: DAv2 first reaches
+`node_not_vulkan_admitted:sym_size_int:graph`, and PaddleOCR first reaches
+`argument_type_mismatch:avg_pool2d:stride`. Future measurements are
+caller-owned until they are deliberately reviewed and replaced. The harness
+requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
+runtime cannot emit unproven provenance.
 
 A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,

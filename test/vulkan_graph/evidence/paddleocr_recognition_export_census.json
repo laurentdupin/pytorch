@@ -2,6 +2,19 @@
   "artifact_type": "export_census",
   "cases": [
     {
+      "execution_plan": {
+        "effect_instruction_count": 0,
+        "input_count": 0,
+        "instruction_count": 0,
+        "list_argument_count": 0,
+        "mode": "python_correctness_executor",
+        "output_count": 0,
+        "plan_class": "VulkanGraphPlan",
+        "plan_version": "v3",
+        "reason": "argument_type_mismatch:avg_pool2d:stride",
+        "status": "python_correctness_executor",
+        "value_count": 0
+      },
       "guard": {
         "status": "accepted"
       },
@@ -20,11 +33,24 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.07541870001296047,
-        "repeated_run_seconds_reference_only": 0.07735580000735354
+        "first_run_seconds": 0.06418230000053882,
+        "repeated_run_seconds_reference_only": 0.07873800000015763
       }
     },
     {
+      "execution_plan": {
+        "effect_instruction_count": 0,
+        "input_count": 0,
+        "instruction_count": 0,
+        "list_argument_count": 0,
+        "mode": "python_correctness_executor",
+        "output_count": 0,
+        "plan_class": "VulkanGraphPlan",
+        "plan_version": "v3",
+        "reason": "argument_type_mismatch:avg_pool2d:stride",
+        "status": "python_correctness_executor",
+        "value_count": 0
+      },
       "guard": {
         "status": "accepted"
       },
@@ -43,8 +69,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.07518770000024233,
-        "repeated_run_seconds_reference_only": 0.0918192000099225
+        "first_run_seconds": 0.06470830000034766,
+        "repeated_run_seconds_reference_only": 0.0863774999997986
       }
     }
   ],
@@ -833,10 +859,29 @@
     "rejected_count": 0,
     "reused_context_count": 0
   },
+  "execution_plan": {
+    "effect_instruction_count": 0,
+    "input_count": 0,
+    "instruction_count": 0,
+    "list_argument_count": 0,
+    "mode": "python_correctness_executor",
+    "output_count": 0,
+    "plan_class": "VulkanGraphPlan",
+    "plan_version": "v3",
+    "reason": "argument_type_mismatch:avg_pool2d:stride",
+    "status": "python_correctness_executor",
+    "value_count": 0
+  },
   "external_assets": {
     "adapter": "paddleocr_recognition_graph_adapter.py:make_adapter",
     "checkpoint_basename": "model.safetensors",
     "checkpoint_sha256": "da94c5dd42c88b00c44081942b157bee8eda9ccd0481dbd0af3824f6c241aa91"
+  },
+  "fresh_detach_functionalization": {
+    "candidate_count": 0,
+    "functionalized_count": 0,
+    "nodes": [],
+    "rejected_count": 0
   },
   "graph_census": {
     "call_function_node_count": 297,
@@ -876,7 +921,7 @@
       "vulkan_prepack::run_linear_context": 9
     },
     "partition_candidates": {
-      "status": "not_planned_python_correctness_executor",
+      "status": "python_correctness_executor",
       "vulkan_only_candidate_count": 0
     },
     "statically_lowered": 100,
@@ -888,6 +933,23 @@
     "graph_inputs": 1,
     "graph_outputs": 1,
     "normalized_node_count": 743
+  },
+  "input_normalization": {
+    "candidate_count": 1,
+    "lowered_count": 0,
+    "nodes": [
+      {
+        "chain_node_names": [],
+        "erased_node_name": null,
+        "node_name": "to",
+        "placeholder_name": null,
+        "reason": "to_dtype_input_not_isolated_unsqueeze_from_placeholder",
+        "source_dtype": null,
+        "status": "rejected",
+        "target_dtype": "torch.float32"
+      }
+    ],
+    "rejected_count": 1
   },
   "layernorm_lowering": {
     "context_factory": "vulkan_prepack::create_layernorm_context",
@@ -964,6 +1026,14 @@
     "rejected_count": 0,
     "reused_context_count": 0,
     "skipped_count": 0
+  },
+  "lifted_tensor_constants": {
+    "candidate_count": 0,
+    "created_constant_count": 0,
+    "lowered_count": 0,
+    "nodes": [],
+    "rejected_count": 0,
+    "reused_constant_count": 0
   },
   "linear_lowering": {
     "context_factory": "vulkan_prepack::create_graph_linear_context",
@@ -1067,7 +1137,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "7f301fa0c799f262c7b10b64a4b3565cc2591da92400abb46b95bf41ef1b1ab9",
+    "graph_hash": "8c227e16fd31d45f013ac1c367910ab7e94effe1585ffffba0e91ea96b7b4426",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '48', '8*s38')"
     ],
@@ -1086,13 +1156,13 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "820bb6fa342eaaf89dc660ec3000e0a7746fb6883e0f467a6b79171ce94e149d"
+        "sha256": "c19357c9067fd7115d707b08783386d6237d3de2e26d440ee83162cecd751429"
       }
     },
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "ec8e6a99995cbc9661b79aab488797b87f556a28",
+  "source_git_sha": "7f4dccd660fc709383b766d0af657903cf8e7735",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 4,
@@ -1265,6 +1335,29 @@
     "rejected_count": 0,
     "skipped_count": 0
   },
+  "static_factory_constants": {
+    "candidate_count": 0,
+    "created_constant_count": 0,
+    "lowered_count": 0,
+    "nodes": [],
+    "rejected_count": 0,
+    "reused_constant_count": 0,
+    "skipped_count": 0
+  },
+  "static_gqa_repeats": {
+    "candidate_count": 0,
+    "lowered_count": 0,
+    "nodes": [],
+    "operator": "vulkan_prepack::repeat_attention_heads_for_gqa",
+    "rejected_count": 0
+  },
+  "static_identity_advanced_indices": {
+    "candidate_count": 0,
+    "lowered_count": 0,
+    "nodes": [],
+    "rejected_count": 0,
+    "skipped_count": 0
+  },
   "static_linear_gelu_regions": {
     "candidate_count": 0,
     "lowered_count": 0,
@@ -1274,9 +1367,14 @@
     "skipped_count": 0
   },
   "status": "measured",
+  "tensor_placement": {
+    "buffer_direct_count": 0,
+    "nodes": [],
+    "upload_operator": "vulkan_prepack::upload_graph_tensor_to_buffer"
+  },
   "timing": {
-    "cpu_export_seconds": 3.6080760000040755,
-    "export_and_lower_seconds": 11.037975200000801
+    "cpu_export_seconds": 2.4448024999983318,
+    "export_and_lower_seconds": 9.418600099998002
   },
   "vulkan_graph_regions": {
     "families": [
