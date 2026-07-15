@@ -151,7 +151,7 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v3` is the current bounded implementation slice. It consumes
+`VulkanGraphPlan.v4` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
 non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
 use-count, last-use, liveness, and Tensor output escape. Instructions may have
@@ -166,12 +166,15 @@ it does not silently mix the two execution modes.
 
 Python numeric literals bound to Tensor schema arguments are canonicalized to
 CPU 0D Tensor constants before plan construction; Vulkan eager kernels already
-admit this cross-device scalar form without fallback or readback. The v3 plan
-does not yet implement deeper or non-list dynamic containers, functionalization
-of proven-fresh mutable operators, multiple-return operators, preallocated
-memory slots, descriptor/barrier construction, submission ownership, or
-generation-gated output reuse. Those remain Stage 2 requirements rather than
-being inferred from the boxed eager dispatch used by this slice.
+admit this cross-device scalar form without fallback or readback.
+Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
+checked C++ arithmetic with Python floor semantics and no dispatcher or Python
+callback. Non-integer operands, overflow, and division by zero fail closed. The
+v4 plan does not yet implement deeper or non-list dynamic containers,
+multiple-return operators, preallocated memory slots, descriptor/barrier
+construction, submission ownership, or generation-gated output reuse. Those
+remain Stage 2 requirements rather than being inferred from the boxed eager
+dispatch used by this slice.
 
 ### Stage 3: Recorded Command Partitions
 
@@ -215,9 +218,10 @@ but resource arenas, descriptors, barriers, submission/completion, dynamic
 guards, and repeated-output corpus evidence remain Phase 5 work.
 
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as
-integer IValues using their composite registration. Python scalar shape
-arithmetic remains outside the dispatcher-backed instruction set and therefore
-retains the Python executor with an explicit unsupported-node reason.
+integer IValues using their composite registration. The bounded pure-integer
+instruction set consumes those values directly, while every other Python
+operator kind remains outside the plan with an explicit unsupported-node
+reason.
 
 ## Runtime Shader Generation
 

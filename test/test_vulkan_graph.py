@@ -71,6 +71,20 @@ def _static_add_layernorm_plan_attrs(program):
     }
 
 
+def _graph_scalar_error_plan(operator_name, left, right):
+    return torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+        ["shape_scalar", "scale"],
+        [operator_name, "aten::mul"],
+        ["", "Scalar"],
+        [[[-1], [-2]], [[0], [1]]],
+        [[0, 0], [0, 0]],
+        [1, 2],
+        [left, right],
+        1,
+        [2],
+    )
+
+
 def _static_add_layernorm_plan_attrs_from_module(graph_module):
     return {
         str(node.target)
@@ -478,10 +492,11 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.status, "compiled")
         self.assertEqual(report.reason, "immutable_ivalue_ssa_plan")
         self.assertEqual(report.plan_class, "VulkanGraphPlan")
-        self.assertEqual(report.plan_version, "v3")
+        self.assertEqual(report.plan_version, "v4")
         self.assertEqual(report.input_count, 1)
         self.assertEqual(report.instruction_count, 3)
         self.assertEqual(report.effect_instruction_count, 0)
+        self.assertEqual(report.graph_scalar_instruction_count, 0)
         self.assertEqual(report.list_argument_count, 0)
         self.assertEqual(report.value_count, 4)
         self.assertEqual(report.output_count, 1)
@@ -490,6 +505,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.input_count(), 1)
         self.assertEqual(program.cpp_plan.instruction_count(), 3)
         self.assertEqual(program.cpp_plan.effect_instruction_count(), 0)
+        self.assertEqual(program.cpp_plan.graph_scalar_instruction_count(), 0)
         self.assertEqual(program.cpp_plan.list_argument_count(), 0)
         self.assertEqual(program.cpp_plan.value_count(), 4)
         self.assertEqual(program.cpp_plan.output_count(), 1)
@@ -552,7 +568,7 @@ class TestVulkanGraph(TestCase):
         right = torch.randn(4, 2, device="vulkan")
         with self.assertRaisesRegex(
             RuntimeError,
-            "VulkanGraphPlan.v3 node 'invalid_mm'.*failed",
+            "VulkanGraphPlan.v4 node 'invalid_mm'.*failed",
         ):
             torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
                 [left, right], plan
@@ -577,10 +593,11 @@ class TestVulkanGraph(TestCase):
         report = program.cpp_plan_report
         self.assertEqual(report.status, "compiled")
         self.assertEqual(report.reason, "immutable_ivalue_ssa_plan")
-        self.assertEqual(report.plan_version, "v3")
+        self.assertEqual(report.plan_version, "v4")
         self.assertEqual(report.input_count, 1)
         self.assertEqual(report.instruction_count, 2)
         self.assertEqual(report.effect_instruction_count, 1)
+        self.assertEqual(report.graph_scalar_instruction_count, 0)
         self.assertEqual(report.list_argument_count, 0)
         self.assertEqual(report.value_count, 2)
         self.assertEqual(report.output_count, 1)
@@ -623,7 +640,7 @@ class TestVulkanGraph(TestCase):
         tensor = torch.randn(2, 3, device="vulkan")
         with self.assertRaisesRegex(
             RuntimeError,
-            "VulkanGraphPlan.v3 node 'metadata_check'.*failed",
+            "VulkanGraphPlan.v4 node 'metadata_check'.*failed",
         ):
             torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
                 [tensor], plan
@@ -696,9 +713,10 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.execution_mode, "cpp_plan")
         report = program.cpp_plan_report
         self.assertEqual(report.status, "compiled")
-        self.assertEqual(report.plan_version, "v3")
+        self.assertEqual(report.plan_version, "v4")
         self.assertEqual(report.instruction_count, 2)
         self.assertEqual(report.effect_instruction_count, 0)
+        self.assertEqual(report.graph_scalar_instruction_count, 0)
         self.assertEqual(report.list_argument_count, 1)
         self.assertEqual(report.value_count, 4)
         self.assertEqual(report.value_use_counts, (1, 1, 1, 0))
@@ -752,7 +770,7 @@ class TestVulkanGraph(TestCase):
 
         self.assertEqual(program.execution_mode, "cpp_plan")
         self.assertEqual(program.cpp_plan_report.status, "compiled")
-        self.assertEqual(program.cpp_plan_report.plan_version, "v3")
+        self.assertEqual(program.cpp_plan_report.plan_version, "v4")
         with patch.object(
             vulkan_graph._VulkanGraphInterpreter,
             "run_node",
@@ -2743,7 +2761,9 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.execution_mode, "cpp_plan")
         report = program.cpp_plan_report
         self.assertEqual(report.status, "compiled")
+        self.assertEqual(report.plan_version, "v4")
         self.assertEqual(report.instruction_count, 2)
+        self.assertEqual(report.graph_scalar_instruction_count, 0)
         self.assertEqual(report.list_argument_count, 1)
         self.assertEqual(report.value_count, 3)
 
@@ -2761,7 +2781,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
-    def test_dynamic_shape_scalar_arithmetic_is_graph_bookkeeping(self):
+    def test_cpp_graph_plan_executes_dynamic_shape_scalar_arithmetic(self):
         class DynamicReshape(torch.nn.Module):
             def forward(self, tensor):
                 rows = tensor.shape[1] * tensor.shape[2]
@@ -2776,24 +2796,150 @@ class TestVulkanGraph(TestCase):
             example,
             dynamic_shapes=({0: batch, 1: height, 2: width},),
         )
-        for shape in ((1, 2, 7, 5), (4, 8, 2, 5)):
-            tensor = torch.randn(shape)
-            self.assertEqual(program(tensor).cpu(), tensor.reshape(shape[0], -1, 5))
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            for shape in ((1, 2, 7, 5), (4, 8, 2, 5)):
+                tensor = torch.randn(shape)
+                self.assertEqual(
+                    program(tensor).cpu(),
+                    tensor.reshape(shape[0], -1, 5),
+                )
         scalar_nodes = [
             node
             for node in program.census.nodes
             if node.reason == "python_scalar_shape_arithmetic"
         ]
         self.assertTrue(scalar_nodes)
-        self.assertTrue(all(node.classification == "graph" for node in scalar_nodes))
-        self.assertEqual(program.execution_mode, "python_correctness_executor")
-        self.assertEqual(
-            program.cpp_plan_report.reason,
-            "unsupported_node_kind:mul:call_function",
+        self.assertTrue(
+            all(node.classification == "graph" for node in scalar_nodes)
         )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.status, "compiled")
+        self.assertEqual(program.cpp_plan_report.plan_version, "v4")
+        self.assertEqual(
+            program.cpp_plan_report.graph_scalar_instruction_count,
+            1,
+        )
+        self.assertEqual(program.cpp_plan.graph_scalar_instruction_count(), 1)
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_checks_integer_shape_arithmetic(self):
+        class DynamicScale(torch.nn.Module):
+            def forward(self, tensor):
+                scale = ((tensor.shape[0] - 5) // 2) * 3 + 1
+                return torch.ops.aten.mul.Scalar(tensor, scale)
+
+        batch = torch.export.Dim("batch", min=1, max=8)
+        first_input = torch.randn(2, 3)
+        second_input = torch.randn(7, 3)
+        model = DynamicScale().eval()
+        program = torch.vulkan.export_and_lower(
+            model,
+            first_input,
+            dynamic_shapes=({0: batch},),
+        )
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.plan_version, "v4")
+        self.assertEqual(
+            program.cpp_plan_report.graph_scalar_instruction_count,
+            4,
+        )
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            first_output = program(first_input)
+            second_output = program(second_input)
+        self.assertEqual(first_output.cpu(), model(first_input))
+        self.assertEqual(second_output.cpu(), model(second_input))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_rejects_float_graph_scalar_instruction(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        tensor.meta["val"] = torch.empty(2, 3)
+        size = graph.call_function(
+            torch.ops.aten.sym_size.int,
+            args=(tensor, 0),
+        )
+        scale = graph.call_function(operator.mul, args=(size, 1.5))
+        output = graph.call_function(
+            torch.ops.aten.mul.Scalar,
+            args=(tensor, scale),
+        )
+        graph.output(output)
+        graph_module = torch.fx.GraphModule({}, graph)
+        compilation = vulkan_graph.compile_vulkan_graph_plan(
+            graph_module,
+            {
+                size.name: "composite",
+                scale.name: "graph",
+                output.name: "direct_vulkan",
+            },
+        )
+
+        self.assertIsNone(compilation.plan)
+        self.assertEqual(
+            compilation.report.status,
+            "python_correctness_executor",
+        )
+        self.assertEqual(
+            compilation.report.reason,
+            "argument_type_mismatch:mul:operand_1",
+        )
+
+    def test_cpp_graph_plan_checks_graph_scalar_division_by_zero(self):
+        plan = _graph_scalar_error_plan(
+            "vulkan_graph::int_floor_divide",
+            1,
+            0,
+        )
+        tensor = torch.randn(2, 3, device="vulkan")
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "VulkanGraphPlan.v4 node 'shape_scalar'.*divides by zero",
+        ):
+            torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                [tensor], plan
+            )
+
+    def test_cpp_graph_plan_checks_graph_scalar_overflow(self):
+        plan = _graph_scalar_error_plan(
+            "vulkan_graph::int_add",
+            2**63 - 1,
+            1,
+        )
+        tensor = torch.randn(2, 3, device="vulkan")
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "VulkanGraphPlan.v4 node 'shape_scalar'.*overflows int64",
+        ):
+            torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                [tensor], plan
+            )
+
+    def test_cpp_graph_plan_rejects_graph_scalar_list_recipe(self):
+        with self.assertRaisesRegex(RuntimeError, "requires value arguments"):
+            torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+                ["shape_scalar", "scale"],
+                ["vulkan_graph::int_add", "aten::mul"],
+                ["", "Scalar"],
+                [[[-1], [-2]], [[0], [1]]],
+                [[1, 0], [0, 0]],
+                [1, 2],
+                [1, 2],
+                1,
+                [2],
+            )
 
     def test_python_tensor_arithmetic_stays_unsupported(self):
         graph = torch.fx.Graph()

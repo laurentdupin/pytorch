@@ -183,6 +183,9 @@ def _execution_plan_summary(
         "input_count": report.input_count,
         "instruction_count": report.instruction_count,
         "effect_instruction_count": report.effect_instruction_count,
+        "graph_scalar_instruction_count": (
+            report.graph_scalar_instruction_count
+        ),
         "list_argument_count": report.list_argument_count,
         "value_count": report.value_count,
         "output_count": report.output_count,

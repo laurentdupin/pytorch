@@ -49,7 +49,7 @@ not numerical parity, dynamic-shape, repeated-output lifetime, submit,
 peak-memory, or latency evidence; all Migration deletion gates therefore
 remain unchanged.
 
-Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v3`
+Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v4`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
 handles, graph-owned constants and contexts, IValue SSA values, ordered
 zero-return effects, schema-typed homogeneous list argument recipes, Tensor
@@ -64,7 +64,7 @@ metadata-checked, and Tensor-list concat graphs run through this path while the
 Python interpreter is disabled, and earlier live outputs remain valid after
 later invocations.
 
-Plan selection is fail-closed. The v3 schema accepts tensor inputs, zero or one
+Plan selection is fail-closed. The v4 schema accepts tensor inputs, zero or one
 dispatcher return per instruction, direct SSA references, flat homogeneous
 dynamic list arguments, and literal or graph-owned constants; internal single
 returns may be non-Tensor IValues while public outputs remain Tensors.
@@ -74,20 +74,26 @@ Tensor constants, matching the cross-device scalar form accepted by the Vulkan
 eager kernels without fallback or readback. Immutable `aten::sym_size.int`
 metadata reads now follow their CompositeImplicitAutograd registration into
 the C++ plan as integer IValues; dynamic view shapes execute without a Python
-node callback, fallback, or readback. Python scalar arithmetic remains graph
-bookkeeping and fail-closed for the plan. A caller-owned DAv2 probe crosses its
-former symbolic-size blocker and next reports
-`unsupported_node_kind:floordiv:call_function`. Mutable dispatch, mismatched
-boxed argument types, deeper or non-list dynamic containers, and multiple
-dispatcher returns retain the Python correctness executor with an explicit
-reason. A generic functionalization pass rewrites `aten::detach_` only when
+node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
+`mul`, and `floordiv` instructions execute as checked C++ plan operations. They
+reject non-integer operands, detect overflow and division by zero, and preserve
+Python floor-division semantics for negative values. A caller-owned DAv2 probe
+crosses both its former symbolic-size and floor-division blockers and next
+reports `multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while
+retaining zero fallback, readback, or deferred-value creation. Mutable
+dispatch, mismatched boxed argument types, deeper or non-list dynamic
+containers, and multiple dispatcher returns retain the Python correctness
+executor with an explicit reason. A generic functionalization pass rewrites
+`aten::detach_` only when
 every value
 in its single-user producer chain is proven to lead back to
 `aten::lift_fresh_copy`; input aliases, branches, and malformed chains remain
 mutable and fail closed. The four-token HY-MT probe proves this condition for
 all 64 exported detach mutations and now compiles the entire graph as a
-2,732-instruction `VulkanGraphPlan.v3`. The v3 executor does not yet preallocate
-a memory arena, own descriptors/submissions, support deeper containers or
+2,732-instruction `VulkanGraphPlan.v4`; it contains no graph-scalar
+instructions, so the v4 probe is also a strict executor regression check. The
+v4 executor does not yet preallocate a memory arena, own
+descriptors/submissions, support deeper containers or
 multiple dispatcher returns, or provide checked-in HY-MT parity/performance
 evidence, so it does not satisfy a Migration deletion gate.
 

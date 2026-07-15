@@ -494,7 +494,7 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v3` is an immutable C++ IValue-SSA plan for
+Current status: `VulkanGraphPlan.v4` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with zero or one dispatcher
 return. It owns operator handles and constants, preserves ordered effect-only
 instructions, materializes schema-typed flat homogeneous list arguments,
@@ -503,8 +503,10 @@ separately from values, releases non-escaping values after last use, rejects
 concurrent invocation, and checks each instruction for implicit host
 boundaries. Repeated multi-instruction Tensor, metadata-effect, and Tensor-list
 graphs execute without Python node callbacks and preserve earlier live outputs.
-Unsupported plan structure reports a reason and retains the Python correctness
-executor. A generic single-user fresh-chain proof rewrites `aten::detach_` to
+Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
+checked C++ semantics. Unsupported plan structure or scalar type reports a
+reason and retains the Python correctness executor. A generic single-user
+fresh-chain proof rewrites `aten::detach_` to
 functional `aten::detach` only when the chain is rooted at
 `aten::lift_fresh_copy`; adjacent aliasing cases remain mutable and rejected.
 This proves all 64 detach mutations in the four-token HY-MT graph and allows
@@ -515,10 +517,11 @@ submission/completion ownership, and checked-in HY-MT parity remain open.
 The exact-SHA DAv2 and PaddleOCR evidence at `7f4dccd660f` selects the Python
 executor: DAv2 first reaches graph-classified `sym_size_int`, while PaddleOCR
 first reaches a schema mismatch for the exported `avg_pool2d` stride. The plan
-now admits immutable composite `aten::sym_size.int` metadata reads as integer
-IValues; a caller-owned DAv2 follow-up advances to Python integer floor
-division. These are generic plan-representation tasks, not reasons to add
-corpus routes.
+now admits immutable composite `aten::sym_size.int` metadata reads and bounded
+integer shape arithmetic. A caller-owned DAv2 follow-up crosses both boundaries
+and next reaches the first multi-return dispatcher instruction,
+`vulkan_prepack::run_graph_add_layernorm_plan`. These are generic
+plan-representation tasks, not reasons to add corpus routes.
 
 Exit criteria:
 

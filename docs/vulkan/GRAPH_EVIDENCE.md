@@ -65,8 +65,10 @@ A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
 captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
 executes the complete immutable C++ plan, and returns 65 tensor outputs. The
 plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
-129 typed list arguments. Runtime counters remain zero for CPU fallback, sync
-readback, and deferred-value creation, with no Vulkan behavior overrides. This
+129 typed list arguments. A v4 regression probe reports zero graph-scalar
+instructions, as expected for this static prefill. Runtime counters remain
+zero for CPU fallback, sync readback, and deferred-value creation, with no
+Vulkan behavior overrides. This
 proves that static constants, boolean mask construction, identity indexing,
 GQA repetition, boolean-masked SDPA, and boxed C++ dispatch compose through one
 real prefill. It is not a checked-in parity artifact: it does not compare
@@ -84,20 +86,21 @@ does not claim that memory, descriptor, submission, or completion ownership
 has transferred.
 
 A caller-owned DAv2 follow-up admits `aten::sym_size.int` through its immutable
-CompositeImplicitAutograd registration and verifies dynamic symbolic-size C++
-execution independently. The full DAv2 graph then advances from
-`node_not_vulkan_admitted:sym_size_int:graph` to
-`unsupported_node_kind:floordiv:call_function` while retaining zero runtime
-fallback, sync readback, or deferred-value creation. This identifies pure
-integer shape arithmetic as the next generic representation task; the
-checked-in exact-SHA artifact remains the supported parity baseline until the
-change is committed and deliberately remeasured.
+CompositeImplicitAutograd registration and executes graph-classified integer
+`add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
+graph crosses both former representation blockers and next reaches
+`multiple_dispatch_returns:run_graph_add_layernorm_plan_default` while
+retaining zero runtime fallback, sync readback, or deferred-value creation.
+This identifies multi-return IValue SSA as the next generic representation
+task; the checked-in exact-SHA artifact remains the supported parity baseline
+until the change is committed and deliberately remeasured.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach
 functionalization, proven-identity indexing, static GQA repetition, and
-explicit tensor placement. It also records an immutable-plan summary, guard
-outcomes, program key, Vulkan runtime identity and DLL hashes, timing,
+explicit tensor placement. It also records an immutable-plan summary including
+the graph-scalar instruction count, guard outcomes, program key, Vulkan runtime
+identity and DLL hashes, timing,
 fallback/readback/deferred-value counters, and CPU/eager Vulkan parity. It does
 not authorize model-name production dispatch, exact-shape admission, or
 executor performance tuning.

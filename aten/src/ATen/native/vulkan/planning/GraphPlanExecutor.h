@@ -33,6 +33,7 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t input_count() const;
   int64_t instruction_count() const;
   int64_t effect_instruction_count() const;
+  int64_t graph_scalar_instruction_count() const;
   int64_t list_argument_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
