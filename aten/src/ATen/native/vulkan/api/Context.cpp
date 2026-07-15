@@ -1671,6 +1671,14 @@ Context::GraphProgramInvocationScope::~GraphProgramInvocationScope() noexcept {
 
 VulkanSubmission Context::GraphProgramInvocationScope::submit() {
   TORCH_CHECK(active(), "GraphProgramInvocationScope is not active");
+  if (!context_->cmd_ && context_->submit_count_ == 0u) {
+    lock_.unlock();
+    g_graph_program_invocation_context = nullptr;
+    context_->graph_program_invocation_active_.store(
+        false, std::memory_order_release);
+    state_ = State::Submitted;
+    return {};
+  }
   submission_ = context_->submit_cmd_to_gpu(
       VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
   TORCH_CHECK(
@@ -1749,6 +1757,10 @@ bool Context::graph_program_invocation_active_for_current_thread() const {
 
 bool Context::graph_program_invocation_active() const {
   return graph_program_invocation_active_.load(std::memory_order_acquire);
+}
+
+bool Context::owns_graph_program_invocation() const {
+  return graph_program_invocation_active_for_current_thread();
 }
 
 bool Context::is_stack_planned_recording_active() const {

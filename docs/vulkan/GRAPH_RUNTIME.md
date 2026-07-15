@@ -151,7 +151,7 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v7` is the current bounded implementation slice. It consumes
+`VulkanGraphPlan.v8` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
 non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
 use-count, last-use, liveness, and Tensor output escape. Instructions may have
@@ -176,13 +176,23 @@ CPU 0D Tensor constants before plan construction; Vulkan eager kernels already
 admit this cross-device scalar form without fallback or readback.
 Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
 checked C++ arithmetic with Python floor semantics and no dispatcher or Python
-callback. Non-integer operands, overflow, and division by zero fail closed. The
-v7 plan does not yet implement deeper or non-list dynamic containers,
+callback. Non-integer operands, overflow, and division by zero fail closed.
+
+When every instruction uses the normal Context ownership path, v8 executes the
+invocation inside one `GraphProgramInvocationScope`. The scope suppresses
+frequency submits and rejects flush, sync, fenced recording, or cross-thread
+use. The plan submits once after the last instruction and records both an
+invocation generation and the returned stream timeline token; command-free
+metadata plans complete with no fabricated token. Plans containing a nested
+`VulkanGraphRegionPlan` transaction or `aten::lift_fresh_copy` report
+`submission_owned=false` until those ownership boundaries are unified.
+
+The v8 plan does not yet implement deeper or non-list dynamic containers,
 projection from nested, tuple, or dictionary values, preallocated memory slots,
 descriptor/barrier
-construction, submission ownership, or generation-gated output reuse. Those
-remain Stage 2 requirements rather than being inferred from the boxed eager
-dispatch used by this slice.
+construction, nested submission ownership, or generation-gated output reuse.
+Those remain Stage 2 requirements rather than being inferred from the boxed
+eager dispatch used by this slice.
 
 ### Stage 3: Recorded Command Partitions
 

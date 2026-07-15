@@ -150,6 +150,16 @@ int register_vulkan_graph_plan() {
               &utils::VulkanGraphPlan::list_argument_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)
           .def("output_count", &utils::VulkanGraphPlan::output_count)
+          .def("submission_owned", &utils::VulkanGraphPlan::submission_owned)
+          .def(
+              "invocation_generation",
+              &utils::VulkanGraphPlan::invocation_generation)
+          .def(
+              "last_submission_value",
+              &utils::VulkanGraphPlan::last_submission_value)
+          .def(
+              "last_submission_complete",
+              &utils::VulkanGraphPlan::last_submission_complete)
           .def("value_use_counts", &utils::VulkanGraphPlan::value_use_counts)
           .def("value_last_uses", &utils::VulkanGraphPlan::value_last_uses);
   return 0;

@@ -503,7 +503,7 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v7` is an immutable C++ IValue-SSA plan for
+Current status: `VulkanGraphPlan.v8` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with any schema-declared
 return count. It owns operator handles and constants, preserves ordered
 effect-only instructions, assigns multi-schema returns to adjacent SSA slots,
@@ -514,8 +514,13 @@ recipes, and assembles schema-typed flat homogeneous list arguments,
 validates use-count/last-use metadata for every list leaf, tracks liveness
 separately from values, releases non-escaping values after last use, rejects
 concurrent invocation, and checks each instruction for implicit host
-boundaries. Repeated multi-instruction Tensor, metadata-effect, and Tensor-list
-graphs execute without Python node callbacks and preserve earlier live outputs.
+boundaries. Compatible plans also own one normal Context recording transaction,
+suppress internal frequency submits, reject sync/flush escape, and retain the
+resulting timeline token by invocation generation. Command-free metadata plans
+complete without a synthetic token. Plans containing nested graph-region
+transactions or `aten::lift_fresh_copy` remain explicitly non-owning. Repeated
+multi-instruction Tensor, metadata-effect, and Tensor-list graphs execute
+without Python node callbacks and preserve earlier live outputs.
 Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
 checked C++ semantics. Unsupported plan structure or scalar type reports a
 reason and retains the Python correctness executor. A generic single-user
@@ -525,9 +530,10 @@ functional `aten::detach` only when the chain is rooted at
 This proves all 64 detach mutations in the four-token HY-MT graph and allows
 its 2,732 instructions, 2,466 values, 268 effects, 129 typed list arguments,
 and 65 outputs to execute through the C++ plan. Deeper list/tuple/dict values,
-nested or non-list container projection, program memory slots,
-descriptors, submission/completion ownership, and checked-in HY-MT parity
-remain open. The exact-SHA DAv2 and PaddleOCR evidence at `b0b484a7dfa`
+nested or non-list container projection, program memory slots, descriptors,
+nested submission ownership, generation-gated output reuse, and checked-in
+HY-MT parity remain open. The exact-SHA DAv2 and PaddleOCR evidence at
+`b0b484a7dfa`
 records complete executor outcomes. DAv2 crosses
 immutable composite `aten::sym_size.int` metadata reads, bounded integer shape
 arithmetic, multi-schema-return instructions, and bounded list projection,

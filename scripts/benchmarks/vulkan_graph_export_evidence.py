@@ -192,6 +192,7 @@ def _execution_plan_summary(
         "list_argument_count": report.list_argument_count,
         "value_count": report.value_count,
         "output_count": report.output_count,
+        "submission_owned": report.submission_owned,
     }
 
 

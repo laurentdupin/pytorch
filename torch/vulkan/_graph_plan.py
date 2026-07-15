@@ -25,6 +25,7 @@ class VulkanGraphPlanReport:
     list_argument_count: int
     value_count: int
     output_count: int
+    submission_owned: bool
     node_names: tuple[str, ...]
     value_use_counts: tuple[int, ...]
     value_last_uses: tuple[int, ...]
@@ -54,7 +55,7 @@ def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
             status="python_correctness_executor",
             reason=reason,
             plan_class="VulkanGraphPlan",
-            plan_version="v7",
+            plan_version="v8",
             input_count=0,
             instruction_count=0,
             effect_instruction_count=0,
@@ -63,6 +64,7 @@ def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
             list_argument_count=0,
             value_count=0,
             output_count=0,
+            submission_owned=False,
             node_names=(),
             value_use_counts=(),
             value_last_uses=(),
@@ -172,7 +174,7 @@ def compile_vulkan_graph_plan(
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
     if not placeholders:
-        return _rejected("v7_requires_tensor_inputs")
+        return _rejected("v8_requires_tensor_inputs")
     for node in placeholders:
         if not isinstance(node.meta.get("val"), torch.Tensor):
             return _rejected(f"non_tensor_input:{node.name}")
@@ -422,7 +424,7 @@ def compile_vulkan_graph_plan(
         instruction_output_value_ids.append(output_value_ids)
 
     if not node_names:
-        return _rejected("v7_requires_at_least_one_instruction")
+        return _rejected("v8_requires_at_least_one_instruction")
     output_node = next(
         node for node in graph_module.graph.nodes if node.op == "output"
     )
@@ -430,12 +432,12 @@ def compile_vulkan_graph_plan(
     output_value_ids: list[int] = []
     for leaf in output_leaves:
         if not isinstance(leaf, torch.fx.Node) or leaf not in value_ids:
-            return _rejected("v7_requires_tensor_value_outputs")
+            return _rejected("v8_requires_tensor_value_outputs")
         if not value_types[leaf].isSubtypeOf(torch._C.TensorType.get()):
-            return _rejected("v7_requires_tensor_value_outputs")
+            return _rejected("v8_requires_tensor_value_outputs")
         output_value_ids.append(value_ids[leaf])
     if not output_value_ids:
-        return _rejected("v7_requires_tensor_value_outputs")
+        return _rejected("v8_requires_tensor_value_outputs")
 
     input_count = len(placeholders)
     value_count = next_value_id
@@ -467,7 +469,7 @@ def compile_vulkan_graph_plan(
         status="compiled",
         reason="immutable_ivalue_ssa_plan",
         plan_class="VulkanGraphPlan",
-        plan_version="v7",
+        plan_version="v8",
         input_count=input_count,
         instruction_count=len(node_names),
         effect_instruction_count=sum(
@@ -489,6 +491,7 @@ def compile_vulkan_graph_plan(
         ),
         value_count=value_count,
         output_count=len(output_value_ids),
+        submission_owned=plan.submission_owned(),
         node_names=tuple(node_names),
         value_use_counts=tuple(use_counts),
         value_last_uses=tuple(last_uses),
@@ -505,10 +508,11 @@ def compile_vulkan_graph_plan(
         or plan.list_argument_count() != report.list_argument_count
         or plan.value_count() != report.value_count
         or plan.output_count() != report.output_count
+        or plan.submission_owned() != report.submission_owned
         or tuple(plan.value_use_counts()) != report.value_use_counts
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
-        raise RuntimeError("VulkanGraphPlan.v7 C++ schema disagrees with lowering")
+        raise RuntimeError("VulkanGraphPlan.v8 C++ schema disagrees with lowering")
     return _VulkanGraphPlanCompilation(plan, report)
 
 

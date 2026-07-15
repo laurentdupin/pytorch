@@ -476,6 +476,8 @@ class TORCH_API Context final {
     return device_index_;
   }
 
+  bool owns_graph_program_invocation() const;
+
   inline void enable_op_profiling() {
     enable_op_profiling_ = true;
   }

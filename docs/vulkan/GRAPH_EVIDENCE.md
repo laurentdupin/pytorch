@@ -105,6 +105,14 @@ within the existing CPU tolerance, and reports zero fallback, readback, or
 deferred-value creation. The caller-owned v7 HY-MT probe retains its complete
 plan and zero counters.
 
+Unit-level v8 evidence adds one real normal-Context submission transaction for
+plans without nested graph-region or lifted-copy ownership. Multi-instruction
+plans capture one timeline token per invocation, preserve an earlier unread
+output across a later generation, and report completion after readback.
+Command-free metadata plans advance generation without fabricating a token.
+Exact corpus submission evidence remains caller-owned until v8 artifacts are
+measured against a committed source SHA.
+
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach and fresh-ReLU
 functionalization, proven-identity indexing, static GQA repetition, and

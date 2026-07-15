@@ -16,6 +16,9 @@
 namespace at {
 namespace native {
 namespace vulkan {
+namespace api {
+struct VulkanSubmission;
+}
 namespace ops {
 namespace utils {
 
@@ -38,11 +41,18 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t list_argument_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
+  bool submission_owned() const;
+  int64_t invocation_generation() const;
+  int64_t last_submission_value() const;
+  bool last_submission_complete() const;
   std::vector<int64_t> value_use_counts() const;
   std::vector<int64_t> value_last_uses() const;
   bool valid() const;
   bool try_begin_invocation();
   void end_invocation();
+  void record_submission(
+      c10::DeviceIndex device_index,
+      const api::VulkanSubmission& submission);
 
   const State& state() const;
 };

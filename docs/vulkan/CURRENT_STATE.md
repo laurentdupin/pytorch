@@ -50,7 +50,7 @@ not numerical parity, dynamic-shape, repeated-output lifetime, submit,
 peak-memory, or latency evidence; all Migration deletion gates therefore
 remain unchanged.
 
-Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v7`
+Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v8`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
 handles, graph-owned constants and contexts, IValue SSA values, ordered
 zero-return effects, schema-ordered multi-return values, schema-typed
@@ -71,7 +71,16 @@ metadata-checked, and Tensor-list concat graphs run through this path while the
 Python interpreter is disabled, and earlier live outputs remain valid after
 later invocations.
 
-Plan selection is fail-closed. The v7 schema accepts tensor inputs, any
+The v8 plan can also own one normal Context recording transaction for the
+whole invocation. Compatible plans suppress frequency submits, reject nested
+flush/sync escape, submit once after all instructions, and retain the real
+stream timeline value with an invocation generation. A command-free plan
+completes successfully with generation advancement and no synthetic token.
+Plans containing `VulkanGraphRegionPlan` transactions or
+`aten::lift_fresh_copy` report `submission_owned=false` and retain their prior
+ownership path; v8 does not claim nested ownership that has not transferred.
+
+Plan selection is fail-closed. The v8 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
 homogeneous dynamic list arguments, and literal or graph-owned constants. An
 empty schema-list constant is represented as a typed zero-leaf list recipe
@@ -106,10 +115,11 @@ mutable and fail closed. The four-token HY-MT probe proves this condition for
 all 64 exported detach mutations and now compiles the entire graph as a
 2,732-instruction `VulkanGraphPlan.v7`; it contains no graph-scalar or list
 projection instructions, so the v7 probe is also a strict executor regression
-check. The v7 executor does not yet preallocate a memory arena, own
-descriptors/submissions, support deeper or non-list containers, or provide
-checked-in HY-MT parity/performance evidence, so it does not satisfy a
-Migration deletion gate.
+check. The current v8 executor still does not preallocate a memory arena, own
+descriptors, transfer nested region or lifted-copy submissions, support deeper
+or non-list containers, or provide checked-in HY-MT parity/performance
+evidence. The submission transaction is a real ownership slice, but does not
+by itself satisfy a Migration deletion gate.
 
 Fresh-ReLU functionalization is independently fail-closed: the producer must
 be a non-mutating operator with exactly one non-aliasing Tensor return, and the

@@ -447,7 +447,7 @@ class TestVulkanGraphEvidence(TestCase):
             status="compiled",
             reason="immutable_ivalue_ssa_plan",
             plan_class="VulkanGraphPlan",
-            plan_version="v7",
+            plan_version="v8",
             input_count=2,
             instruction_count=4,
             effect_instruction_count=1,
@@ -456,6 +456,7 @@ class TestVulkanGraphEvidence(TestCase):
             list_argument_count=1,
             value_count=5,
             output_count=2,
+            submission_owned=True,
         )
         program = SimpleNamespace(
             census=census,
@@ -470,7 +471,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "status": "compiled",
                 "reason": "immutable_ivalue_ssa_plan",
                 "plan_class": "VulkanGraphPlan",
-                "plan_version": "v7",
+                "plan_version": "v8",
                 "input_count": 2,
                 "instruction_count": 4,
                 "effect_instruction_count": 1,
@@ -479,6 +480,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "list_argument_count": 1,
                 "value_count": 5,
                 "output_count": 2,
+                "submission_owned": True,
             },
         )
         self.assertEqual(
