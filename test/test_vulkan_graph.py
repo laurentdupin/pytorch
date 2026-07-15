@@ -668,6 +668,30 @@ class TestVulkanGraph(TestCase):
         )
         self.assertEqual(output.cpu(), model(tensor))
 
+    def test_cpp_graph_plan_owns_pool_and_softmax_submission(self):
+        class PoolSoftmax(torch.nn.Module):
+            def forward(self, tensor):
+                pooled = torch.nn.functional.max_pool2d(tensor, 2)
+                return torch.softmax(pooled, dim=-1)
+
+        model = PoolSoftmax().eval()
+        tensor = torch.randn(1, 4, 16, 16)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertTrue(program.cpp_plan_report.submission_owned)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        output = program(tensor)
+
+        self.assertEqual(program.cpp_plan.invocation_generation(), 1)
+        self.assertGreater(program.cpp_plan.last_submission_value(), 0)
+        self.assertTrue(program.cpp_plan.last_submission_complete())
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        self.assertEqual(output.cpu(), model(tensor))
+
     def test_cpp_graph_plan_rejects_mutable_dispatch(self):
         with self.assertRaisesRegex(RuntimeError, "rejects mutable operator"):
             torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(

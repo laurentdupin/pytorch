@@ -109,7 +109,9 @@ Tensor pool2d_buffer(
       self_arg.suggest_memory_format());
 
   api::Context* const context = api::context();
-  context->submit_pending_work_and_poll_retire();
+  if (!context->owns_graph_program_invocation()) {
+    context->submit_pending_work_and_poll_retire();
+  }
   const Tensor self = utils::prepare_vulkan_execution_tensor(
       self_arg, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
   const vTensor& v_self = convert(self);
