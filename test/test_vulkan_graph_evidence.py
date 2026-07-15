@@ -22,6 +22,7 @@ from scripts.benchmarks.vulkan_graph_export_evidence import (
     _graph_counts,
     _is_export_guard_rejection,
     _lowering_reports,
+    _named_counter_snapshot,
 )
 
 
@@ -365,6 +366,14 @@ def _fake_static_conv2d_relu_conv2d_report(
 
 
 class TestVulkanGraphEvidence(TestCase):
+    def test_named_counter_snapshot_rejects_schema_drift(self):
+        self.assertEqual(
+            _named_counter_snapshot(("first", "second"), [3, 5], "test"),
+            {"first": 3, "second": 5},
+        )
+        with self.assertRaisesRegex(RuntimeError, "2 names for 1 values"):
+            _named_counter_snapshot(("first", "second"), [3], "test")
+
     def test_graph_counts_include_all_graph_owned_lowering_families(self):
         census = SimpleNamespace(
             captured_node_count=100,

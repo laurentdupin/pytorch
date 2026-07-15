@@ -29,6 +29,49 @@ from torch.vulkan._graph_evidence import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES = (
+    "scope_begun",
+    "normal_submit_token_capture",
+    "aborted_submit",
+    "rejected_incompatible_state",
+    "bounded_region_host_sync_rejected",
+    "scratch_captured",
+    "scratch_reused",
+    "scratch_transient_overflow",
+    "scratch_retire_enqueued",
+    "scratch_immediate_release",
+)
+_SUBMIT_ORIGIN_COUNTER_NAMES = (
+    "total_queue_submits",
+    "normal_cmd_submit_frequency",
+    "stack_planned_recording_submit",
+    "pre_stack_flush",
+    "post_stack_flush",
+    "explicit_synchronize",
+    "tensor_cpu_readback",
+    "host_upload",
+    "fallback_readback",
+    "retire_queue_drain",
+    "profiling_timestamp_reset",
+    "profiling_timestamp_readback",
+    "shutdown",
+    "debug_validation",
+    "conv_prepack_upload",
+    "pending_command_flush",
+    "unknown",
+)
+
+
+def _named_counter_snapshot(
+    names: tuple[str, ...], values: list[int], label: str
+) -> dict[str, int]:
+    if len(names) != len(values):
+        raise RuntimeError(
+            f"{label} counter schema has {len(names)} names for {len(values)} values"
+        )
+    return dict(zip(names, values, strict=True))
+
+
 def _artifact_prefix(value: str) -> str:
     if (
         not value
@@ -331,6 +374,8 @@ def _run_case(
             lambda value: value.cpu() if isinstance(value, torch.Tensor) else value,
             eager_output,
         )
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
         first_start = time.perf_counter()
         graph_output = program(*args)
         first_run_seconds = time.perf_counter() - first_start
@@ -349,6 +394,18 @@ def _run_case(
             repeat_output,
         )
         repeated_run_seconds = time.perf_counter() - repeat_start
+    submission_counters = {
+        "graph_program_invocation": _named_counter_snapshot(
+            _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES,
+            list(torch.ops.vulkan_prepack.graph_program_invocation_counters()),
+            "graph program invocation",
+        ),
+        "submit_origin": _named_counter_snapshot(
+            _SUBMIT_ORIGIN_COUNTER_NAMES,
+            list(torch.ops.vulkan_prepack.submit_origin_counters()),
+            "submit origin",
+        ),
+    }
     counters = {
         "runtime_cpu_fallback": program.last_cpu_fallback_count,
         "runtime_sync_readback_escape": program.last_sync_readback_count,
@@ -367,6 +424,7 @@ def _run_case(
             "guard": {"status": "accepted"},
             "execution_plan": _execution_plan_summary(program),
             "runtime_counters": counters,
+            "submission_counters": submission_counters,
         },
         {
             "name": name,
@@ -377,6 +435,7 @@ def _run_case(
             },
             "guard": {"status": "accepted"},
             "execution_plan": _execution_plan_summary(program),
+            "submission_counters": submission_counters,
             "graph_vs_eager_vulkan": graph_eager,
             "graph_vs_cpu": graph_cpu_parity,
             "tolerance": {
