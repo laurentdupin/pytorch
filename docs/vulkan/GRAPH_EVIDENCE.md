@@ -68,14 +68,18 @@ parity artifact: it does not compare output values, exercise alternate dynamic
 guards, repeat live outputs, or measure submits, memory, or latency, and cannot
 satisfy a subsystem deletion gate by itself.
 
-The same caller-owned probe was repeated after `VulkanGraphPlan.v2` added
-ordered zero-return effects and arbitrary single internal IValue returns.
-Capture and runtime counts remain unchanged. Plan compilation now crosses
-`aten::_assert_tensor_metadata`, including its schema-typed device constant,
-and explicitly selects `python_correctness_executor` with first reason
-`nested_dynamic_argument:cat`. This establishes dynamic argument-container SSA
-as the next generic representation blocker without claiming that HY-MT has
-transferred execution, memory, descriptor, or submission ownership to C++.
+The same caller-owned probe was repeated after `VulkanGraphPlan.v3` added
+schema-typed homogeneous list argument recipes. Capture and runtime counts
+remain unchanged. Plan compilation now crosses `aten::_assert_tensor_metadata`,
+including its schema-typed device constant, and all 129 dynamic `Tensor[]`
+arguments to `aten::cat`. It explicitly selects
+`python_correctness_executor` with first reason
+`argument_type_mismatch:mul:other`: export bound the Python float `1.0` to the
+Tensor argument of `aten::mul.Tensor`, relying on a Python-wrapper
+scalar-to-Tensor coercion absent from the boxed plan. This establishes schema
+coercion as the next generic representation blocker without claiming that
+HY-MT has transferred execution, memory, descriptor, or submission ownership
+to C++.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, proven-identity indexing,

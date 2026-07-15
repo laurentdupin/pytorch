@@ -151,22 +151,24 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v2` is the current bounded implementation slice. It consumes
+`VulkanGraphPlan.v3` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
 non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
 use-count, last-use, liveness, and Tensor output escape. Instructions may have
-one arbitrary boxed return or no return for an ordered effect. Per-instruction
-graph scopes reject fallback, readback, deferred-value creation, and non-Vulkan
-Tensor results. Eligible multi-instruction graphs therefore cross Python once
-per invocation rather than once per node. The compiler reports why a graph
-remains on the Python executor; it does not silently mix the two execution
-modes.
+one arbitrary boxed return or no return for an ordered effect. A schema-typed
+list recipe assembles a flat homogeneous dynamic argument from SSA and constant
+leaves before boxed dispatch; all leaves participate in normal lifetime
+accounting. Per-instruction graph scopes reject fallback, readback,
+deferred-value creation, and non-Vulkan Tensor results. Eligible
+multi-instruction graphs therefore cross Python once per invocation rather than
+once per node. The compiler reports why a graph remains on the Python executor;
+it does not silently mix the two execution modes.
 
-The v2 plan does not yet implement nested dynamic containers, multiple-return
-operators, preallocated memory slots, descriptor/barrier construction,
-submission ownership, or generation-gated output reuse. Those remain Stage 2
-requirements rather than being inferred from the boxed eager dispatch used by
-this slice.
+The v3 plan does not yet implement deeper or non-list dynamic containers,
+Python scalar-to-Tensor schema coercion, multiple-return operators, preallocated
+memory slots, descriptor/barrier construction, submission ownership, or
+generation-gated output reuse. Those remain Stage 2 requirements rather than
+being inferred from the boxed eager dispatch used by this slice.
 
 ### Stage 3: Recorded Command Partitions
 

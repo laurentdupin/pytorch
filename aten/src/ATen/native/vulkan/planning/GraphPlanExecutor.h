@@ -33,6 +33,7 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t input_count() const;
   int64_t instruction_count() const;
   int64_t effect_instruction_count() const;
+  int64_t list_argument_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
   std::vector<int64_t> value_use_counts() const;
@@ -48,7 +49,8 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<std::string> node_names,
     std::vector<std::string> operator_names,
     std::vector<std::string> overload_names,
-    std::vector<std::vector<int64_t>> argument_refs,
+    std::vector<std::vector<std::vector<int64_t>>> argument_refs,
+    std::vector<std::vector<int64_t>> argument_kinds,
     std::vector<int64_t> instruction_output_value_ids,
     const c10::List<c10::IValue>& constants,
     int64_t input_count,

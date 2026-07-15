@@ -493,19 +493,22 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v2` is an immutable C++ IValue-SSA plan for
+Current status: `VulkanGraphPlan.v3` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with zero or one dispatcher
 return. It owns operator handles and constants, preserves ordered effect-only
-instructions, validates use-count/last-use metadata, tracks liveness separately
-from values, releases non-escaping values after last use, rejects concurrent
-invocation, and checks each instruction for implicit host boundaries. Repeated
-multi-instruction Tensor graphs and metadata-effect graphs execute without
-Python node callbacks and preserve earlier live outputs. Unsupported plan
-structure reports a reason and retains the Python correctness executor. HY-MT
-now crosses the zero-return `aten::_assert_tensor_metadata` instruction and
-stops at `nested_dynamic_argument:cat`; it therefore remains Python-executed.
-Nested list/tuple values, multiple-return values, program memory slots,
-descriptors, submission/completion ownership, and corpus parity remain open.
+instructions, materializes schema-typed flat homogeneous list arguments,
+validates use-count/last-use metadata for every list leaf, tracks liveness
+separately from values, releases non-escaping values after last use, rejects
+concurrent invocation, and checks each instruction for implicit host
+boundaries. Repeated multi-instruction Tensor, metadata-effect, and Tensor-list
+graphs execute without Python node callbacks and preserve earlier live outputs.
+Unsupported plan structure reports a reason and retains the Python correctness
+executor. HY-MT now crosses the zero-return `aten::_assert_tensor_metadata`
+instruction and all 129 dynamic `Tensor[]` arguments to `aten::cat`, then stops
+at the Python scalar bound to `aten::mul.Tensor`'s Tensor argument; it therefore
+remains Python-executed. Deeper list/tuple/dict values, scalar-to-Tensor schema
+coercion, multiple-return values, program memory slots, descriptors,
+submission/completion ownership, and corpus parity remain open.
 
 Exit criteria:
 

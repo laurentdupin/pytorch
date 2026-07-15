@@ -19,6 +19,7 @@ class VulkanGraphPlanReport:
     input_count: int
     instruction_count: int
     effect_instruction_count: int
+    list_argument_count: int
     value_count: int
     output_count: int
     node_names: tuple[str, ...]
@@ -32,6 +33,10 @@ class _VulkanGraphPlanCompilation:
     report: VulkanGraphPlanReport
 
 
+_VALUE_ARGUMENT = 0
+_LIST_ARGUMENT = 1
+
+
 def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
     return _VulkanGraphPlanCompilation(
         plan=None,
@@ -39,10 +44,11 @@ def _rejected(reason: str) -> _VulkanGraphPlanCompilation:
             status="python_correctness_executor",
             reason=reason,
             plan_class="VulkanGraphPlan",
-            plan_version="v2",
+            plan_version="v3",
             input_count=0,
             instruction_count=0,
             effect_instruction_count=0,
+            list_argument_count=0,
             value_count=0,
             output_count=0,
             node_names=(),
@@ -126,10 +132,14 @@ def _argument_type_matches(
     )
 
 
-def _canonicalize_argument(value: Any, expected_type: Any) -> Any:
-    value_type = expected_type
+def _unwrapped_optional_type(value_type: Any) -> Any:
     if value_type.kind() == "OptionalType":
-        value_type = value_type.getElementType()
+        return value_type.getElementType()
+    return value_type
+
+
+def _canonicalize_argument(value: Any, expected_type: Any) -> Any:
+    value_type = _unwrapped_optional_type(expected_type)
     if isinstance(value, str) and value_type.kind() == "DeviceObjType":
         try:
             return torch.device(value)
@@ -146,7 +156,7 @@ def compile_vulkan_graph_plan(
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
     if not placeholders:
-        return _rejected("v2_requires_tensor_inputs")
+        return _rejected("v3_requires_tensor_inputs")
     for node in placeholders:
         if not isinstance(node.meta.get("val"), torch.Tensor):
             return _rejected(f"non_tensor_input:{node.name}")
@@ -160,11 +170,12 @@ def compile_vulkan_graph_plan(
     node_names: list[str] = []
     operator_names: list[str] = []
     overload_names: list[str] = []
-    argument_refs: list[list[int]] = []
+    argument_refs: list[list[list[int]]] = []
+    argument_kinds: list[list[int]] = []
     instruction_output_value_ids: list[int] = []
     next_value_id = len(placeholders)
 
-    def encode_argument(value: Any, consumer: torch.fx.Node) -> int | str:
+    def encode_leaf(value: Any, consumer: torch.fx.Node) -> int | str:
         if isinstance(value, torch.fx.Node):
             if value in value_ids:
                 return value_ids[value]
@@ -178,6 +189,59 @@ def compile_vulkan_graph_plan(
             return f"nested_dynamic_argument:{consumer.name}"
         constants.append(value)
         return -len(constants)
+
+    def encode_bound_argument(
+        value: Any,
+        expected_type: Any,
+        consumer: torch.fx.Node,
+        argument_name: str,
+    ) -> tuple[int, list[int]] | str:
+        value = _canonicalize_argument(value, expected_type)
+        if not isinstance(value, torch.fx.Node) and _contains_node(value):
+            list_type = _unwrapped_optional_type(expected_type)
+            if (
+                not isinstance(value, (tuple, list))
+                or list_type.kind() != "ListType"
+            ):
+                return (
+                    f"unsupported_dynamic_container:{consumer.name}:"
+                    f"{argument_name}:{type(value).__name__}"
+                )
+            element_type = list_type.getElementType()
+            refs: list[int] = []
+            for item in value:
+                item = _canonicalize_argument(item, element_type)
+                if not isinstance(item, torch.fx.Node) and _contains_node(item):
+                    return (
+                        f"nested_dynamic_container:{consumer.name}:"
+                        f"{argument_name}"
+                    )
+                if not _argument_type_matches(
+                    graph_module,
+                    item,
+                    element_type,
+                    value_types,
+                ):
+                    return (
+                        f"argument_type_mismatch:{consumer.name}:"
+                        f"{argument_name}"
+                    )
+                ref = encode_leaf(item, consumer)
+                if isinstance(ref, str):
+                    return ref
+                refs.append(ref)
+            return _LIST_ARGUMENT, refs
+        if not _argument_type_matches(
+            graph_module,
+            value,
+            expected_type,
+            value_types,
+        ):
+            return f"argument_type_mismatch:{consumer.name}:{argument_name}"
+        ref = encode_leaf(value, consumer)
+        if isinstance(ref, str):
+            return ref
+        return _VALUE_ARGUMENT, [ref]
 
     for node in graph_module.graph.nodes:
         if node.op in ("placeholder", "get_attr", "output"):
@@ -205,27 +269,20 @@ def compile_vulkan_graph_plan(
         bound_arguments = _bound_operator_arguments(node)
         if isinstance(bound_arguments, str):
             return _rejected(bound_arguments)
-        refs: list[int] = []
+        refs: list[list[int]] = []
+        kinds: list[int] = []
         for schema_argument, argument in zip(schema.arguments, bound_arguments):
-            argument = _canonicalize_argument(argument, schema_argument.type)
-            if not isinstance(argument, torch.fx.Node) and _contains_node(
-                argument
-            ):
-                return _rejected(f"nested_dynamic_argument:{node.name}")
-            if not _argument_type_matches(
-                graph_module,
+            encoded = encode_bound_argument(
                 argument,
                 schema_argument.type,
-                value_types,
-            ):
-                return _rejected(
-                    f"argument_type_mismatch:{node.name}:"
-                    f"{schema_argument.name}"
-                )
-            ref = encode_argument(argument, node)
-            if isinstance(ref, str):
-                return _rejected(ref)
-            refs.append(ref)
+                node,
+                schema_argument.name,
+            )
+            if isinstance(encoded, str):
+                return _rejected(encoded)
+            kind, encoded_refs = encoded
+            kinds.append(kind)
+            refs.append(encoded_refs)
         output_value_id = -1
         if schema.returns:
             output_value_id = next_value_id
@@ -236,10 +293,11 @@ def compile_vulkan_graph_plan(
         operator_names.append(schema.name)
         overload_names.append(schema.overload_name)
         argument_refs.append(refs)
+        argument_kinds.append(kinds)
         instruction_output_value_ids.append(output_value_id)
 
     if not node_names:
-        return _rejected("v2_requires_at_least_one_instruction")
+        return _rejected("v3_requires_at_least_one_instruction")
     output_node = next(
         node for node in graph_module.graph.nodes if node.op == "output"
     )
@@ -247,12 +305,12 @@ def compile_vulkan_graph_plan(
     output_value_ids: list[int] = []
     for leaf in output_leaves:
         if not isinstance(leaf, torch.fx.Node) or leaf not in value_ids:
-            return _rejected("v2_requires_tensor_value_outputs")
+            return _rejected("v3_requires_tensor_value_outputs")
         if not value_types[leaf].isSubtypeOf(torch._C.TensorType.get()):
-            return _rejected("v2_requires_tensor_value_outputs")
+            return _rejected("v3_requires_tensor_value_outputs")
         output_value_ids.append(value_ids[leaf])
     if not output_value_ids:
-        return _rejected("v2_requires_tensor_value_outputs")
+        return _rejected("v3_requires_tensor_value_outputs")
 
     input_count = len(placeholders)
     value_count = next_value_id
@@ -263,16 +321,18 @@ def compile_vulkan_graph_plan(
     ):
         if output_value_id >= 0:
             last_uses[output_value_id] = instruction_index
-        for ref in refs:
-            if ref >= 0:
-                use_counts[ref] += 1
-                last_uses[ref] = instruction_index
+        for argument_refs_for_value in refs:
+            for ref in argument_refs_for_value:
+                if ref >= 0:
+                    use_counts[ref] += 1
+                    last_uses[ref] = instruction_index
 
     plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
         node_names,
         operator_names,
         overload_names,
         argument_refs,
+        argument_kinds,
         instruction_output_value_ids,
         constants,
         input_count,
@@ -282,12 +342,17 @@ def compile_vulkan_graph_plan(
         status="compiled",
         reason="immutable_ivalue_ssa_plan",
         plan_class="VulkanGraphPlan",
-        plan_version="v2",
+        plan_version="v3",
         input_count=input_count,
         instruction_count=len(node_names),
         effect_instruction_count=sum(
             output_value_id < 0
             for output_value_id in instruction_output_value_ids
+        ),
+        list_argument_count=sum(
+            kind == _LIST_ARGUMENT
+            for instruction_kinds in argument_kinds
+            for kind in instruction_kinds
         ),
         value_count=value_count,
         output_count=len(output_value_ids),
@@ -300,12 +365,13 @@ def compile_vulkan_graph_plan(
         or plan.instruction_count() != report.instruction_count
         or plan.effect_instruction_count()
         != report.effect_instruction_count
+        or plan.list_argument_count() != report.list_argument_count
         or plan.value_count() != report.value_count
         or plan.output_count() != report.output_count
         or tuple(plan.value_use_counts()) != report.value_use_counts
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
-        raise RuntimeError("VulkanGraphPlan.v2 C++ schema disagrees with lowering")
+        raise RuntimeError("VulkanGraphPlan.v3 C++ schema disagrees with lowering")
     return _VulkanGraphPlanCompilation(plan, report)
 
 
