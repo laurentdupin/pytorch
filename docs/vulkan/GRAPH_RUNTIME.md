@@ -202,6 +202,14 @@ descriptor/barrier construction, or generation-gated output reuse.
 Those remain Stage 2 requirements rather than being inferred from the boxed
 eager dispatch used by this slice.
 
+The corpus harness measures allocator high-water behavior separately from
+arena ownership. It resets the existing residency high-water counter to current
+live bytes before supported eager, first graph, and repeated graph phases. The
+repeat intentionally keeps the prior output live. This can prove that the
+current boxed executor does not materially exceed the supported memory
+baseline; it does not claim preallocated slots, stable addresses, or reusable
+descriptor bindings.
+
 ### Stage 3: Recorded Command Partitions
 
 Eligible Vulkan-only partitions record command buffers against stable

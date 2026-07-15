@@ -141,9 +141,19 @@ explicit tensor placement. It also records an immutable-plan summary including
 the graph-scalar and list-projection instruction counts, guard outcomes,
 program key, Vulkan runtime identity and DLL hashes, timing, graph-invocation
 and submit-origin counters, fallback/readback/deferred-value counters, and
-CPU/eager Vulkan parity. It does
-not authorize model-name production dispatch, exact-shape admission, or
-executor performance tuning.
+CPU/eager Vulkan parity.
+
+Each case also records three allocator high-water phases through the existing
+`vulkan_memory_residency_snapshot` surface: supported eager, the first graph
+run, and a repeated graph run while the prior graph output remains live. Reset
+sets the high-water mark to the phase's current live bytes; it does not free or
+hide persistent weights, contexts, or allocator state. Every phase records its
+baseline live bytes, end live bytes, absolute high-water bytes, and peak delta
+from the baseline. Eager temporaries are released and synchronized before the
+graph phase. Absolute high-water comparisons are therefore meaningful within
+the same case process, while peak deltas identify incremental activation and
+temporary pressure. These fields do not authorize model-name production
+dispatch, exact-shape admission, or executor performance tuning.
 
 The default tolerances are zero. A nonzero tolerance is an explicit corpus
 evidence choice and is written into the measured parity artifact. Graph versus

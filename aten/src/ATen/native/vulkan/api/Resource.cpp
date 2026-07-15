@@ -808,6 +808,10 @@ void set_recent_op_label(std::string label) {
 }
 
 std::vector<std::string> vulkan_memory_residency_snapshot() {
+  const uint64_t live_bytes =
+      vulkan_memory_live_bytes().load(std::memory_order_relaxed);
+  const uint64_t high_water_bytes =
+      vulkan_memory_high_water_bytes().load(std::memory_order_relaxed);
   std::vector<VulkanMemoryResidencyRecord> records;
   {
     std::lock_guard<std::mutex> lock(vulkan_memory_residency_mutex());
@@ -824,7 +828,14 @@ std::vector<std::string> vulkan_memory_residency_snapshot() {
   });
 
   std::vector<std::string> snapshot;
-  snapshot.reserve(records.size());
+  snapshot.reserve(records.size() + 1u);
+  {
+    std::ostringstream stream;
+    stream << "vulkan_memory_summary"
+           << " live_bytes=" << live_bytes
+           << " high_water_bytes=" << high_water_bytes;
+    snapshot.emplace_back(stream.str());
+  }
   for (const VulkanMemoryResidencyRecord& record : records) {
     std::ostringstream stream;
     stream << "vulkan_memory_residency"
@@ -842,7 +853,11 @@ std::vector<std::string> vulkan_memory_residency_snapshot() {
   return snapshot;
 }
 
-void reset_vulkan_memory_residency_snapshot() {}
+void reset_vulkan_memory_residency_snapshot() {
+  vulkan_memory_high_water_bytes().store(
+      vulkan_memory_live_bytes().load(std::memory_order_relaxed),
+      std::memory_order_relaxed);
+}
 
 std::vector<std::string> last_allocation_failure_snapshot() {
   LastAllocationFailureState& state = last_allocation_failure_state();

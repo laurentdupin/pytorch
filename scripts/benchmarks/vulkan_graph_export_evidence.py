@@ -349,6 +349,39 @@ def _graph_structure(program: torch.vulkan.VulkanGraphProgram) -> dict[str, int]
     }
 
 
+def _memory_usage_snapshot() -> dict[str, int]:
+    rows = torch.ops.vulkan_prepack.vulkan_memory_residency_snapshot()
+    prefix = "vulkan_memory_summary "
+    summary = next((row for row in rows if row.startswith(prefix)), None)
+    if summary is None:
+        raise RuntimeError("Vulkan memory snapshot is missing its summary row")
+    fields = dict(
+        field.split("=", 1)
+        for field in summary[len(prefix) :].split()
+    )
+    return {
+        "live_bytes": int(fields["live_bytes"]),
+        "high_water_bytes": int(fields["high_water_bytes"]),
+    }
+
+
+def _begin_memory_phase() -> int:
+    torch.ops.vulkan_prepack.reset_vulkan_memory_residency_snapshot()
+    return _memory_usage_snapshot()["live_bytes"]
+
+
+def _finish_memory_phase(baseline_live_bytes: int) -> dict[str, int]:
+    snapshot = _memory_usage_snapshot()
+    return {
+        "baseline_live_bytes": baseline_live_bytes,
+        "end_live_bytes": snapshot["live_bytes"],
+        "high_water_bytes": snapshot["high_water_bytes"],
+        "peak_delta_bytes": max(
+            0, snapshot["high_water_bytes"] - baseline_live_bytes
+        ),
+    }
+
+
 def _run_case(
     name: str,
     program: torch.vulkan.VulkanGraphProgram,
@@ -362,20 +395,25 @@ def _run_case(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     with torch.inference_mode():
         cpu_expected = cpu_model(*args)
-        eager_output = eager_model(
-            *pytree.tree_map(
-                lambda value: value.to("vulkan")
-                if isinstance(value, torch.Tensor)
-                else value,
-                args,
-            )
+        eager_memory_baseline = _begin_memory_phase()
+        eager_args = pytree.tree_map(
+            lambda value: value.to("vulkan")
+            if isinstance(value, torch.Tensor)
+            else value,
+            args,
         )
+        eager_output = eager_model(*eager_args)
         eager_expected = pytree.tree_map(
             lambda value: value.cpu() if isinstance(value, torch.Tensor) else value,
             eager_output,
         )
+        eager_memory = _finish_memory_phase(eager_memory_baseline)
+        del eager_output
+        del eager_args
+        torch.ops.vulkan_prepack.synchronize()
         torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
         torch.ops.vulkan_prepack.reset_submit_origin_counters()
+        graph_first_memory_baseline = _begin_memory_phase()
         first_start = time.perf_counter()
         graph_output = program(*args)
         first_run_seconds = time.perf_counter() - first_start
@@ -387,6 +425,8 @@ def _run_case(
         graph_cpu_parity = _parity(graph_cpu, cpu_expected)
         _assert_close(graph_cpu, eager_expected, eager_atol, eager_rtol)
         _assert_close(graph_cpu, cpu_expected, cpu_atol, cpu_rtol)
+        graph_first_memory = _finish_memory_phase(graph_first_memory_baseline)
+        graph_repeat_memory_baseline = _begin_memory_phase()
         repeat_start = time.perf_counter()
         repeat_output = program(*args)
         _ = pytree.tree_map(
@@ -394,6 +434,7 @@ def _run_case(
             repeat_output,
         )
         repeated_run_seconds = time.perf_counter() - repeat_start
+        graph_repeat_memory = _finish_memory_phase(graph_repeat_memory_baseline)
     submission_counters = {
         "graph_program_invocation": _named_counter_snapshot(
             _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES,
@@ -413,6 +454,11 @@ def _run_case(
     }
     if any(counters.values()):
         raise RuntimeError(f"{name} graph runtime counters are nonzero: {counters}")
+    memory = {
+        "eager": eager_memory,
+        "graph_first": graph_first_memory,
+        "graph_repeat_with_prior_output_live": graph_repeat_memory,
+    }
     return (
         {
             "name": name,
@@ -425,6 +471,7 @@ def _run_case(
             "execution_plan": _execution_plan_summary(program),
             "runtime_counters": counters,
             "submission_counters": submission_counters,
+            "memory": memory,
         },
         {
             "name": name,
@@ -436,6 +483,7 @@ def _run_case(
             "guard": {"status": "accepted"},
             "execution_plan": _execution_plan_summary(program),
             "submission_counters": submission_counters,
+            "memory": memory,
             "graph_vs_eager_vulkan": graph_eager,
             "graph_vs_cpu": graph_cpu_parity,
             "tolerance": {

@@ -34599,6 +34599,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 os.remove(graph_path)
 
     def test_vulkan_memory_and_linear_pack_residency_snapshots(self):
+        torch.ops.vulkan_prepack.reset_vulkan_memory_residency_snapshot()
         torch.ops.vulkan_prepack.reset_linear_pack_residency_snapshot()
         weight = torch.randn(16, 8, dtype=torch.float32).to("vulkan")
         bias = torch.randn(16, dtype=torch.float32).to("vulkan")
@@ -34613,6 +34614,19 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         memory_rows = torch.ops.vulkan_prepack.vulkan_memory_residency_snapshot()
         linear_rows = torch.ops.vulkan_prepack.linear_pack_residency_snapshot()
         packed_rows = torch.ops.vulkan_prepack.packed_weight_residency_snapshot()
+        memory_summary = next(
+            row
+            for row in memory_rows
+            if row.startswith("vulkan_memory_summary ")
+        )
+        memory_fields = dict(
+            field.split("=", 1)
+            for field in memory_summary.split()[1:]
+        )
+        self.assertGreaterEqual(
+            int(memory_fields["high_water_bytes"]),
+            int(memory_fields["live_bytes"]),
+        )
         self.assertTrue(any("kind=buffer" in row for row in memory_rows))
         self.assertTrue(
             any(
