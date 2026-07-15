@@ -12,16 +12,15 @@ defined by `docs/vulkan/CLEANUP_POLICY.md`; the exact live-surface states are in
 guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
-The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the list
-projection executor transfer at source commit
-`fe44b9d6f5cc07daff8a1389597cfb3b1d43c852` against the matching
+The checked-in DAv2 and PaddleOCR graph evidence was refreshed after the
+fresh-ReLU executor transfer at source commit
+`672b08bb1dbac19b0b8deb0f24239c7df96ee44a` against the matching
 `torch_cpu.dll`. DAv2 proves that all 12 exported `linear_gelu_none` candidates
 lower without rejection, while PaddleOCR remains the control. Both runs retain
 exact graph-versus-eager Vulkan parity, zero unsupported nodes, and zero
-graph-runtime fallback, readback, or deferred-value creation. The v6 DAv2 plan
-crosses its former multi-return and list-projection boundaries and first stops
-at mutable `aten::relu_`. PaddleOCR remains at schema-directed `avg_pool2d`
-stride canonicalization.
+graph-runtime fallback, readback, or deferred-value creation. DAv2 now executes
+its complete 404-instruction v6 C++ plan on both recorded shapes. PaddleOCR
+remains at schema-directed `avg_pool2d` stride canonicalization.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -87,11 +86,9 @@ node callback, fallback, or readback. Graph-classified integer `add`, `sub`,
 reject non-integer operands, detect overflow and division by zero, and preserve
 Python floor-division semantics for negative values. The checked-in exact-SHA
 v6 DAv2 evidence crosses its former symbolic-size, floor-division,
-multi-return, and list-projection blockers and next reports
-`mutable_operator:relu_:aten::relu_` while retaining zero fallback, readback,
-or deferred-value creation. A caller-owned worktree probe proves both DAv2
-`relu_` inputs are single-use, non-aliasing results of functional `aten::conv2d`
-and rewrites them to functional `aten::relu`. The complete normal and alternate
+multi-return, list-projection, and mutable-ReLU blockers. Both `relu_` inputs
+are proven single-use, non-aliasing results of functional `aten::conv2d` and
+are rewritten to functional `aten::relu`. The complete normal and alternate
 graphs then execute as a 404-instruction C++ plan with 425 values, two ordered
 effects, eight graph-scalar instructions, 20 list projections, 53 list
 arguments, and one output. Both retain exact graph-versus-eager parity and zero

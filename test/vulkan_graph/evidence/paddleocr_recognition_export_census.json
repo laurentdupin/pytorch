@@ -35,8 +35,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.057587400002375944,
-        "repeated_run_seconds_reference_only": 0.06686030000128085
+        "first_run_seconds": 0.07280789999640547,
+        "repeated_run_seconds_reference_only": 0.07525409999652766
       }
     },
     {
@@ -73,8 +73,8 @@
         "runtime_sync_readback_escape": 0
       },
       "timing": {
-        "first_run_seconds": 0.06047799999942072,
-        "repeated_run_seconds_reference_only": 0.06993080000029295
+        "first_run_seconds": 0.068015100005141,
+        "repeated_run_seconds_reference_only": 0.07947910000075353
       }
     }
   ],
@@ -889,6 +889,12 @@
     "nodes": [],
     "rejected_count": 0
   },
+  "fresh_relu_functionalization": {
+    "candidate_count": 0,
+    "functionalized_count": 0,
+    "nodes": [],
+    "rejected_count": 0
+  },
   "graph_census": {
     "call_function_node_count": 297,
     "captured_node_count": 743,
@@ -1144,7 +1150,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "69b379a0042448fd058587836f4a2d9ed65ba8ceefbe91070229d8bd192e1562",
+    "graph_hash": "1ee4cea32e06a23fa5e070be0aac4f10bc09a6e0dd08a660473a428d467e88db",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '48', '8*s38')"
     ],
@@ -1169,7 +1175,7 @@
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "fe44b9d6f5cc07daff8a1389597cfb3b1d43c852",
+  "source_git_sha": "672b08bb1dbac19b0b8deb0f24239c7df96ee44a",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 4,
@@ -1380,8 +1386,8 @@
     "upload_operator": "vulkan_prepack::upload_graph_tensor_to_buffer"
   },
   "timing": {
-    "cpu_export_seconds": 2.560198200000741,
-    "export_and_lower_seconds": 9.979645100000198
+    "cpu_export_seconds": 3.2048084999987623,
+    "export_and_lower_seconds": 11.18287959999725
   },
   "vulkan_graph_regions": {
     "families": [

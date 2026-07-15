@@ -743,7 +743,7 @@ class TestVulkanGraphEvidence(TestCase):
             self.assertIsInstance(payload["source_git_sha"], str)
             self.assertEqual(validate_evidence_payload(payload), [])
 
-    def test_checked_in_corpus_evidence_records_linear_gelu_none_payoff(self):
+    def test_checked_in_corpus_evidence_records_graph_plan_progress(self):
         evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"
 
         def load(name):
@@ -757,7 +757,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"fe44b9d6f5cc07daff8a1389597cfb3b1d43c852"},
+            {"672b08bb1dbac19b0b8deb0f24239c7df96ee44a"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -771,6 +771,52 @@ class TestVulkanGraphEvidence(TestCase):
         )
         for payload in payloads:
             self.assertEqual(payload["execution_plan"]["plan_version"], "v6")
+        for payload in (dav2_census, dav2_parity):
+            self.assertEqual(
+                payload["execution_plan"]["status"],
+                "compiled",
+            )
+            self.assertEqual(
+                payload["execution_plan"]["reason"],
+                "immutable_ivalue_ssa_plan",
+            )
+            self.assertEqual(
+                (
+                    payload["execution_plan"]["instruction_count"],
+                    payload["execution_plan"]["effect_instruction_count"],
+                    payload["execution_plan"][
+                        "graph_scalar_instruction_count"
+                    ],
+                    payload["execution_plan"][
+                        "list_projection_instruction_count"
+                    ],
+                    payload["execution_plan"]["list_argument_count"],
+                    payload["execution_plan"]["value_count"],
+                    payload["execution_plan"]["output_count"],
+                ),
+                (404, 2, 8, 20, 53, 425, 1),
+            )
+            self.assertEqual(
+                (
+                    payload["fresh_relu_functionalization"][
+                        "candidate_count"
+                    ],
+                    payload["fresh_relu_functionalization"][
+                        "functionalized_count"
+                    ],
+                    payload["fresh_relu_functionalization"]["rejected_count"],
+                ),
+                (2, 2, 0),
+            )
+        for payload in (paddle_census, paddle_parity):
+            self.assertEqual(
+                payload["execution_plan"]["status"],
+                "python_correctness_executor",
+            )
+            self.assertEqual(
+                payload["execution_plan"]["reason"],
+                "argument_type_mismatch:avg_pool2d:stride",
+            )
             self.assertEqual(
                 payload["execution_plan"][
                     "list_projection_instruction_count"
@@ -778,18 +824,8 @@ class TestVulkanGraphEvidence(TestCase):
                 0,
             )
             self.assertEqual(
-                payload["execution_plan"]["status"],
-                "python_correctness_executor",
-            )
-        for payload in (dav2_census, dav2_parity):
-            self.assertEqual(
-                payload["execution_plan"]["reason"],
-                "mutable_operator:relu_:aten::relu_",
-            )
-        for payload in (paddle_census, paddle_parity):
-            self.assertEqual(
-                payload["execution_plan"]["reason"],
-                "argument_type_mismatch:avg_pool2d:stride",
+                payload["fresh_relu_functionalization"]["candidate_count"],
+                0,
             )
         self.assertEqual(
             (

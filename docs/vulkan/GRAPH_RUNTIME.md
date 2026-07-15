@@ -227,7 +227,7 @@ DAv2 uses the same fail-closed preparation principle for two exported
 `aten::relu_` nodes. Each source must be a single-use result of a non-mutating
 operator with one non-aliasing Tensor return before the node may become
 functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
-values remain mutable. With that schema/alias proof, caller-owned normal and
+values remain mutable. With that schema/alias proof, exact-SHA normal and
 alternate DAv2 runs execute a 404-instruction immutable C++ plan with exact
 graph-versus-eager parity and zero fallback, readback, or deferred values.
 This transfers execution, not memory, descriptor, submission, or completion

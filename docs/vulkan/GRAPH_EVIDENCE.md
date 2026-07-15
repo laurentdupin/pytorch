@@ -47,17 +47,15 @@ python scripts/benchmarks/vulkan_graph_export_evidence.py \
 ```
 
 The caller-owned output directory receives measured census and parity
-artifacts. The checked-in DAv2 and PaddleOCR evidence records the list
-projection executor transfer at source commit
-`fe44b9d6f5cc07daff8a1389597cfb3b1d43c852`. The DAv2 census lowers all 12
+artifacts. The checked-in DAv2 and PaddleOCR evidence records the fresh-ReLU
+executor transfer at source commit
+`672b08bb1dbac19b0b8deb0f24239c7df96ee44a`. The DAv2 census lowers all 12
 `linear_gelu_none` candidates with no rejection; PaddleOCR remains the control
 with no such candidates. Both corpora report zero unsupported nodes, exact
 graph-versus-eager Vulkan parity, and zero runtime CPU fallback, sync readback,
-or deferred-value creation. The v6 immutable-plan summaries keep both on the
-Python correctness executor for explicit generic reasons: DAv2 crosses its
-former multi-return and list-projection boundaries and first reaches
-`mutable_operator:relu_:aten::relu_`; PaddleOCR remains at
-`argument_type_mismatch:avg_pool2d:stride`. Future measurements are
+or deferred-value creation. DAv2 now executes its complete v6 C++ plan;
+PaddleOCR remains on the Python correctness executor for the explicit generic
+reason `argument_type_mismatch:avg_pool2d:stride`. Future measurements are
 caller-owned until they are deliberately reviewed and replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
@@ -69,8 +67,8 @@ plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
 129 typed list arguments. A v6 regression probe reports zero graph-scalar and
 list-projection instructions, as expected for this static prefill. Runtime
 counters remain zero for CPU fallback, sync readback, and deferred-value
-creation, with no Vulkan behavior overrides. This proves that static constants, boolean mask
-construction, identity indexing,
+creation, with no Vulkan behavior overrides. This proves that static constants,
+boolean mask construction, identity indexing,
 GQA repetition, boolean-masked SDPA, and boxed C++ dispatch compose through one
 real prefill. It is not a checked-in parity artifact: it does not compare
 output values, exercise alternate dynamic guards, repeat live outputs, or
@@ -90,23 +88,19 @@ The exact-SHA v6 DAv2 evidence admits `aten::sym_size.int` through its immutable
 CompositeImplicitAutograd registration and executes graph-classified integer
 `add`, `sub`, `mul`, and `floordiv` with checked C++ semantics. The full DAv2
 graph crosses those former representation blockers plus multi-schema-return
-SSA and bounded list projection, then identifies mutable `aten::relu_` as the
-next generic representation task. Its normal and alternate guards retain
-exact graph-versus-eager parity and zero runtime fallback, sync readback, or
-deferred-value creation. The matching exact-SHA v6 PaddleOCR measurement remains at
-`argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
-counters.
-
-A caller-owned DAv2 worktree probe records two `aten::relu_` candidates, both
-fed by single-use, non-aliasing functional `aten::conv2d` results. The generic
+SSA and bounded list projection. Its two `aten::relu_` candidates are fed by
+single-use, non-aliasing functional `aten::conv2d` results, and the generic
 fresh-ReLU pass functionalizes both with no rejection. Normal and alternate
-shapes then compile and execute a 404-instruction, 425-value C++ plan with two
+shapes compile and execute a 404-instruction, 425-value C++ plan with two
 ordered effects, eight graph-scalar instructions, 20 list projections, 53 list
 arguments, and one output. Both cases retain exact graph-versus-eager parity,
 stay within the existing CPU tolerance, and report zero CPU fallback, sync
 readback, or deferred-value creation. Placeholder, aliasing-view, and branched
-producer tests remain fail-closed. This is not exact-SHA checked-in evidence
-until the implementation commit is anchored.
+producer tests remain fail-closed. The positive corpus result is exact-SHA
+checked-in evidence; the adjacent rejection cases are unit-level contract
+proofs. The matching exact-SHA v6 PaddleOCR measurement remains at
+`argument_type_mismatch:avg_pool2d:stride` with the same exact parity and zero
+counters.
 
 The machine-readable evidence records graph census and lowerings, including
 input normalization, static and lifted constants, fresh-detach and fresh-ReLU

@@ -3,19 +3,19 @@
   "cases": [
     {
       "execution_plan": {
-        "effect_instruction_count": 0,
-        "graph_scalar_instruction_count": 0,
-        "input_count": 0,
-        "instruction_count": 0,
-        "list_argument_count": 0,
-        "list_projection_instruction_count": 0,
-        "mode": "python_correctness_executor",
-        "output_count": 0,
+        "effect_instruction_count": 2,
+        "graph_scalar_instruction_count": 8,
+        "input_count": 1,
+        "instruction_count": 404,
+        "list_argument_count": 53,
+        "list_projection_instruction_count": 20,
+        "mode": "cpp_plan",
+        "output_count": 1,
         "plan_class": "VulkanGraphPlan",
         "plan_version": "v6",
-        "reason": "mutable_operator:relu_:aten::relu_",
-        "status": "python_correctness_executor",
-        "value_count": 0
+        "reason": "immutable_ivalue_ssa_plan",
+        "status": "compiled",
+        "value_count": 425
       },
       "graph_vs_cpu": {
         "max_abs": 0.00311279296875,
@@ -40,8 +40,8 @@
       ],
       "name": "normal",
       "timing": {
-        "first_run_seconds": 0.09755059999952209,
-        "repeated_run_seconds_reference_only": 0.07083589999820106
+        "first_run_seconds": 0.07563800000207266,
+        "repeated_run_seconds_reference_only": 0.08004320000327425
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -56,19 +56,19 @@
     },
     {
       "execution_plan": {
-        "effect_instruction_count": 0,
-        "graph_scalar_instruction_count": 0,
-        "input_count": 0,
-        "instruction_count": 0,
-        "list_argument_count": 0,
-        "list_projection_instruction_count": 0,
-        "mode": "python_correctness_executor",
-        "output_count": 0,
+        "effect_instruction_count": 2,
+        "graph_scalar_instruction_count": 8,
+        "input_count": 1,
+        "instruction_count": 404,
+        "list_argument_count": 53,
+        "list_projection_instruction_count": 20,
+        "mode": "cpp_plan",
+        "output_count": 1,
         "plan_class": "VulkanGraphPlan",
         "plan_version": "v6",
-        "reason": "mutable_operator:relu_:aten::relu_",
-        "status": "python_correctness_executor",
-        "value_count": 0
+        "reason": "immutable_ivalue_ssa_plan",
+        "status": "compiled",
+        "value_count": 425
       },
       "graph_vs_cpu": {
         "max_abs": 0.0015354156494140625,
@@ -83,13 +83,13 @@
       "guard": {
         "rejected_program_message": "VulkanGraphProgram exported input guard failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 3.0512963000001037,
+        "variant_compile_seconds": 3.8295405999961076,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "aca2df556c1994bdb8879262659addd3cf4161898c3719b0eb0865709beaf658",
+          "graph_hash": "7db459ae87b9a7c973597e1de6dfe8c80e08df5394ac1d226ec9b1d10068155b",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -107,8 +107,8 @@
       ],
       "name": "alternate",
       "timing": {
-        "first_run_seconds": 0.08407880000231671,
-        "repeated_run_seconds_reference_only": 0.0709703000029549
+        "first_run_seconds": 0.06314790000033099,
+        "repeated_run_seconds_reference_only": 0.05480119999992894
       },
       "tolerance": {
         "graph_vs_cpu": {
@@ -413,19 +413,19 @@
     "reused_context_count": 0
   },
   "execution_plan": {
-    "effect_instruction_count": 0,
-    "graph_scalar_instruction_count": 0,
-    "input_count": 0,
-    "instruction_count": 0,
-    "list_argument_count": 0,
-    "list_projection_instruction_count": 0,
-    "mode": "python_correctness_executor",
-    "output_count": 0,
+    "effect_instruction_count": 2,
+    "graph_scalar_instruction_count": 8,
+    "input_count": 1,
+    "instruction_count": 404,
+    "list_argument_count": 53,
+    "list_projection_instruction_count": 20,
+    "mode": "cpp_plan",
+    "output_count": 1,
     "plan_class": "VulkanGraphPlan",
     "plan_version": "v6",
-    "reason": "mutable_operator:relu_:aten::relu_",
-    "status": "python_correctness_executor",
-    "value_count": 0
+    "reason": "immutable_ivalue_ssa_plan",
+    "status": "compiled",
+    "value_count": 425
   },
   "external_assets": {
     "adapter": "dav2_vits_adapter.py:make_adapter",
@@ -438,9 +438,32 @@
     "nodes": [],
     "rejected_count": 0
   },
+  "fresh_relu_functionalization": {
+    "candidate_count": 2,
+    "functionalized_count": 2,
+    "nodes": [
+      {
+        "node_name": "relu_",
+        "reason": "fresh_single_user_non_aliasing_tensor_result",
+        "replacement_target": "aten::relu",
+        "source_node_name": "conv2d_29",
+        "source_operator_name": "aten.conv2d.default",
+        "status": "functionalized"
+      },
+      {
+        "node_name": "relu__1",
+        "reason": "fresh_single_user_non_aliasing_tensor_result",
+        "replacement_target": "aten::relu",
+        "source_node_name": "conv2d_30",
+        "source_operator_name": "aten.conv2d.default",
+        "status": "functionalized"
+      }
+    ],
+    "rejected_count": 0
+  },
   "graph_census": {
-    "call_function_node_count": 448,
-    "captured_node_count": 580,
+    "call_function_node_count": 447,
+    "captured_node_count": 578,
     "composite_by_target": {
       "aten::_assert_tensor_metadata": 2,
       "aten::conv_transpose2d.input": 2,
@@ -463,36 +486,35 @@
       "aten::expand": 1,
       "aten::mul.Tensor": 36,
       "aten::permute": 18,
-      "aten::relu": 8,
-      "aten::relu_": 2,
+      "aten::relu": 9,
       "aten::select.int": 37,
       "aten::slice.Tensor": 5,
       "aten::transpose.int": 25,
       "aten::unsqueeze": 1,
       "aten::view": 1
     },
-    "eager_vulkan_dispatch": 149,
+    "eager_vulkan_dispatch": 148,
     "graph_owned_prepacked_contexts": 104,
     "lowered_vulkan_by_target": {
-      "vulkan_prepack::run_conv2d_context": 17,
+      "vulkan_prepack::run_conv2d_context": 15,
       "vulkan_prepack::run_graph_add_layernorm_plan": 22,
       "vulkan_prepack::run_layernorm_context": 6,
       "vulkan_prepack::run_linear_context": 36,
-      "vulkan_prepack::run_vulkan_graph_region_plan": 19
+      "vulkan_prepack::run_vulkan_graph_region_plan": 20
     },
     "partition_candidates": {
-      "status": "python_correctness_executor",
-      "vulkan_only_candidate_count": 0
+      "status": "compiled",
+      "vulkan_only_candidate_count": 1
     },
-    "statically_lowered": 100,
+    "statically_lowered": 99,
     "unsupported_at_lower_time": 0,
     "unsupported_by_target": {}
   },
   "graph_structure": {
-    "graph_constants": 130,
+    "graph_constants": 129,
     "graph_inputs": 1,
     "graph_outputs": 1,
-    "normalized_node_count": 580
+    "normalized_node_count": 578
   },
   "input_normalization": {
     "candidate_count": 2,
@@ -1356,7 +1378,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "78bd401249c56ab26dc49d1a4f3eb433b1c03883d1bf98e94bcc40a4756d1bec",
+    "graph_hash": "0dec8dfb7cb9b42a149837487ab96ef6a90758894e2d019da2fa19f665b9d35a",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -1381,7 +1403,7 @@
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "fe44b9d6f5cc07daff8a1389597cfb3b1d43c852",
+  "source_git_sha": "672b08bb1dbac19b0b8deb0f24239c7df96ee44a",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,
@@ -2205,14 +2227,14 @@
     "skipped_count": 6
   },
   "static_conv2d_relu_conv2d_regions": {
-    "candidate_count": 7,
+    "candidate_count": 8,
     "excluded_relu_node_names": [
       "relu",
       "relu_10",
       "relu_2",
       "relu_6"
     ],
-    "lowered_count": 7,
+    "lowered_count": 8,
     "nodes": [
       {
         "bounded_submission_owned": null,
@@ -2529,6 +2551,35 @@
         "scratch_ring_capacity": 2,
         "second_context_attr": "_vulkan_conv2d_context_47f7e1f0304d4cc6",
         "second_conv2d_node_name": "run_conv2d_context_default_26",
+        "second_static_context_slot": 1,
+        "status": "lowered",
+        "timeline_gated_release": true
+      },
+      {
+        "bounded_submission_owned": true,
+        "direct_transition_only": true,
+        "first_context_attr": "_vulkan_conv2d_context_5e12b44e696d1f07",
+        "first_conv2d_node_name": "run_conv2d_context_default_29",
+        "first_static_context_slot": 0,
+        "input_last_use": 0,
+        "input_ssa": 0,
+        "input_use_count": 1,
+        "instruction_count": 2,
+        "intermediate_last_use": 1,
+        "intermediate_ssa": 1,
+        "intermediate_use_count": 1,
+        "node_name": "getitem_63",
+        "output_ssa": 2,
+        "plan_attr": "_vulkan_graph_region_plan_fac58cae5fdbbef3",
+        "program_name": "VulkanGraphRegionPlan",
+        "program_private_scratch": true,
+        "program_version": "v1",
+        "reason": "graph_owned_static_conv2d_relu_conv2d",
+        "relu_node_name": "relu_",
+        "replay_state_empty": true,
+        "scratch_ring_capacity": 2,
+        "second_context_attr": "_vulkan_conv2d_context_35393da7615ba85b",
+        "second_conv2d_node_name": "run_conv2d_context_default_30",
         "second_static_context_slot": 1,
         "status": "lowered",
         "timeline_gated_release": true
@@ -3207,9 +3258,9 @@
         "skipped_count": 0
       },
       {
-        "candidate_count": 7,
+        "candidate_count": 8,
         "family": "conv2d_relu_conv2d",
-        "lowered_count": 7,
+        "lowered_count": 8,
         "nodes": [
           {
             "bounded_submission_owned": null,
@@ -3526,6 +3577,35 @@
             "scratch_ring_capacity": 2,
             "second_context_attr": "_vulkan_conv2d_context_47f7e1f0304d4cc6",
             "second_conv2d_node_name": "run_conv2d_context_default_26",
+            "second_static_context_slot": 1,
+            "status": "lowered",
+            "timeline_gated_release": true
+          },
+          {
+            "bounded_submission_owned": true,
+            "direct_transition_only": true,
+            "first_context_attr": "_vulkan_conv2d_context_5e12b44e696d1f07",
+            "first_conv2d_node_name": "run_conv2d_context_default_29",
+            "first_static_context_slot": 0,
+            "input_last_use": 0,
+            "input_ssa": 0,
+            "input_use_count": 1,
+            "instruction_count": 2,
+            "intermediate_last_use": 1,
+            "intermediate_ssa": 1,
+            "intermediate_use_count": 1,
+            "node_name": "getitem_63",
+            "output_ssa": 2,
+            "plan_attr": "_vulkan_graph_region_plan_fac58cae5fdbbef3",
+            "program_name": "VulkanGraphRegionPlan",
+            "program_private_scratch": true,
+            "program_version": "v1",
+            "reason": "graph_owned_static_conv2d_relu_conv2d",
+            "relu_node_name": "relu_",
+            "replay_state_empty": true,
+            "scratch_ring_capacity": 2,
+            "second_context_attr": "_vulkan_conv2d_context_35393da7615ba85b",
+            "second_conv2d_node_name": "run_conv2d_context_default_30",
             "second_static_context_slot": 1,
             "status": "lowered",
             "timeline_gated_release": true
