@@ -428,6 +428,64 @@ def load_ledger(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
         return json.load(handle)
 
 
+def _ledger_location_matches(
+    location: str, repo_root: Path, *, allow_glob: bool
+) -> list[str]:
+    if not isinstance(location, str) or not location:
+        raise InventoryError("Ledger locations must be non-empty strings")
+    path = Path(location)
+    if path.is_absolute() or ".." in path.parts or "\\" in location:
+        raise InventoryError(
+            f"Ledger location must be a normalized relative path: {location!r}"
+        )
+
+    has_glob = any(character in location for character in "*?[")
+    if has_glob and not allow_glob:
+        raise InventoryError(f"Ledger document cannot be a glob: {location!r}")
+    matches = sorted(repo_root.glob(location)) if has_glob else [repo_root / path]
+    matches = [match for match in matches if match.exists()]
+    if not matches:
+        raise InventoryError(f"Ledger location does not exist: {location!r}")
+    if not allow_glob and not matches[0].is_file():
+        raise InventoryError(f"Ledger document is not a file: {location!r}")
+    return [_relative(match, repo_root) for match in matches]
+
+
+def resolve_ledger_locations(
+    ledger: dict[str, Any], repo_root: Path = REPO_ROOT
+) -> dict[str, dict[str, list[str]]]:
+    resolved: dict[str, dict[str, list[str]]] = {}
+    for entry in ledger.get("entries", []):
+        entry_id = entry.get("id")
+        paths = entry.get("paths", [])
+        documents = entry.get("documents", [])
+        if not isinstance(paths, list):
+            raise InventoryError(f"Ledger entry {entry_id!r} paths must be a list")
+        if not isinstance(documents, list):
+            raise InventoryError(
+                f"Ledger entry {entry_id!r} documents must be a list"
+            )
+        resolved_paths = {
+            match
+            for location in paths
+            for match in _ledger_location_matches(
+                location, repo_root, allow_glob=True
+            )
+        }
+        resolved_documents = {
+            match
+            for location in documents
+            for match in _ledger_location_matches(
+                location, repo_root, allow_glob=False
+            )
+        }
+        resolved[entry_id] = {
+            "resolved_paths": sorted(resolved_paths),
+            "resolved_documents": sorted(resolved_documents),
+        }
+    return resolved
+
+
 def validate_scope_decisions(
     ledger: dict[str, Any], repo_root: Path = REPO_ROOT
 ) -> None:
@@ -569,6 +627,7 @@ def build_inventory(
     ledger = ledger if ledger is not None else load_ledger(repo_root)
     validate_scope_decisions(ledger, repo_root)
     surfaces = classify_surfaces(discover_surfaces(repo_root), ledger)
+    resolved_locations = resolve_ledger_locations(ledger, repo_root)
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for surface in surfaces:
         counts["by_kind"][surface["kind"]] += 1
@@ -587,6 +646,7 @@ def build_inventory(
                 )
                 if key in entry
             }
+            | resolved_locations[entry["id"]]
             | {"surface_count": len(entry.get("surfaces", []))}
         )
     return {

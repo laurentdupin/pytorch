@@ -128,6 +128,35 @@ class TestVulkanCleanupInventory(TestCase):
         self.assertEqual("empty", ledger["compatibility_audit"]["status"])
         self.assertEqual(0, inventory["counts"]["by_state"].get("Compatibility", 0))
 
+    def test_ledger_locations_are_resolved_into_inventory(self):
+        inventory = self.generator.build_inventory()
+        entries = {entry["id"]: entry for entry in inventory["ledger_entries"]}
+        legacy = entries["migration_legacy_planning_objects"]
+        self.assertIn(
+            "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp",
+            legacy["resolved_paths"],
+        )
+        self.assertIn(
+            "aten/src/ATen/native/vulkan/planning/InferenceGraphs.h",
+            legacy["resolved_paths"],
+        )
+        replay = entries["migration_replay_and_compiled_session"]
+        self.assertEqual(
+            ["docs/vulkan/REPLAY_RETIREMENT.md"],
+            replay["resolved_documents"],
+        )
+
+    def test_stale_ledger_location_is_rejected(self):
+        ledger = copy.deepcopy(self.generator.load_ledger())
+        ledger["entries"][0]["paths"].append(
+            "aten/src/ATen/native/vulkan/removed_cleanup_subsystem.*"
+        )
+        with self.assertRaisesRegex(
+            self.generator.InventoryError,
+            "Ledger location does not exist",
+        ):
+            self.generator.resolve_ledger_locations(ledger)
+
     def test_deleted_scope_decision_rejects_restored_symbol(self):
         ledger = copy.deepcopy(self.generator.load_ledger())
         decision = next(

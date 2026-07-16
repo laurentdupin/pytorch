@@ -62,6 +62,46 @@
         "aten/src/ATen/native/vulkan/planning/Request.*",
         "aten/src/ATen/native/vulkan/planning/Transition*"
       ],
+      "resolved_documents": [],
+      "resolved_paths": [
+        "aten/src/ATen/native/vulkan/api",
+        "aten/src/ATen/native/vulkan/planning/DevicePolicy.cpp",
+        "aten/src/ATen/native/vulkan/planning/DevicePolicy.h",
+        "aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime.cpp",
+        "aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime.h",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContracts.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContracts.h",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsBatchNormInference.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsChannelCat.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsDiffusionSDPA.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsElementwiseBroadcast.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsLinearGeluBridge.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsPatchEmbedFeatureMapToTokens.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallMetadataPaddedConv2D.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsTokenPrefixCatAdd.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsVisionSelfAttentionSDPA.cpp",
+        "aten/src/ATen/native/vulkan/planning/GraphPlanExecutor.cpp",
+        "aten/src/ATen/native/vulkan/planning/GraphPlanExecutor.h",
+        "aten/src/ATen/native/vulkan/planning/PackedWeightCache.cpp",
+        "aten/src/ATen/native/vulkan/planning/PackedWeightCache.h",
+        "aten/src/ATen/native/vulkan/planning/Request.cpp",
+        "aten/src/ATen/native/vulkan/planning/Request.h",
+        "aten/src/ATen/native/vulkan/planning/TransitionContracts.cpp",
+        "aten/src/ATen/native/vulkan/planning/TransitionContracts.h",
+        "aten/src/ATen/native/vulkan/planning/TransitionPlanner.cpp",
+        "aten/src/ATen/native/vulkan/planning/TransitionPlanner.h",
+        "torch/vulkan"
+      ],
       "state": "Active",
       "summary": "Graph correctness execution, generic eager kernels and contexts, retained packed-weight caches, public Vulkan Python APIs, and evidence-critical diagnostics including generic sync, submit, and retire attribution.",
       "surface_count": 198
@@ -82,6 +122,20 @@
         "aten/src/ATen/native/vulkan/api/Sync.h",
         "aten/src/ATen/native/vulkan/api/Context.cpp"
       ],
+      "resolved_documents": [
+        "aten/src/ATen/native/vulkan/ops/STACK_EXECUTION_PROGRAM.md",
+        "aten/src/ATen/native/vulkan/ops/VISION_OWNER_PATHS.md",
+        "docs/vulkan/STACK_BOUNDARY_VALUE_PRESERVATION.md",
+        "docs/vulkan/STACK_REGION_COMMAND_OWNERSHIP.md",
+        "docs/vulkan/STACK_REGION_DEPENDENCY_GRAPH.md"
+      ],
+      "resolved_paths": [
+        "aten/src/ATen/native/vulkan/api/Context.cpp",
+        "aten/src/ATen/native/vulkan/api/Sync.cpp",
+        "aten/src/ATen/native/vulkan/api/Sync.h",
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
+        "aten/src/ATen/native/vulkan/ops/VisionBlocks.h"
+      ],
       "state": "Migration",
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
       "surface_count": 84
@@ -99,6 +153,17 @@
         "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.cpp",
         "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.h"
       ],
+      "resolved_documents": [
+        "docs/vulkan/REPLAY_RETIREMENT.md"
+      ],
+      "resolved_paths": [
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.h",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.h",
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp",
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.h"
+      ],
       "state": "Migration",
       "summary": "Replay bundles, compiled sessions, their public bridges, and stale-output diagnostics.",
       "surface_count": 14
@@ -110,6 +175,17 @@
         "aten/src/ATen/native/vulkan/planning/ExecutionObjects.*",
         "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.*",
         "aten/src/ATen/native/vulkan/planning/Runtime.*"
+      ],
+      "resolved_documents": [],
+      "resolved_paths": [
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionObjects.h",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.cpp",
+        "aten/src/ATen/native/vulkan/planning/ExecutionPrograms.h",
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp",
+        "aten/src/ATen/native/vulkan/planning/InferenceGraphs.h",
+        "aten/src/ATen/native/vulkan/planning/Runtime.cpp",
+        "aten/src/ATen/native/vulkan/planning/Runtime.h"
       ],
       "state": "Migration",
       "summary": "Eager inference-graph, KV-cache, scratch-arena, readback, execution-program, request-storage, and runtime-policy surfaces. Retained packed-weight and linear-context caches are isolated in PackedWeightCache.*.",
@@ -123,6 +199,16 @@
         "aten/src/ATen/native/vulkan/planning/ModelLanePolicy.*",
         "aten/src/ATen/native/vulkan/planning/Request.cpp",
         "aten/src/ATen/native/vulkan/planning/DevicePolicy.cpp"
+      ],
+      "resolved_documents": [],
+      "resolved_paths": [
+        "aten/src/ATen/native/vulkan/planning/DevicePolicy.cpp",
+        "aten/src/ATen/native/vulkan/planning/LegacyDeviceNamePolicy.h",
+        "aten/src/ATen/native/vulkan/planning/LegacyPlanningInference.cpp",
+        "aten/src/ATen/native/vulkan/planning/LegacyPlanningInference.h",
+        "aten/src/ATen/native/vulkan/planning/ModelLanePolicy.cpp",
+        "aten/src/ATen/native/vulkan/planning/ModelLanePolicy.h",
+        "aten/src/ATen/native/vulkan/planning/Request.cpp"
       ],
       "state": "Migration",
       "summary": "Allocation-label model-lane inference and device-name policy checks. VulkanGraphPlanningContext now carries explicit request fields through graph lowering and execution; eager label/tensor inference and device-name heuristics remain isolated in LegacyPlanningInference.* and LegacyDeviceNamePolicy.h.",
