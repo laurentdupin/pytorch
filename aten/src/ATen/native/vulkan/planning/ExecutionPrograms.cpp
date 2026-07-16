@@ -124,23 +124,6 @@ bool same_optional_sizes(
   return same_sizes(*lhs, *rhs);
 }
 
-bool same_kv_cache_spec(
-    const std::optional<VulkanKVCacheSpec>& lhs,
-    const std::optional<VulkanKVCacheSpec>& rhs) {
-  if (lhs.has_value() != rhs.has_value()) {
-    return false;
-  }
-  if (!lhs.has_value()) {
-    return true;
-  }
-  return lhs->dtype == rhs->dtype && same_sizes(lhs->sizes, rhs->sizes) &&
-      lhs->sequence_dim == rhs->sequence_dim &&
-      lhs->execution_layout == rhs->execution_layout &&
-      lhs->memory_layout == rhs->memory_layout &&
-      lhs->storage_type == rhs->storage_type &&
-      lhs->persistent == rhs->persistent;
-}
-
 bool same_scratch_spec(
     const std::optional<VulkanScratchArenaSpec>& lhs,
     const std::optional<VulkanScratchArenaSpec>& rhs) {
@@ -156,23 +139,6 @@ bool same_scratch_spec(
       lhs->memory_layout == rhs->memory_layout &&
       lhs->storage_type == rhs->storage_type &&
       lhs->persistent == rhs->persistent;
-}
-
-size_t hash_optional_kv_cache_spec(
-    const std::optional<VulkanKVCacheSpec>& spec) {
-  size_t seed = 0u;
-  hash_combine(seed, spec.has_value());
-  if (!spec.has_value()) {
-    return seed;
-  }
-  hash_combine_sizes(seed, spec->sizes);
-  hash_combine(seed, spec->sequence_dim);
-  hash_combine(seed, static_cast<int>(spec->dtype));
-  hash_combine(seed, static_cast<int>(spec->execution_layout));
-  hash_combine(seed, static_cast<int>(spec->memory_layout));
-  hash_combine(seed, static_cast<int>(spec->storage_type));
-  hash_combine(seed, spec->persistent);
-  return seed;
 }
 
 size_t hash_optional_scratch_spec(
@@ -196,8 +162,6 @@ struct AttentionRuntimeProgramKey final {
   std::string allocation_label;
   VulkanAttentionKernelFamily kernel_family{
       VulkanAttentionKernelFamily::TextureMath};
-  std::optional<VulkanKVCacheSpec> key_cache_spec;
-  std::optional<VulkanKVCacheSpec> value_cache_spec;
   std::optional<VulkanScratchArenaSpec> scratch_spec;
   bool persistent{true};
 };
@@ -207,8 +171,6 @@ bool operator==(
     const AttentionRuntimeProgramKey& rhs) {
   return lhs.allocation_label == rhs.allocation_label &&
       lhs.kernel_family == rhs.kernel_family &&
-      same_kv_cache_spec(lhs.key_cache_spec, rhs.key_cache_spec) &&
-      same_kv_cache_spec(lhs.value_cache_spec, rhs.value_cache_spec) &&
       same_scratch_spec(lhs.scratch_spec, rhs.scratch_spec) &&
       lhs.persistent == rhs.persistent;
 }
@@ -218,8 +180,6 @@ size_t hash_attention_runtime_program_key(
   size_t seed = 0u;
   hash_combine(seed, key.allocation_label);
   hash_combine(seed, static_cast<int>(key.kernel_family));
-  hash_combine(seed, hash_optional_kv_cache_spec(key.key_cache_spec));
-  hash_combine(seed, hash_optional_kv_cache_spec(key.value_cache_spec));
   hash_combine(seed, hash_optional_scratch_spec(key.scratch_spec));
   hash_combine(seed, key.persistent);
   return seed;
@@ -446,27 +406,16 @@ size_t optional_scratch_resident_nbytes(
   return scratch.has_value() ? tensor_resident_nbytes(scratch->storage()) : 0u;
 }
 
-size_t optional_kv_cache_resident_nbytes(
-    const std::optional<KVCacheObject>& cache) {
-  return cache.has_value() ? tensor_resident_nbytes(cache->storage()) : 0u;
-}
-
 } // namespace
 
 struct AttentionRuntimeProgram::State final {
-  std::optional<KVCacheObject> key_cache_;
-  std::optional<KVCacheObject> value_cache_;
   std::optional<ScratchArena> scratch_arena_;
   bool persistent_{true};
 
   State(
-      std::optional<KVCacheObject> key_cache,
-      std::optional<KVCacheObject> value_cache,
       std::optional<ScratchArena> scratch_arena,
       const bool persistent)
-      : key_cache_(std::move(key_cache)),
-        value_cache_(std::move(value_cache)),
-        scratch_arena_(std::move(scratch_arena)),
+      : scratch_arena_(std::move(scratch_arena)),
         persistent_(persistent) {}
 };
 
@@ -629,9 +578,7 @@ size_t AttentionRuntimeProgram::resident_nbytes() const {
   if (!state_) {
     return 0u;
   }
-  return optional_kv_cache_resident_nbytes(state_->key_cache_) +
-      optional_kv_cache_resident_nbytes(state_->value_cache_) +
-      optional_scratch_resident_nbytes(state_->scratch_arena_);
+  return optional_scratch_resident_nbytes(state_->scratch_arena_);
 }
 
 const void* AttentionRuntimeProgram::identity() const {
@@ -812,15 +759,11 @@ const void* VisionDecoderProgram::identity() const {
 AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     const std::string& allocation_label,
     const VulkanAttentionKernelFamily kernel_family,
-    const std::optional<VulkanKVCacheSpec>& key_cache_spec,
-    const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     const VulkanExecutionProgramPlanningDesc& program_plan) {
   const AttentionRuntimeProgramKey query{
       normalize_program_label(allocation_label, "attention_runtime"),
       kernel_family,
-      key_cache_spec,
-      value_cache_spec,
       scratch_spec,
       program_plan.persistent};
   if (const auto cached = attention_runtime_program_cache().lookup(
@@ -837,20 +780,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     return *cached;
   }
 
-  std::optional<KVCacheObject> key_cache;
-  if (key_cache_spec.has_value()) {
-    key_cache = lookup_or_create_labeled_kv_cache_object(
-        program_object_label(query.allocation_label, "key_cache"),
-        *key_cache_spec);
-  }
-
-  std::optional<KVCacheObject> value_cache;
-  if (value_cache_spec.has_value()) {
-    value_cache = lookup_or_create_labeled_kv_cache_object(
-        program_object_label(query.allocation_label, "value_cache"),
-        *value_cache_spec);
-  }
-
   std::optional<ScratchArena> scratch_arena;
   if (scratch_spec.has_value()) {
     scratch_arena = lookup_or_create_labeled_scratch_arena(
@@ -859,8 +788,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
   }
 
   AttentionRuntimeProgram created{std::make_shared<AttentionRuntimeProgram::State>(
-      std::move(key_cache),
-      std::move(value_cache),
       std::move(scratch_arena),
       program_plan.persistent)};
   attention_runtime_program_cache().store(

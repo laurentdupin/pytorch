@@ -308,8 +308,6 @@ class AttentionRuntimeInferenceGraph final {
   AttentionRuntimeProgram lookup_or_create_program(
       const std::string& allocation_label,
       VulkanAttentionKernelFamily kernel_family,
-      const std::optional<VulkanKVCacheSpec>& key_cache_spec,
-      const std::optional<VulkanKVCacheSpec>& value_cache_spec,
       const std::optional<VulkanScratchArenaSpec>& scratch_spec,
       const VulkanExecutionProgramPlanningDesc& program_plan) const;
   AttentionRuntimeInferenceReplay lookup_or_create_replay(
@@ -318,8 +316,6 @@ class AttentionRuntimeInferenceGraph final {
       IntArrayRef key_sizes,
       IntArrayRef value_sizes,
       VulkanAttentionKernelFamily kernel_family,
-      const std::optional<VulkanKVCacheSpec>& key_cache_spec,
-      const std::optional<VulkanKVCacheSpec>& value_cache_spec,
       const std::optional<VulkanScratchArenaSpec>& scratch_spec,
       const VulkanExecutionProgramPlanningDesc& program_plan) const;
   const void* identity() const;

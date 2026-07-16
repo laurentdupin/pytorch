@@ -23,38 +23,6 @@ std::string make_vulkan_runtime_object_label(
     const VulkanPlanningRequest& request,
     const char* label_suffix);
 
-struct VulkanKVCacheSpec final {
-  ScalarType dtype{kFloat};
-  std::vector<int64_t> sizes;
-  int64_t sequence_dim{2};
-  api::ExecutionLayout execution_layout{api::ExecutionLayout::BUFFER_DIRECT};
-  api::GPUMemoryLayout memory_layout{
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED};
-  api::StorageType storage_type{api::StorageType::BUFFER};
-  bool persistent{true};
-};
-
-class KVCacheObject final {
- private:
-  friend KVCacheObject create_vulkan_kv_cache_object(const VulkanKVCacheSpec&);
-
-  struct State final {
-    Tensor storage_;
-
-    explicit State(Tensor storage) : storage_(std::move(storage)) {}
-  };
-
-  std::shared_ptr<State> state_;
-
- public:
-  KVCacheObject() = default;
-  explicit KVCacheObject(std::shared_ptr<State> state)
-      : state_(std::move(state)) {}
-
-  const Tensor& storage() const;
-  const void* identity() const;
-};
-
 struct VulkanScratchArenaSpec final {
   ScalarType dtype{kByte};
   size_t num_bytes{0u};
@@ -155,16 +123,10 @@ class ReadbackBufferObject final {
   const void* identity() const;
 };
 
-KVCacheObject create_vulkan_kv_cache_object(const VulkanKVCacheSpec&);
-
 ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec&);
 
 ReadbackBufferObject create_vulkan_readback_buffer_object(
     const VulkanReadbackBufferSpec&);
-
-KVCacheObject lookup_or_create_labeled_kv_cache_object(
-    const std::string& allocation_label,
-    const VulkanKVCacheSpec&);
 
 ScratchArena lookup_or_create_labeled_scratch_arena(
     const std::string& allocation_label,

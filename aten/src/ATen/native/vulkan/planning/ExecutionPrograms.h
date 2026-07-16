@@ -99,8 +99,6 @@ class VisionDecoderProgram final {
 AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     const std::string& allocation_label,
     VulkanAttentionKernelFamily kernel_family,
-    const std::optional<VulkanKVCacheSpec>& key_cache_spec,
-    const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     const VulkanExecutionProgramPlanningDesc& program_plan);
 

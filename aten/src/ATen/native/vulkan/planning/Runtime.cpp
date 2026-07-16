@@ -267,8 +267,7 @@ std::optional<VulkanExecutionProgramPlanningDesc> select_execution_program_plan(
 
   if (
       request.workload_class == VulkanWorkloadClass::AttentionCache &&
-      (scheduler_decision.kv_cache_plan.has_value() ||
-       scheduler_decision.scratch_arena_plan.has_value() ||
+      (scheduler_decision.scratch_arena_plan.has_value() ||
        attention_kernel_family != VulkanAttentionKernelFamily::TextureMath ||
        attention_execution_strategy ==
            VulkanAttentionExecutionStrategy::RuntimeProgram)) {
@@ -643,9 +642,7 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
         << " boundary_preferred_cpu_threads="
         << policy.boundary_plan->preferred_cpu_threads;
   }
-  out
-      << " has_kv_cache_plan=" << (policy.kv_cache_plan.has_value() ? 1u : 0u)
-      << " has_scratch_arena_plan="
+  out << " has_scratch_arena_plan="
       << (policy.scratch_arena_plan.has_value() ? 1u : 0u)
       << " inferred_from_label="
       << (policy.request.inferred_from_label ? 1u : 0u) << '\n';
@@ -864,7 +861,6 @@ VulkanRuntimePolicy build_vulkan_runtime_policy(
 
   policy.backend_route = scheduler_decision.backend_route;
   policy.boundary_plan = scheduler_decision.boundary_plan;
-  policy.kv_cache_plan = scheduler_decision.kv_cache_plan;
   policy.scratch_arena_plan = scheduler_decision.scratch_arena_plan;
   policy.linear_kernel_family = select_linear_kernel_family(
       inferred_request, capabilities, persistence_hints);

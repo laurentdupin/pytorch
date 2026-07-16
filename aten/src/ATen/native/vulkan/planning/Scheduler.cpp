@@ -84,16 +84,6 @@ VulkanSchedulerDecision build_vulkan_scheduler_decision(
     };
   }
 
-  if (cache_like || (llm_runtime_like && request.tensor_role == VulkanTensorRole::Cache)) {
-    decision.kv_cache_plan = VulkanKVCachePlanningDesc{
-        true,
-        true,
-        true,
-        true,
-        decode_like,
-    };
-  }
-
   if (decode_like && cache_like) {
     decision.backend_route = VulkanBackendRoute::Split;
     decision.boundary_plan = VulkanBoundaryPlan{

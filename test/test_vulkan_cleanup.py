@@ -220,7 +220,6 @@ class TestVulkanCleanupInventory(TestCase):
             self.assertNotIn(definition, object_source)
 
         for definition in (
-            "KVCacheObject::storage()",
             "ScratchArena::defined()",
             "ReadbackBufferObject::defined()",
             "prime_labeled_scratch_arena_for_request(",

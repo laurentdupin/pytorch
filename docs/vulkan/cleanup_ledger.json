@@ -568,7 +568,37 @@
         "kv_resets",
         "kv_sequence_updates"
       ],
-      "consequence": "Write-only sequence state, propagation parameters, tautological validation, and mechanism-only counters were deleted. KV storage allocation and caching remain Migration until graph-owned recorded resources satisfy the broader deletion gate."
+      "consequence": "Write-only sequence state, propagation parameters, tautological validation, and mechanism-only counters were deleted. The separate storage allocation was audited independently and is retired by unused_kv_cache_planning_storage."
+    },
+    {
+      "id": "unused_kv_cache_planning_storage",
+      "decision": "retire_dead_experiment",
+      "status": "deleted",
+      "basis": [
+        "The separate KV cache object allocated tensors and charged them to attention-program residency, but no eager kernel, replay command, graph binding, or KV append contract ever populated or read those tensors.",
+        "The KV planning descriptor affected only the unused allocation, a positional query_runtime_policy diagnostic slice, and program/cache keys for that allocation; it did not select a kernel or bind actual key/value state.",
+        "create_kv_cache_storage_for_request had one mechanism-only test caller and no production, benchmark, Python entry-point, or serialized consumer. Compatibility is empty, while real eager KV tensors and graph output-to-input state replay remain unchanged."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test",
+        "torch/vulkan"
+      ],
+      "forbidden_code_symbols": [
+        "VulkanKVCachePlanningDesc",
+        "VulkanKVCacheSpec",
+        "KVCacheObject",
+        "LabeledKVCacheKey",
+        "kv_cache_plan",
+        "create_kv_cache_storage_for_request",
+        "create_vulkan_kv_cache_object",
+        "lookup_or_create_labeled_kv_cache_object",
+        "make_attention_kv_cache_spec",
+        "format_optional_kv_cache_spec_key",
+        "optional_kv_cache_resident_nbytes"
+      ],
+      "consequence": "The unused KV planning descriptor, unbound storage cache, public test hook, diagnostic tuple fields, and mechanism-only tests were deleted. Active KV append kernels and generated graph state replay are separate surfaces and remain covered."
     }
   ],
   "entries": [
@@ -935,7 +965,7 @@
     {
       "id": "migration_legacy_planning_objects",
       "state": "Migration",
-      "summary": "Eager inference-graph, KV-cache, scratch-arena, readback, execution-program, request-storage, and runtime-policy surfaces. Retained packed-weight and linear-context caches are isolated in PackedWeightCache.*.",
+      "summary": "Eager inference-graph, scratch-arena, readback, execution-program, request-storage, and runtime-policy surfaces. Retained packed-weight and linear-context caches are isolated in PackedWeightCache.*.",
       "replacement": "Immutable VulkanGraphProgram planning with graph-owned SSA resources, descriptors, barriers, and completion tokens.",
       "delete_when": "The C++ executor owns the corresponding resources and no supported caller reaches the old caches or storage-request APIs.",
       "baseline": "Preserve graph/eager correctness plus fallback, readback, submit-origin, GPU timestamp, and peak-memory accounting.",
@@ -950,7 +980,6 @@
         "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_CACHE_MB",
         "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_LOG",
         "environment_variable:PYTORCH_VULKAN_INFERENCE_GRAPH_LOG",
-        "operator_schema:vulkan_prepack::create_kv_cache_storage_for_request",
         "operator_schema:vulkan_prepack::create_scratch_arena_storage_for_request",
         "operator_schema:vulkan_prepack::query_runtime_policy"
       ]

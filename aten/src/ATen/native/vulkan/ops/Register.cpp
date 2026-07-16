@@ -1152,8 +1152,6 @@ std::vector<int64_t> query_runtime_policy(
   const auto request = make_runtime_planning_request(
       workload_class, model_domain, execution_phase, tensor_role);
   const auto policy = utils::build_vulkan_runtime_policy(request);
-  const auto kv_cache_plan = policy.kv_cache_plan.value_or(
-      utils::VulkanKVCachePlanningDesc{});
   const auto scratch_arena_plan = policy.scratch_arena_plan.value_or(
       utils::VulkanScratchArenaPlanningDesc{});
   const auto boundary_plan = policy.boundary_plan.value_or(
@@ -1161,11 +1159,6 @@ std::vector<int64_t> query_runtime_policy(
 
   return {
       static_cast<int64_t>(policy.backend_route),
-      policy.kv_cache_plan.has_value() ? 1 : 0,
-      kv_cache_plan.prefer_persistent_object ? 1 : 0,
-      kv_cache_plan.prefer_buffer_storage ? 1 : 0,
-      kv_cache_plan.prefer_append_views ? 1 : 0,
-      kv_cache_plan.prefer_decode_cursor ? 1 : 0,
       policy.scratch_arena_plan.has_value() ? 1 : 0,
       scratch_arena_plan.prefer_reusable_arena ? 1 : 0,
       scratch_arena_plan.prefer_buffer_storage ? 1 : 0,
@@ -1492,46 +1485,6 @@ void reset_fallback_counters_runtime() {
   reset_stack_replay_counters();
   reset_stack_planned_recording_counters();
   reset_zero_counters();
-}
-
-Tensor create_kv_cache_storage_for_request(
-    const Tensor& prototype,
-    IntArrayRef sizes,
-    const int64_t sequence_dim,
-    const int64_t workload_class,
-    const int64_t model_domain,
-    const int64_t execution_phase,
-    const int64_t tensor_role) {
-  const auto request = make_runtime_planning_request(
-      workload_class, model_domain, execution_phase, tensor_role);
-  const auto policy = utils::build_vulkan_runtime_policy(request);
-  TORCH_CHECK(
-      policy.kv_cache_plan.has_value(),
-      "Vulkan runtime policy does not expose a KV cache plan for the requested workload");
-
-  const auto& desc = *policy.kv_cache_plan;
-  const auto storage_type =
-      desc.prefer_buffer_storage ? api::StorageType::BUFFER
-                                 : api::StorageType::TEXTURE_3D;
-  const auto execution_layout =
-      desc.prefer_buffer_storage ? api::ExecutionLayout::BUFFER_DIRECT
-                                 : api::ExecutionLayout::TEXTURE;
-  const auto memory_layout =
-      desc.prefer_buffer_storage
-      ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
-      : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
-
-  auto cache_object = utils::create_vulkan_kv_cache_object(
-      utils::VulkanKVCacheSpec{
-          prototype.scalar_type(),
-          sizes.vec(),
-          sequence_dim,
-          execution_layout,
-          memory_layout,
-          storage_type,
-          desc.prefer_persistent_object,
-      });
-  return cache_object.storage();
 }
 
 Tensor create_scratch_arena_storage_for_request(
@@ -2846,8 +2799,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::create_kv_cache_storage_for_request(Tensor prototype, int[] sizes, int sequence_dim, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::create_scratch_arena_storage_for_request(Tensor prototype, int num_bytes, int alignment, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::pose_encoding_to_extri_intri(Tensor pose_encoding, int height, int width) -> (Tensor, Tensor)"));
@@ -3483,9 +3434,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
       TORCH_FN(query_runtime_policy));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::create_kv_cache_storage_for_request"),
-      TORCH_FN(create_kv_cache_storage_for_request));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_scratch_arena_storage_for_request"),
       TORCH_FN(create_scratch_arena_storage_for_request));
   m.impl(
@@ -3632,9 +3580,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
       TORCH_FN(query_runtime_policy));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::create_kv_cache_storage_for_request"),
-      TORCH_FN(create_kv_cache_storage_for_request));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::create_scratch_arena_storage_for_request"),
       TORCH_FN(create_scratch_arena_storage_for_request));

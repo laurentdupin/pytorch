@@ -40,13 +40,6 @@ void hash_combine(size_t& seed, const T& value) {
       (seed >> 2u);
 }
 
-void hash_combine_sizes(size_t& seed, const std::vector<int64_t>& sizes) {
-  hash_combine(seed, sizes.size());
-  for (const int64_t size : sizes) {
-    hash_combine(seed, size);
-  }
-}
-
 size_t align_up_size(const size_t value, const size_t alignment) {
   if (alignment <= 1u) {
     return value;
@@ -90,8 +83,6 @@ std::mutex& execution_object_log_mutex() {
 }
 
 struct ExecutionObjectLogState final {
-  std::atomic<uint64_t> kv_hits{0u};
-  std::atomic<uint64_t> kv_stores{0u};
   std::atomic<uint64_t> scratch_hits{0u};
   std::atomic<uint64_t> scratch_stores{0u};
   std::atomic<uint64_t> scratch_resets{0u};
@@ -107,10 +98,6 @@ struct ExecutionObjectLogState final {
     }
 
     std::ofstream out(execution_object_log_path(), std::ios::app);
-    out << "execution_object_summary kind=KVCache"
-        << " hits=" << kv_hits.load(std::memory_order_relaxed)
-        << " stores=" << kv_stores.load(std::memory_order_relaxed)
-        << '\n';
     out << "execution_object_summary kind=ScratchArena"
         << " hits=" << scratch_hits.load(std::memory_order_relaxed)
         << " stores=" << scratch_stores.load(std::memory_order_relaxed)
@@ -173,48 +160,6 @@ void record_scratch_reserved_bytes(const uint64_t bytes) {
           std::memory_order_relaxed,
           std::memory_order_relaxed)) {
   }
-}
-
-struct LabeledKVCacheKey final {
-  std::string allocation_label;
-  std::vector<int64_t> sizes;
-  int64_t sequence_dim;
-  ScalarType dtype;
-  api::ExecutionLayout execution_layout;
-  api::GPUMemoryLayout memory_layout;
-  api::StorageType storage_type;
-  bool persistent;
-};
-
-bool same_labeled_kv_cache_key(
-    const LabeledKVCacheKey& lhs,
-    const LabeledKVCacheKey& rhs) {
-  return lhs.allocation_label == rhs.allocation_label &&
-      lhs.sizes == rhs.sizes && lhs.sequence_dim == rhs.sequence_dim &&
-      lhs.dtype == rhs.dtype &&
-      lhs.execution_layout == rhs.execution_layout &&
-      lhs.memory_layout == rhs.memory_layout &&
-      lhs.storage_type == rhs.storage_type &&
-      lhs.persistent == rhs.persistent;
-}
-
-size_t hash_labeled_kv_cache_key(const LabeledKVCacheKey& key) {
-  size_t seed = 0u;
-  hash_combine(seed, key.allocation_label);
-  hash_combine_sizes(seed, key.sizes);
-  hash_combine(seed, key.sequence_dim);
-  hash_combine(seed, static_cast<int>(key.dtype));
-  hash_combine(seed, static_cast<int>(key.execution_layout));
-  hash_combine(seed, static_cast<int>(key.memory_layout));
-  hash_combine(seed, static_cast<int>(key.storage_type));
-  hash_combine(seed, key.persistent);
-  return seed;
-}
-
-InferenceLruCache<LabeledKVCacheKey, KVCacheObject>& labeled_kv_cache() {
-  static auto* cache = new InferenceLruCache<LabeledKVCacheKey, KVCacheObject>{
-      kExecutionObjectCacheSize};
-  return *cache;
 }
 
 struct LabeledScratchArenaKey final {
@@ -312,15 +257,6 @@ std::string make_vulkan_runtime_object_label(
   return stream.str();
 }
 
-const Tensor& KVCacheObject::storage() const {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  return state_->storage_;
-}
-
-const void* KVCacheObject::identity() const {
-  return state_.get();
-}
-
 bool ScratchArena::defined() const {
   return state_ && state_->storage_.defined();
 }
@@ -416,27 +352,6 @@ const void* ReadbackBufferObject::identity() const {
   return state_.get();
 }
 
-KVCacheObject create_vulkan_kv_cache_object(const VulkanKVCacheSpec& spec) {
-  TORCH_CHECK(!spec.sizes.empty(), "KV cache spec requires non-empty sizes");
-  TORCH_CHECK(
-      spec.sequence_dim >= 0 &&
-          spec.sequence_dim < safe_downcast<int64_t>(spec.sizes.size()),
-      "Invalid KV cache sequence dimension");
-  TORCH_CHECK(
-      spec.sizes.at(spec.sequence_dim) >= 0,
-      "KV cache sequence dimension must be non-negative");
-
-  Tensor storage = create_execution_object_storage(
-      spec.sizes,
-      spec.dtype,
-      spec.execution_layout,
-      spec.memory_layout,
-      spec.storage_type,
-      spec.persistent);
-  return KVCacheObject(
-      std::make_shared<KVCacheObject::State>(std::move(storage)));
-}
-
 ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec& spec) {
   TORCH_CHECK(spec.num_bytes > 0u, "Scratch arena requires non-zero size");
   TORCH_CHECK(
@@ -480,46 +395,6 @@ ReadbackBufferObject create_vulkan_readback_buffer_object(
           api::MemoryAllocator::BufferHostAccess::RandomRead);
   return ReadbackBufferObject(std::make_shared<ReadbackBufferObject::State>(
       std::move(buffer), spec.num_bytes, spec.persistent));
-}
-
-KVCacheObject lookup_or_create_labeled_kv_cache_object(
-    const std::string& allocation_label,
-    const VulkanKVCacheSpec& spec) {
-  TORCH_CHECK(
-      !allocation_label.empty(),
-      "Labeled KV cache objects require a non-empty allocation label");
-  const LabeledKVCacheKey key{
-      allocation_label,
-      spec.sizes,
-      spec.sequence_dim,
-      spec.dtype,
-      spec.execution_layout,
-      spec.memory_layout,
-      spec.storage_type,
-      spec.persistent,
-  };
-  if (const auto cached =
-          labeled_kv_cache().lookup(
-              key,
-              hash_labeled_kv_cache_key,
-              same_labeled_kv_cache_key)) {
-    execution_object_log_state().kv_hits.fetch_add(
-        1u, std::memory_order_relaxed);
-    log_execution_object_event(
-        "KVCache", "hit", allocation_label, cached->identity());
-    return *cached;
-  }
-  KVCacheObject created = create_vulkan_kv_cache_object(spec);
-  labeled_kv_cache().store(
-      key,
-      created,
-      hash_labeled_kv_cache_key,
-      same_labeled_kv_cache_key);
-  execution_object_log_state().kv_stores.fetch_add(
-      1u, std::memory_order_relaxed);
-  log_execution_object_event(
-      "KVCache", "store", allocation_label, created.identity());
-  return created;
 }
 
 ScratchArena lookup_or_create_labeled_scratch_arena(

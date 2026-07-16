@@ -65,7 +65,6 @@ struct VulkanRuntimePolicy final {
       VulkanAttentionExecutionStrategy::GenericMath};
   std::optional<VulkanExecutionProgramPlanningDesc> execution_program_plan;
   std::optional<VulkanBoundaryPlan> boundary_plan;
-  std::optional<VulkanKVCachePlanningDesc> kv_cache_plan;
   std::optional<VulkanScratchArenaPlanningDesc> scratch_arena_plan;
 };
 

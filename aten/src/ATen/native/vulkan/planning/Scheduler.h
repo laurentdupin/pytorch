@@ -31,14 +31,6 @@ enum class VulkanBoundaryTransferLayout : uint8_t {
   CacheAwareBuffer,
 };
 
-struct VulkanKVCachePlanningDesc final {
-  bool required{false};
-  bool prefer_persistent_object{false};
-  bool prefer_buffer_storage{true};
-  bool prefer_append_views{false};
-  bool prefer_decode_cursor{false};
-};
-
 struct VulkanScratchArenaPlanningDesc final {
   bool required{false};
   bool prefer_reusable_arena{false};
@@ -61,7 +53,6 @@ struct VulkanBoundaryPlan final {
 struct VulkanSchedulerDecision final {
   VulkanBackendRoute backend_route{VulkanBackendRoute::Vulkan};
   std::optional<VulkanBoundaryPlan> boundary_plan;
-  std::optional<VulkanKVCachePlanningDesc> kv_cache_plan;
   std::optional<VulkanScratchArenaPlanningDesc> scratch_arena_plan;
 };
 

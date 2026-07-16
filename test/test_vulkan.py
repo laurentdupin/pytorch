@@ -35206,7 +35206,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             import torch
 
             assert hasattr(torch.ops.vulkan_prepack, "query_runtime_policy")
-            assert hasattr(torch.ops.vulkan_prepack, "create_kv_cache_storage_for_request")
             assert hasattr(torch.ops.vulkan_prepack, "create_scratch_arena_storage_for_request")
 
             prototype = torch.randn(1, dtype=torch.float32).to("vulkan")
@@ -35232,33 +35231,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 0,   # Input
             ))
 
-            assert len(decode_policy) == 21
-            assert len(vision_policy) == 21
+            assert len(decode_policy) == 16
+            assert len(vision_policy) == 16
             assert decode_policy[0] == 2  # backend_route=Split
-            assert decode_policy[6] == 1  # has_scratch_plan
-            assert cache_policy[1] == 1  # has_kv_cache_plan
-            assert decode_policy[11] == 1  # linear_kernel_family=UnifiedBufferView
-            assert decode_policy[13] == 3  # attention_kernel_family=SplitCoordinator
-            assert cache_policy[13] == 3  # attention_kernel_family=SplitCoordinator
-            assert decode_policy[14] == 1  # has_boundary_plan
-            assert decode_policy[15] == 1  # boundary_kind=LLMLinearAttentionSplit
-            assert decode_policy[18] == 1  # boundary_backend_owned_execution
-            assert decode_policy[19] == 1  # boundary_requires_scratch
-            assert decode_policy[20] == 1  # boundary_preferred_cpu_threads
+            assert decode_policy[1] == 1  # has_scratch_plan
+            assert decode_policy[6] == 1  # linear_kernel_family=UnifiedBufferView
+            assert decode_policy[8] == 3  # attention_kernel_family=SplitCoordinator
+            assert cache_policy[8] == 3  # attention_kernel_family=SplitCoordinator
+            assert decode_policy[9] == 1  # has_boundary_plan
+            assert decode_policy[10] == 1  # boundary_kind=LLMLinearAttentionSplit
+            assert decode_policy[13] == 1  # boundary_backend_owned_execution
+            assert decode_policy[14] == 1  # boundary_requires_scratch
+            assert decode_policy[15] == 1  # boundary_preferred_cpu_threads
             assert vision_policy[0] == 0  # backend_route=Vulkan
-            assert vision_policy[6] == 1  # has_scratch_plan
-            assert vision_policy[11] == 1  # linear_kernel_family=UnifiedBufferView
-            assert vision_policy[14] == 0  # has_boundary_plan
+            assert vision_policy[1] == 1  # has_scratch_plan
+            assert vision_policy[6] == 1  # linear_kernel_family=UnifiedBufferView
+            assert vision_policy[9] == 0  # has_boundary_plan
 
-            kv_cache = torch.ops.vulkan_prepack.create_kv_cache_storage_for_request(
-                prototype,
-                [1, 8, 16, 128],
-                2,
-                3,  # AttentionCache
-                2,  # LLM
-                2,  # Decode
-                3,  # Cache
-            )
             scratch = torch.ops.vulkan_prepack.create_scratch_arena_storage_for_request(
                 prototype,
                 65536,
@@ -35269,9 +35258,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 4,   # Scratch
             )
 
-            assert kv_cache.device.type == "vulkan"
             assert scratch.device.type == "vulkan"
-            assert kv_cache.numel() > 0
             assert scratch.numel() >= 65536
             print("ok")
         """
@@ -35301,10 +35288,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     3,  # Backbone
                     0,  # Input
                 ))
-                assert len(policy) == 21
+                assert len(policy) == 16
                 assert policy[0] == 0  # backend_route=Vulkan
-                assert policy[11] != 3  # linear_kernel_family!=CooperativeMatrix
-                assert policy[14] == 0  # has_boundary_plan
+                assert policy[6] != 3  # linear_kernel_family!=CooperativeMatrix
+                assert policy[9] == 0  # has_boundary_plan
                 print(policy)
             """
             self._run_repo_python_subprocess(

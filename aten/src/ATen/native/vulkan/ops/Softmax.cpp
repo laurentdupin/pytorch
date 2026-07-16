@@ -537,24 +537,6 @@ bool can_use_attention_runtime_buffer_math_replay(
       can_use_attention_buffer_math_ops(query, key, value);
 }
 
-utils::VulkanKVCacheSpec make_attention_kv_cache_spec(
-    const Tensor& tensor,
-    const utils::VulkanKVCachePlanningDesc& desc) {
-  return utils::VulkanKVCacheSpec{
-      tensor.scalar_type(),
-      std::vector<int64_t>(tensor.sizes().begin(), tensor.sizes().end()),
-      1,
-      desc.prefer_buffer_storage ? api::ExecutionLayout::BUFFER_DIRECT
-                                 : api::ExecutionLayout::TEXTURE,
-      desc.prefer_buffer_storage
-          ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
-          : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
-      desc.prefer_buffer_storage ? api::StorageType::BUFFER
-                                 : api::StorageType::TEXTURE_3D,
-      desc.prefer_persistent_object,
-  };
-}
-
 size_t attention_runtime_scratch_bytes(
     const Tensor& query,
     const Tensor& key,
@@ -591,13 +573,6 @@ lookup_attention_runtime_program_for_inputs(
     return std::nullopt;
   }
 
-  const auto cache_policy = utils::build_vulkan_runtime_policy(
-      utils::make_vulkan_attention_request(
-          attention_policy,
-          query,
-          key,
-          value,
-          utils::VulkanTensorRole::Cache));
   const auto scratch_policy = utils::build_vulkan_runtime_policy(
       utils::make_vulkan_attention_request(
           attention_policy,
@@ -605,16 +580,6 @@ lookup_attention_runtime_program_for_inputs(
           key,
           value,
           utils::VulkanTensorRole::Scratch));
-  const std::optional<utils::VulkanKVCacheSpec> key_cache_spec =
-      cache_policy.kv_cache_plan.has_value()
-      ? std::optional<utils::VulkanKVCacheSpec>(
-            make_attention_kv_cache_spec(key, *cache_policy.kv_cache_plan))
-      : std::nullopt;
-  const std::optional<utils::VulkanKVCacheSpec> value_cache_spec =
-      cache_policy.kv_cache_plan.has_value()
-      ? std::optional<utils::VulkanKVCacheSpec>(
-            make_attention_kv_cache_spec(value, *cache_policy.kv_cache_plan))
-      : std::nullopt;
   const std::optional<utils::VulkanScratchArenaSpec> scratch_spec =
       scratch_policy.scratch_arena_plan.has_value() &&
           !can_use_runtime_program_buffer_fused_fast_path(query, key, value)
@@ -640,8 +605,6 @@ lookup_attention_runtime_program_for_inputs(
   return utils::lookup_or_create_labeled_attention_runtime_program(
       utils::make_vulkan_runtime_object_label(input_policy.request, "program"),
       input_policy.attention_kernel_family,
-      key_cache_spec,
-      value_cache_spec,
       scratch_spec,
       *input_policy.execution_program_plan);
 }
@@ -926,8 +889,6 @@ Tensor run_attention_runtime_buffer_math_replay_impl(
       key.sizes(),
       value.sizes(),
       utils::VulkanAttentionKernelFamily::BufferMath,
-      std::nullopt,
-      std::nullopt,
       scratch_spec,
       program_plan);
   copy_tensor_for_attention_replay(attention_replay.query_slot(), query);

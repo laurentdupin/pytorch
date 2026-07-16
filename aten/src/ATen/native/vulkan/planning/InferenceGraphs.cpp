@@ -329,20 +329,6 @@ std::string format_optional_scratch_spec_key(
       format_bool_key(scratch_spec->persistent);
 }
 
-std::string format_optional_kv_cache_spec_key(
-    const std::optional<VulkanKVCacheSpec>& cache_spec) {
-  if (!cache_spec.has_value()) {
-    return "none";
-  }
-  return format_size_vector_key(cache_spec->sizes) + "." +
-      std::to_string(cache_spec->sequence_dim) + "." +
-      format_scalar_type_key(cache_spec->dtype) + "." +
-      format_execution_layout_key(cache_spec->execution_layout) + "." +
-      format_memory_layout_key(cache_spec->memory_layout) + "." +
-      format_storage_type_key(cache_spec->storage_type) + "." +
-      format_bool_key(cache_spec->persistent);
-}
-
 } // namespace
 
 struct InferenceGraph::State final {
@@ -1749,16 +1735,12 @@ std::optional<ScratchArena> AttentionRuntimeInferenceGraph::ensure_shared_scratc
 AttentionRuntimeProgram AttentionRuntimeInferenceGraph::lookup_or_create_program(
     const std::string& allocation_label,
     const VulkanAttentionKernelFamily kernel_family,
-    const std::optional<VulkanKVCacheSpec>& key_cache_spec,
-    const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     const VulkanExecutionProgramPlanningDesc& program_plan) const {
   TORCH_INTERNAL_ASSERT(
       defined(), "Undefined AttentionRuntimeInferenceGraph");
   const std::string phase_key = allocation_label + "|family=" +
-      format_attention_kernel_family_key(kernel_family) + "|key_cache=" +
-      format_optional_kv_cache_spec_key(key_cache_spec) + "|value_cache=" +
-      format_optional_kv_cache_spec_key(value_cache_spec) + "|scratch=" +
+      format_attention_kernel_family_key(kernel_family) + "|scratch=" +
       format_optional_scratch_spec_key(scratch_spec);
   AttentionRuntimeProgram program = expect_attention_runtime_program(
       state_->plan_.lookup_or_create_program(
@@ -1767,8 +1749,6 @@ AttentionRuntimeProgram AttentionRuntimeInferenceGraph::lookup_or_create_program
             return lookup_or_create_labeled_attention_runtime_program(
                 allocation_label,
                 kernel_family,
-                key_cache_spec,
-                value_cache_spec,
                 scratch_spec,
                 program_plan);
           }));
@@ -1782,8 +1762,6 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
     IntArrayRef key_sizes,
     IntArrayRef value_sizes,
     const VulkanAttentionKernelFamily kernel_family,
-    const std::optional<VulkanKVCacheSpec>& key_cache_spec,
-    const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
     const VulkanExecutionProgramPlanningDesc& program_plan) const {
   TORCH_INTERNAL_ASSERT(
@@ -1795,9 +1773,7 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
       format_attention_kernel_family_key(kernel_family) + "|query=" +
       format_size_vector_key(query_sizes_vec) + "|key=" +
       format_size_vector_key(key_sizes_vec) + "|value=" +
-      format_size_vector_key(value_sizes_vec) + "|key_cache=" +
-      format_optional_kv_cache_spec_key(key_cache_spec) + "|value_cache=" +
-      format_optional_kv_cache_spec_key(value_cache_spec) + "|scratch=" +
+      format_size_vector_key(value_sizes_vec) + "|scratch=" +
       format_optional_scratch_spec_key(scratch_spec);
 
   ExecutionGraphReplay graph_replay = state_->plan_.lookup_or_create_replay(
@@ -1806,8 +1782,6 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
         AttentionRuntimeProgram program = lookup_or_create_program(
             allocation_label + ".replay.program",
             kernel_family,
-            key_cache_spec,
-            value_cache_spec,
             scratch_spec,
             program_plan);
         std::vector<Tensor> tensors;
