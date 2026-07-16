@@ -20,6 +20,9 @@
 #include <utility>
 
 namespace torch::lazy {
+
+OpKindWrapper::~OpKindWrapper() = default;
+
 namespace {
 
 struct TlsData {

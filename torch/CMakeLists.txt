@@ -490,6 +490,7 @@ endif()
 
 add_custom_target(
   gen_torch_version ALL
+  ${CMAKE_COMMAND} -E env --modify PYTHONPATH=path_list_prepend:"${TORCH_ROOT}" --
   "${Python_EXECUTABLE}" "${TOOLS_PATH}/generate_torch_version.py"
     --is-debug=${TORCH_VERSION_DEBUG}
     --cuda-version=${CUDA_VERSION}
