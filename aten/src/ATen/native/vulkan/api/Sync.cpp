@@ -32225,8 +32225,6 @@ void note_private_bridge_capture_handoff(
       << (record.host_readback_before_consumption ? 1 : 0)
       << " decoder_consumer_completed_before_bridge_exit="
       << (record.decoder_consumer_completed_before_bridge_exit ? 1 : 0)
-      << " decoder_bridge_recording_scope_closed_before_release="
-      << (record.decoder_bridge_recording_scope_closed_before_release ? 1 : 0)
       << " handoff_status=" << record.handoff_status;
   {
     std::lock_guard<std::mutex> guard(stack_aggregate_mutex());
@@ -32285,8 +32283,6 @@ void note_bridge_private_capture_release_owner(
       << (record.decoder_input_aliases_normalized_capture ? 1 : 0)
       << " decoder_consumer_completed_before_bridge_exit="
       << (record.decoder_consumer_completed_before_bridge_exit ? 1 : 0)
-      << " decoder_bridge_recording_scope_closed_before_release="
-      << (record.decoder_bridge_recording_scope_closed_before_release ? 1 : 0)
       << " python_public_boundary_before_release="
       << (record.python_public_boundary_before_release ? 1 : 0)
       << " requested_output_before_release="

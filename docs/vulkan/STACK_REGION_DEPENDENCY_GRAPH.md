@@ -192,9 +192,10 @@ when a stack-owner recording scope ends. The v0 schema is
   slot, and public/host/readback blockers. The row is behavior-neutral:
   `transfers_pending_retires=0`, `submit_elision_enabled=0`, and no decoder
   route or shape admission changes are made. A second row with the same schema
-  is emitted at bridge exit after decoder preprocessing has consumed the views
-  and the decoder bridge recording scope has closed; it records the future
-  release point without releasing resources.
+  is emitted at bridge exit after decoder preprocessing has consumed the views;
+  it records the future release point without releasing resources. The former
+  decoder-bridge recording-scope field was mechanism-only and was deleted with
+  that retired canary.
 - a nested `boundary_complete_dependency_proof` object with schema
   `BoundaryCompleteDependencyProof.v0`. The v0 proof is intentionally narrow:
   it only groups non-capture `residual2 -> norm1` stack boundaries and records
@@ -1399,15 +1400,11 @@ recording-domain observation rows that feed `StackRegionSegmentPlan.v0`. This
 is diagnostics only; it makes opt-in canary artifacts self-describing without
 changing route selection, command recording behavior, submit count, or retire
 policy.
-`PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is a
-private-bridge canary for the post-stack decoder-preprocess island exposed by
-`StackOwnerFrequencySubmitPlan.v0`. It opens a normal planned-recording scope
-after the stack capture owner returns and closes it before the bridge returns,
-so decoder bridge dispatches use the existing close-submit owner instead of
-normal command-submit frequency flushes. It is opt-in only, does not use the
-external stack-owned command-buffer path, does not remove any already recorded
-submit, does not run under explicit runtime-capture labels, and does not
-broaden shape, transition, or kernel admission.
+The private decoder-bridge planned-recording canary for the post-stack
+decoder-preprocess island is retired. It had no supported caller and only
+affected the benchmark-only stack lane. The historical measured configuration
+and result remain in the performance manifests; graph-owned command partitions,
+not restoration of this environment selector, are the replacement.
 `PYTORCH_VULKAN_SYNC_LOG=<path>` can attribute remaining explicit device
 synchronizes by submit phase, stack phase, stack block, pending-retire bytes,
 submit count, current allocation label, and recent op label. This diagnostic

@@ -42252,10 +42252,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         "decoder_consumer_completed_before_bridge_exit"
                     )
                     == "1"
-                    and row["fields"].get(
-                        "decoder_bridge_recording_scope_closed_before_release"
-                    )
-                    == "1"
                     and row["fields"].get("transfers_pending_retires") == "0"
                     and row["fields"].get("submit_elision_enabled") == "0"
                     for row in private_handoffs
@@ -42275,10 +42271,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     and row["fields"].get("transfers_pending_retires") == "0"
                     and row["fields"].get("submit_elision_enabled") == "0"
                     and row["fields"].get("decoder_consumer_completed_before_bridge_exit")
-                    == "1"
-                    and row["fields"].get(
-                        "decoder_bridge_recording_scope_closed_before_release"
-                    )
                     == "1"
                     and row["fields"].get("raw_capture_identity_status")
                     == "allocation_identity_available"
@@ -42604,10 +42596,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertTrue(
                     any(
                         row.get("decoder_consumer_completed_before_bridge_exit")
-                        == "1"
-                        and row.get(
-                            "decoder_bridge_recording_scope_closed_before_release"
-                        )
                         == "1"
                         and row.get("python_public_boundary_before_consumption")
                         == "0"

@@ -291,7 +291,6 @@ struct VulkanPrivateBridgeCaptureHandoffRecord final {
   bool host_visible_access_before_consumption = true;
   bool host_readback_before_consumption = true;
   bool decoder_consumer_completed_before_bridge_exit = false;
-  bool decoder_bridge_recording_scope_closed_before_release = false;
   std::string handoff_status =
       "private_bridge_capture_handoff_observed_behavior_neutral";
 };
@@ -322,7 +321,6 @@ struct VulkanBridgePrivateCaptureReleaseOwnerRecord final {
   bool normalized_same_allocation_as_raw_capture = false;
   bool decoder_input_aliases_normalized_capture = false;
   bool decoder_consumer_completed_before_bridge_exit = false;
-  bool decoder_bridge_recording_scope_closed_before_release = false;
   bool python_public_boundary_before_release = true;
   bool requested_output_before_release = true;
   bool final_output_before_release = true;

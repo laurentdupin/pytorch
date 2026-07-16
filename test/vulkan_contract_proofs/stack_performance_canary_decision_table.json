@@ -18,17 +18,17 @@
   "entries": [
     {
       "id": "dav2_vits140_retained_pool_wide4_bridge",
-      "status": "viable_safe_lane",
+      "status": "evidence_only",
       "scope": [
         "StackRegionSegmentPlan.v0",
         "segmented stack-owned external recording",
-        "private decoder bridge planned recording"
+        "historical private decoder bridge planned recording"
       ],
-      "canary_or_path": "PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit",
+      "canary_or_path": "historical combined bridge lane using PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER=segmented_stack_wide4_to_exit",
       "model_evidence": "Depth Anything V2 vits_140 on RX 9070",
-      "latest_observation": "After descriptor-diagnostic gating, cleanup callback batching, and graph-dump reentry deferral, a focused RX 9070 vits_140 wide4 smoke measured about 55.0 ms mean / 55.0 ms median / 55.6 ms p95 device-resident forward, with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0. A post-guard timestamp pass showed about 44.2 ms of GPU work per forward, so the lane is close to sub-50 but still needs residual control-plane reduction or a new FP32 linear plan.",
-      "decision": "Keep as the current stable safe lane; it is not yet the sub-50 solution.",
-      "next_proof": "Use FC2/linear timestamp attribution and remaining control-plane counters to choose the next optimization; do not re-run rejected tiled FC2 or broad retire-deferral canaries.",
+      "latest_observation": "Historical RX 9070 vits_140 evidence measured about 55.0 ms mean / 55.0 ms median / 55.6 ms p95 device-resident forward, with bridge sanity max_abs=1.1846423149108887e-06, CPU fallback 0, and sync readback 0. A post-guard timestamp pass showed about 44.2 ms of GPU work per forward. The measured decoder-bridge recording component is no longer live.",
+      "decision": "Preserve as historical evidence only. The decoder-bridge recording component is retired and the lane is not a supported default.",
+      "next_proof": "Reduce fixed submission and control-plane cost through supported graph-owned command partitions; do not restore the benchmark-only bridge component or re-run rejected tiled FC2 and broad retire-deferral canaries.",
       "reusable_backend_policy": true
     },
     {

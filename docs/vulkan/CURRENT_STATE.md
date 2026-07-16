@@ -1217,9 +1217,11 @@ optimization. The old coalescing proof showed that consumer existence and
 retire lifetime proof are not sufficient: the missing contract is dispatch
 ordering at the producer-consumer edge before command recording.
 
-The current safe DAv2 bridge baseline is approximately 82-103 ms for
+The historical DAv2 stack-bridge baseline was approximately 82-103 ms for
 `vits_140` depending on whether the private decoder bridge planned-recording
-canary is enabled. The opt-in generic stack-captures-to-decoder bridge is
+canary was enabled. That benchmark-only canary has been retired under the
+graph-first cleanup policy; it is not a supported-default baseline. The opt-in
+generic stack-captures-to-decoder bridge is
 correct, copy-free, CPU-fallback-free, and sync-readback-free. A previous
 `recover_after_vulkan_failure_if_needed()` bug forced `Context::flush()` at
 stack entry and every block entry even when no Vulkan failure recovery was
@@ -1234,7 +1236,7 @@ forward; deep `vitl` rows can otherwise reuse the same stack-owner context
 before the bridge path has fully closed, causing Windows stack overflow during
 the reference pass. This boundary is outside timed iterations and is reported
 as `reference_boundary_synchronized` in the sanity metadata. A focused
-30-repeat `vits_140` run with the recovery guard and the
+30-repeat `vits_140` run with the recovery guard and the historical
 decoder bridge planned-recording canary measured about 77.7 ms mean / 77.4 ms
 median / 82.9 ms p95 for device-resident forward, with max_abs
 `8.344650268554688e-07`, `cpu_fallback=0`, and `sync_readback=0`.
@@ -1370,13 +1372,13 @@ frequency submit and does not authorize submit elision. Its purpose is to decide
 whether the next canary should target frequency-submit suppression under planned
 stack ownership, a bridge/decoder segment, or a coverage gap where dispatches
 escaped planned recording.
-`PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING=planned_recording` is the
-first opt-in bridge/decoder-segment canary using that evidence. It opens a
-normal planned-recording scope around the private post-stack layernorm and
-decoder-preprocess bridge island, closes it before the bridge returns, and
-therefore batches that island through the existing planned-region close submit.
-It does not use the external stack-owned command-buffer path, delete current
-topology submits, broaden admission, or change default behavior.
+The private decoder-bridge planned-recording canary has been retired. It had no
+supported caller and only batched the post-stack LayerNorm and decoder-preprocess
+island inside the benchmark-only stack lane. Its historical 77.7 ms DAv2 result
+and exact measured configuration remain in the performance manifests, but the
+environment selector, live recording scope, and mechanism-only proof field do
+not remain in production code. Graph-owned command partitions are the migration
+target for this fixed submission cost.
 `StackRegionSegmentPlan.v0` is the behavior-neutral graph surface for that
 planner. It emits a summary row for every segmented canary request and
 per-segment rows when candidate segments are computed. The rows record generic
@@ -1990,7 +1992,7 @@ and QKV hypothetical bytes drop from 1,472,329,728 to zero under the contract
 spelling, with bridge sanity passing, CPU fallback zero, and sync readback
 zero. `retire_queue_drain` submit count and `stack_scope_end` count were
 unchanged, so this is a retire-pressure reduction, not submit-count reduction.
-After the stack-scope activation expansion, a focused 10-repeat DAv2
+After the stack-scope activation expansion, a historical focused 10-repeat DAv2
 `vits_140` context-owned bridge run with decoder bridge planned recording
 reported `single_image_forward_device_resident` mean 78.64 ms, median
 78.68 ms, p95 81.55 ms, bridge sanity `max_abs=1.639e-06`, CPU fallback zero,
@@ -2026,11 +2028,10 @@ recording `transfers_pending_retires=0` and `submit_elision_enabled=0`. This
 distinguishes requested private bridge captures from stack-internal temps and
 sets up a future decoder-consumer ownership canary without changing execution.
 The same schema emits a second bridge-exit row after decoder preprocessing has
-consumed the prefix-stripped views and the decoder bridge recording scope has
-closed; that row records
-`decoder_consumer_completed_before_bridge_exit=1` and
-`decoder_bridge_recording_scope_closed_before_release=1`, but still does not
-release, retire, defer, or submit anything.
+consumed the prefix-stripped views. That row records
+`decoder_consumer_completed_before_bridge_exit=1`, but still does not release,
+retire, defer, or submit anything. This behavioral release-boundary proof
+survives the retired recording-scope mechanism.
 With both opt-ins enabled, the selected synthetic boundary's stack-exit source
 now covers the graph-pending bytes, but raw resource-count coverage remains
 partial because metadata/uniform bookkeeping entries are not stack-internal

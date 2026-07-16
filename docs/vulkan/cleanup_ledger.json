@@ -440,6 +440,28 @@
         "vision_owner_block"
       ],
       "consequence": "The two environment reads, dedicated file writers, duplicate SDPA execution/readback branch, and call-site bookkeeping were deleted. Vision owner counters, generic route/runtime-policy logs, transition logs, op-hit evidence, and behavioral no-clone tests remain."
+    },
+    {
+      "id": "decoder_bridge_planned_recording_canary",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The opt-in selector had no supported caller and only wrapped the post-stack LayerNorm and decoder-preprocess island in the benchmark-only stack bridge lane.",
+        "Its historical RX 9070 DAv2 vits_140 measurement was correctness-clean at about 77.7 ms median, but opt-in stack lanes are historical evidence rather than supported deletion bars.",
+        "Exact-SHA 25b66ba0b8b supported VulkanGraphProgram evidence owns complete DAv2 execution and establishes graph-owned command partitions as the replacement for fixed bridge submission cost."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
+        "stack_decoder_bridge_planned_recording_canary_enabled",
+        "decoder_bridge_recording_scope",
+        "decoder_bridge_recording_scope_closed_before_release"
+      ],
+      "consequence": "The environment read, bridge recording scope, and mechanism-only scope-closed diagnostic field were deleted. Historical JSON manifests retain the measured configuration and result. Behavioral graph rows and tests continue to prove decoder consumption completes before bridge exit without public/host/readback escape."
     }
   ],
   "entries": [
@@ -693,7 +715,6 @@
         "environment_variable:PYTORCH_VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_BARRIER_CANARY",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_CLOSE_SUBMIT_OWNER",
-        "environment_variable:PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_OWNED_COMMAND_BUFFER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_PENDING_RETIRE_TRANSFER_OWNER",
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_RESET_DEFERRAL_OWNER",

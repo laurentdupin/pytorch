@@ -6,6 +6,7 @@
     {
       "id": "dav2_vits_wide4_stack_region_segment_plan_v0_2026_07_01",
       "status": "accepted_canary",
+      "implementation_status": "historical_decoder_bridge_component_retired",
       "contract_name": "StackRegionSegmentPlan.v0",
       "mode": "segmented_stack_wide4_to_exit",
       "admission_kind": "finite_resolution_rowset",
@@ -95,7 +96,7 @@
         "dav2_vits700_segmented_stack_wide4_bridge_catalog_2026_07_01",
         "dav2_vits_segmented_stack_wide4_resolution_rowset_2026_07_01"
       ],
-      "decision": "Use as the current finite DAv2 vits wide4 StackRegionSegmentPlan canary rowset only.",
+      "decision": "Preserve as historical finite DAv2 vits wide4 evidence. The measured decoder-bridge recording component is retired and this rowset is not a live route.",
       "non_goals": [
         "not a production default",
         "not a DAv2-named backend route",
@@ -106,12 +107,13 @@
       "revisit_conditions": [
         "Repeat the rowset with longer timing samples before turning it into a regression threshold.",
         "Add separate rowset evidence before broadening beyond DAv2 vits.",
-        "Revalidate if StackRegionSegmentPlan.v0 rows, stack-scope retire handoff, or decoder bridge recording semantics change."
+        "Do not restore the retired decoder-bridge recording component; revisit fixed submission cost through graph-owned command partitions."
       ]
     },
     {
       "id": "dav2_vitb_wide4_stack_region_segment_plan_v0_2026_07_01",
       "status": "accepted_canary",
+      "implementation_status": "historical_decoder_bridge_component_retired",
       "contract_name": "StackRegionSegmentPlan.v0",
       "mode": "segmented_stack_wide4_to_exit",
       "admission_kind": "finite_resolution_rowset",
@@ -171,7 +173,7 @@
         "dav2_vitb140_segmented_stack_wide4_bridge_catalog_2026_07_01",
         "dav2_vitb_segmented_stack_wide4_resolution_rowset_2026_07_01"
       ],
-      "decision": "Use as the current finite DAv2 vitb_140 wide4 StackRegionSegmentPlan canary rowset only.",
+      "decision": "Preserve as historical finite DAv2 vitb_140 wide4 evidence. The measured decoder-bridge recording component is retired and this rowset is not a live route.",
       "non_goals": [
         "not a production default",
         "not a DAv2-named backend route",
@@ -183,7 +185,7 @@
       "revisit_conditions": [
         "Add additional vitb inputs before treating this as a multi-resolution rowset.",
         "Repeat the rowset with longer timing samples before turning it into a regression threshold.",
-        "Revalidate if StackRegionSegmentPlan.v0 rows, stack-scope retire handoff, or decoder bridge recording semantics change."
+        "Do not restore the retired decoder-bridge recording component; revisit fixed submission cost through graph-owned command partitions."
       ]
     }
   ]

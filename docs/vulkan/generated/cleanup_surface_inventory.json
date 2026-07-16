@@ -37,13 +37,13 @@
   "counts": {
     "by_kind": {
       "custom_class": 17,
-      "environment_variable": 61,
+      "environment_variable": 60,
       "operator_schema": 202,
       "python_entrypoint": 28
     },
     "by_state": {
       "Active": 198,
-      "Migration": 110
+      "Migration": 109
     }
   },
   "generator": "tools/vulkan_cleanup/generate_surface_inventory.py",
@@ -84,7 +84,7 @@
       ],
       "state": "Migration",
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
-      "surface_count": 85
+      "surface_count": 84
     },
     {
       "documents": [
@@ -516,6 +516,28 @@
         "vision_owner_block"
       ],
       "id": "one_off_attention_and_vision_owner_logs",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "The opt-in selector had no supported caller and only wrapped the post-stack LayerNorm and decoder-preprocess island in the benchmark-only stack bridge lane.",
+        "Its historical RX 9070 DAv2 vits_140 measurement was correctness-clean at about 77.7 ms median, but opt-in stack lanes are historical evidence rather than supported deletion bars.",
+        "Exact-SHA 25b66ba0b8b supported VulkanGraphProgram evidence owns complete DAv2 execution and establishes graph-owned command partitions as the replacement for fixed bridge submission cost."
+      ],
+      "consequence": "The environment read, bridge recording scope, and mechanism-only scope-closed diagnostic field were deleted. Historical JSON manifests retain the measured configuration and result. Behavioral graph rows and tests continue to prove decoder consumption completes before bridge exit without public/host/readback escape.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
+        "stack_decoder_bridge_planned_recording_canary_enabled",
+        "decoder_bridge_recording_scope",
+        "decoder_bridge_recording_scope_closed_before_release"
+      ],
+      "id": "decoder_bridge_planned_recording_canary",
       "scan_roots": [
         "aten/src/ATen/native/vulkan",
         "scripts/benchmarks",
@@ -1528,21 +1550,6 @@
           "callee": "std::getenv",
           "line": 93,
           "source": "aten/src/ATen/native/vulkan/api/Context.cpp"
-        }
-      ],
-      "state": "Migration"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
-      "kind": "environment_variable",
-      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
-      "name": "PYTORCH_VULKAN_STACK_REGION_DECODER_BRIDGE_RECORDING",
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 1559,
-          "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         }
       ],
       "state": "Migration"
