@@ -13,17 +13,20 @@ guide migration and deletion; it is not an instruction to expand the
 superseded systems.
 
 The checked-in DAv2 and PaddleOCR graph evidence was refreshed at source commit
-`25b66ba0b8bcb641ddafc2be091f55884eb17077` against `torch_cpu.dll` SHA-256
-`11579e6b7f39c5a28ad140a59d0c89aa16956142745a3630a57c1b85aa03a824`.
+`b157c550fc5f59a80c89a4a4f25b242799a227d7` against `torch_cpu.dll` SHA-256
+`e15d1b0d3fe80df554415b39a342cc42f634a8002958a2ff8457bfaaa26e3d86`.
 Both corpora execute complete v8 C++ plans on both recorded shapes with exact
 graph-versus-eager Vulkan parity, zero unsupported nodes, and zero graph-runtime
 fallback, readback, or deferred-value creation. DAv2 executes 404 instructions
 and proves that all 12 exported `linear_gelu_none` candidates lower without
 rejection. All 20 region calls reuse the outer graph owner. Each two-run shape
-records two scopes and final tokens, 38 owner checkpoint flushes, no
-retire-drain submits, and 42 total queue submits. The previous supported graph
-artifact recorded 16 nested scopes, 56 retire-drain submits, and 92 total
-submits. PaddleOCR remains the GELU control, represents its
+records two scopes and final tokens, 26 owner checkpoint flushes, no
+retire-drain submits, and 30 total queue submits. The immediately preceding
+supported artifact recorded 38 flushes and 42 total submits before generic
+next-submission token inheritance removed six bounded conv-region exits per
+inference. The earlier graph artifact recorded 16 nested scopes, 56
+retire-drain submits, and 92 total submits. PaddleOCR remains the GELU control,
+represents its
 schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
 executes 290 instructions. Its top-level plan records two scopes and final
 tokens per two-run shape, 28 owner checkpoint flushes, two input uploads, two
@@ -34,16 +37,16 @@ complete plan; its evidence and remaining deletion-gate blockers are described
 below.
 The same checked-in cases record allocator high-water phases for eager, first
 graph execution, and repeated graph execution with the prior output live. DAv2
-graph peaks range from 1.2% below to 0.4% above eager. PaddleOCR graph peaks
-range from 0.5% to 3.8% above eager. All recorded graph phases remain within
+graph peaks range from 0.5% to 1.8% above eager. PaddleOCR graph peaks range
+from 0.5% to 3.8% above eager. All recorded graph phases remain within
 the evidence gate of 5% above their same-process supported eager peak. This
 proves bounded peak-memory parity for the recorded shapes, not program-owned
 arenas or stable allocation addresses.
 The same cases measure supported-default latency from preuploaded Vulkan inputs
 to completed Vulkan outputs, alternating plain eager and `VulkanGraphProgram`
-for three warmups and ten samples per surface. DAv2 graph medians are 38.6 ms
-and 43.7 ms versus eager medians of 111.4 ms and 118.1 ms. PaddleOCR graph
-medians are 44.9 ms and 51.6 ms versus eager medians of 135.4 ms and 137.9 ms.
+for three warmups and ten samples per surface. DAv2 graph medians are 42.1 ms
+and 41.0 ms versus eager medians of 116.1 ms and 121.6 ms. PaddleOCR graph
+medians are 42.6 ms and 51.7 ms versus eager medians of 131.3 ms and 135.1 ms.
 Graph p95 is below eager p95 in all four cases, with zero timed fallback or
 readback. This establishes latency no-regression for the recorded shapes, not
 the full corpus or eligibility to delete a Migration subsystem.
@@ -60,20 +63,19 @@ not evidence for another exact operator kernel.
 The exact-SHA `25b66ba0b8b` graph cadence separates eager's frequency of 16
 from a graph frequency of 24. DAv2 now issues 19 graph checkpoints per
 inference, and same-binary 30-repeat medians are 40.20 ms and 36.78 ms, 18.1%
-and 25.1% below the `ed4975687b6` attribution medians. The exact supported
-artifacts above keep graph peak memory within 1.2% below to 0.4% above eager.
+and 25.1% below the `ed4975687b6` attribution medians. The corresponding
+`25b66ba0b8b` artifacts kept graph peak memory within 1.2% below to 0.4% above
+eager.
 Candidate graph frequencies of 64 and 32 reduced submission further but were
 rejected after DAv2 or PaddleOCR repeat-with-live-output memory exceeded the 5%
-gate. Worktree validation of generic next-submission token inheritance for
-bounded conv-region scratch reduces DAv2 from 19 to 13 pending submissions per
-inference. Normal and alternate graph medians are 37.89 ms and 39.74 ms against
-eager at 107.74 ms and 111.90 ms, and repeat-with-live-output memory remains
-between 1.0% below and 0.5% above eager. PaddleOCR remains at 14 submissions and
-HY-MT remains at 114 because neither path captures this scratch. Their memory
-also stays inside the 5% gate. These worktree artifacts validate the fixed-cost
-change; an exact-SHA refresh remains the supported deletion baseline.
-Timestamp-instrumented wall
-time is not a production latency baseline; the checked-in 38.6/43.7 ms
+gate. Exact-SHA `b157c550fc5` next-submission token inheritance for bounded
+conv-region scratch reduces DAv2 from 19 to 13 pending submissions per
+inference. Normal and alternate graph medians are 42.10 ms and 40.97 ms against
+eager at 116.13 ms and 121.64 ms, and repeat-with-live-output peak memory
+remains 0.8% and 1.8% above eager. PaddleOCR remains at 14 submissions and
+HY-MT remains at 114 because neither path captures this scratch. Every recorded
+memory phase stays inside the 5% gate. Timestamp-instrumented wall
+time is not a production latency baseline; the checked-in 42.1/41.0 ms
 distributions are the supported deletion-gate artifact.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
@@ -90,7 +92,7 @@ visible and unsupported. The exact static `unsqueeze -> expand -> reshape`
 form used for GQA head repetition lowers to the generic `GQARepeatContract`
 kernel family rather than constructing an unsupported rank-5 Vulkan value.
 
-The exact-SHA `25b66ba0b8b` GTX 1080 HY-MT prefill artifact captures 3,160
+The exact-SHA `b157c550fc5` GTX 1080 HY-MT prefill artifact captures 3,160
 nodes, lowers 225, and reports zero unsupported nodes at lower time. Both the
 four-token case and the guard-recompiled five-token case execute complete
 2,732-instruction C++ plans, return 65 tensor outputs, and stay within the
@@ -100,8 +102,9 @@ generic rank-bounded buffer bool path. Each two-run case records 228 owner
 checkpoint flushes, four host uploads, 130 evidence output readbacks, 362 total
 queue submits, no retire-drain submits, and explicit `LLM`/`Prefill` graph
 planning with zero label inference. Graph peak memory ranges from 4.0% below to
-0.03% above eager. Its single-sample normal/alternate graph latencies are
-1,422.8 ms and 2,084.9 ms versus eager at 2,123.1 ms and 2,122.8 ms. The
+0.04% above eager. Its single-sample normal/alternate graph latencies are
+2,197.5 ms and 1,618.9 ms versus eager at 1,268.0 ms and 1,333.4 ms. These
+single samples are regression-control evidence, not a latency distribution. The
 supported eager diagnostic still resolves the legacy `DepthDiffusion` lane, so
 HY-MT lane parity is not established and
 `LegacyPlanningInference`/`ModelLanePolicy` remain Migration. The latency rows

@@ -905,7 +905,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"25b66ba0b8bcb641ddafc2be091f55884eb17077"},
+            {"b157c550fc5f59a80c89a4a4f25b242799a227d7"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -914,7 +914,7 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "11579e6b7f39c5a28ad140a59d0c89aa16956142745a3630a57c1b85aa03a824"
+                "e15d1b0d3fe80df554415b39a342cc42f634a8002958a2ff8457bfaaa26e3d86"
             },
         )
         for payload in payloads:
@@ -1166,7 +1166,7 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_dav2_submit_origins = {
-            "total_queue_submits": 42,
+            "total_queue_submits": 30,
             "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
@@ -1181,7 +1181,7 @@ class TestVulkanGraphEvidence(TestCase):
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 38,
+            "pending_command_flush": 26,
             "unknown": 0,
         }
         for payload in (dav2_census, dav2_parity):

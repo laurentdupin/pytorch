@@ -592,17 +592,17 @@ The initial catalog records the current `vits_140` performance lane:
   PaddleOCR records 14, and caller-owned HY-MT drops from 168 to 114. Exact
   supported-default memory stays inside the 5% gate across all three corpora.
   Same-binary DAv2 30-repeat graph medians are 40.20 ms and 36.78 ms, 18.1%
-  and 25.1% below the `ed4975687b6` attribution medians. The exact checked-in
-  DAv2 supported medians are 38.6 ms and 43.7 ms against eager at 111.4 ms and
-  118.1 ms. Frequencies of 64 and 32 were rejected because DAv2 or PaddleOCR
+  and 25.1% below the `ed4975687b6` attribution medians. The `25b66ba0b8b`
+  DAv2 supported medians were 38.6 ms and 43.7 ms against eager at 111.4 ms
+  and 118.1 ms. Frequencies of 64 and 32 were rejected because DAv2 or PaddleOCR
   repeat-with-live-output memory exceeded 5%. This keeps the optimization
-  bounded by lifetime and memory evidence. Worktree validation of generic
+  bounded by lifetime and memory evidence. Exact-SHA `b157c550fc5` generic
   next-submission token inheritance for bounded conv-region scratch removes
   the region-exit checkpoint and drops DAv2 from 19 to 13 pending submissions
-  per inference. Graph medians are 37.89 ms and 39.74 ms against eager at
-  107.74 ms and 111.90 ms, with memory between 1.0% below and 0.5% above eager.
-  PaddleOCR and HY-MT remain at 14 and 114 submissions and inside the 5% memory
-  gate because neither captures this scratch. Exact-SHA evidence remains open;
+  per inference. Graph medians are 42.10 ms and 40.97 ms against eager at
+  116.13 ms and 121.64 ms, with repeated-output memory 0.8% and 1.8% above
+  eager. PaddleOCR and HY-MT remain at 14 and 114 submissions and inside the
+  5% memory gate because neither captures this scratch;
 - descriptor-update allocation flattening: accepted default infrastructure fix.
   `DescriptorSet` reserves its per-set binding list to the shader layout size,
   and `get_bind_handle()` uses an inline-capacity descriptor-write list for the

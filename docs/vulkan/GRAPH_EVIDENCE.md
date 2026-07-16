@@ -59,9 +59,9 @@ device order.
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
-at source commit `25b66ba0b8bcb641ddafc2be091f55884eb17077` and
+at source commit `b157c550fc5f59a80c89a4a4f25b242799a227d7` and
 `torch_cpu.dll` SHA-256
-`11579e6b7f39c5a28ad140a59d0c89aa16956142745a3630a57c1b85aa03a824`.
+`e15d1b0d3fe80df554415b39a342cc42f634a8002958a2ff8457bfaaa26e3d86`.
 The DAv2 census lowers all 12 `linear_gelu_none` candidates with no rejection;
 PaddleOCR remains the control with no such candidates. Both corpora report zero
 unsupported nodes, exact graph-versus-eager Vulkan parity, and zero runtime CPU
@@ -76,7 +76,7 @@ replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
 
-A caller-owned exact-SHA HY-MT prefill integration artifact at `25b66ba0b8b`
+A caller-owned exact-SHA HY-MT prefill integration artifact at `b157c550fc5`
 on GTX 1080 captures 3,160 nodes, lowers 225, reports zero lower-time
 unsupported nodes, executes the complete immutable C++ plan, and returns 65
 tensor outputs. The plan contains 2,732 instructions, 2,466 IValue slots, 268
@@ -86,14 +86,14 @@ with zero graph fallback, sync readback, or deferred-value creation. The
 five-token unaligned boolean causal-mask broadcast stays in the generic native
 buffer path. Each two-run case records 228 graph-owner checkpoint flushes, four
 host uploads, 130 evidence output readbacks, 362 total queue submits, and no
-retire-drain submits. Graph peak memory ranges from 4.0% below to 0.03% above
+retire-drain submits. Graph peak memory ranges from 4.0% below to 0.04% above
 supported eager. Graph diagnostics carry explicit `LLM`/`Prefill` semantics
 with zero label inference, but supported eager still reports the legacy
 `DepthDiffusion` lane. The
 artifact therefore advances correctness, guard, submission, and residency
 coverage without clearing the lane or latency-distribution deletion gates. The
 raw caller-owned files are under
-`agent_space/graph_checkpoint24_exact_25b66ba0b8b/hymt/`.
+`agent_space/graph_submission_inheritance_exact_b157c550fc5/hymt/`.
 
 The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
 candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
@@ -167,19 +167,17 @@ all three corpora. Same-binary DAv2 30-repeat medians are 40.20 ms and 36.78 ms,
 frequencies of 64 and 32 were rejected: DAv2 at 64 and PaddleOCR at 32 exceeded
 the 5% repeat-with-live-output peak-memory gate. The accepted evidence therefore
 supports bounded fixed-cost reduction, not unrestricted checkpoint deferral.
-Worktree validation of generic next-submission token inheritance for bounded
+Exact-SHA `b157c550fc5` next-submission token inheritance for bounded
 conv-region scratch removes the region-exit checkpoint and drops DAv2 from 19
 to 13 pending submissions per inference. Normal and alternate graph medians are
-37.89 ms and 39.74 ms against eager at 107.74 ms and 111.90 ms, with graph
-repeat-with-live-output memory between 1.0% below and 0.5% above eager.
-PaddleOCR remains at 14 submissions and HY-MT remains at 114; both retain memory
-inside the 5% gate. Exact-SHA evidence remains required before this worktree
-result becomes a supported deletion baseline. Raw accepted artifacts are under
+42.10 ms and 40.97 ms against eager at 116.13 ms and 121.64 ms, with graph
+repeat-with-live-output memory 0.8% and 1.8% above eager. PaddleOCR remains at
+14 submissions and caller-owned HY-MT remains at 114; all recorded memory
+phases remain inside the 5% gate. The checked-in DAv2 and PaddleOCR manifests
+are the supported deletion baseline. Historical raw artifacts are under
 `agent_space/graph_checkpoint24_exact_25b66ba0b8b/` and
-`agent_space/dav2_graph_checkpoint24_79080a576b0/`; worktree artifacts are under
-`agent_space/dav2_graph_submission_inheritance_worktree/`,
-`agent_space/paddleocr_graph_submission_inheritance_worktree/`, and
-`agent_space/hymt_graph_submission_inheritance_worktree_retry/`.
+`agent_space/dav2_graph_checkpoint24_79080a576b0/`; current exact raw artifacts
+are under `agent_space/graph_submission_inheritance_exact_b157c550fc5/`.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.
