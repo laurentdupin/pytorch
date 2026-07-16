@@ -389,6 +389,13 @@ now admits small-head fp32 rank-4 non-causal MHA policy by runtime Q/K/V
 semantics for the recognizer-style direct-buffer fused path; diffusion
 materialization policy rows remain finite because they encode known-bad
 materialization behavior, not just legal SDPA geometry.
+The one-off attention no-clone JSON comparison hook has been retired. It had no
+supported caller and duplicated the selected SDPA branch before synchronously
+reading both results to CPU. Direct-safe parity, zero fallback/copy behavior,
+and materialization-required rejection remain covered by transition and op-hit
+behavioral tests. The unused vision-owner text log was retired in the same
+wave; evidence-harness owner counters and generic route/runtime-policy
+diagnostics remain.
 `TransformerDecodeGQACloneOnlyRuntimeShape` also admits the decode-GQA
 post-softmax clone policy by runtime batch/head/source/head-dim semantics and
 score-element budget, so the old transformer decode source-length row remains

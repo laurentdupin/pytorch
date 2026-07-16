@@ -412,6 +412,34 @@
         "stack_owner_poll_only"
       ],
       "consequence": "The poll-only environment read, selector helper, and early-return branch were deleted. The accepted bounded stack-owned segment retire-drain deferral and generic retire counters remain."
+    },
+    {
+      "id": "one_off_attention_and_vision_owner_logs",
+      "decision": "retire_diagnostics",
+      "status": "deleted",
+      "basis": [
+        "The attention no-clone JSON hook had no supported harness or test caller and duplicated the selected SDPA branch solely to compare direct and materialized results through synchronous CPU readback.",
+        "Behavioral transition and op-hit tests now pin direct-safe attention probability parity, zero fallback, zero buffer copies, and fail-closed materialization-required rows without the one-off logger.",
+        "The vision-owner text log had no supported caller and duplicated owner selection data retained in the evidence-harness vision owner counters plus generic route and runtime-policy diagnostics."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
+        "attention_no_clone_diagnostic",
+        "vulkan_attention_probability_no_clone_diagnostic",
+        "PYTORCH_VULKAN_VISION_OWNER_LOG",
+        "vulkan_vision_owner_log_path",
+        "append_vulkan_vision_owner_log",
+        "append_vulkan_vision_owner_block_log",
+        "append_vulkan_vision_stack_owner_log",
+        "vision_owner_attempt",
+        "vision_owner_block"
+      ],
+      "consequence": "The two environment reads, dedicated file writers, duplicate SDPA execution/readback branch, and call-site bookkeeping were deleted. Vision owner counters, generic route/runtime-policy logs, transition logs, op-hit evidence, and behavioral no-clone tests remain."
     }
   ],
   "entries": [
@@ -659,7 +687,6 @@
         "custom_class:vulkan::VisionDecoderFusionBlockContext",
         "custom_class:vulkan::VisionDecoderHeadContext",
         "custom_class:vulkan::VisionDecoderPreprocessHeadContext",
-        "environment_variable:PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
         "environment_variable:PYTORCH_VULKAN_STACK_DEP_GRAPH",
         "environment_variable:PYTORCH_VULKAN_STACK_DEP_GRAPH_MODE",
         "environment_variable:PYTORCH_VULKAN_STACK_DIAGNOSTIC_ROWS",
@@ -675,7 +702,6 @@
         "environment_variable:PYTORCH_VULKAN_STACK_REGION_SINGLE_RECORDING_CANARY",
         "environment_variable:PYTORCH_VULKAN_STACK_RETAINED_STATE_LOG",
         "environment_variable:PYTORCH_VULKAN_STACK_SCOPE_RETIRE_HANDOFF",
-        "environment_variable:PYTORCH_VULKAN_VISION_OWNER_LOG",
         "operator_schema:vulkan_prepack::create_vision_backbone_block_context",
         "operator_schema:vulkan_prepack::create_vision_backbone_block_context_with_attention_bias",
         "operator_schema:vulkan_prepack::create_vision_backbone_stack_context",

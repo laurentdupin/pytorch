@@ -37,13 +37,13 @@
   "counts": {
     "by_kind": {
       "custom_class": 17,
-      "environment_variable": 63,
+      "environment_variable": 61,
       "operator_schema": 202,
       "python_entrypoint": 28
     },
     "by_state": {
       "Active": 198,
-      "Migration": 112
+      "Migration": 110
     }
   },
   "generator": "tools/vulkan_cleanup/generate_surface_inventory.py",
@@ -84,7 +84,7 @@
       ],
       "state": "Migration",
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
-      "surface_count": 87
+      "surface_count": 85
     },
     {
       "documents": [
@@ -494,6 +494,34 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The attention no-clone JSON hook had no supported harness or test caller and duplicated the selected SDPA branch solely to compare direct and materialized results through synchronous CPU readback.",
+        "Behavioral transition and op-hit tests now pin direct-safe attention probability parity, zero fallback, zero buffer copies, and fail-closed materialization-required rows without the one-off logger.",
+        "The vision-owner text log had no supported caller and duplicated owner selection data retained in the evidence-harness vision owner counters plus generic route and runtime-policy diagnostics."
+      ],
+      "consequence": "The two environment reads, dedicated file writers, duplicate SDPA execution/readback branch, and call-site bookkeeping were deleted. Vision owner counters, generic route/runtime-policy logs, transition logs, op-hit evidence, and behavioral no-clone tests remain.",
+      "decision": "retire_diagnostics",
+      "forbidden_code_symbols": [
+        "PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
+        "attention_no_clone_diagnostic",
+        "vulkan_attention_probability_no_clone_diagnostic",
+        "PYTORCH_VULKAN_VISION_OWNER_LOG",
+        "vulkan_vision_owner_log_path",
+        "append_vulkan_vision_owner_log",
+        "append_vulkan_vision_owner_block_log",
+        "append_vulkan_vision_stack_owner_log",
+        "vision_owner_attempt",
+        "vision_owner_block"
+      ],
+      "id": "one_off_attention_and_vision_owner_logs",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -679,26 +707,11 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 558,
+          "line": 246,
           "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
         }
       ],
       "state": "Active"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
-      "name": "PYTORCH_VULKAN_ATTENTION_PROBABILITY_NO_CLONE_DIAGNOSTIC_LOG",
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 202,
-          "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
-        }
-      ],
-      "state": "Migration"
     },
     {
       "id": "environment_variable:PYTORCH_VULKAN_BUFFER_COPY_AGGREGATE",
@@ -1370,7 +1383,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1296,
+          "line": 984,
           "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
         }
       ],
@@ -1440,7 +1453,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1568,
+          "line": 1527,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         },
         {
@@ -1528,7 +1541,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1600,
+          "line": 1559,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         }
       ],
@@ -1549,7 +1562,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 1527,
+          "line": 1486,
           "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
         },
         {
@@ -1855,21 +1868,6 @@
         }
       ],
       "state": "Active"
-    },
-    {
-      "id": "environment_variable:PYTORCH_VULKAN_VISION_OWNER_LOG",
-      "kind": "environment_variable",
-      "ledger_entry": "migration_vision_stack_and_sync_control_plane",
-      "name": "PYTORCH_VULKAN_VISION_OWNER_LOG",
-      "sites": [
-        {
-          "access": "read",
-          "callee": "std::getenv",
-          "line": 405,
-          "source": "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp"
-        }
-      ],
-      "state": "Migration"
     },
     {
       "id": "environment_variable:PYTORCH_VULKAN_ZERO_PLAN_LOG",
