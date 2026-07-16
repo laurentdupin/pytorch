@@ -233,6 +233,17 @@ the previous exact artifact. This proves fixed control-plane removal and no
 regression rather than a separate speedup. Checked and raw files come from
 `agent_space/graph_static_inference_identity_exact_46ece5d7dc93/dav2_checked/`.
 
+Exact-SHA `e536f16cf36` consumes the fresh single-user detach-functionalization
+proof as a static inference identity. It does not erase arbitrary detach aliases.
+The caller-owned GTX 1080 HY-MT artifact lowers 64/64 proven detaches and shrinks
+both four- and five-token plans from 2,732 instructions/2,466 values to
+2,668/2,402. Numerical errors exactly match the earlier artifact, graph
+fallback/readback remains zero, the 88-checkpoint cadence is unchanged, and
+first/repeat high-water stays between 4.0% below and 0.035% above eager. One
+sample per surface is insufficient for a latency claim; the HY-MT distribution
+and lane-parity gates remain open. Raw files are under
+`agent_space/hymt_static_detach_identity_exact_e536f16cf36/`.
+
 A worktree 64-job cadence on the same implementation cuts DAv2 to five pending
 submissions per inference but fails the deletion gate: normal first/repeat peak
 memory is 5.6%/6.1% above eager and alternate is 8.5%/9.9% above eager. Its

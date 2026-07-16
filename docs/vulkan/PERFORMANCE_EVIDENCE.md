@@ -639,6 +639,13 @@ The initial catalog records the current `vits_140` performance lane:
   138.50/142.87 ms. The average normalized ratio is effectively unchanged from
   `8b60bf3ba4a`, so acceptance is fixed control-plane removal and no regression,
   not an isolated speedup;
+- proven fresh-detach inference identities: accepted structurally at exact-SHA
+  `e536f16cf36`. The identity pass consumes only the preceding fresh single-user
+  functionalization proof and preserves arbitrary input/view detaches. HY-MT
+  removes 64 instructions and values from both prefill plans with identical
+  graph/eager and graph/CPU error, zero graph fallback/readback, unchanged 88
+  checkpoints per inference, and peak high-water inside the 5% gate. The one
+  timing sample per surface is not a latency-distribution claim;
 - post-reuse 64-job graph cadence: rejected. DAv2 fell to five submissions per
   inference, but normal peak memory reached 5.6% to 6.1% above eager and the
   alternate shape reached 8.5% to 9.9%. Graph medians also worsened to

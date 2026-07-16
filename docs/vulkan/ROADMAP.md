@@ -568,6 +568,14 @@ fixed-cost direction only for semantic identities proven from exported
 arguments; the Phase 6 target remains recorded partitions over program-owned
 Vulkan resources rather than an accumulating list of operator exceptions.
 
+Exact-SHA `e536f16cf36` also consumes the existing fresh single-user detach
+functionalization proof under inference. HY-MT removes 64/64 proven detach
+dispatches and reduces its plan from 2,732 to 2,668 instructions without changing
+its 88-checkpoint cadence, parity, fallback/readback, or memory gate. Arbitrary
+detach aliases remain untouched. Single-sample timing is mixed, so this is a
+bounded control-plane reduction rather than a latency claim; integration and
+recorded resource ownership remain higher priority than further identity rules.
+
 Exit criteria:
 
 - the C++ executor matches the Python correctness executor;

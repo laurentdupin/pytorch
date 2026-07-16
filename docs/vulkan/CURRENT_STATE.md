@@ -126,6 +126,18 @@ exact run, so this is accepted fixed control-plane removal, not a separately
 measurable speedup. The checked DAv2 manifests are refreshed from
 `agent_space/graph_static_inference_identity_exact_46ece5d7dc93/dav2_checked/`.
 
+Exact-SHA `e536f16cf36` extends the same identity pass only to `aten::detach`
+nodes carrying the preceding fresh single-user detach-functionalization proof.
+Unproven input and view detaches remain visible. The caller-owned GTX 1080 HY-MT
+prefill artifact lowers all 64 proven candidates and reduces both plans from
+2,732 instructions/2,466 values to 2,668/2,402. Four- and five-token output
+errors are identical to the prior exact artifact, graph fallback/readback stays
+zero, and the 88-checkpoint cadence is unchanged. First/repeat high-water ranges
+from 4.0% below to 0.035% above eager. Single graph samples of 1.77/2.10 s move
+in opposite directions relative to prior runs and do not establish a latency
+win or distribution gate. Raw evidence is under
+`agent_space/hymt_static_detach_identity_exact_e536f16cf36/`.
+
 A 64-job cadence was re-probed after dead-ReLU reuse and rejected again. It cut
 DAv2 to five submissions per inference, but graph peak memory rose to
 5.6%-6.1% above eager for the normal shape and 8.5%-9.9% for the alternate
