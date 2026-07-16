@@ -35201,60 +35201,106 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected, actual, atol=6e-3, rtol=6e-3)
 
-    def test_vulkan_planning_runtime_policy_exposes_scheduler_bridge(self):
-        script = """
-            import torch
+    def test_vulkan_decode_sdpa_runtime_policy_uses_split_boundary(self):
+        policy_log_name = "vulkan_decode_sdpa_runtime_policy_test.log"
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        policy_log_path = os.path.join(repo_root, policy_log_name)
+        if os.path.exists(policy_log_path):
+            os.remove(policy_log_path)
 
-            assert hasattr(torch.ops.vulkan_prepack, "query_runtime_policy")
+        try:
+            script = """
+                import torch
 
-            prototype = torch.randn(1, dtype=torch.float32).to("vulkan")
-            decode_policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
-                prototype,
-                11,  # LLMDecode
-                2,   # LLM
-                2,   # Decode
-                0,   # Input
-            ))
-            cache_policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
-                prototype,
-                3,   # AttentionCache
-                2,   # LLM
-                2,   # Decode
-                3,   # Cache
-            ))
-            vision_policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
-                prototype,
-                9,   # VisionBackbone
-                1,   # Vision
-                3,   # Backbone
-                0,   # Input
-            ))
+                torch.manual_seed(0)
+                query = torch.randn(1, 16, 1, 128)
+                key = torch.randn(1, 4, 15, 128)
+                value = torch.randn(1, 4, 15, 128)
+                expected = torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=0.0883883,
+                    enable_gqa=True,
+                )
+                token = torch.ops.vulkan_prepack.begin_vulkan_planning_request_scope(
+                    2,  # LLM
+                    2,  # Decode
+                    False,
+                    None,
+                )
+                try:
+                    device = torch.device("vulkan")
+                    query_vk = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+                        query, device
+                    )
+                    key_vk = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+                        key, device
+                    )
+                    value_vk = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+                        value, device
+                    )
+                    actual = torch.nn.functional.scaled_dot_product_attention(
+                        query_vk,
+                        key_vk,
+                        value_vk,
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=0.0883883,
+                        enable_gqa=True,
+                    ).cpu()
+                finally:
+                    torch.ops.vulkan_prepack.end_vulkan_planning_request_scope(token)
 
-            assert len(decode_policy) == 16
-            assert len(vision_policy) == 16
-            assert decode_policy[0] == 2  # backend_route=Split
-            assert decode_policy[1] == 1  # has_scratch_plan
-            assert decode_policy[6] == 1  # linear_kernel_family=UnifiedBufferView
-            assert decode_policy[8] == 3  # attention_kernel_family=SplitCoordinator
-            assert cache_policy[8] == 3  # attention_kernel_family=SplitCoordinator
-            assert decode_policy[9] == 1  # has_boundary_plan
-            assert decode_policy[10] == 1  # boundary_kind=LLMLinearAttentionSplit
-            assert decode_policy[13] == 1  # boundary_backend_owned_execution
-            assert decode_policy[14] == 1  # boundary_requires_scratch
-            assert decode_policy[15] == 1  # boundary_preferred_cpu_threads
-            assert vision_policy[0] == 0  # backend_route=Vulkan
-            assert vision_policy[1] == 1  # has_scratch_plan
-            assert vision_policy[6] == 1  # linear_kernel_family=UnifiedBufferView
-            assert vision_policy[9] == 0  # has_boundary_plan
+                if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                    raise RuntimeError("Decode SDPA runtime-policy result mismatch")
+            """
+            self._run_repo_python_subprocess(
+                script,
+                extra_env={"PYTORCH_VULKAN_RUNTIME_POLICY_LOG": policy_log_name},
+                error_prefix="Decode SDPA runtime-policy subprocess failed.",
+            )
 
-            print("ok")
-        """
-
-        _, result = self._run_repo_python_subprocess(
-            script,
-            error_prefix="Planning runtime bridge subprocess failed.",
-        )
-        self.assertIn("ok", result.stdout)
+            self.assertTrue(os.path.exists(policy_log_path))
+            with open(policy_log_path, "r", encoding="utf-8") as log_file:
+                policy_log_text = log_file.read()
+            policy_line = next(
+                line
+                for line in policy_log_text.splitlines()
+                if line.startswith("runtime_policy ")
+                and "workload=LLMDecode" in line
+                and "tensor_role=Input" in line
+            )
+            policy_fields = dict(
+                field.split("=", 1) for field in policy_line.split()[1:]
+            )
+            self.assertEqual(policy_fields["backend_route"], "Split")
+            self.assertEqual(
+                policy_fields["attention_kernel_family"], "SplitCoordinator"
+            )
+            self.assertEqual(
+                policy_fields["attention_execution_strategy"], "GenericMath"
+            )
+            self.assertEqual(policy_fields["has_execution_program_plan"], "0")
+            self.assertEqual(policy_fields["has_boundary_plan"], "1")
+            self.assertEqual(
+                policy_fields["boundary_kind"], "LLMLinearAttentionSplit"
+            )
+            self.assertEqual(policy_fields["boundary_input_layout"], "BufferStaging")
+            self.assertEqual(
+                policy_fields["boundary_output_layout"], "BufferStaging"
+            )
+            self.assertEqual(
+                policy_fields["boundary_backend_owned_execution"], "1"
+            )
+            self.assertEqual(policy_fields["boundary_requires_scratch"], "1")
+            self.assertEqual(policy_fields["boundary_preferred_cpu_threads"], "1")
+            self.assertEqual(policy_fields["has_scratch_arena_plan"], "1")
+        finally:
+            if os.path.exists(policy_log_path):
+                os.remove(policy_log_path)
 
     def test_vulkan_capability_profile_minimum_masks_runtime_policy_features(self):
         policy_log_name = "vulkan_capability_profile_min_policy_test.log"
@@ -35267,19 +35313,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             script = """
                 import torch
 
-                prototype = torch.randn(1, dtype=torch.float32).to("vulkan")
-                policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
-                    prototype,
-                    9,  # VisionBackbone
-                    1,  # Vision
-                    3,  # Backbone
-                    0,  # Input
-                ))
-                assert len(policy) == 16
-                assert policy[0] == 0  # backend_route=Vulkan
-                assert policy[6] != 3  # linear_kernel_family!=CooperativeMatrix
-                assert policy[9] == 0  # has_boundary_plan
-                print(policy)
+                torch.manual_seed(0)
+                input_cpu = torch.randn(2, 4)
+                weight_cpu = torch.randn(4, 3)
+                expected = torch.mm(input_cpu, weight_cpu)
+                actual = torch.mm(
+                    input_cpu.to("vulkan"), weight_cpu.to("vulkan")
+                ).cpu()
+                if not torch.allclose(actual, expected, atol=1e-4, rtol=1e-4):
+                    raise RuntimeError("Minimum-capability MM result mismatch")
             """
             self._run_repo_python_subprocess(
                 script,
@@ -35315,15 +35357,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 line
                 for line in policy_log_text.splitlines()
                 if line.startswith("runtime_policy ")
-                and "workload=VisionBackbone" in line
+                and "workload=LinearMatmul" in line
                 and "linear_kernel_family=" in line
             )
             policy_fields = dict(
                 field.split("=", 1) for field in policy_line.split()[1:]
             )
             self.assertEqual(policy_fields["backend_route"], "Vulkan")
-            self.assertEqual(
-                policy_fields["linear_kernel_family"], "UnifiedBufferView"
+            self.assertNotEqual(
+                policy_fields["linear_kernel_family"], "CooperativeMatrix"
             )
             self.assertEqual(policy_fields["has_boundary_plan"], "0")
             self.assertNotIn("linear_kernel_family=CooperativeMatrix", policy_log_text)

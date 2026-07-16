@@ -674,6 +674,26 @@
         "const VisionDecoderProgram& refinenet1_program() const"
       ],
       "consequence": "Zero-caller overloads and step adapters were deleted. The live mutable execution surface plus used backbone/decoder replay steps remain Migration under their existing graph-replacement gates."
+    },
+    {
+      "id": "runtime_policy_query_test_hook",
+      "decision": "retire_dead_test_hook",
+      "status": "deleted",
+      "basis": [
+        "query_runtime_policy had two test callers and no production, benchmark, Python entry-point, or serialized consumer; it returned a positional encoding of internal policy fields without executing the selected route.",
+        "The LLM decode scheduler regression now runs a corpus-backed HY-MT buffer-backed SDPA shape under an explicit planning scope, verifies numerical parity, and checks the emitted split boundary, attention family, execution strategy, scratch, and ownership fields.",
+        "The minimum capability regression now runs real Vulkan MM, verifies numerical parity, and checks capability/runtime logs reject cooperative-matrix selection. Runtime policy and capability logs remain evidence-critical diagnostics."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test",
+        "torch/vulkan"
+      ],
+      "forbidden_code_symbols": [
+        "query_runtime_policy"
+      ],
+      "consequence": "The public schema, CPU/Vulkan registrations, positional policy encoder, and mechanism-only assertions were deleted. Stronger real-operation behavioral regressions preserve decode routing and capability masking."
     }
   ],
   "entries": [
@@ -1054,8 +1074,7 @@
         "environment_variable:PYTORCH_VULKAN_EXECUTION_OBJECT_LOG",
         "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_CACHE_MB",
         "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_LOG",
-        "environment_variable:PYTORCH_VULKAN_INFERENCE_GRAPH_LOG",
-        "operator_schema:vulkan_prepack::query_runtime_policy"
+        "environment_variable:PYTORCH_VULKAN_INFERENCE_GRAPH_LOG"
       ]
     },
     {

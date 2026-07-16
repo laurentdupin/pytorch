@@ -1142,41 +1142,6 @@ void end_vulkan_planning_request_scope_runtime(const int64_t token) {
   utils::end_vulkan_planning_request_scope(token);
 }
 
-std::vector<int64_t> query_runtime_policy(
-    const Tensor& prototype,
-    const int64_t workload_class,
-    const int64_t model_domain,
-    const int64_t execution_phase,
-    const int64_t tensor_role) {
-  (void)prototype;
-  const auto request = make_runtime_planning_request(
-      workload_class, model_domain, execution_phase, tensor_role);
-  const auto policy = utils::build_vulkan_runtime_policy(request);
-  const auto scratch_arena_plan = policy.scratch_arena_plan.value_or(
-      utils::VulkanScratchArenaPlanningDesc{});
-  const auto boundary_plan = policy.boundary_plan.value_or(
-      utils::VulkanBoundaryPlan{});
-
-  return {
-      static_cast<int64_t>(policy.backend_route),
-      policy.scratch_arena_plan.has_value() ? 1 : 0,
-      scratch_arena_plan.prefer_reusable_arena ? 1 : 0,
-      scratch_arena_plan.prefer_buffer_storage ? 1 : 0,
-      static_cast<int64_t>(scratch_arena_plan.min_arena_bytes),
-      static_cast<int64_t>(scratch_arena_plan.alignment),
-      static_cast<int64_t>(policy.linear_kernel_family),
-      static_cast<int64_t>(policy.norm_kernel_family),
-      static_cast<int64_t>(policy.attention_kernel_family),
-      policy.boundary_plan.has_value() ? 1 : 0,
-      static_cast<int64_t>(boundary_plan.kind),
-      static_cast<int64_t>(boundary_plan.input_transfer_layout),
-      static_cast<int64_t>(boundary_plan.output_transfer_layout),
-      boundary_plan.prefer_backend_owned_execution ? 1 : 0,
-      boundary_plan.requires_scratch_arena ? 1 : 0,
-      static_cast<int64_t>(boundary_plan.preferred_cpu_threads),
-  };
-}
-
 std::string swap_runtime_label_runtime(std::string label) {
   return api::swap_runtime_label(std::move(label));
 }
@@ -2755,8 +2720,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_fallback_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::pose_encoding_to_extri_intri(Tensor pose_encoding, int height, int width) -> (Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::extri_intri_to_pose_encoding(Tensor extrinsics, Tensor intrinsics, int height, int width) -> Tensor"));
@@ -3387,9 +3350,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::upload_graph_tensor_to_buffer"),
       TORCH_FN(upload_graph_tensor_to_buffer));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
-      TORCH_FN(query_runtime_policy));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::pose_encoding_to_extri_intri"),
       TORCH_FN(pose_encoding_to_extri_intri_runtime));
   m.impl(
@@ -3530,9 +3490,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::to_vulkan_labeled"),
       TORCH_FN(to_vulkan_labeled));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
-      TORCH_FN(query_runtime_policy));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::pose_encoding_to_extri_intri"),
       TORCH_FN(pose_encoding_to_extri_intri_runtime));
