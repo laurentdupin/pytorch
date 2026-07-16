@@ -71,9 +71,12 @@ PYTORCH_VULKAN_BUFFER_COPY_AGGREGATE=1
 The aggregate snapshot is exposed through:
 
 ```
+torch.ops.vulkan_prepack.reset_fallback_counters()
 torch.ops.vulkan_prepack.buffer_copy_aggregate_snapshot()
-torch.ops.vulkan_prepack.reset_buffer_copy_aggregate()
 ```
+
+The aggregate reset clears this snapshot together with the other evidence
+counters before a measurement phase.
 
 Each aggregate row is keyed by:
 
@@ -111,8 +114,8 @@ extra clone lifetime or allocation pressure.
 Clone requirement profiling is exposed through:
 
 ```
+torch.ops.vulkan_prepack.reset_fallback_counters()
 torch.ops.vulkan_prepack.clone_requirement_snapshot()
-torch.ops.vulkan_prepack.reset_clone_requirement_snapshot()
 ```
 
 The DAv2 MLP `[1,T,1536]` GELU clone is classified as `fc2_input_preparation`.

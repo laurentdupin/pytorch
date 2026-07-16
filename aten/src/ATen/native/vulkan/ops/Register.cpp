@@ -2538,15 +2538,11 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::submit_origin_phase_counters() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::reset_submit_origin_phase_counters() -> ()"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::retire_drain_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_retire_drain_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::retire_call_site_counters() -> str[]"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::reset_retire_call_site_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::retired_resource_aggregate_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2579,8 +2575,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::stack_scratch_arena_lifetime_snapshot() -> str[]"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::set_submit_phase(int phase) -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2620,8 +2614,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::pointwise_conv_route_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::reset_pointwise_conv_route_counters() -> ()"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::conv_aggregate_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::conv_plan_key_snapshot() -> str[]"));
@@ -2630,8 +2622,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::attention_plan_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::attention_subgroup_capabilities() -> int[]"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::buffer_copy_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::buffer_copy_aggregate_snapshot() -> str[]"));
@@ -2639,10 +2629,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::clone_requirement_snapshot() -> str[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_buffer_copy_counters() -> ()"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::reset_buffer_copy_aggregate() -> ()"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::reset_clone_requirement_snapshot() -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::vision_owner_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -2925,10 +2911,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::submit_origin_phase_counters"),
       TORCH_FN(submit_origin_phase_counters_runtime));
   m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::reset_submit_origin_phase_counters"),
-      TORCH_FN(api::reset_vulkan_submit_origin_phase_counters));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::retire_drain_counters"),
       TORCH_FN(retire_drain_counters_runtime));
   m.impl(
@@ -2937,9 +2919,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::retire_call_site_counters"),
       TORCH_FN(retire_call_site_counters_runtime));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_retire_call_site_counters"),
-      TORCH_FN(api::reset_retire_call_site_counters));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::retired_resource_aggregate_snapshot"),
@@ -3003,10 +2982,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::stack_scratch_arena_lifetime_snapshot"),
       TORCH_FN(stack_scratch_arena_lifetime_snapshot_runtime));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot"),
-      TORCH_FN(api::reset_stack_scratch_arena_lifetime_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::set_submit_phase"),
       TORCH_FN(set_submit_phase_runtime));
@@ -3086,10 +3061,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::pointwise_conv_route_counters"),
       TORCH_FN(pointwise_conv_route_counters_snapshot));
   m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::reset_pointwise_conv_route_counters"),
-      TORCH_FN(reset_pointwise_conv_route_counters));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::conv_aggregate_snapshot"),
       TORCH_FN(conv_aggregate_snapshot));
   m.impl(
@@ -3102,9 +3073,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::attention_plan_counters"),
       TORCH_FN(attention_plan_counters_snapshot));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::attention_subgroup_capabilities"),
-      TORCH_FN(attention_subgroup_capabilities_snapshot));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::buffer_copy_counters"),
       TORCH_FN(buffer_copy_counters_snapshot));
   m.impl(
@@ -3116,12 +3084,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::reset_buffer_copy_counters"),
       TORCH_FN(reset_buffer_copy_counters));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_buffer_copy_aggregate"),
-      TORCH_FN(reset_buffer_copy_aggregate));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::reset_clone_requirement_snapshot"),
-      TORCH_FN(reset_clone_requirement_snapshot));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::vision_owner_counters"),
       TORCH_FN(vision_owner_counters_snapshot));

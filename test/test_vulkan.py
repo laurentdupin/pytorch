@@ -13338,6 +13338,21 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
         self.assertEqual(zero[1], 1)
 
+    def test_vulkan_aggregate_reset_clears_diagnostic_state(self):
+        ops = torch.ops.vulkan_prepack
+        ops.reset_fallback_counters()
+
+        self.assertEqual(ops.submit_origin_phase_counters(), [])
+        self.assertEqual(ops.retire_call_site_counters(), [])
+        self.assertEqual(ops.stack_scratch_arena_lifetime_snapshot(), [])
+        self.assertEqual(ops.buffer_copy_aggregate_snapshot(), [])
+        self.assertEqual(ops.clone_requirement_snapshot(), [])
+
+        pointwise = ops.pointwise_conv_route_counters()
+        attention = ops.attention_plan_counters()
+        self.assertEqual(pointwise, [0] * len(pointwise))
+        self.assertEqual(attention, [0] * len(attention))
+
     def test_bfloat16_tensor_roundtrip_and_zeros(self):
         src = torch.tensor([[1.0, -0.5, 3.25], [4.0, 5.5, -6.0]], dtype=torch.bfloat16)
         vulkan = src.to("vulkan")

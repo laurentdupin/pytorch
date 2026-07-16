@@ -694,6 +694,52 @@
         "query_runtime_policy"
       ],
       "consequence": "The public schema, CPU/Vulkan registrations, positional policy encoder, and mechanism-only assertions were deleted. Stronger real-operation behavioral regressions preserve decode routing and capability masking."
+    },
+    {
+      "id": "unused_diagnostic_reset_schemas",
+      "decision": "retire_dead_surface",
+      "status": "deleted",
+      "basis": [
+        "The six individual reset schemas had no production, benchmark, test, Python entry-point, or deployed-artifact caller. Two stale documentation examples were their only non-registration references.",
+        "The supported reset_fallback_counters schema remains widely used and already invokes every underlying reset function in the same process, preserving buffer-copy, clone, pointwise-conv, retire-call-site, submit-origin-phase, and stack-scratch evidence isolation.",
+        "All snapshot and counter query schemas remain live. Only redundant public reset registrations were removed; the underlying C++ reset functions remain available to the aggregate reset path.",
+        "A behavioral regression now verifies the aggregate reset clears every affected query surface without depending on any deleted per-surface reset mechanism."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test",
+        "torch/vulkan"
+      ],
+      "forbidden_code_symbols": [
+        "vulkan_prepack::reset_buffer_copy_aggregate",
+        "vulkan_prepack::reset_clone_requirement_snapshot",
+        "vulkan_prepack::reset_pointwise_conv_route_counters",
+        "vulkan_prepack::reset_retire_call_site_counters",
+        "vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot",
+        "vulkan_prepack::reset_submit_origin_phase_counters"
+      ],
+      "consequence": "Six redundant reset schemas and registrations were deleted. The aggregate reset, underlying reset implementations, evidence queries, benchmark snapshots, and behavioral diagnostics remain unchanged."
+    },
+    {
+      "id": "unused_attention_capability_schema",
+      "decision": "retire_dead_surface",
+      "status": "deleted",
+      "basis": [
+        "attention_subgroup_capabilities had no production, benchmark, test, Python entry-point, documentation, or deployed-artifact caller.",
+        "The internal attention_subgroup_capabilities_snapshot function remains live in vision stack policy and was not changed; capability-profile tests continue to exercise route behavior through real Vulkan operations.",
+        "Generic runtime-policy, attention-plan, device-property, and capability-profile diagnostics remain the supported evidence surfaces."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test",
+        "torch/vulkan"
+      ],
+      "forbidden_code_symbols": [
+        "vulkan_prepack::attention_subgroup_capabilities"
+      ],
+      "consequence": "The zero-caller public capability schema and registration were deleted while the live internal capability decision and behavioral tests remain."
     }
   ],
   "entries": [
@@ -768,7 +814,6 @@
         "environment_variable:PYTORCH_VULKAN_ZERO_PLAN_LOG",
         "operator_schema:vulkan_prepack::accumulate_expert_outputs",
         "operator_schema:vulkan_prepack::attention_plan_counters",
-        "operator_schema:vulkan_prepack::attention_subgroup_capabilities",
         "operator_schema:vulkan_prepack::begin_graph_execution_scope",
         "operator_schema:vulkan_prepack::begin_vulkan_planning_request_scope",
         "operator_schema:vulkan_prepack::buffer_copy_aggregate_snapshot",
@@ -824,9 +869,7 @@
         "operator_schema:vulkan_prepack::pose_encoding_to_extri_intri",
         "operator_schema:vulkan_prepack::region_lifetime_submit_attribution_snapshot",
         "operator_schema:vulkan_prepack::repeat_attention_heads_for_gqa",
-        "operator_schema:vulkan_prepack::reset_buffer_copy_aggregate",
         "operator_schema:vulkan_prepack::reset_buffer_copy_counters",
-        "operator_schema:vulkan_prepack::reset_clone_requirement_snapshot",
         "operator_schema:vulkan_prepack::reset_conv_aggregate",
         "operator_schema:vulkan_prepack::reset_fallback_counters",
         "operator_schema:vulkan_prepack::reset_fallback_phase_counters",
@@ -835,13 +878,10 @@
         "operator_schema:vulkan_prepack::reset_linear_aggregate",
         "operator_schema:vulkan_prepack::reset_linear_pack_residency_snapshot",
         "operator_schema:vulkan_prepack::reset_packed_weight_residency_snapshot",
-        "operator_schema:vulkan_prepack::reset_pointwise_conv_route_counters",
         "operator_schema:vulkan_prepack::reset_region_lifetime_submit_attribution",
-        "operator_schema:vulkan_prepack::reset_retire_call_site_counters",
         "operator_schema:vulkan_prepack::reset_retire_drain_counters",
         "operator_schema:vulkan_prepack::reset_retired_resource_aggregate",
         "operator_schema:vulkan_prepack::reset_submit_origin_counters",
-        "operator_schema:vulkan_prepack::reset_submit_origin_phase_counters",
         "operator_schema:vulkan_prepack::reset_submit_phase",
         "operator_schema:vulkan_prepack::reset_vulkan_memory_residency_snapshot",
         "operator_schema:vulkan_prepack::reset_zero_counters",
@@ -975,7 +1015,6 @@
         "operator_schema:vulkan_prepack::reset_stack_planned_recording_counters",
         "operator_schema:vulkan_prepack::reset_stack_resource_binding_manifest",
         "operator_schema:vulkan_prepack::reset_stack_retire_drain_blocker_counters",
-        "operator_schema:vulkan_prepack::reset_stack_scratch_arena_lifetime_snapshot",
         "operator_schema:vulkan_prepack::reset_stack_shape_plan_counters",
         "operator_schema:vulkan_prepack::reset_stack_subresource_lifetime_dry_run_counters",
         "operator_schema:vulkan_prepack::reset_stack_temp_lifetime_safety_snapshot",
