@@ -813,6 +813,35 @@
         "torch/vulkan"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The const scratch-arena, replay-program, decoder skip, and decoder-head program overloads had declarations and definitions but no production, benchmark, test, or evidence caller.",
+        "Attention-runtime and decoder-head replay-step adapters likewise had no caller; backbone and decoder replay-step adapters remain live in stack execution.",
+        "Mutable program, scratch, slot, and decoder-head accessors remain heavily used by eager and replay execution, and no replay state, command recording, submission, or lifetime behavior changed."
+      ],
+      "consequence": "Zero-caller overloads and step adapters were deleted. The live mutable execution surface plus used backbone/decoder replay steps remain Migration under their existing graph-replacement gates.",
+      "decision": "retire_dead_surface",
+      "forbidden_code_symbols": [
+        "const std::optional<ScratchArena>& scratch_arena() const",
+        "AttentionRuntimeInferenceReplay::phase_step",
+        "const AttentionRuntimeProgram& program() const",
+        "const VisionBackboneProgram& program() const",
+        "const VisionDecoderProgram& program() const",
+        "const std::optional<Tensor>& skip_slot() const",
+        "VisionDecoderHeadInferenceReplay::phase_step",
+        "const VisionDecoderProgram& refinenet4_program() const",
+        "const VisionDecoderProgram& refinenet3_program() const",
+        "const VisionDecoderProgram& refinenet2_program() const",
+        "const VisionDecoderProgram& refinenet1_program() const"
+      ],
+      "id": "unused_planning_wrapper_overloads",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -1088,7 +1117,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 2532,
+          "line": 2485,
           "source": "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp"
         }
       ],

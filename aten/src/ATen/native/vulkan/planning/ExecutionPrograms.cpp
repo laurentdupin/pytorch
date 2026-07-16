@@ -558,12 +558,6 @@ std::optional<ScratchArena>& AttentionRuntimeProgram::scratch_arena() {
   return state_ ? state_->scratch_arena_ : empty;
 }
 
-const std::optional<ScratchArena>& AttentionRuntimeProgram::scratch_arena()
-    const {
-  static const std::optional<ScratchArena> empty;
-  return state_ ? state_->scratch_arena_ : empty;
-}
-
 size_t AttentionRuntimeProgram::resident_nbytes() const {
   if (!state_) {
     return 0u;
@@ -585,12 +579,6 @@ int64_t VisionBackboneProgram::num_heads() const {
 
 std::optional<ScratchArena>& VisionBackboneProgram::scratch_arena() {
   static std::optional<ScratchArena> empty;
-  return state_ ? state_->scratch_arena_ : empty;
-}
-
-const std::optional<ScratchArena>& VisionBackboneProgram::scratch_arena()
-    const {
-  static const std::optional<ScratchArena> empty;
   return state_ ? state_->scratch_arena_ : empty;
 }
 
@@ -657,11 +645,6 @@ bool VisionDecoderProgram::defined() const {
 
 std::optional<ScratchArena>& VisionDecoderProgram::scratch_arena() {
   static std::optional<ScratchArena> empty;
-  return state_ ? state_->scratch_arena_ : empty;
-}
-
-const std::optional<ScratchArena>& VisionDecoderProgram::scratch_arena() const {
-  static const std::optional<ScratchArena> empty;
   return state_ ? state_->scratch_arena_ : empty;
 }
 

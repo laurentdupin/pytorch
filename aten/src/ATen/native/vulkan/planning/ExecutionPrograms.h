@@ -31,7 +31,6 @@ class AttentionRuntimeProgram final {
 
   bool defined() const;
   std::optional<ScratchArena>& scratch_arena();
-  const std::optional<ScratchArena>& scratch_arena() const;
   size_t resident_nbytes() const;
   const void* identity() const;
 };
@@ -51,7 +50,6 @@ class VisionBackboneProgram final {
   bool defined() const;
   int64_t num_heads() const;
   std::optional<ScratchArena>& scratch_arena();
-  const std::optional<ScratchArena>& scratch_arena() const;
   Tensor& norm1_output();
   Tensor& qkv_output();
   Tensor& merge_output();
@@ -78,7 +76,6 @@ class VisionDecoderProgram final {
 
   bool defined() const;
   std::optional<ScratchArena>& scratch_arena();
-  const std::optional<ScratchArena>& scratch_arena() const;
   Tensor& skip_relu_output();
   Tensor& skip_conv1_output();
   Tensor& skip_conv2_output();

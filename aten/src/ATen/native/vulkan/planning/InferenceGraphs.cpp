@@ -1831,15 +1831,6 @@ const InferenceReplay& AttentionRuntimeInferenceReplay::replay() const {
   return graph_replay_.replay();
 }
 
-ExecutionGraphReplayStep AttentionRuntimeInferenceReplay::phase_step(
-    std::function<void()> record_step) const {
-  return make_execution_graph_replay_step(graph_replay_, std::move(record_step));
-}
-
-const AttentionRuntimeProgram& AttentionRuntimeInferenceReplay::program() const {
-  return expect_attention_runtime_program(graph_replay_.program_slots().program(0u));
-}
-
 AttentionRuntimeProgram& AttentionRuntimeInferenceReplay::program() {
   return expect_attention_runtime_program(graph_replay_.program_slots().program(0u));
 }
@@ -1995,10 +1986,6 @@ const InferenceReplay& VisionBackboneInferenceReplay::replay() const {
 ExecutionGraphReplayStep VisionBackboneInferenceReplay::phase_step(
     std::function<void()> record_step) const {
   return make_execution_graph_replay_step(graph_replay_, std::move(record_step));
-}
-
-const VisionBackboneProgram& VisionBackboneInferenceReplay::program() const {
-  return expect_vision_backbone_program(graph_replay_.program_slots().program(0u));
 }
 
 VisionBackboneProgram& VisionBackboneInferenceReplay::program() {
@@ -2248,10 +2235,6 @@ ExecutionGraphReplayStep VisionDecoderInferenceReplay::phase_step(
   return make_execution_graph_replay_step(graph_replay_, std::move(record_step));
 }
 
-const VisionDecoderProgram& VisionDecoderInferenceReplay::program() const {
-  return expect_vision_decoder_program(graph_replay_.program_slots().program(0u));
-}
-
 VisionDecoderProgram& VisionDecoderInferenceReplay::program() {
   return expect_vision_decoder_program(graph_replay_.program_slots().program(0u));
 }
@@ -2262,11 +2245,6 @@ Tensor& VisionDecoderInferenceReplay::input_slot() {
 
 std::optional<Tensor>& VisionDecoderInferenceReplay::skip_slot() {
   return graph_replay_.tensor_slots().optional_tensor(0u);
-}
-
-const std::optional<Tensor>& VisionDecoderInferenceReplay::skip_slot() const {
-  static const std::optional<Tensor> empty;
-  return defined() ? graph_replay_.tensor_slots().optional_tensor(0u) : empty;
 }
 
 Tensor& VisionDecoderInferenceReplay::output_slot() {
@@ -2289,11 +2267,6 @@ const InferenceReplay& VisionDecoderHeadInferenceReplay::replay() const {
   return graph_replay_.replay();
 }
 
-ExecutionGraphReplayStep VisionDecoderHeadInferenceReplay::phase_step(
-    std::function<void()> record_step) const {
-  return make_execution_graph_replay_step(graph_replay_, std::move(record_step));
-}
-
 Tensor& VisionDecoderHeadInferenceReplay::layer1_slot() {
   return graph_replay_.tensor_slots().tensor(0u);
 }
@@ -2310,36 +2283,16 @@ Tensor& VisionDecoderHeadInferenceReplay::layer4_slot() {
   return graph_replay_.tensor_slots().tensor(3u);
 }
 
-const VisionDecoderProgram&
-VisionDecoderHeadInferenceReplay::refinenet4_program() const {
-  return expect_vision_decoder_program(graph_replay_.program_slots().program(0u));
-}
-
 VisionDecoderProgram& VisionDecoderHeadInferenceReplay::refinenet4_program() {
   return expect_vision_decoder_program(graph_replay_.program_slots().program(0u));
-}
-
-const VisionDecoderProgram&
-VisionDecoderHeadInferenceReplay::refinenet3_program() const {
-  return expect_vision_decoder_program(graph_replay_.program_slots().program(1u));
 }
 
 VisionDecoderProgram& VisionDecoderHeadInferenceReplay::refinenet3_program() {
   return expect_vision_decoder_program(graph_replay_.program_slots().program(1u));
 }
 
-const VisionDecoderProgram&
-VisionDecoderHeadInferenceReplay::refinenet2_program() const {
-  return expect_vision_decoder_program(graph_replay_.program_slots().program(2u));
-}
-
 VisionDecoderProgram& VisionDecoderHeadInferenceReplay::refinenet2_program() {
   return expect_vision_decoder_program(graph_replay_.program_slots().program(2u));
-}
-
-const VisionDecoderProgram&
-VisionDecoderHeadInferenceReplay::refinenet1_program() const {
-  return expect_vision_decoder_program(graph_replay_.program_slots().program(3u));
 }
 
 VisionDecoderProgram& VisionDecoderHeadInferenceReplay::refinenet1_program() {

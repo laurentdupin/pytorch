@@ -333,8 +333,6 @@ class AttentionRuntimeInferenceReplay final {
   bool defined() const;
   bool recorded() const;
   const InferenceReplay& replay() const;
-  ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
-  const AttentionRuntimeProgram& program() const;
   AttentionRuntimeProgram& program();
   Tensor& query_slot();
   Tensor& key_slot();
@@ -397,7 +395,6 @@ class VisionBackboneInferenceReplay final {
   bool recorded() const;
   const InferenceReplay& replay() const;
   ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
-  const VisionBackboneProgram& program() const;
   VisionBackboneProgram& program();
   Tensor& input_slot();
   Tensor& output_slot();
@@ -467,11 +464,9 @@ class VisionDecoderInferenceReplay final {
   bool recorded() const;
   const InferenceReplay& replay() const;
   ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
-  const VisionDecoderProgram& program() const;
   VisionDecoderProgram& program();
   Tensor& input_slot();
   std::optional<Tensor>& skip_slot();
-  const std::optional<Tensor>& skip_slot() const;
   Tensor& output_slot();
   const void* identity() const;
 };
@@ -488,18 +483,13 @@ class VisionDecoderHeadInferenceReplay final {
   bool defined() const;
   bool recorded() const;
   const InferenceReplay& replay() const;
-  ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
   Tensor& layer1_slot();
   Tensor& layer2_slot();
   Tensor& layer3_slot();
   Tensor& layer4_slot();
-  const VisionDecoderProgram& refinenet4_program() const;
   VisionDecoderProgram& refinenet4_program();
-  const VisionDecoderProgram& refinenet3_program() const;
   VisionDecoderProgram& refinenet3_program();
-  const VisionDecoderProgram& refinenet2_program() const;
   VisionDecoderProgram& refinenet2_program();
-  const VisionDecoderProgram& refinenet1_program() const;
   VisionDecoderProgram& refinenet1_program();
   Tensor& output_slot();
   const void* identity() const;
