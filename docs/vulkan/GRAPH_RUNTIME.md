@@ -195,10 +195,13 @@ unowned flush, sync, fenced recording, or cross-thread use. Frequency and
 large-linear maintenance boundaries request owner-serviced checkpoints, which
 run only after the current instruction and its last-use releases. Each
 partition retains its real stream timeline token, and the plan records the
-final token with one invocation generation. Large-linear maintenance waits for
-the exact partition token before releasing its captured cache batches;
-frequency-only checkpoints remain asynchronous. Command-free metadata plans
-complete with no fabricated token. Direct-buffer `aten::lift_fresh_copy` and
+final token with one invocation generation. Plain eager execution retains the
+16-job submit cadence, while a graph invocation requests a frequency checkpoint
+after 24 recorded jobs. Large-linear maintenance waits for the exact partition
+token before releasing its captured cache batches; frequency-only checkpoints
+remain asynchronous, and returning a graph output does not imply that the final
+token has already completed. Command-free metadata plans complete with no
+fabricated token. Direct-buffer `aten::lift_fresh_copy` and
 `VulkanGraphRegionPlan` instructions execute inside this ownership path.
 Linear regions record into the current partition. Bounded conv regions submit
 an outer-owner checkpoint at region exit and associate their private scratch

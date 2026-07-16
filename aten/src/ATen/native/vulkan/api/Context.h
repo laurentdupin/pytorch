@@ -43,6 +43,7 @@ void dump_cpu_timeline_summary_log();
 
 struct ContextConfig final {
   uint32_t cmdSubmitFrequency;
+  uint32_t graphProgramCheckpointFrequency;
   CommandPoolConfig cmdPoolConfig;
   DescriptorPoolConfig descriptorPoolConfig;
   QueryPoolConfig queryPoolConfig;
@@ -1313,8 +1314,9 @@ inline bool Context::submit_copy(
             : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
   } else if (
-      graph_program_invocation && config_.cmdSubmitFrequency > 0u &&
-      submit_count_ >= config_.cmdSubmitFrequency) {
+      graph_program_invocation &&
+      config_.graphProgramCheckpointFrequency > 0u &&
+      submit_count_ >= config_.graphProgramCheckpointFrequency) {
     request_graph_program_checkpoint({});
   } else if (
       stack_planned_recording &&
@@ -1529,8 +1531,9 @@ inline bool Context::submit_compute_job(
             : VulkanSubmitOrigin::NormalCmdSubmitFrequency);
     submitted = true;
   } else if (
-      graph_program_invocation && config_.cmdSubmitFrequency > 0u &&
-      submit_count_ >= config_.cmdSubmitFrequency) {
+      graph_program_invocation &&
+      config_.graphProgramCheckpointFrequency > 0u &&
+      submit_count_ >= config_.graphProgramCheckpointFrequency) {
     request_graph_program_checkpoint({});
   }
 
