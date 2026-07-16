@@ -561,6 +561,13 @@ work should reduce these per-inference graph costs while preserving the proven
 32-job boundaries; exact-op kernel tuning is secondary until attribution shows
 GPU work is dominant.
 
+Exact-SHA `46ece5d7dc9` removes 48 statically proven inference-dropout identities
+from DAv2 before plan construction, reducing the plan from 404 to 356
+instructions without changing submissions or memory. Continue this graph-level
+fixed-cost direction only for semantic identities proven from exported
+arguments; the Phase 6 target remains recorded partitions over program-owned
+Vulkan resources rather than an accumulating list of operator exceptions.
+
 Exit criteria:
 
 - the C++ executor matches the Python correctness executor;

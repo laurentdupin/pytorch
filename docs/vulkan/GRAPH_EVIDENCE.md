@@ -220,6 +220,19 @@ that this establishes structural fixed-cost ownership and no regression, not a
 separate latency win. Raw files are under
 `agent_space/graph_executor_workspace_exact_8b60bf3ba4a2/dav2/`.
 
+Exact-SHA `46ece5d7dc9` adds a reported static-inference identity pass before
+tensor placement. It removes `aten::dropout` only for valid static probability
+and either disabled training or zero probability; unit regressions preserve
+training dropout and invalid-probability validation. DAv2 lowers all 48
+candidates, reducing the immutable plan from 404 instructions/425 values to
+356/377. Both shapes retain exact graph/eager parity, zero fallback/readback,
+10 pending submissions per inference, and first/repeat high-water from 0.9% to
+3.2% above eager. Canonical graph medians are 44.73/50.12 ms versus eager at
+138.50/142.87 ms; their averaged normalized ratio is effectively unchanged from
+the previous exact artifact. This proves fixed control-plane removal and no
+regression rather than a separate speedup. Checked and raw files come from
+`agent_space/graph_static_inference_identity_exact_46ece5d7dc93/dav2_checked/`.
+
 A worktree 64-job cadence on the same implementation cuts DAv2 to five pending
 submissions per inference but fails the deletion gate: normal first/repeat peak
 memory is 5.6%/6.1% above eager and alternate is 8.5%/9.9% above eager. Its

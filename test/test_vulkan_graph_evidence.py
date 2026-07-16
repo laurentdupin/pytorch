@@ -915,17 +915,34 @@ class TestVulkanGraphEvidence(TestCase):
         paddle_census = load("paddleocr_recognition_export_census.json")
         paddle_parity = load("paddleocr_recognition_export_parity.json")
         payloads = (dav2_census, dav2_parity, paddle_census, paddle_parity)
-        source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
-            source_shas,
+            {
+                payload["source_git_sha"]
+                for payload in (dav2_census, dav2_parity)
+            },
+            {"46ece5d7dc93a558837102d40fe5a7e20380397d"},
+        )
+        self.assertEqual(
+            {
+                payload["source_git_sha"]
+                for payload in (paddle_census, paddle_parity)
+            },
             {"4b688faac338f3784a1286a327292735a3b334b0"},
         )
-        torch_cpu_shas = {
-            payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
-            for payload in payloads
-        }
         self.assertEqual(
-            torch_cpu_shas,
+            {
+                payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
+                for payload in (dav2_census, dav2_parity)
+            },
+            {
+                "a1829062fbba8a8b6082d435344c231863246221ac8242ee0472ab5700a304f1"
+            },
+        )
+        self.assertEqual(
+            {
+                payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
+                for payload in (paddle_census, paddle_parity)
+            },
             {
                 "537802036062d3277a4d74ad7a27f28a76a16f7f4a4022c1ff1e132052989a9f"
             },
@@ -952,7 +969,19 @@ class TestVulkanGraphEvidence(TestCase):
                     payload["execution_plan"]["value_count"],
                     payload["execution_plan"]["output_count"],
                 ),
-                (404, 2, 8, 20, 53, 425, 1),
+                (356, 2, 8, 20, 53, 377, 1),
+            )
+            self.assertEqual(
+                payload["execution_plan"]["invocation_value_slot_count"],
+                377,
+            )
+            self.assertEqual(
+                payload["execution_plan"]["invocation_list_slot_count"],
+                33,
+            )
+            self.assertEqual(
+                payload["execution_plan"]["invocation_stack_capacity"],
+                8,
             )
             self.assertTrue(payload["execution_plan"]["submission_owned"])
             self.assertEqual(
@@ -984,6 +1013,14 @@ class TestVulkanGraphEvidence(TestCase):
                     payload["fresh_relu_functionalization"]["rejected_count"],
                 ),
                 (2, 2, 0),
+            )
+            self.assertEqual(
+                (
+                    payload["static_inference_identities"]["candidate_count"],
+                    payload["static_inference_identities"]["lowered_count"],
+                    payload["static_inference_identities"]["skipped_count"],
+                ),
+                (48, 48, 0),
             )
         for payload in (paddle_census, paddle_parity):
             self.assertEqual(

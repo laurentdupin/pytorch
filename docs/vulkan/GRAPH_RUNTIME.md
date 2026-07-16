@@ -316,6 +316,15 @@ and 24 total submits remain visible across each two-run shape. This is structura
 fixed-cost removal without a separate latency claim and does not change the
 remaining Vulkan resource-arena or recorded-partition work.
 
+The graph preparation path now also removes static inference identities before
+placement and C++ plan construction. `aten::dropout` is replaced by its source
+only when probability and training are static, probability is valid, and either
+training is disabled or probability is zero. The report records every lowered
+or skipped candidate and participates in the program key. Exact-SHA
+`46ece5d7dc9` removes 48 DAv2 instructions and value slots while preserving the
+same submissions, memory phases, and numerical results. This avoids fixed boxed
+dispatch; it does not replace resource-slot or recorded-command ownership.
+
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and

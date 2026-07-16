@@ -629,6 +629,16 @@ The initial catalog records the current `vits_140` performance lane:
   3.2% above eager. Thirty-sample graph medians are 44.21/42.09 ms against eager
   at 133.32/122.63 ms. Run-to-run host-load movement prevents an isolated speedup
   claim, so acceptance is structural fixed-cost removal and no regression;
+- static inference identity lowering: accepted at exact-SHA `46ece5d7dc9`.
+  Valid static `aten::dropout` is replaced by its source only when training is
+  disabled or probability is zero; training semantics and invalid-probability
+  validation remain fail-closed. DAv2 lowers 48/48 candidates and reduces its
+  plan from 404 instructions/425 values to 356/377. It retains 10 submissions
+  per inference, exact graph/eager parity, and 0.9% to 3.2% graph high-water
+  overhead. Canonical graph medians are 44.73/50.12 ms against eager at
+  138.50/142.87 ms. The average normalized ratio is effectively unchanged from
+  `8b60bf3ba4a`, so acceptance is fixed control-plane removal and no regression,
+  not an isolated speedup;
 - post-reuse 64-job graph cadence: rejected. DAv2 fell to five submissions per
   inference, but normal peak memory reached 5.6% to 6.1% above eager and the
   alternate shape reached 8.5% to 9.9%. Graph medians also worsened to

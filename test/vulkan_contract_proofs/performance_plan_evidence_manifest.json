@@ -3532,6 +3532,79 @@
         "If concurrent invocation is admitted, give each in-flight generation a separate workspace and resource-lifetime protocol.",
         "When program-owned Vulkan tensor-resource slots or recorded partitions land, rerun both supported shapes against this exact artifact and the 32-job topology."
       ]
+    },
+    {
+      "id": "dav2_graph_static_inference_identity_2026_07_16",
+      "status": "accepted_default_fix",
+      "head": "46ece5d7dc9",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Remove exported inference identities before placement and immutable plan construction so operators with no semantic or GPU work do not retain fixed per-inference boxed-dispatch cost."
+      },
+      "device_notes": "RX 9070 supported-default eager/graph evidence. Admission is derived from static operator semantics and does not name DAv2 or an input shape in production code.",
+      "contract_or_topology_scope": [
+        "VulkanGraphProgram static inference identity lowering",
+        "aten::dropout static identity semantics",
+        "VulkanGraphPlan.v8 boxed instruction count",
+        "32-job graph checkpoint cadence",
+        "checked supported-default DAv2 deletion baseline"
+      ],
+      "candidate": "Replace valid static `aten::dropout` with its source when training is disabled or probability is zero, before tensor placement, census, and C++ plan construction. Preserve every dynamic, training-enabled nonzero, or invalid-probability node.",
+      "correctness": {
+        "status": "passed_full_graph_and_exact_model_evidence",
+        "tests": [
+          "python test/test_vulkan_graph.py (123 passed)",
+          "python test/test_vulkan_graph_evidence.py (17 passed)",
+          "focused disabled-training, zero-probability, training-enabled, and invalid-probability regressions",
+          "DAv2 normal and alternate exact graph-versus-eager parity with zero timed CPU fallback and sync readback",
+          "checked evidence schema, memory, latency, source-SHA, and loaded-DLL gates"
+        ]
+      },
+      "counters": {
+        "static_inference_identity_candidate_count": 48,
+        "static_inference_identity_lowered_count": 48,
+        "static_inference_identity_skipped_count": 0,
+        "instruction_count_before": 404,
+        "instruction_count_after": 356,
+        "value_slot_count_before": 425,
+        "value_slot_count_after": 377,
+        "pending_command_flush_per_inference": 10,
+        "total_queue_submits_per_inference": 12,
+        "normal_graph_first_high_water_over_eager_percent": 0.897,
+        "normal_graph_repeat_live_high_water_over_eager_percent": 1.895,
+        "alternate_graph_first_high_water_over_eager_percent": 1.514,
+        "alternate_graph_repeat_live_high_water_over_eager_percent": 3.163,
+        "cpu_fallback": 0,
+        "sync_readback": 0
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 138.505,
+        "normal_graph_median": 44.733,
+        "normal_graph_over_eager_ratio": 0.322968,
+        "alternate_supported_eager_median": 142.871,
+        "alternate_graph_median": 50.122,
+        "alternate_graph_over_eager_ratio": 0.350822,
+        "measurement_repeats": 30,
+        "performance_claim": "fixed control-plane removal and latency no-regression only; the averaged normalized ratio is effectively unchanged from the prior exact artifact"
+      },
+      "artifacts": [
+        "test/vulkan_graph/evidence/dav2_vits_export_census.json",
+        "test/vulkan_graph/evidence/dav2_vits_export_parity.json",
+        "agent_space/graph_static_inference_identity_exact_46ece5d7dc93/dav2_checked/dav2_vits_export_census.json",
+        "agent_space/graph_static_inference_identity_exact_46ece5d7dc93/dav2_checked/dav2_vits_export_parity.json"
+      ],
+      "decision": "Accept static inference identity lowering as the supported graph preparation path. Continue eliminating only semantics-proven graph identities; do not turn the pass into an operator allowlist or infer a shader bottleneck. Recorded partitions and program-owned Vulkan resources remain the next material fixed-cost target.",
+      "revisit_conditions": [
+        "If another operator is proposed as an inference identity, require static semantic proof, preserved validation behavior, and focused alias tests before adding it.",
+        "If export begins canonicalizing dropout away upstream, retain the report schema with zero candidates and remove duplicate local rewriting only after checked corpus evidence confirms it.",
+        "When recorded command partitions land, compare their instruction and submission evidence against this 356-instruction supported baseline."
+      ]
     }
   ]
 }

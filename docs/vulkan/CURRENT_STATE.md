@@ -114,6 +114,18 @@ this is fixed-cost ownership and latency no-regression evidence, not an
 isolated speedup claim. Raw files are under
 `agent_space/graph_executor_workspace_exact_8b60bf3ba4a2/dav2/`.
 
+Exact-SHA `46ece5d7dc9` removes statically proven identity `aten::dropout` before
+tensor placement and plan construction. Valid static probability plus either
+disabled training or zero probability is required; training dropout and invalid
+probabilities remain untouched. DAv2 elides all 48 candidates and reduces the
+immutable plan from 404 instructions/425 values to 356/377. Exact parity, 10
+submissions per inference, and the 0.9% to 3.2% graph high-water envelope remain
+unchanged. Canonical 30-sample graph medians are 44.73/50.12 ms against eager at
+138.50/142.87 ms. The averaged normalized ratio is unchanged from the prior
+exact run, so this is accepted fixed control-plane removal, not a separately
+measurable speedup. The checked DAv2 manifests are refreshed from
+`agent_space/graph_static_inference_identity_exact_46ece5d7dc93/dav2_checked/`.
+
 A 64-job cadence was re-probed after dead-ReLU reuse and rejected again. It cut
 DAv2 to five submissions per inference, but graph peak memory rose to
 5.6%-6.1% above eager for the normal shape and 8.5%-9.9% for the alternate
