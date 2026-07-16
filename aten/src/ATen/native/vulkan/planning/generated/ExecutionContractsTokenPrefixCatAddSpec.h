@@ -304,18 +304,6 @@ constexpr TokenPrefixCatAddTokenRowsRow kTokenPrefixCatAddTokenRowsRows[] = {
     }
 };
 
-inline bool token_prefix_cat_add_token_rows_row_matches(
-    const TokenPrefixCatAddTokenRowsRow& row,
-    const char* family,
-    const std::int64_t tokens,
-    const std::int64_t feature_dim,
-    const std::int64_t total_tokens) {
-  return std::string_view(row.family) == family &&
-      row.tokens == tokens &&
-      row.feature_dim == feature_dim &&
-      row.total_tokens == total_tokens;
-}
-
 inline const TokenPrefixCatAddTokenRowsRow* token_prefix_cat_add_token_rows_find(
     const char* family,
     const std::int64_t tokens,

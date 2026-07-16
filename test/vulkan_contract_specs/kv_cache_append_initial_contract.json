@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "kv_cache_append_initial_cache_options_match",
+    "kv_cache_append_initial_cache_in_bounds"
+  ],
   "contract_name": "KVCacheAppendContract",
   "family": "InitialCache",
   "tuple_id": "initial_empty_s14_to_s116_heads4_dim128",

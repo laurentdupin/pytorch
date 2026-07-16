@@ -336,18 +336,6 @@ constexpr PatchEmbedFloatBufferConvRouteInputRowsRow kPatchEmbedFloatBufferConvR
     }
 };
 
-inline bool patch_embed_float_buffer_conv_route_input_rows_row_matches(
-    const PatchEmbedFloatBufferConvRouteInputRowsRow& row,
-    const char* family,
-    const std::int64_t out_channels,
-    const std::int64_t input_h,
-    const std::int64_t input_w) {
-  return std::string_view(row.family) == family &&
-      row.out_channels == out_channels &&
-      row.input_h == input_h &&
-      row.input_w == input_w;
-}
-
 inline const PatchEmbedFloatBufferConvRouteInputRowsRow* patch_embed_float_buffer_conv_route_input_rows_find(
     const char* family,
     const std::int64_t out_channels,

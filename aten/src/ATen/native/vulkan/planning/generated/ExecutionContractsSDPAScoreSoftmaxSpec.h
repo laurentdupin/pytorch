@@ -120,11 +120,6 @@ constexpr bool sdpa_score_softmax_diffusion_square_scores_options_match(
       requires_buffer_storage == spec.requires_buffer_storage;
 }
 
-constexpr bool sdpa_score_softmax_diffusion_square_scores_in_bounds(
-    const SDPAScoreSoftmaxDiffusionSquareScoresSpec&) {
-  return true;
-}
-
 } // namespace generated
 } // namespace utils
 } // namespace ops

@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_options_match",
+    "gqa_repeat_batch_1_heads_4_factor_4_sequence_100_to_116_dim_128_in_bounds"
+  ],
   "contract_name": "GQARepeatContract",
   "family": "Batch1Heads4Factor4Sequence100To116Dim128",
   "tuple_id": "gqa_repeat_batch1_heads4_factor4_sequence100_to_116_dim128",

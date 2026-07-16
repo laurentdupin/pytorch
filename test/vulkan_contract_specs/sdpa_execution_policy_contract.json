@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "sdpa_execution_policy_policy_rows_row_matches"
+  ],
   "contract_name": "SDPAExecutionPolicyContract",
   "family": "SparsePolicyRows",
   "tuple_id": "sdpa_execution_policy_sparse_policy_rows",

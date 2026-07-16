@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "diffusion_sdpa_attention_rows_row_matches"
+  ],
   "contract_name": "DiffusionSDPAContract",
   "family": "SparseAttentionRows",
   "tuple_id": "diffusion_sdpa_sparse_attention_rows",

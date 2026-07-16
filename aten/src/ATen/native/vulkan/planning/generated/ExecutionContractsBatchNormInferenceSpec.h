@@ -121,12 +121,6 @@ constexpr bool batch_norm_inference_buffer_float_4_d_options_match(
       requires_buffer_compute == spec.requires_buffer_compute;
 }
 
-constexpr bool batch_norm_inference_buffer_float_4_d_in_bounds(
-    const BatchNormInferenceBufferFloat4DSpec& spec,
-    const std::int64_t input_channels) {
-  return input_channels >= spec.min_input_channels;
-}
-
 } // namespace generated
 } // namespace utils
 } // namespace ops

@@ -8,7 +8,6 @@
         "AttentionProbabilityMaterializationDecomposedAttentionProbabilityToValueBmmSpec",
         "AttentionProbabilityMaterializationProbabilityRowsRow",
         "kAttentionProbabilityMaterializationProbabilityRowsRowCount",
-        "attention_probability_materialization_probability_rows_row_matches",
         "attention_probability_materialization_probability_rows_find"
       ]
     },
@@ -20,7 +19,6 @@
         "kBatchNormInferenceBufferFloat4DContractName",
         "kBatchNormInferenceBufferFloat4DMinInputChannels",
         "batch_norm_inference_buffer_float_4_d_options_match",
-        "batch_norm_inference_buffer_float_4_d_in_bounds",
         "batch_norm_inference_buffer_float_4_d_feature_count_equal"
       ]
     },
@@ -32,7 +30,6 @@
         "kBatchNormInferenceMaterializedBufferFloat4DContractName",
         "kBatchNormInferenceMaterializedBufferFloat4DRequiresMaterialization",
         "batch_norm_inference_materialized_buffer_float_4_d_options_match",
-        "batch_norm_inference_materialized_buffer_float_4_d_in_bounds",
         "batch_norm_inference_materialized_buffer_float_4_d_feature_count_equal"
       ]
     },
@@ -56,8 +53,7 @@
         "DiffusionSDPASparseAttentionRowsSpec",
         "DiffusionSDPAAttentionRowsRow",
         "kDiffusionSDPAAttentionRowsRowCount",
-        "diffusion_sdpa_attention_rows_row_matches",
-        "diffusion_sdpa_attention_rows_find"
+        "diffusion_sdpa_attention_rows_row_matches"
       ]
     },
     {
@@ -67,8 +63,7 @@
         "SDPAExecutionPolicySparsePolicyRowsSpec",
         "SDPAExecutionPolicyPolicyRowsRow",
         "kSDPAExecutionPolicyPolicyRowsRowCount",
-        "sdpa_execution_policy_policy_rows_row_matches",
-        "sdpa_execution_policy_policy_rows_find"
+        "sdpa_execution_policy_policy_rows_row_matches"
       ]
     },
     {
@@ -89,7 +84,6 @@
         "TokenPrefixCatAddPrefix1TokenCountSetFeatureSetAddSpec",
         "TokenPrefixCatAddTokenRowsRow",
         "kTokenPrefixCatAddTokenRowsRowCount",
-        "token_prefix_cat_add_token_rows_row_matches",
         "token_prefix_cat_add_token_rows_find"
       ]
     },
@@ -169,9 +163,7 @@
       "markers": [
         "LinearGeluBridgeBackboneMlpHidden384To1536Spec",
         "kLinearGeluBridgeBackboneMlpHidden384To1536ContractName",
-        "kLinearGeluBridgeBackboneMlpHidden384To1536MinFlattenedRows",
-        "linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_options_match",
-        "linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_in_bounds"
+        "kLinearGeluBridgeBackboneMlpHidden384To1536MinFlattenedRows"
       ]
     },
     {
@@ -181,8 +173,7 @@
         "MaskedTinySDPAAdditiveFloatMaskSpec",
         "kMaskedTinySDPAAdditiveFloatMaskContractName",
         "kMaskedTinySDPAAdditiveFloatMaskQuerySequence",
-        "masked_tiny_sdpa_additive_float_mask_options_match",
-        "masked_tiny_sdpa_additive_float_mask_in_bounds"
+        "masked_tiny_sdpa_additive_float_mask_options_match"
       ]
     },
     {
@@ -204,7 +195,6 @@
         "PatchEmbedFloatBufferConvRouteObservedPatchEmbedKernel14Stride14Spec",
         "PatchEmbedFloatBufferConvRouteInputRowsRow",
         "kPatchEmbedFloatBufferConvRouteInputRowsRowCount",
-        "patch_embed_float_buffer_conv_route_input_rows_row_matches",
         "patch_embed_float_buffer_conv_route_input_rows_find"
       ]
     },
@@ -215,7 +205,6 @@
         "PatchEmbedFeatureMapToTokensKernel14Stride14ObservedFeatureMapSpec",
         "PatchEmbedFeatureMapToTokensFeatureMapRowsRow",
         "kPatchEmbedFeatureMapToTokensFeatureMapRowsRowCount",
-        "patch_embed_feature_map_to_tokens_feature_map_rows_row_matches",
         "patch_embed_feature_map_to_tokens_feature_map_rows_find"
       ]
     },
@@ -279,10 +268,7 @@
       "markers": [
         "SmallMetadataPaddedConv2DMaterializedBufferInput2x2Spec",
         "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2ContractName",
-        "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2InputHeight",
-        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_input_weight_channels_equal",
-        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match",
-        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds"
+        "kSmallMetadataPaddedConv2DMaterializedBufferInput2x2InputHeight"
       ]
     }
   ]

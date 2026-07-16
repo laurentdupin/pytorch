@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [],
   "contract_name": "SmallMetadataPaddedConv2DContract",
   "family": "MaterializedBufferInput2x2",
   "tuple_id": "input_1x16x721x1281_weight_32x16x2x2_stride1",

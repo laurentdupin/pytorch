@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "transformer_gqasdpa_attention_rows_row_matches",
+    "transformer_gqasdpa_attention_rows_find"
+  ],
   "contract_name": "TransformerGQASDPAContract",
   "family": "SparseAttentionRows",
   "tuple_id": "transformer_gqa_sdpa_sparse_attention_rows",

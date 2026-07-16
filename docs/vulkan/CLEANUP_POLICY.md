@@ -69,6 +69,12 @@ decisions, and a compatibility count that contradicts the deployment audit.
 Retired paths and dedicated symbols belong in generated scope decisions, not in
 separate hand-maintained repository scans.
 
+Generated contract headers have the same reachability rule. Every ShapeEnvelope
+spec declares its production `generated_cpp_entry_points`; the generator emits
+only those functions and their helper dependencies. Manifest validation rejects
+an entry point without a production Vulkan C++ caller, so schema-driven output
+cannot preserve an unused helper merely because it is generated.
+
 ## Deletion Evidence
 
 Deletion comparisons use supported defaults only:

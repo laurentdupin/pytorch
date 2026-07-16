@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_input_weight_channels_equal",
+    "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_options_match",
+    "no_overlap_conv_transpose_2_d_kernel_2_stride_2_float_buffer_in_bounds"
+  ],
   "contract_name": "NoOverlapConvTranspose2DContract",
   "family": "Kernel2Stride2FloatBuffer",
   "tuple_id": "batch1_cin_ge64_kernel2_stride2_float_buffer",

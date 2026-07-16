@@ -99,55 +99,6 @@ constexpr LinearGeluBridgeBackboneMlpHidden384To1536Spec
         kLinearGeluBridgeBackboneMlpHidden384To1536MayConsumeGeluNone,
         kLinearGeluBridgeBackboneMlpHidden384To1536MayConsumeGeluTanh};
 
-constexpr bool linear_gelu_bridge_input_rank_in_bounds(
-    const LinearGeluBridgeBackboneMlpHidden384To1536Spec& spec,
-    const std::int64_t input_rank) {
-  return input_rank == spec.input_rank_1 ||
-      input_rank == spec.input_rank_2;
-}
-
-constexpr bool linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_options_match(
-    const LinearGeluBridgeBackboneMlpHidden384To1536Spec& spec,
-    const std::int64_t flattened_rank,
-    const std::int64_t flattened_features,
-    const std::int64_t weight_height,
-    const std::int64_t weight_width,
-    const std::int64_t rank3_batch,
-    const std::int64_t input_rank,
-    const bool bias_defined,
-    const bool can_run_float_buffer_linear,
-    const bool inference_mode_enabled,
-    const bool has_output,
-    const bool post_op_is_none,
-    const bool alpha_is_one,
-    const bool beta_is_one,
-    const bool may_defer,
-    const bool may_consume_gelu_none,
-    const bool may_consume_gelu_tanh) {
-  return flattened_rank == spec.flattened_rank &&
-      flattened_features == spec.flattened_features &&
-      weight_height == spec.weight_height &&
-      weight_width == spec.weight_width &&
-      rank3_batch == spec.rank3_batch &&
-      linear_gelu_bridge_input_rank_in_bounds(spec, input_rank) &&
-      bias_defined == spec.bias_defined &&
-      can_run_float_buffer_linear == spec.can_run_float_buffer_linear &&
-      inference_mode_enabled == spec.inference_mode_enabled &&
-      has_output == spec.has_output &&
-      post_op_is_none == spec.post_op_is_none &&
-      alpha_is_one == spec.alpha_is_one &&
-      beta_is_one == spec.beta_is_one &&
-      may_defer == spec.may_defer &&
-      may_consume_gelu_none == spec.may_consume_gelu_none &&
-      may_consume_gelu_tanh == spec.may_consume_gelu_tanh;
-}
-
-constexpr bool linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_in_bounds(
-    const LinearGeluBridgeBackboneMlpHidden384To1536Spec& spec,
-    const std::int64_t flattened_rows) {
-  return flattened_rows >= spec.min_flattened_rows;
-}
-
 } // namespace generated
 } // namespace utils
 } // namespace ops

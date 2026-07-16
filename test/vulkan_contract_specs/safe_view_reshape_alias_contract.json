@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "safe_reshape_alias_dense_buffer_direct_input_rank_in_bounds",
+    "safe_reshape_alias_dense_buffer_direct_output_rank_in_bounds",
+    "safe_reshape_alias_dense_buffer_direct_storage_offset_matches",
+    "safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_matches",
+    "safe_reshape_alias_dense_buffer_direct_product_equal"
+  ],
   "contract_name": "SafeViewReshapeContract",
   "family": "ReshapeAliasDenseBufferDirect",
   "tuple_id": "materialized_direct_buffer_reshape",

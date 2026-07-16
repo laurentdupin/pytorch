@@ -228,36 +228,6 @@ inline bool sdpa_execution_policy_policy_rows_row_matches(
       row.enable_gqa == enable_gqa;
 }
 
-inline const SDPAExecutionPolicyPolicyRowsRow* sdpa_execution_policy_policy_rows_find(
-    const char* family,
-    const std::int64_t batch_min,
-    const std::int64_t batch_max,
-    const std::int64_t query_heads,
-    const std::int64_t key_value_heads,
-    const std::int64_t query_sequence_min,
-    const std::int64_t query_sequence_max,
-    const std::int64_t key_value_sequence_min,
-    const std::int64_t key_value_sequence_max,
-    const std::int64_t head_dim,
-    const bool enable_gqa) {
-  for (const SDPAExecutionPolicyPolicyRowsRow& row : kSDPAExecutionPolicyPolicyRowsRows) {
-    if (std::string_view(row.family) == family &&
-        row.batch_min == batch_min &&
-        row.batch_max == batch_max &&
-        row.query_heads == query_heads &&
-        row.key_value_heads == key_value_heads &&
-        row.query_sequence_min == query_sequence_min &&
-        row.query_sequence_max == query_sequence_max &&
-        row.key_value_sequence_min == key_value_sequence_min &&
-        row.key_value_sequence_max == key_value_sequence_max &&
-        row.head_dim == head_dim &&
-        row.enable_gqa == enable_gqa) {
-      return &row;
-    }
-  }
-  return nullptr;
-}
-
 } // namespace generated
 } // namespace utils
 } // namespace ops

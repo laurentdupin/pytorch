@@ -11,6 +11,11 @@ GENERATED_CPP_MANIFEST_FILE = "generated_cpp_manifest.json"
 TEMPORARY_EXCEPTIONS_FILE = os.path.join("docs", "vulkan", "TEMPORARY_EXCEPTIONS.md")
 GENERIC_EXACT_TUPLE_EXCEPTION = "Exact Tuple Rows In Contract Tables"
 CONTRACT_NAME_LITERAL_RE = re.compile(r"\"([A-Za-z0-9]+Contract)\"")
+GENERATED_CPP_FUNCTION_RE = re.compile(
+    r"^[ \t]*(?:constexpr|inline)\s+(?:[^\n(]*?\s+)?"
+    r"([a-z][a-z0-9_]*)\s*\(",
+    re.MULTILINE,
+)
 
 ADMISSION_DIAGNOSTICS_PAYLOAD_FIELDS = (
     "event",
@@ -7011,6 +7016,24 @@ def validate_contract_spec(file_name, spec):
         _validate_contract_metadata(spec["metadata"], f"{context} metadata")
     if "transition_contract" in spec:
         _validate_transition_contract_spec(spec["transition_contract"], context)
+    if "shape_envelope" in spec:
+        entry_points = spec.get("generated_cpp_entry_points")
+        _require_list(
+            entry_points,
+            f"{context} generated_cpp_entry_points",
+            allow_empty=True,
+        )
+        for index, entry_point in enumerate(entry_points):
+            if not isinstance(entry_point, str) or re.fullmatch(
+                r"[a-z][a-z0-9_]*", entry_point
+            ) is None:
+                raise AssertionError(
+                    f"{context} generated_cpp_entry_points[{index}] invalid"
+                )
+        if len(entry_points) != len(set(entry_points)):
+            raise AssertionError(
+                f"{context} generated_cpp_entry_points must be unique"
+            )
 
     case_names = []
     for section in ("positive_cases", "negative_cases"):
@@ -7184,6 +7207,22 @@ def validate_generated_cpp_manifest(repo_root):
         "vulkan_contracts",
         "gen_contract_spec_cpp.py",
     )
+    source_pattern = os.path.join(
+        repo_root,
+        "aten",
+        "src",
+        "ATen",
+        "native",
+        "vulkan",
+        "**",
+        "*.cpp",
+    )
+    source_chunks = []
+    for source_path in sorted(glob.glob(source_pattern, recursive=True)):
+        with open(source_path, encoding="utf-8") as handle:
+            source_chunks.append(handle.read())
+    source_text = "\n".join(source_chunks)
+
     rows = []
     for entry in entries:
         spec_file = entry["spec_file"]
@@ -7247,6 +7286,25 @@ def validate_generated_cpp_manifest(repo_root):
                 f"markers: {missing_markers}"
             )
 
+        function_names = set(GENERATED_CPP_FUNCTION_RE.findall(header_text))
+        entry_points = spec["generated_cpp_entry_points"]
+        missing_entry_points = sorted(set(entry_points) - function_names)
+        if missing_entry_points:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} {entry['header']} missing "
+                f"generated C++ entry points: {missing_entry_points}"
+            )
+        unreachable_entry_points = [
+            entry_point
+            for entry_point in entry_points
+            if re.search(rf"\b{re.escape(entry_point)}\s*\(", source_text) is None
+        ]
+        if unreachable_entry_points:
+            raise AssertionError(
+                f"{GENERATED_CPP_MANIFEST_FILE} {entry['header']} entry points "
+                f"lack production C++ callers: {unreachable_entry_points}"
+            )
+
         rows.append(
             {
                 "spec_file": spec_file,
@@ -7255,6 +7313,8 @@ def validate_generated_cpp_manifest(repo_root):
                 "shape_envelope_role": spec["shape_envelope"]["role"],
                 "header": entry["header"],
                 "marker_count": len(entry["markers"]),
+                "entry_point_count": len(entry_points),
+                "generated_function_count": len(function_names),
             }
         )
     return rows

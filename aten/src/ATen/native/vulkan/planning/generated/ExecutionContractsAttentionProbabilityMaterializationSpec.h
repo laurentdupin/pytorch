@@ -243,20 +243,6 @@ constexpr AttentionProbabilityMaterializationProbabilityRowsRow kAttentionProbab
     }
 };
 
-inline bool attention_probability_materialization_probability_rows_row_matches(
-    const AttentionProbabilityMaterializationProbabilityRowsRow& row,
-    const std::int64_t batch_heads,
-    const std::int64_t query_sequence,
-    const std::int64_t key_value_sequence,
-    const std::int64_t value_dim,
-    const bool has_additive_bias) {
-  return row.batch_heads == batch_heads &&
-      row.query_sequence == query_sequence &&
-      row.key_value_sequence == key_value_sequence &&
-      row.value_dim == value_dim &&
-      row.has_additive_bias == has_additive_bias;
-}
-
 inline const AttentionProbabilityMaterializationProbabilityRowsRow* attention_probability_materialization_probability_rows_find(
     const std::int64_t batch_heads,
     const std::int64_t query_sequence,

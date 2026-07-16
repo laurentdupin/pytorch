@@ -2282,6 +2282,13 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertEqual(len(rows), 24)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
+        self.assertGreater(sum(row["entry_point_count"] for row in rows), 0)
+        self.assertTrue(
+            all(
+                row["generated_function_count"] >= row["entry_point_count"]
+                for row in rows
+            )
+        )
 
     def test_vulkan_generated_cpp_manifest_cli(self):
         result = subprocess.run(

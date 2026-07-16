@@ -106,13 +106,6 @@ constexpr bool safe_reshape_alias_dense_buffer_direct_output_last_dim_multiple_m
   return !has_output_last_dim || output_last_dim % spec.output_last_dim_multiple_of == 0;
 }
 
-constexpr bool safe_reshape_alias_dense_buffer_direct_policies_match(
-    const SafeViewReshapeReshapeAliasDenseBufferDirectSpec& spec,
-    const bool product_equal,
-    const bool requires_vulkan) {
-  return product_equal == spec.product_equal && requires_vulkan == spec.requires_vulkan;
-}
-
 inline bool safe_reshape_alias_dense_buffer_direct_product_equal(
     const SafeViewReshapeReshapeAliasDenseBufferDirectSpec& spec,
     const IntArrayRef input_sizes,

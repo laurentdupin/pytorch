@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "embedding_lookup_small_bounded_indices_num_indices",
+    "embedding_lookup_small_bounded_options_match",
+    "embedding_lookup_small_bounded_in_bounds"
+  ],
   "contract_name": "EmbeddingLookupContract",
   "family": "SmallBoundedLookup",
   "tuple_id": "small_bounded_vocab4096_dim256_indices128",

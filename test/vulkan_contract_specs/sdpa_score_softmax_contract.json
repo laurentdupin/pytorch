@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "sdpa_score_softmax_diffusion_square_scores_square_scores_equal",
+    "sdpa_score_softmax_diffusion_square_scores_options_match"
+  ],
   "contract_name": "SDPAScoreSoftmaxContract",
   "family": "DiffusionSquareScores",
   "tuple_id": "heads1_or5_sequence504_or640_float_rank3_square",

@@ -184,11 +184,6 @@ constexpr bool masked_tiny_sdpa_additive_float_mask_options_match(
       requires_buffer_storage == spec.requires_buffer_storage;
 }
 
-constexpr bool masked_tiny_sdpa_additive_float_mask_in_bounds(
-    const MaskedTinySDPAAdditiveFloatMaskSpec&) {
-  return true;
-}
-
 } // namespace generated
 } // namespace utils
 } // namespace ops

@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "safe_view_materialized_direct_buffer_input_rank_in_bounds",
+    "safe_view_materialized_direct_buffer_output_rank_in_bounds",
+    "safe_view_materialized_direct_buffer_storage_offset_matches",
+    "safe_view_materialized_direct_buffer_output_last_dim_multiple_matches",
+    "safe_view_materialized_direct_buffer_product_equal"
+  ],
   "contract_name": "SafeViewReshapeContract",
   "family": "ViewMaterializedDirectBuffer",
   "tuple_id": "materialized_direct_buffer_reshape",

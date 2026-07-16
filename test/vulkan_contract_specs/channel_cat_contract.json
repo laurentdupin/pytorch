@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "channel_cat_input_count_in_bounds",
+    "channel_cat_reference_in_bounds",
+    "channel_cat_input_in_bounds",
+    "channel_cat_total_channels_sum",
+    "channel_cat_total_channels_in_bounds"
+  ],
   "contract_name": "ChannelCatContract",
   "family": "Rank4Dim1BufferView",
   "tuple_id": "rank4_dim1_inputs3_to_8_c_mult4_spatial_le128_total_c_le4096",

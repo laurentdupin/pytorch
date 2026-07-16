@@ -97,13 +97,6 @@ constexpr bool safe_view_materialized_direct_buffer_output_last_dim_multiple_mat
   return !has_output_last_dim || output_last_dim % spec.output_last_dim_multiple_of == 0;
 }
 
-constexpr bool safe_view_materialized_direct_buffer_policies_match(
-    const SafeViewReshapeViewMaterializedDirectBufferSpec& spec,
-    const bool product_equal,
-    const bool requires_vulkan) {
-  return product_equal == spec.product_equal && requires_vulkan == spec.requires_vulkan;
-}
-
 inline bool safe_view_materialized_direct_buffer_product_equal(
     const SafeViewReshapeViewMaterializedDirectBufferSpec& spec,
     const IntArrayRef input_sizes,

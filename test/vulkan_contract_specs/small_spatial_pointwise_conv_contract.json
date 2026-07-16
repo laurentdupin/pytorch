@@ -1,5 +1,13 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "small_spatial_pointwise_conv_sparse_projection_rows_input_weight_channels_equal",
+    "small_spatial_pointwise_conv_depth_vision_factorized_projection_matches",
+    "small_spatial_pointwise_conv_depth_vision_factorized_projection_family_name",
+    "small_spatial_pointwise_conv_depth_vision_factorized_projection_tuple_id",
+    "small_spatial_pointwise_conv_depth_vision_factorized_projection_metadata",
+    "small_spatial_pointwise_conv_projection_rows_find"
+  ],
   "contract_name": "SmallSpatialPointwiseConvContract",
   "family": "SparseProjectionRows",
   "tuple_id": "small_spatial_pointwise_conv_sparse_projection_rows",

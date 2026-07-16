@@ -281,20 +281,6 @@ constexpr PatchEmbedFeatureMapToTokensFeatureMapRowsRow kPatchEmbedFeatureMapToT
     }
 };
 
-inline bool patch_embed_feature_map_to_tokens_feature_map_rows_row_matches(
-    const PatchEmbedFeatureMapToTokensFeatureMapRowsRow& row,
-    const char* family,
-    const std::int64_t channels,
-    const std::int64_t feature_h,
-    const std::int64_t feature_w,
-    const std::int64_t tokens) {
-  return std::string_view(row.family) == family &&
-      row.channels == channels &&
-      row.feature_h == feature_h &&
-      row.feature_w == feature_w &&
-      row.tokens == tokens;
-}
-
 inline const PatchEmbedFeatureMapToTokensFeatureMapRowsRow* patch_embed_feature_map_to_tokens_feature_map_rows_find(
     const char* family,
     const std::int64_t channels,

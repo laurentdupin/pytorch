@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "kv_cache_append_sequence_append_batch_equal",
+    "kv_cache_append_sequence_append_heads_equal",
+    "kv_cache_append_sequence_append_head_dim_equal",
+    "kv_cache_append_sequence_append_options_match",
+    "kv_cache_append_sequence_append_in_bounds"
+  ],
   "contract_name": "KVCacheAppendContract",
   "family": "SequenceAppend",
   "tuple_id": "sequence_append_s1_to_s115_token1_heads4_dim128",

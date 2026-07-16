@@ -6,6 +6,13 @@ import re
 import sys
 
 
+GENERATED_CPP_FUNCTION_RE = re.compile(
+    r"^[ \t]*(?:constexpr|inline)\s+(?:[^\n(]*?\s+)?"
+    r"([a-z][a-z0-9_]*)\s*\(",
+    re.MULTILINE,
+)
+
+
 SCALAR_TYPE_BY_DTYPE = {
     "float32": "at::kFloat",
     "int64": "at::kLong",
@@ -55,6 +62,87 @@ def _cpp_lower_identifier(value):
 def _load_spec(path):
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _generated_cpp_function_spans(output):
+    functions = {}
+    for match in GENERATED_CPP_FUNCTION_RE.finditer(output):
+        name = match.group(1)
+        _require(name not in functions, f"duplicate generated C++ helper {name!r}")
+        open_brace = output.find("{", match.end())
+        _require(open_brace >= 0, f"generated C++ helper {name!r} has no body")
+
+        depth = 0
+        close_brace = None
+        for index in range(open_brace, len(output)):
+            if output[index] == "{":
+                depth += 1
+            elif output[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    close_brace = index + 1
+                    break
+        _require(close_brace is not None, f"generated C++ helper {name!r} is unclosed")
+
+        end = close_brace
+        for _ in range(2):
+            if output.startswith("\n", end):
+                end += 1
+        functions[name] = {
+            "body": output[open_brace:close_brace],
+            "span": (match.start(), end),
+        }
+    return functions
+
+
+def _prune_generated_cpp_helpers(output, entry_points):
+    _require(
+        isinstance(entry_points, list),
+        "generated_cpp_entry_points must be a list",
+    )
+    for index, entry_point in enumerate(entry_points):
+        _require(
+            isinstance(entry_point, str)
+            and re.fullmatch(r"[a-z][a-z0-9_]*", entry_point),
+            f"generated_cpp_entry_points[{index}] invalid",
+        )
+    _require(
+        len(entry_points) == len(set(entry_points)),
+        "generated_cpp_entry_points must be unique",
+    )
+
+    functions = _generated_cpp_function_spans(output)
+    missing = sorted(set(entry_points) - set(functions))
+    _require(not missing, f"generated C++ entry points not emitted: {missing}")
+
+    dependencies = {}
+    for name, function in functions.items():
+        dependencies[name] = {
+            candidate
+            for candidate in functions
+            if candidate != name
+            and re.search(
+                rf"\b{re.escape(candidate)}\s*\(",
+                function["body"],
+            )
+        }
+
+    live = set(entry_points)
+    pending = list(entry_points)
+    while pending:
+        name = pending.pop()
+        for dependency in dependencies[name] - live:
+            live.add(dependency)
+            pending.append(dependency)
+
+    for name in sorted(
+        set(functions) - live,
+        key=lambda candidate: functions[candidate]["span"][0],
+        reverse=True,
+    ):
+        start, end = functions[name]["span"]
+        output = output[:start] + output[end:]
+    return output
 
 
 def _validate_bool(value, context):
@@ -2883,7 +2971,11 @@ def generate_generic_shape_envelope_header(spec, source_name):
 
 def generate_header(spec, source_name):
     if "shape_envelope" in spec:
-        return generate_generic_shape_envelope_header(spec, source_name)
+        output = generate_generic_shape_envelope_header(spec, source_name)
+        return _prune_generated_cpp_helpers(
+            output,
+            spec.get("generated_cpp_entry_points"),
+        )
     raise RuntimeError(
         "unsupported contract spec for C++ generation: "
         f"{spec.get('contract_name')} {spec.get('family')}"

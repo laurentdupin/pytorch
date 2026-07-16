@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "elementwise_float_tensor_tensor_buffer_broadcast_rank_in_bounds",
+    "elementwise_float_tensor_tensor_buffer_broadcast_dtype_matches",
+    "elementwise_float_tensor_tensor_buffer_broadcast_layout_matches",
+    "elementwise_float_tensor_tensor_buffer_broadcast_attributes_match",
+    "elementwise_float_tensor_tensor_buffer_broadcast_broadcast_compatible"
+  ],
   "contract_name": "ElementwiseBroadcastContract",
   "family": "FloatTensorTensorBufferBroadcast",
   "tuple_id": "float32_rank1_to_4_tensor_tensor_buffer_broadcast",

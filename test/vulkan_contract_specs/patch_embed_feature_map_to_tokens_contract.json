@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "patch_embed_feature_map_to_tokens_feature_map_rows_find"
+  ],
   "contract_name": "PatchEmbedFeatureMapToTokensContract",
   "family": "Kernel14Stride14ObservedFeatureMap",
   "tuple_id": "patch_embed_feature_map_tokens_observed_sparse_rows",

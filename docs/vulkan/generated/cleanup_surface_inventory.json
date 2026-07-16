@@ -1140,6 +1140,40 @@
         "scripts/benchmarks"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "Generated helper reachability was resolved from production Vulkan C++ calls rather than the marker manifest, which only checked that named text existed in regenerated headers.",
+        "Eighteen functions across fourteen generated headers had no production entry point. This included exact-shape LinearGeluBridge and SmallMetadataPaddedConv2D predicate groups left behind after their handwritten matchers moved to generic runtime rules.",
+        "Every ShapeEnvelope spec now declares its production generated_cpp_entry_points. The generator retains only those entry points and their transitive helper dependencies, and manifest validation rejects declared entry points without production callers."
+      ],
+      "consequence": "Eighteen caller-free generated functions were deleted while generated metadata, constants, row tables, all production entry points, and their transitive helpers remain. The generated C++ surface is now explicit and guarded against future reachability drift.",
+      "decision": "retire_dead_surface",
+      "forbidden_code_symbols": [
+        "attention_probability_materialization_probability_rows_row_matches",
+        "batch_norm_inference_buffer_float_4_d_in_bounds",
+        "batch_norm_inference_materialized_buffer_float_4_d_in_bounds",
+        "diffusion_sdpa_attention_rows_find",
+        "linear_gelu_bridge_input_rank_in_bounds",
+        "linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_options_match",
+        "linear_gelu_bridge_backbone_mlp_hidden_384_to_1536_in_bounds",
+        "masked_tiny_sdpa_additive_float_mask_in_bounds",
+        "patch_embed_feature_map_to_tokens_feature_map_rows_row_matches",
+        "patch_embed_float_buffer_conv_route_input_rows_row_matches",
+        "safe_reshape_alias_dense_buffer_direct_policies_match",
+        "safe_view_materialized_direct_buffer_policies_match",
+        "sdpa_execution_policy_policy_rows_find",
+        "sdpa_score_softmax_diffusion_square_scores_in_bounds",
+        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_input_weight_channels_equal",
+        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_options_match",
+        "small_metadata_padded_conv_2_d_materialized_buffer_input_2_x_2_in_bounds",
+        "token_prefix_cat_add_token_rows_row_matches"
+      ],
+      "id": "unused_generated_contract_helpers",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan/planning/generated"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [

@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "attention_probability_materialization_probability_rows_find"
+  ],
   "contract_name": "AttentionProbabilityMaterializationContract",
   "family": "DecomposedAttentionProbabilityToValueBmm",
   "tuple_id": "observed_rank3_float_probability_value_bmm_rows",

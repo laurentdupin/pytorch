@@ -126,12 +126,6 @@ constexpr bool batch_norm_inference_materialized_buffer_float_4_d_options_match(
       requires_materialization == spec.requires_materialization;
 }
 
-constexpr bool batch_norm_inference_materialized_buffer_float_4_d_in_bounds(
-    const BatchNormInferenceMaterializedBufferFloat4DSpec& spec,
-    const std::int64_t input_channels) {
-  return input_channels >= spec.min_input_channels;
-}
-
 } // namespace generated
 } // namespace utils
 } // namespace ops

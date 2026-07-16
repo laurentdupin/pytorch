@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "masked_tiny_sdpa_additive_float_mask_options_match"
+  ],
   "contract_name": "MaskedTinySDPAContract",
   "family": "AdditiveFloatMask",
   "tuple_id": "qkv_1x16x2x64_mask_1x1x2x2",

@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "patch_embed_float_buffer_conv_route_input_rows_find"
+  ],
   "contract_name": "PatchEmbedFloatBufferConvRoute",
   "family": "ObservedPatchEmbedKernel14Stride14",
   "tuple_id": "patch_embed_float_buffer_conv_route_observed_sparse_rows",

@@ -1,5 +1,8 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [
+    "token_prefix_cat_add_token_rows_find"
+  ],
   "contract_name": "TokenPrefixCatAddContract",
   "family": "Prefix1TokenCountSetFeatureSetAdd",
   "tuple_id": "prefix1_token_count_set_c384_768_1024_float32_dim1",

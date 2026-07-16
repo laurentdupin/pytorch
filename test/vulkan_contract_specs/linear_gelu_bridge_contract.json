@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "generated_cpp_entry_points": [],
   "contract_name": "LinearGeluBridgeContract",
   "family": "BackboneMlpHidden384To1536",
   "tuple_id": "backbone_mlp_hidden384_to1536_rows_ge512",
