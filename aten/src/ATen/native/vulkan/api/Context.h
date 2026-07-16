@@ -293,11 +293,6 @@ class TORCH_API Context final {
   std::mutex stack_region_pending_retire_handoff_batch_mutex_;
   std::vector<PendingRetireBuffer> stack_region_pending_retire_handoff_buffers_;
   std::vector<PendingRetireImage> stack_region_pending_retire_handoff_images_;
-  std::mutex bridge_private_capture_pending_retire_handoff_batch_mutex_;
-  std::vector<PendingRetireBuffer>
-      bridge_private_capture_pending_retire_handoff_buffers_;
-  std::vector<PendingRetireImage>
-      bridge_private_capture_pending_retire_handoff_images_;
   RetireQueue retire_queue_;
   VulkanSubmission last_submission_;
   uint64_t stack_region_exit_work_batch_executor_depth_ = 0u;
@@ -336,9 +331,6 @@ class TORCH_API Context final {
     uint64_t region_handoff_buffers = 0u;
     uint64_t region_handoff_images = 0u;
     uint64_t region_handoff_bytes = 0u;
-    uint64_t bridge_handoff_buffers = 0u;
-    uint64_t bridge_handoff_images = 0u;
-    uint64_t bridge_handoff_bytes = 0u;
     uint64_t retire_queue_size = 0u;
     uint64_t stack_descriptor_pool_lease_active = 0u;
     uint64_t external_cmd_acquire_count = 0u;
@@ -383,22 +375,16 @@ class TORCH_API Context final {
   };
 
   void clear_pending_retire_resources_locked();
-  void clear_stack_internal_temp_retire_batch_locked();
   void clear_stack_region_pending_retire_handoff_batch_locked();
-  void clear_bridge_private_capture_pending_retire_handoff_batch_locked();
   void restore_stack_internal_temp_retire_batch_to_pending_locked();
   void restore_stack_region_pending_retire_handoff_batch_to_pending_locked();
-  void restore_bridge_private_capture_pending_retire_handoff_batch_to_pending_locked();
   void retire_stack_internal_temp_retire_batch_locked(
       const VulkanSubmission& submission);
   void retire_stack_region_pending_retire_handoff_batch_locked(
       const VulkanSubmission& submission);
-  void retire_bridge_private_capture_pending_retire_handoff_batch_locked(
-      const VulkanSubmission& submission);
   void flush_persistent_external_recording_pools_if_idle();
   void retire_stack_planned_recording_descriptor_pool_lease(
       const VulkanSubmission& submission);
-  void release_stack_planned_recording_descriptor_pool_lease_now();
   void log_stack_region_retained_state_locked(
       const char* event,
       const VulkanSubmission* submission = nullptr);
@@ -791,7 +777,6 @@ class TORCH_API Context final {
       PendingCommandFlushReason reason = PendingCommandFlushReason::Unknown,
       VkFence fence_handle = VK_NULL_HANDLE);
   bool is_stack_planned_recording_active() const;
-  StackPlannedRecordingStats snapshot_stack_planned_recording_stats() const;
   StackRegionSingleRecordingPlanResult
   snapshot_stack_region_single_recording_plan(
       const StackRegionSingleRecordingPlanRequest& request) const;
@@ -841,7 +826,6 @@ class TORCH_API Context final {
 
   void flush();
   void retire_after_fence_wait(bool flush_descriptor_pool = true);
-  void flush_after_fence_wait();
 };
 
 class UniformParamsBuffer final {

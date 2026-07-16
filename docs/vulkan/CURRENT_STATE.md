@@ -1247,10 +1247,13 @@ The Depth Anything V2 benchmark previously carried a benchmark-only
 in Windows stack overflow `-1073741571`; the selectable mode and its unreachable
 caller branch are now deleted. The public compiled-session backend remains
 Migration-gated until graph-owned recorded partitions replace it.
-`Context` now has an empty-by-default bridge-private capture pending-retire
-handoff batch scaffold with clear/restore/retire helpers. No producer moves
-entries into that batch yet, so it is behavior-neutral and does not change
-submit, fallback, readback, copy, or lifetime behavior.
+The empty bridge-private capture pending-retire handoff batch scaffold is now
+retired. It had clear, restore, retire, and retained-state reporting code, but
+no producer ever moved a resource into it. The separate
+`PrivateBridgeCaptureHandoffContract.v0` and release-owner proof rows remain as
+fail-closed migration evidence; a future graph-owned release implementation
+must provide real producer and completion ownership rather than restoring the
+inactive batch.
 Depth Anything V2 benchmark artifacts now also include a compact
 `vulkan_stack_region_segment_plan` summary when `StackRegionSegmentPlan.v0`
 rows are present in the debug snapshot. Segmented stack-owned recording modes

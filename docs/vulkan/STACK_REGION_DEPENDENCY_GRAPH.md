@@ -1007,12 +1007,11 @@ pending-retire owner handoff field. This keeps the source snapshot and the
 ownership handoff distinct: a report can say that the source is known while the
 region owner remains behavior-disabled, or that the owner is waiting on the
 transfer plan itself.
-The bridge-private capture release path now has an empty pending-retire handoff
-batch scaffold in `Context`. The scaffold has clear, restore, and timeline-gated
-retire helpers, but no source mover and no behavior change. A future bridge
-canary must arm this batch from the post-decoder-consumer release owner and
-retire it with the decoder bridge close submission, not with the backbone stack
-exit.
+The empty bridge-private capture pending-retire handoff batch scaffold in
+`Context` was retired because it never had a source mover. The fail-closed
+release-owner and private-capture dependency rows remain. A future graph-owned
+bridge release path must bind actual resources to the post-decoder-consumer
+completion owner directly rather than revive an unpopulated batch.
 The row now carries `ContextStackRegionPendingRetireTransferOwnerState.v0`
 lifecycle id/state/status/source. This mirrors the close-submit,
 reset-deferral, and retire-timeline owner surfaces: the owner is observed from

@@ -908,6 +908,32 @@
         "torch/vulkan"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "Four Context helpers for stack-stat snapshots, immediate descriptor-lease release, stack-internal batch clearing, and full fence-wait flush had declarations and definitions but no production, benchmark, test, callback, or function-pointer caller.",
+        "The bridge-private capture pending-retire batch stored mutexes and resource vectors plus clear, restore, timeline-retire, and retained-state reporting code, but no producer ever inserted or moved a resource into the batch; all reported counts were structurally zero.",
+        "Live stack-region pending-retire handoff, timeline-gated descriptor-pool lease retirement, retire_after_fence_wait descriptor policy, returned end/cancel recording statistics, and bridge-private release-owner proof rows remain unchanged."
+      ],
+      "consequence": "The permanently empty bridge-private pending-retire scaffold, its always-zero retained-state fields, and four zero-caller Context wrappers were deleted. Live cleanup ownership and evidence-critical bridge proof diagnostics remain.",
+      "decision": "retire_dead_state",
+      "forbidden_code_symbols": [
+        "bridge_private_capture_pending_retire_handoff_",
+        "bridge_handoff_buffers",
+        "bridge_handoff_images",
+        "bridge_handoff_bytes",
+        "Context::clear_stack_internal_temp_retire_batch_locked",
+        "Context::flush_after_fence_wait",
+        "Context::release_stack_planned_recording_descriptor_pool_lease_now",
+        "Context::snapshot_stack_planned_recording_stats"
+      ],
+      "id": "unused_context_cleanup_paths",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
