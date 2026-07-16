@@ -76,22 +76,22 @@ replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
 
-A caller-owned four-token HY-MT prefill integration probe on 2026-07-15
-captures 3,160 nodes, lowers 225, reports zero lower-time unsupported nodes,
-executes the complete immutable C++ plan, and returns 65 tensor outputs. The
-plan contains 2,732 instructions, 2,466 IValue slots, 268 ordered effects, and
-129 typed list arguments. The regression probe reports zero graph-scalar and
-list-projection instructions, as expected for this static prefill. Runtime
-counters remain zero for CPU fallback, sync readback, and deferred-value
-creation, with no Vulkan behavior overrides. The latest worktree run records
-`submission_owned=true`, one invocation generation, completed final timeline
-token 756, 168 graph-owner checkpoint flushes, and two host uploads. This proves
-that static constants, boolean mask construction, identity indexing, GQA
-repetition, boolean-masked SDPA, boxed C++ dispatch, lifted copies, and bounded
-large-linear maintenance compose through one owner. It is not a checked-in
-parity artifact: it does not compare output values, exercise alternate dynamic
-guards, repeat live outputs, or measure peak memory or latency, and cannot
-satisfy a subsystem deletion gate by itself.
+A caller-owned exact-SHA HY-MT prefill integration artifact at `ed4975687b6`
+on GTX 1080 captures 3,160 nodes, lowers 225, reports zero lower-time
+unsupported nodes, executes the complete immutable C++ plan, and returns 65
+tensor outputs. The plan contains 2,732 instructions, 2,466 IValue slots, 268
+ordered effects, and 129 typed list arguments. Both the four-token case and the
+guard-recompiled five-token case stay within the recorded eager/CPU tolerances
+with zero graph fallback, sync readback, or deferred-value creation. The
+five-token unaligned boolean causal-mask broadcast stays in the generic native
+buffer path. Each two-run case records 336 graph-owner checkpoint flushes, four
+host uploads, 130 evidence output readbacks, and no retire-drain submits. Graph
+diagnostics carry explicit `LLM`/`Prefill` semantics with zero label inference,
+but supported eager still reports the legacy `DepthDiffusion` lane. The
+artifact therefore advances correctness, guard, submission, and residency
+coverage without clearing lane, latency, or memory deletion gates. The raw
+caller-owned files are under
+`agent_space/hymt_planning_residency_gtx1080_exact_ed4975687b6/`.
 
 The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
 candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
@@ -139,6 +139,22 @@ zero. This clears the recorded-shape latency no-regression bar against the two
 supported defaults. The caller-owned HY-MT worktree probe retains its complete
 plan and records the owned checkpoint/token evidence described above, but does
 not yet provide the matching checked-in distribution.
+
+An exact-SHA `ed4975687b6` RX 9070 fixed-cost pass reuses the supported DAv2
+graph boundary and isolates timestamp and CPU-timeline instrumentation after
+warmup. `vits_140` records 309 GPU events and 23.9 ms of summed GPU work per
+inference; `vits_280` records 303 events and 32.7 ms. Both issue 24
+`pending_command_flush` checkpoints per unprofiled inference, with zero timed
+fallback or readback. The CPU summary attributes about 3.4 ms and 2.9 ms per
+inference to measured dispatch recording plus submit calls. Current-SHA
+30-repeat uninstrumented medians are 49.06 ms and 49.09 ms, so the larger input
+consumes idle submission/queue slack rather than extending wall latency. GPU
+timestamp wall times are intentionally excluded because profiling adds a reset
+submit and substantial collection overhead. The earlier checked-in 41.0/41.2
+ms distributions remain the supported deletion baseline. The next optimization
+question is generic graph checkpoint batching, not another shape-specific
+operator route. Caller-owned raw reports are under
+`agent_space/dav2_graph_fixed_cost_ed4975687b6/`.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.

@@ -3063,6 +3063,7 @@ class TestVulkanGovernance(TestCase):
         submit_origin_counters[1] = 3
         submit_origin_counters[5] = 2
         submit_origin_counters[8] = 1
+        submit_origin_counters[15] = 4
         retire_drain_counters = [0] * 18
         retire_drain_counters[0] = 4
         retire_drain_counters[1] = 1
@@ -3200,6 +3201,12 @@ class TestVulkanGovernance(TestCase):
                 "normal_cmd_submit_frequency"
             ],
             3,
+        )
+        self.assertEqual(
+            report["measurement_counters"]["submit_origin_counters"][
+                "pending_command_flush"
+            ],
+            4,
         )
         kernel_class = next(
             group

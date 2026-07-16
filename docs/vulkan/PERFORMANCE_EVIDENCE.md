@@ -573,6 +573,19 @@ The initial catalog records the current `vits_140` performance lane:
   recording/binding work, making descriptor/recording reuse the next measured
   control-plane bottleneck. This does not change model execution,
   synchronization, copy, fallback, or route selection;
+- graph fixed-cost attribution: an exact-SHA `ed4975687b6` RX 9070 DAv2 pass
+  measured 23.9 ms of summed GPU work for `vits_140` and 32.7 ms for
+  `vits_280`, while current-SHA 30-repeat uninstrumented graph medians remain
+  49.06 ms and 49.09 ms. Both shapes retain 24 `pending_command_flush` checkpoints per
+  inference and zero timed fallback/readback. CPU summaries attribute about
+  3.4 ms and 2.9 ms to measured dispatch recording plus submit calls. The
+  larger shape therefore fills fixed submission/queue slack; prioritize a
+  generic graph checkpoint/submission contract before operator micro-tuning.
+  GPU-timestamp wall time is excluded because profiling adds a reset submit and
+  collection overhead. The attribution reporter now names
+  `pending_command_flush` explicitly instead of misclassifying the seventeenth
+  submit-origin counter as an indexed/unknown field. The earlier checked-in
+  41.0/41.2 ms distributions remain the supported deletion-gate baseline;
 - descriptor-update allocation flattening: accepted default infrastructure fix.
   `DescriptorSet` reserves its per-set binding list to the shader layout size,
   and `get_bind_handle()` uses an inline-capacity descriptor-write list for the

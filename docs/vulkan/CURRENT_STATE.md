@@ -27,11 +27,11 @@ submits. PaddleOCR remains the GELU control, represents its
 schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
 executes 290 instructions. Its top-level plan records two scopes and final
 tokens per two-run shape, 42 owner checkpoint flushes, two input uploads, two
-output readbacks, 46 total queue submits, and no normal-frequency or
-retire-drain submits. A later caller-owned HY-MT worktree probe
-transfers lifted-copy and large-linear checkpoint submission ownership across
-its complete plan; its evidence is described below but is not a checked-in
-parity artifact.
+    output readbacks, 46 total queue submits, and no normal-frequency or
+    retire-drain submits. A later exact-SHA HY-MT caller-owned artifact transfers
+    lifted-copy and large-linear checkpoint submission ownership across its
+    complete plan; its evidence and remaining deletion-gate blockers are described
+    below.
 The same checked-in cases record allocator high-water phases for eager, first
 graph execution, and repeated graph execution with the prior output live. DAv2
 graph peaks are 0.7% to 1.4% below eager. PaddleOCR graph peaks range from 0.2%
@@ -47,6 +47,19 @@ medians are 42.8 ms and 54.3 ms versus eager medians of 141.3 ms and 146.9 ms.
 Graph p95 is below eager p95 in all four cases, with zero timed fallback or
 readback. This establishes latency no-regression for the recorded shapes, not
 the full corpus or eligibility to delete a Migration subsystem.
+An exact-SHA `ed4975687b6` RX 9070 attribution pass explains why the DAv2 graph
+times are flat across those sizes. Summed GPU timestamps rise from 23.9 ms for
+`vits_140` to 32.7 ms for `vits_280`, while current-SHA 30-repeat
+uninstrumented medians remain 49.06 ms and 49.09 ms. Both shapes issue 24
+`pending_command_flush` checkpoints per inference; the profiling pass adds one
+timestamp-reset submit. CPU timeline summaries attribute about 3.4 ms and
+2.9 ms per inference to measured dispatch recording plus submit calls. The
+remaining 140-size slack is therefore a fixed submission/driver/queue floor,
+not evidence for another exact operator kernel. The next performance target is
+generic graph checkpoint/submission policy with preserved lifetime and memory
+bounds. Timestamp-instrumented wall time is not a production latency baseline;
+the earlier checked-in 41.0/41.2 ms distributions remain the supported
+deletion-gate artifact rather than being overwritten by this attribution pass.
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.
@@ -62,20 +75,20 @@ visible and unsupported. The exact static `unsqueeze -> expand -> reshape`
 form used for GQA head repetition lowers to the generic `GQARepeatContract`
 kernel family rather than constructing an unsupported rank-5 Vulkan value.
 
-The same four-token HY-MT prefill probe captures 3,160 nodes, lowers 225, and
-reports zero unsupported nodes at lower time. It now executes the complete
-immutable C++ plan, returns 65 tensor outputs, and records zero CPU fallback,
-sync readback, or deferred-value creation with no Vulkan behavior overrides.
-The v8 plan contains 2,732 instructions, including 268 ordered effects and 129
-schema-typed list arguments. The former `[1,16,4,128]` boolean-masked SDPA
-boundary is covered by the generic bounded `MaskedTinySDPAContract` runtime
-family, which converts PyTorch boolean keep masks to an additive buffer on
-device. The latest worktree probe also records one owned invocation generation,
-a completed final timeline token, 168 graph-owner checkpoint flushes, and two
-host uploads. This establishes graph coverage, C++ dispatch, and top-level
-submission/completion ownership, not numerical parity, dynamic-shape,
-repeated-output lifetime, peak-memory, or latency evidence; all Migration
-deletion gates therefore remain unchanged.
+The exact-SHA `ed4975687b6` GTX 1080 HY-MT prefill artifact captures 3,160
+nodes, lowers 225, and reports zero unsupported nodes at lower time. Both the
+four-token case and the guard-recompiled five-token case execute complete
+2,732-instruction C++ plans, return 65 tensor outputs, and stay within the
+recorded eager/CPU tolerances with zero graph fallback, readback, or deferred
+values. The unaligned five-token boolean causal-mask broadcast now uses the
+generic rank-bounded buffer bool path. Each two-run case records 336 owner
+checkpoint flushes, four host uploads, 130 evidence output readbacks, no
+retire-drain submits, and explicit `LLM`/`Prefill` graph planning with zero
+label inference. The supported eager diagnostic still resolves the legacy
+`DepthDiffusion` lane, so HY-MT lane parity is not established and
+`LegacyPlanningInference`/`ModelLanePolicy` remain Migration. The latency rows
+have one sample per surface and the allocator deltas are diagnostic only; they
+do not clear latency or memory deletion gates.
 
 Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v8`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator

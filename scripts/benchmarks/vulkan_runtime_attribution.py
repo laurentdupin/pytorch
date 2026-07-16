@@ -27,6 +27,7 @@ SUBMIT_ORIGIN_COUNTER_NAMES = (
     "shutdown",
     "debug_validation",
     "conv_prepack_upload",
+    "pending_command_flush",
     "unknown",
 )
 
