@@ -959,10 +959,7 @@ utils::ReadbackBufferObject lookup_or_create_readback_buffer(
     const size_t size_bytes) {
   return utils::lookup_or_create_labeled_readback_buffer_object(
       readback_buffer_label(suffix),
-      utils::VulkanReadbackBufferSpec{
-          size_bytes,
-          true,
-      });
+      size_bytes);
 }
 
 bool should_force_buffer_storage_for_to_vulkan(const Tensor& src) {

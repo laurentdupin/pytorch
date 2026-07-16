@@ -64,7 +64,6 @@ VulkanSchedulerDecision build_vulkan_scheduler_decision(
     decision.scratch_arena_plan = VulkanScratchArenaPlanningDesc{
         true,
         true,
-        true,
         0u,
         capabilities.has_unified_memory ? 256u : 512u,
     };
@@ -76,7 +75,6 @@ VulkanSchedulerDecision build_vulkan_scheduler_decision(
        (request.execution_phase == VulkanExecutionPhase::Backbone ||
         request.execution_phase == VulkanExecutionPhase::Decoder))) {
     decision.scratch_arena_plan = VulkanScratchArenaPlanningDesc{
-        true,
         true,
         true,
         0u,

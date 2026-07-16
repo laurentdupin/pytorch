@@ -410,13 +410,9 @@ size_t optional_scratch_resident_nbytes(
 
 struct AttentionRuntimeProgram::State final {
   std::optional<ScratchArena> scratch_arena_;
-  bool persistent_{true};
 
-  State(
-      std::optional<ScratchArena> scratch_arena,
-      const bool persistent)
-      : scratch_arena_(std::move(scratch_arena)),
-        persistent_(persistent) {}
+  explicit State(std::optional<ScratchArena> scratch_arena)
+      : scratch_arena_(std::move(scratch_arena)) {}
 };
 
 struct VisionBackboneProgram::State final {
@@ -479,7 +475,6 @@ struct VisionDecoderProgram::State final {
   Tensor main_res_output_;
   Tensor upsample_output_;
   Tensor out_conv_output_;
-  bool persistent_{true};
 
   State(
       const std::vector<int64_t>& input_sizes,
@@ -493,8 +488,7 @@ struct VisionDecoderProgram::State final {
         out_conv_output_(create_program_buffer_tensor(
             {input_sizes.at(0), out_channels, target_sizes.at(0), target_sizes.at(1)},
             kFloat,
-            persistent)),
-        persistent_(persistent) {
+            persistent)) {
     const std::vector<int64_t> upsample_sizes{
         input_sizes.at(0),
         input_sizes.at(1),
@@ -568,10 +562,6 @@ const std::optional<ScratchArena>& AttentionRuntimeProgram::scratch_arena()
     const {
   static const std::optional<ScratchArena> empty;
   return state_ ? state_->scratch_arena_ : empty;
-}
-
-bool AttentionRuntimeProgram::persistent() const {
-  return state_ && state_->persistent_;
 }
 
 size_t AttentionRuntimeProgram::resident_nbytes() const {
@@ -730,10 +720,6 @@ Tensor& VisionDecoderProgram::out_conv_output() {
   return state_->out_conv_output_;
 }
 
-bool VisionDecoderProgram::persistent() const {
-  return state_ && state_->persistent_;
-}
-
 size_t VisionDecoderProgram::resident_nbytes() const {
   if (!state_) {
     return 0u;
@@ -788,8 +774,7 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
   }
 
   AttentionRuntimeProgram created{std::make_shared<AttentionRuntimeProgram::State>(
-      std::move(scratch_arena),
-      program_plan.persistent)};
+      std::move(scratch_arena))};
   attention_runtime_program_cache().store(
       query,
       created,

@@ -1487,48 +1487,6 @@ void reset_fallback_counters_runtime() {
   reset_zero_counters();
 }
 
-Tensor create_scratch_arena_storage_for_request(
-    const Tensor& prototype,
-    const int64_t num_bytes,
-    const int64_t alignment,
-    const int64_t workload_class,
-    const int64_t model_domain,
-    const int64_t execution_phase,
-    const int64_t tensor_role) {
-  (void)prototype;
-  const auto request = make_runtime_planning_request(
-      workload_class, model_domain, execution_phase, tensor_role);
-  const auto policy = utils::build_vulkan_runtime_policy(request);
-  TORCH_CHECK(
-      policy.scratch_arena_plan.has_value(),
-      "Vulkan runtime policy does not expose a scratch arena plan for the requested workload");
-
-  const auto& desc = *policy.scratch_arena_plan;
-  const uint32_t requested_alignment =
-      alignment > 0 ? static_cast<uint32_t>(alignment) : desc.alignment;
-  const auto storage_type =
-      desc.prefer_buffer_storage ? api::StorageType::BUFFER
-                                 : api::StorageType::TEXTURE_3D;
-  const auto execution_layout =
-      desc.prefer_buffer_storage ? api::ExecutionLayout::BUFFER_DIRECT
-                                 : api::ExecutionLayout::TEXTURE;
-  const auto memory_layout =
-      desc.prefer_buffer_storage
-      ? api::GPUMemoryLayout::TENSOR_WIDTH_PACKED
-      : api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED;
-  auto scratch_arena = utils::create_vulkan_scratch_arena(
-      utils::VulkanScratchArenaSpec{
-          kByte,
-          static_cast<size_t>(std::max<int64_t>(num_bytes, desc.min_arena_bytes)),
-          requested_alignment,
-          execution_layout,
-          memory_layout,
-          storage_type,
-          desc.prefer_reusable_arena,
-      });
-  return scratch_arena.storage();
-}
-
 Tensor maybe_move_runtime_tensor_to_device(
     const Tensor& tensor,
     const Device& device) {
@@ -2799,8 +2757,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::query_runtime_policy(Tensor prototype, int workload_class, int model_domain, int execution_phase, int tensor_role) -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::create_scratch_arena_storage_for_request(Tensor prototype, int num_bytes, int alignment, int workload_class, int model_domain, int execution_phase, int tensor_role) -> Tensor"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::pose_encoding_to_extri_intri(Tensor pose_encoding, int height, int width) -> (Tensor, Tensor)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::extri_intri_to_pose_encoding(Tensor extrinsics, Tensor intrinsics, int height, int width) -> Tensor"));
@@ -3434,9 +3390,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CPU, m) {
       TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
       TORCH_FN(query_runtime_policy));
   m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::create_scratch_arena_storage_for_request"),
-      TORCH_FN(create_scratch_arena_storage_for_request));
-  m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::pose_encoding_to_extri_intri"),
       TORCH_FN(pose_encoding_to_extri_intri_runtime));
   m.impl(
@@ -3580,9 +3533,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::query_runtime_policy"),
       TORCH_FN(query_runtime_policy));
-  m.impl(
-      TORCH_SELECTIVE_NAME("vulkan_prepack::create_scratch_arena_storage_for_request"),
-      TORCH_FN(create_scratch_arena_storage_for_request));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::pose_encoding_to_extri_intri"),
       TORCH_FN(pose_encoding_to_extri_intri_runtime));

@@ -599,6 +599,52 @@
         "optional_kv_cache_resident_nbytes"
       ],
       "consequence": "The unused KV planning descriptor, unbound storage cache, public test hook, diagnostic tuple fields, and mechanism-only tests were deleted. Active KV append kernels and generated graph state replay are separate surfaces and remain covered."
+    },
+    {
+      "id": "unused_planning_object_metadata",
+      "decision": "retire_dead_state",
+      "status": "deleted",
+      "basis": [
+        "ScratchArena defined/execution-layout/persistent, ReadbackBufferObject defined/persistent, and attention/decoder program persistent accessors had definitions but no production, benchmark, test, or evidence caller.",
+        "Scratch storage, size, alignment, reset, reserve, identity, cache keys, and retire provenance remain live; readback buffer, size, mutex, identity, and hit/store diagnostics remain live in Copy.",
+        "VisionBackboneProgram persistence is intentionally retained because the stack resource-binding evidence harness emits it as stable program-slot ownership evidence."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "ScratchArena::defined",
+        "ScratchArena::execution_layout",
+        "ScratchArena::persistent",
+        "ReadbackBufferObject::defined",
+        "ReadbackBufferObject::persistent",
+        "VulkanReadbackBufferSpec",
+        "AttentionRuntimeProgram::persistent",
+        "VisionDecoderProgram::persistent"
+      ],
+      "consequence": "Caller-free accessors, duplicate stored metadata, and the resulting one-field readback spec wrapper were deleted. Live scratch allocation, generic readback caching, evidence diagnostics, and vision program persistence are unchanged."
+    },
+    {
+      "id": "scratch_storage_request_test_hook",
+      "decision": "retire_dead_test_hook",
+      "status": "deleted",
+      "basis": [
+        "create_scratch_arena_storage_for_request had one mechanism-only test caller and no production, benchmark, Python entry-point, or serialized consumer.",
+        "The public hook merely reconstructed the same scratch policy and returned its backing tensor; real attention, norm, linear, and vision callers use prime_labeled_scratch_arena_for_request or program-owned arenas directly.",
+        "Behavioral execution-object tests continue to require scratch store, hit, reset, reserve, and byte-accounting events through real kernels."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test",
+        "torch/vulkan"
+      ],
+      "forbidden_code_symbols": [
+        "create_scratch_arena_storage_for_request"
+      ],
+      "consequence": "The operator schema, CPU/Vulkan registrations, raw-storage constructor bridge, and mechanism-only assertion were deleted; internal scratch planning and behavioral coverage remain live."
     }
   ],
   "entries": [
@@ -965,7 +1011,7 @@
     {
       "id": "migration_legacy_planning_objects",
       "state": "Migration",
-      "summary": "Eager inference-graph, scratch-arena, readback, execution-program, request-storage, and runtime-policy surfaces. Retained packed-weight and linear-context caches are isolated in PackedWeightCache.*.",
+      "summary": "Eager inference-graph, scratch-arena, readback, execution-program, and runtime-policy surfaces. Retained packed-weight and linear-context caches are isolated in PackedWeightCache.*.",
       "replacement": "Immutable VulkanGraphProgram planning with graph-owned SSA resources, descriptors, barriers, and completion tokens.",
       "delete_when": "The C++ executor owns the corresponding resources and no supported caller reaches the old caches or storage-request APIs.",
       "baseline": "Preserve graph/eager correctness plus fallback, readback, submit-origin, GPU timestamp, and peak-memory accounting.",
@@ -980,7 +1026,6 @@
         "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_CACHE_MB",
         "environment_variable:PYTORCH_VULKAN_EXECUTION_PROGRAM_LOG",
         "environment_variable:PYTORCH_VULKAN_INFERENCE_GRAPH_LOG",
-        "operator_schema:vulkan_prepack::create_scratch_arena_storage_for_request",
         "operator_schema:vulkan_prepack::query_runtime_policy"
       ]
     },

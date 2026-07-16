@@ -21,6 +21,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <vector>
 
 namespace at {
 namespace native {
@@ -210,22 +211,19 @@ labeled_scratch_arena_cache() {
 struct LabeledReadbackBufferKey final {
   std::string allocation_label;
   size_t num_bytes;
-  bool persistent;
 };
 
 bool same_labeled_readback_buffer_key(
     const LabeledReadbackBufferKey& lhs,
     const LabeledReadbackBufferKey& rhs) {
   return lhs.allocation_label == rhs.allocation_label &&
-      lhs.num_bytes == rhs.num_bytes &&
-      lhs.persistent == rhs.persistent;
+      lhs.num_bytes == rhs.num_bytes;
 }
 
 size_t hash_labeled_readback_buffer_key(const LabeledReadbackBufferKey& key) {
   size_t seed = 0u;
   hash_combine(seed, key.allocation_label);
   hash_combine(seed, key.num_bytes);
-  hash_combine(seed, key.persistent);
   return seed;
 }
 
@@ -255,10 +253,6 @@ std::string make_vulkan_runtime_object_label(
          << workload_class_name(request.workload_class) << "."
          << label_suffix;
   return stream.str();
-}
-
-bool ScratchArena::defined() const {
-  return state_ && state_->storage_.defined();
 }
 
 const Tensor& ScratchArena::storage() const {
@@ -310,22 +304,8 @@ VulkanScratchSlice ScratchArena::reserve(
   return VulkanScratchSlice{offset, size_bytes};
 }
 
-api::ExecutionLayout ScratchArena::execution_layout() const {
-  TORCH_CHECK(state_, "Scratch arena is not initialized");
-  return state_->execution_layout_;
-}
-
-bool ScratchArena::persistent() const {
-  TORCH_CHECK(state_, "Scratch arena is not initialized");
-  return state_->persistent_;
-}
-
 const void* ScratchArena::identity() const {
   return state_.get();
-}
-
-bool ReadbackBufferObject::defined() const {
-  return state_ && state_->buffer_;
 }
 
 api::VulkanBuffer& ReadbackBufferObject::buffer() const {
@@ -336,11 +316,6 @@ api::VulkanBuffer& ReadbackBufferObject::buffer() const {
 size_t ReadbackBufferObject::size_bytes() const {
   TORCH_CHECK(state_, "Readback buffer object is not initialized");
   return state_->size_bytes_;
-}
-
-bool ReadbackBufferObject::persistent() const {
-  TORCH_CHECK(state_, "Readback buffer object is not initialized");
-  return state_->persistent_;
 }
 
 std::mutex& ReadbackBufferObject::mutex() const {
@@ -368,9 +343,7 @@ ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec& spec) {
   auto state = std::make_shared<ScratchArena::State>(
       std::move(storage),
       spec.num_bytes,
-      std::max<uint32_t>(1u, spec.alignment),
-      spec.execution_layout,
-      spec.persistent);
+      std::max<uint32_t>(1u, spec.alignment));
   if (state->storage_.is_vulkan()) {
     convert(state->storage_).set_stack_retire_provenance_source(
         api::VulkanStackRetireProvenanceSource::
@@ -382,19 +355,19 @@ ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec& spec) {
 }
 
 ReadbackBufferObject create_vulkan_readback_buffer_object(
-    const VulkanReadbackBufferSpec& spec) {
+    const size_t size_bytes) {
   TORCH_CHECK(
-      spec.num_bytes > 0u, "Readback buffer requires a non-zero size");
+      size_bytes > 0u, "Readback buffer requires a non-zero size");
 
   api::Context* const context = api::context();
   api::VulkanBuffer buffer =
       context->adapter_ptr()->vma().create_storage_buffer(
-          spec.num_bytes,
+          size_bytes,
           false,
           true,
           api::MemoryAllocator::BufferHostAccess::RandomRead);
   return ReadbackBufferObject(std::make_shared<ReadbackBufferObject::State>(
-      std::move(buffer), spec.num_bytes, spec.persistent));
+      std::move(buffer), size_bytes));
 }
 
 ScratchArena lookup_or_create_labeled_scratch_arena(
@@ -438,14 +411,13 @@ ScratchArena lookup_or_create_labeled_scratch_arena(
 
 ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
     const std::string& allocation_label,
-    const VulkanReadbackBufferSpec& spec) {
+    const size_t size_bytes) {
   TORCH_CHECK(
       !allocation_label.empty(),
       "Labeled readback buffers require a non-empty allocation label");
   const LabeledReadbackBufferKey key{
       allocation_label,
-      spec.num_bytes,
-      spec.persistent,
+      size_bytes,
   };
   if (const auto cached = labeled_readback_buffer_cache().lookup(
           key,
@@ -463,7 +435,7 @@ ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
   }
 
   api::AllocationScope allocation_scope(allocation_label);
-  ReadbackBufferObject created = create_vulkan_readback_buffer_object(spec);
+  ReadbackBufferObject created = create_vulkan_readback_buffer_object(size_bytes);
   labeled_readback_buffer_cache().store(
       key,
       created,

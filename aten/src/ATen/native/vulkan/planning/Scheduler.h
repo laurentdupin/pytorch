@@ -32,7 +32,6 @@ enum class VulkanBoundaryTransferLayout : uint8_t {
 };
 
 struct VulkanScratchArenaPlanningDesc final {
-  bool required{false};
   bool prefer_reusable_arena{false};
   bool prefer_buffer_storage{true};
   size_t min_arena_bytes{0u};

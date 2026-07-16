@@ -220,8 +220,6 @@ class TestVulkanCleanupInventory(TestCase):
             self.assertNotIn(definition, object_source)
 
         for definition in (
-            "ScratchArena::defined()",
-            "ReadbackBufferObject::defined()",
             "prime_labeled_scratch_arena_for_request(",
         ):
             self.assertIn(definition, object_source)

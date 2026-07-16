@@ -32,7 +32,6 @@ class AttentionRuntimeProgram final {
   bool defined() const;
   std::optional<ScratchArena>& scratch_arena();
   const std::optional<ScratchArena>& scratch_arena() const;
-  bool persistent() const;
   size_t resident_nbytes() const;
   const void* identity() const;
 };
@@ -91,7 +90,6 @@ class VisionDecoderProgram final {
   Tensor& main_res_output();
   Tensor& upsample_output();
   Tensor& out_conv_output();
-  bool persistent() const;
   size_t resident_nbytes() const;
   const void* identity() const;
 };

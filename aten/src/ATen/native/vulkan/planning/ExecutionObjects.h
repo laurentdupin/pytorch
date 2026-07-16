@@ -11,7 +11,6 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace at {
 namespace native {
@@ -49,21 +48,15 @@ class ScratchArena final {
     size_t size_bytes_{0u};
     uint32_t default_alignment_{256u};
     size_t next_offset_bytes_{0u};
-    api::ExecutionLayout execution_layout_{api::ExecutionLayout::BUFFER_DIRECT};
-    bool persistent_{true};
     mutable std::mutex mutex_;
 
     State(
         Tensor storage,
         size_t size_bytes,
-        uint32_t default_alignment,
-        api::ExecutionLayout execution_layout,
-        bool persistent)
+        uint32_t default_alignment)
         : storage_(std::move(storage)),
           size_bytes_(size_bytes),
-          default_alignment_(default_alignment),
-          execution_layout_(execution_layout),
-          persistent_(persistent) {}
+          default_alignment_(default_alignment) {}
   };
 
   std::shared_ptr<State> state_;
@@ -73,7 +66,6 @@ class ScratchArena final {
   explicit ScratchArena(std::shared_ptr<State> state)
       : state_(std::move(state)) {}
 
-  bool defined() const;
   const Tensor& storage() const;
   size_t size_bytes() const;
   uint32_t alignment() const;
@@ -81,31 +73,22 @@ class ScratchArena final {
   VulkanScratchSlice reserve(
       size_t size_bytes,
       uint32_t alignment = 0u);
-  api::ExecutionLayout execution_layout() const;
-  bool persistent() const;
   const void* identity() const;
-};
-
-struct VulkanReadbackBufferSpec final {
-  size_t num_bytes{0u};
-  bool persistent{true};
 };
 
 class ReadbackBufferObject final {
  private:
   friend ReadbackBufferObject create_vulkan_readback_buffer_object(
-      const VulkanReadbackBufferSpec&);
+      size_t size_bytes);
 
   struct State final {
     api::VulkanBuffer buffer_;
     size_t size_bytes_{0u};
-    bool persistent_{true};
     mutable std::mutex mutex_;
 
-    State(api::VulkanBuffer buffer, size_t size_bytes, bool persistent)
+    State(api::VulkanBuffer buffer, size_t size_bytes)
         : buffer_(std::move(buffer)),
-          size_bytes_(size_bytes),
-          persistent_(persistent) {}
+          size_bytes_(size_bytes) {}
   };
 
   std::shared_ptr<State> state_;
@@ -115,10 +98,8 @@ class ReadbackBufferObject final {
   explicit ReadbackBufferObject(std::shared_ptr<State> state)
       : state_(std::move(state)) {}
 
-  bool defined() const;
   api::VulkanBuffer& buffer() const;
   size_t size_bytes() const;
-  bool persistent() const;
   std::mutex& mutex() const;
   const void* identity() const;
 };
@@ -126,7 +107,7 @@ class ReadbackBufferObject final {
 ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec&);
 
 ReadbackBufferObject create_vulkan_readback_buffer_object(
-    const VulkanReadbackBufferSpec&);
+    size_t size_bytes);
 
 ScratchArena lookup_or_create_labeled_scratch_arena(
     const std::string& allocation_label,
@@ -134,7 +115,7 @@ ScratchArena lookup_or_create_labeled_scratch_arena(
 
 ReadbackBufferObject lookup_or_create_labeled_readback_buffer_object(
     const std::string& allocation_label,
-    const VulkanReadbackBufferSpec&);
+    size_t size_bytes);
 
 std::optional<ScratchArena> prime_labeled_scratch_arena_for_request(
     const Tensor& reference,

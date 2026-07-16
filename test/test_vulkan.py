@@ -35201,12 +35201,11 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self._assert_outputs_close(expected, actual, atol=6e-3, rtol=6e-3)
 
-    def test_vulkan_planning_runtime_ops_expose_scheduler_bridge(self):
+    def test_vulkan_planning_runtime_policy_exposes_scheduler_bridge(self):
         script = """
             import torch
 
             assert hasattr(torch.ops.vulkan_prepack, "query_runtime_policy")
-            assert hasattr(torch.ops.vulkan_prepack, "create_scratch_arena_storage_for_request")
 
             prototype = torch.randn(1, dtype=torch.float32).to("vulkan")
             decode_policy = list(torch.ops.vulkan_prepack.query_runtime_policy(
@@ -35248,18 +35247,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             assert vision_policy[6] == 1  # linear_kernel_family=UnifiedBufferView
             assert vision_policy[9] == 0  # has_boundary_plan
 
-            scratch = torch.ops.vulkan_prepack.create_scratch_arena_storage_for_request(
-                prototype,
-                65536,
-                256,
-                11,  # LLMDecode
-                2,   # LLM
-                2,   # Decode
-                4,   # Scratch
-            )
-
-            assert scratch.device.type == "vulkan"
-            assert scratch.numel() >= 65536
             print("ok")
         """
 
