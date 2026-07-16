@@ -905,7 +905,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"2d3c8492f2fd6b5c165d9bf921c2786c4689a3af"},
+            {"25b66ba0b8bcb641ddafc2be091f55884eb17077"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -914,7 +914,7 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a"
+                "11579e6b7f39c5a28ad140a59d0c89aa16956142745a3630a57c1b85aa03a824"
             },
         )
         for payload in payloads:
@@ -1035,6 +1035,15 @@ class TestVulkanGraphEvidence(TestCase):
                             "end_live_bytes",
                             "high_water_bytes",
                             "peak_delta_bytes",
+                            "residency",
+                        },
+                    )
+                    self.assertEqual(
+                        set(phase["residency"]),
+                        {
+                            "allocator",
+                            "linear_pack",
+                            "packed_weight_cache",
                         },
                     )
                     self.assertGreaterEqual(
@@ -1157,7 +1166,7 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_dav2_submit_origins = {
-            "total_queue_submits": 52,
+            "total_queue_submits": 42,
             "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
@@ -1172,7 +1181,7 @@ class TestVulkanGraphEvidence(TestCase):
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 48,
+            "pending_command_flush": 38,
             "unknown": 0,
         }
         for payload in (dav2_census, dav2_parity):
@@ -1208,7 +1217,7 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_paddle_submit_origins = {
-            "total_queue_submits": 46,
+            "total_queue_submits": 32,
             "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
@@ -1223,7 +1232,7 @@ class TestVulkanGraphEvidence(TestCase):
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 42,
+            "pending_command_flush": 28,
             "unknown": 0,
         }
         for payload in (paddle_census, paddle_parity):

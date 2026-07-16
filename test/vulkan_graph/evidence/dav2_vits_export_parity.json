@@ -9,21 +9,25 @@
         "instruction_count": 404,
         "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 614,
+        "last_submission_value": 604,
         "list_argument_count": 53,
         "list_projection_instruction_count": 20,
         "mode": "cpp_plan",
         "output_count": 1,
         "plan_class": "VulkanGraphPlan",
         "plan_version": "v8",
+        "planning_execution_phase": "none",
+        "planning_fixed_shape_graph_input_sizes": null,
+        "planning_model_domain": "generic",
+        "planning_prefer_packed_layout_propagation": false,
         "reason": "immutable_ivalue_ssa_plan",
         "status": "compiled",
         "submission_owned": true,
         "value_count": 425
       },
       "graph_vs_cpu": {
-        "max_abs": 0.003577709197998047,
-        "mean_abs": 0.002767107682302594,
+        "max_abs": 0.00311279296875,
+        "mean_abs": 0.002402833430096507,
         "tensor_leaf_count": 1
       },
       "graph_vs_eager_vulkan": {
@@ -47,22 +51,759 @@
           "baseline_live_bytes": 211762480,
           "end_live_bytes": 297094256,
           "high_water_bytes": 313946696,
-          "peak_delta_bytes": 102184216
+          "peak_delta_bytes": 102184216,
+          "residency": {
+            "allocator": {
+              "allocated_bytes": 297094256,
+              "allocation_count": 630,
+              "by_kind": [
+                {
+                  "allocated_bytes": 297094256,
+                  "allocation_count": 630,
+                  "value": "buffer"
+                }
+              ],
+              "by_label": [
+                {
+                  "allocated_bytes": 78400,
+                  "allocation_count": 1,
+                  "value": "cpu_readback.buffer_pack"
+                },
+                {
+                  "allocated_bytes": 4608,
+                  "allocation_count": 96,
+                  "value": "linear"
+                },
+                {
+                  "allocated_bytes": 170035200,
+                  "allocation_count": 144,
+                  "value": "linear.pack"
+                },
+                {
+                  "allocated_bytes": 126976048,
+                  "allocation_count": 389,
+                  "value": "unlabeled"
+                }
+              ],
+              "by_role": [
+                {
+                  "allocated_bytes": 83008,
+                  "allocation_count": 97,
+                  "value": "activation_temp_or_unknown"
+                },
+                {
+                  "allocated_bytes": 170035200,
+                  "allocation_count": 144,
+                  "value": "packed_linear_storage"
+                },
+                {
+                  "allocated_bytes": 126976048,
+                  "allocation_count": 389,
+                  "value": "raw_tensor_or_unknown"
+                }
+              ],
+              "by_state": [
+                {
+                  "allocated_bytes": 297094256,
+                  "allocation_count": 630,
+                  "value": "live"
+                }
+              ],
+              "owned_allocated_bytes": 297094256,
+              "requested_bytes": 297094256
+            },
+            "linear_pack": {
+              "count": 48,
+              "created": 48,
+              "packed_bytes": 85100544,
+              "raw_bias_bytes": 165888,
+              "raw_weight_bytes": 84934656,
+              "raw_weight_vulkan": 48,
+              "retain_unpacked": 0,
+              "reused": 0,
+              "row_count": 4
+            },
+            "packed_weight_cache": {
+              "cache_limit_bytes": 2147483648,
+              "evictions": 0,
+              "hits": 0,
+              "live_bytes": 103463568,
+              "live_entries": 81,
+              "live_persistent_bytes": 103463568,
+              "lookups": 81,
+              "manager_cache_bytes": 103463568,
+              "manager_persistent_cache_bytes": 103463568,
+              "mismatch_bias": 77,
+              "mismatch_context_device": 3,
+              "mismatch_provenance_source": 80,
+              "mismatch_shape_stride_dtype": 20,
+              "mismatch_storage_identity": 80,
+              "mismatch_tensor_impl": 80,
+              "mismatch_version": 0,
+              "miss_empty_cache": 1,
+              "miss_no_match": 80,
+              "misses": 81,
+              "persistent_evictions": 0,
+              "pruned_expired_sources": 0,
+              "stores": 81,
+              "transient_evictions": 0
+            }
+          }
         },
         "graph_first": {
           "baseline_live_bytes": 297094256,
           "end_live_bytes": 300468144,
-          "high_water_bytes": 311817824,
-          "peak_delta_bytes": 14723568
+          "high_water_bytes": 310997316,
+          "peak_delta_bytes": 13903060,
+          "residency": {
+            "allocator": {
+              "allocated_bytes": 300468144,
+              "allocation_count": 733,
+              "by_kind": [
+                {
+                  "allocated_bytes": 300468144,
+                  "allocation_count": 733,
+                  "value": "buffer"
+                }
+              ],
+              "by_label": [
+                {
+                  "allocated_bytes": 78400,
+                  "allocation_count": 1,
+                  "value": "cpu_readback.buffer_pack"
+                },
+                {
+                  "allocated_bytes": 9216,
+                  "allocation_count": 192,
+                  "value": "linear"
+                },
+                {
+                  "allocated_bytes": 170035200,
+                  "allocation_count": 144,
+                  "value": "linear.pack"
+                },
+                {
+                  "allocated_bytes": 130345328,
+                  "allocation_count": 396,
+                  "value": "unlabeled"
+                }
+              ],
+              "by_role": [
+                {
+                  "allocated_bytes": 87616,
+                  "allocation_count": 193,
+                  "value": "activation_temp_or_unknown"
+                },
+                {
+                  "allocated_bytes": 170035200,
+                  "allocation_count": 144,
+                  "value": "packed_linear_storage"
+                },
+                {
+                  "allocated_bytes": 130345328,
+                  "allocation_count": 396,
+                  "value": "raw_tensor_or_unknown"
+                }
+              ],
+              "by_state": [
+                {
+                  "allocated_bytes": 300468144,
+                  "allocation_count": 733,
+                  "value": "live"
+                }
+              ],
+              "owned_allocated_bytes": 300468144,
+              "requested_bytes": 300468144
+            },
+            "linear_pack": {
+              "count": 0,
+              "created": 0,
+              "packed_bytes": 0,
+              "raw_bias_bytes": 0,
+              "raw_weight_bytes": 0,
+              "raw_weight_vulkan": 0,
+              "retain_unpacked": 0,
+              "reused": 0,
+              "row_count": 0
+            },
+            "packed_weight_cache": {
+              "cache_limit_bytes": 2147483648,
+              "evictions": 0,
+              "hits": 0,
+              "live_bytes": 103906512,
+              "live_entries": 83,
+              "live_persistent_bytes": 103906512,
+              "lookups": 2,
+              "manager_cache_bytes": 103906512,
+              "manager_persistent_cache_bytes": 103906512,
+              "mismatch_bias": 2,
+              "mismatch_context_device": 0,
+              "mismatch_provenance_source": 2,
+              "mismatch_shape_stride_dtype": 0,
+              "mismatch_storage_identity": 2,
+              "mismatch_tensor_impl": 2,
+              "mismatch_version": 0,
+              "miss_empty_cache": 0,
+              "miss_no_match": 2,
+              "misses": 2,
+              "persistent_evictions": 0,
+              "pruned_expired_sources": 0,
+              "stores": 2,
+              "transient_evictions": 0
+            }
+          }
         },
         "graph_repeat_with_prior_output_live": {
           "baseline_live_bytes": 300468144,
           "end_live_bytes": 300546544,
-          "high_water_bytes": 311075716,
-          "peak_delta_bytes": 10607572
+          "high_water_bytes": 313378160,
+          "peak_delta_bytes": 12910016,
+          "residency": {
+            "allocator": {
+              "allocated_bytes": 300546544,
+              "allocation_count": 734,
+              "by_kind": [
+                {
+                  "allocated_bytes": 300546544,
+                  "allocation_count": 734,
+                  "value": "buffer"
+                }
+              ],
+              "by_label": [
+                {
+                  "allocated_bytes": 78400,
+                  "allocation_count": 1,
+                  "value": "cpu_readback.buffer_pack"
+                },
+                {
+                  "allocated_bytes": 9216,
+                  "allocation_count": 192,
+                  "value": "linear"
+                },
+                {
+                  "allocated_bytes": 170035200,
+                  "allocation_count": 144,
+                  "value": "linear.pack"
+                },
+                {
+                  "allocated_bytes": 130423728,
+                  "allocation_count": 397,
+                  "value": "unlabeled"
+                }
+              ],
+              "by_role": [
+                {
+                  "allocated_bytes": 87616,
+                  "allocation_count": 193,
+                  "value": "activation_temp_or_unknown"
+                },
+                {
+                  "allocated_bytes": 170035200,
+                  "allocation_count": 144,
+                  "value": "packed_linear_storage"
+                },
+                {
+                  "allocated_bytes": 130423728,
+                  "allocation_count": 397,
+                  "value": "raw_tensor_or_unknown"
+                }
+              ],
+              "by_state": [
+                {
+                  "allocated_bytes": 300546544,
+                  "allocation_count": 734,
+                  "value": "live"
+                }
+              ],
+              "owned_allocated_bytes": 300546544,
+              "requested_bytes": 300546544
+            },
+            "linear_pack": {
+              "count": 0,
+              "created": 0,
+              "packed_bytes": 0,
+              "raw_bias_bytes": 0,
+              "raw_weight_bytes": 0,
+              "raw_weight_vulkan": 0,
+              "retain_unpacked": 0,
+              "reused": 0,
+              "row_count": 0
+            },
+            "packed_weight_cache": {
+              "cache_limit_bytes": 2147483648,
+              "evictions": 0,
+              "hits": 2,
+              "live_bytes": 103906512,
+              "live_entries": 83,
+              "live_persistent_bytes": 103906512,
+              "lookups": 2,
+              "manager_cache_bytes": 103906512,
+              "manager_persistent_cache_bytes": 103906512,
+              "mismatch_bias": 0,
+              "mismatch_context_device": 0,
+              "mismatch_provenance_source": 0,
+              "mismatch_shape_stride_dtype": 0,
+              "mismatch_storage_identity": 0,
+              "mismatch_tensor_impl": 0,
+              "mismatch_version": 0,
+              "miss_empty_cache": 0,
+              "miss_no_match": 0,
+              "misses": 0,
+              "persistent_evictions": 0,
+              "pruned_expired_sources": 0,
+              "stores": 0,
+              "transient_evictions": 0
+            }
+          }
         }
       },
       "name": "normal",
+      "planning_diagnostics": {
+        "supported_eager": {
+          "route_decisions": [
+            {
+              "count": 29,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "buffer_float_conv2d",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedBufferFloatConv2d"
+            },
+            {
+              "count": 2,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "dynamic_pointwise_conv1x1_direct_buffer",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedDynamicPointwiseConv1x1DirectBuffer"
+            }
+          ],
+          "route_lanes": [
+            "Generic"
+          ],
+          "runtime_execution_phases": [
+            "None"
+          ],
+          "runtime_inferred_from_label_count": 0,
+          "runtime_model_domains": [
+            "Generic"
+          ],
+          "runtime_policies": [
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 29,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Bias",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 31,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Input",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 33,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Weight",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 201,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Elementwise",
+              "tensor_role": "Input",
+              "workload": "Elementwise"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 144,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "LinearMatmul",
+              "tensor_role": "Input",
+              "workload": "LinearMatmul"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 28,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Norm",
+              "tensor_role": "Input",
+              "workload": "Norm"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 12,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Reduction",
+              "tensor_role": "Input",
+              "workload": "Reduction"
+            }
+          ]
+        },
+        "vulkan_graph_program_first": {
+          "route_decisions": [
+            {
+              "count": 29,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "buffer_float_conv2d",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedBufferFloatConv2d"
+            },
+            {
+              "count": 2,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "dynamic_pointwise_conv1x1_direct_buffer",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedDynamicPointwiseConv1x1DirectBuffer"
+            }
+          ],
+          "route_lanes": [
+            "Generic"
+          ],
+          "runtime_execution_phases": [
+            "None"
+          ],
+          "runtime_inferred_from_label_count": 0,
+          "runtime_model_domains": [
+            "Generic"
+          ],
+          "runtime_policies": [
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Bias",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 31,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Input",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Weight",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 157,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Elementwise",
+              "tensor_role": "Input",
+              "workload": "Elementwise"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 144,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "LinearMatmul",
+              "tensor_role": "Input",
+              "workload": "LinearMatmul"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 6,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Norm",
+              "tensor_role": "Input",
+              "workload": "Norm"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 12,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Reduction",
+              "tensor_role": "Input",
+              "workload": "Reduction"
+            }
+          ]
+        },
+        "vulkan_graph_program_repeat": {
+          "route_decisions": [
+            {
+              "count": 29,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "buffer_float_conv2d",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedBufferFloatConv2d"
+            },
+            {
+              "count": 2,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "dynamic_pointwise_conv1x1_direct_buffer",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedDynamicPointwiseConv1x1DirectBuffer"
+            }
+          ],
+          "route_lanes": [
+            "Generic"
+          ],
+          "runtime_execution_phases": [
+            "None"
+          ],
+          "runtime_inferred_from_label_count": 0,
+          "runtime_model_domains": [
+            "Generic"
+          ],
+          "runtime_policies": [
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Bias",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 31,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Input",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Weight",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 157,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Elementwise",
+              "tensor_role": "Input",
+              "workload": "Elementwise"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 144,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "LinearMatmul",
+              "tensor_role": "Input",
+              "workload": "LinearMatmul"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 6,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Norm",
+              "tensor_role": "Input",
+              "workload": "Norm"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 12,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Reduction",
+              "tensor_role": "Input",
+              "workload": "Reduction"
+            }
+          ]
+        }
+      },
       "submission_counters": {
         "graph_program_invocation": {
           "aborted_submit": 0,
@@ -83,7 +824,7 @@
           "fallback_readback": 0,
           "host_upload": 2,
           "normal_cmd_submit_frequency": 0,
-          "pending_command_flush": 48,
+          "pending_command_flush": 38,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
@@ -92,75 +833,75 @@
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 52,
+          "total_queue_submits": 42,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.04633240000111982,
-        "repeated_run_seconds_reference_only": 0.03832210000109626,
+        "first_run_seconds": 0.1344097000110196,
+        "repeated_run_seconds_reference_only": 0.13507089999620803,
         "supported_default_latency": {
           "graph_invocation_generation_after": 15,
           "graph_invocation_generation_before": 2,
           "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
           "measurement_order": "supported_eager_first_on_even_rounds",
           "measurement_repeats_per_surface": 10,
-          "median_delta_percent": -66.70095104969053,
-          "median_ratio_graph_over_eager": 0.33299048950309457,
+          "median_delta_percent": -65.38582391743329,
+          "median_ratio_graph_over_eager": 0.3461417608256671,
           "method": "alternating_completed_device_resident_invocations",
           "output_readback_in_timed_region": false,
           "supported_eager": {
             "count": 10,
-            "max_seconds": 0.19225810000352794,
-            "mean_seconds": 0.13307451000073342,
-            "median_seconds": 0.12299089999942225,
-            "min_seconds": 0.11322750000545057,
-            "p90_seconds": 0.17385256000270602,
-            "p95_seconds": 0.18305533000311697,
+            "max_seconds": 0.12325699999928474,
+            "mean_seconds": 0.11313416000193684,
+            "median_seconds": 0.11138760000176262,
+            "min_seconds": 0.10877540000365116,
+            "p90_seconds": 0.12062197999912314,
+            "p95_seconds": 0.12193948999920394,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.11538339999970049,
-              0.11322750000545057,
-              0.12533379999513272,
-              0.11482309999701101,
-              0.12064800000371179,
-              0.13381079999817302,
-              0.1718075000026147,
-              0.19225810000352794,
-              0.12998289999814006,
-              0.11347000000387197
+              0.11405920000106562,
+              0.11177909999969415,
+              0.11046030001307372,
+              0.11238569999113679,
+              0.12325699999928474,
+              0.12032919999910519,
+              0.10877540000365116,
+              0.11039570000139065,
+              0.10890390000713523,
+              0.11099610000383109
             ],
-            "stdev_seconds": 0.02579090676136182
+            "stdev_seconds": 0.004621757766116702
           },
           "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
           "vulkan_graph_program": {
             "count": 10,
-            "max_seconds": 0.06544359999679727,
-            "mean_seconds": 0.04427511999820126,
-            "median_seconds": 0.04095479999523377,
-            "min_seconds": 0.03765410000050906,
-            "p90_seconds": 0.05285881000527297,
-            "p95_seconds": 0.05915120500103511,
+            "max_seconds": 0.04432870000891853,
+            "mean_seconds": 0.03928699999960372,
+            "median_seconds": 0.038555899998755194,
+            "min_seconds": 0.03664629999548197,
+            "p90_seconds": 0.043210989997896826,
+            "p95_seconds": 0.04376984500340768,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.04154029999335762,
-              0.03765410000050906,
-              0.046126999994157813,
-              0.038676999996823724,
-              0.04020840000157477,
-              0.04036929999710992,
-              0.051460500006214716,
-              0.06544359999679727,
-              0.041696499996760394,
-              0.039574499998707324
+              0.0404007999895839,
+              0.03701280000677798,
+              0.0381409999972675,
+              0.03664629999548197,
+              0.04432870000891853,
+              0.0430867999966722,
+              0.039438599997083656,
+              0.037638100009644404,
+              0.03897080000024289,
+              0.037206099994364195
             ],
-            "stdev_seconds": 0.008039642626086432
+            "stdev_seconds": 0.002484519038996153
           },
           "warmup_repeats_per_surface": 3
         }
@@ -184,21 +925,25 @@
         "instruction_count": 404,
         "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 1069,
+        "last_submission_value": 1049,
         "list_argument_count": 53,
         "list_projection_instruction_count": 20,
         "mode": "cpp_plan",
         "output_count": 1,
         "plan_class": "VulkanGraphPlan",
         "plan_version": "v8",
+        "planning_execution_phase": "none",
+        "planning_fixed_shape_graph_input_sizes": null,
+        "planning_model_domain": "generic",
+        "planning_prefer_packed_layout_propagation": false,
         "reason": "immutable_ivalue_ssa_plan",
         "status": "compiled",
         "submission_owned": true,
         "value_count": 425
       },
       "graph_vs_cpu": {
-        "max_abs": 0.001529693603515625,
-        "mean_abs": 0.0006073581171222031,
+        "max_abs": 0.0015354156494140625,
+        "mean_abs": 0.0005480061518028378,
         "tensor_leaf_count": 1
       },
       "graph_vs_eager_vulkan": {
@@ -209,16 +954,22 @@
       "guard": {
         "rejected_program_message": "VulkanGraphProgram exported input guard failed: Guard failed: 0.1 + torch.sym_float(x.size()[3] // 14) == 10.1",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.8087669999949867,
+        "variant_compile_seconds": 2.940936099999817,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "fdefdc028143d01da271042b31fe78ab1b2cb0ed99e6e13166fe1d010186f4d3",
+          "graph_hash": "bdcafc41267a3018167ddb9fb811b8387139b828705a7d36528e5820cd9fd743",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
+          "planning_context": {
+            "execution_phase": "none",
+            "fixed_shape_graph_input_sizes": null,
+            "model_domain": "generic",
+            "prefer_packed_layout_propagation": false
+          },
           "state_fingerprint": "0f1656525d53216fd5ed59a80684369e31e170af01f612f7232007740be69a3b",
           "vendor_id": 4098
         }
@@ -236,22 +987,759 @@
           "baseline_live_bytes": 406526464,
           "end_live_bytes": 406858368,
           "high_water_bytes": 442047900,
-          "peak_delta_bytes": 35521436
+          "peak_delta_bytes": 35521436,
+          "residency": {
+            "allocator": {
+              "allocated_bytes": 406858368,
+              "allocation_count": 974,
+              "by_kind": [
+                {
+                  "allocated_bytes": 406858368,
+                  "allocation_count": 974,
+                  "value": "buffer"
+                }
+              ],
+              "by_label": [
+                {
+                  "allocated_bytes": 235200,
+                  "allocation_count": 2,
+                  "value": "cpu_readback.buffer_pack"
+                },
+                {
+                  "allocated_bytes": 9216,
+                  "allocation_count": 192,
+                  "value": "linear"
+                },
+                {
+                  "allocated_bytes": 255135744,
+                  "allocation_count": 240,
+                  "value": "linear.pack"
+                },
+                {
+                  "allocated_bytes": 151478208,
+                  "allocation_count": 540,
+                  "value": "unlabeled"
+                }
+              ],
+              "by_role": [
+                {
+                  "allocated_bytes": 244416,
+                  "allocation_count": 194,
+                  "value": "activation_temp_or_unknown"
+                },
+                {
+                  "allocated_bytes": 255135744,
+                  "allocation_count": 240,
+                  "value": "packed_linear_storage"
+                },
+                {
+                  "allocated_bytes": 151478208,
+                  "allocation_count": 540,
+                  "value": "raw_tensor_or_unknown"
+                }
+              ],
+              "by_state": [
+                {
+                  "allocated_bytes": 406858368,
+                  "allocation_count": 974,
+                  "value": "live"
+                }
+              ],
+              "owned_allocated_bytes": 406858368,
+              "requested_bytes": 406858368
+            },
+            "linear_pack": {
+              "count": 48,
+              "created": 0,
+              "packed_bytes": 85100544,
+              "raw_bias_bytes": 165888,
+              "raw_weight_bytes": 84934656,
+              "raw_weight_vulkan": 48,
+              "retain_unpacked": 0,
+              "reused": 48,
+              "row_count": 4
+            },
+            "packed_weight_cache": {
+              "cache_limit_bytes": 2147483648,
+              "evictions": 0,
+              "hits": 81,
+              "live_bytes": 103906512,
+              "live_entries": 83,
+              "live_persistent_bytes": 103906512,
+              "lookups": 81,
+              "manager_cache_bytes": 103906512,
+              "manager_persistent_cache_bytes": 103906512,
+              "mismatch_bias": 0,
+              "mismatch_context_device": 0,
+              "mismatch_provenance_source": 0,
+              "mismatch_shape_stride_dtype": 0,
+              "mismatch_storage_identity": 0,
+              "mismatch_tensor_impl": 0,
+              "mismatch_version": 0,
+              "miss_empty_cache": 0,
+              "miss_no_match": 0,
+              "misses": 0,
+              "persistent_evictions": 0,
+              "pruned_expired_sources": 0,
+              "stores": 0,
+              "transient_evictions": 0
+            }
+          }
         },
         "graph_first": {
           "baseline_live_bytes": 406858368,
           "end_live_bytes": 413575936,
-          "high_water_bytes": 436271216,
-          "peak_delta_bytes": 29412848
+          "high_water_bytes": 436571472,
+          "peak_delta_bytes": 29713104,
+          "residency": {
+            "allocator": {
+              "allocated_bytes": 413575936,
+              "allocation_count": 1077,
+              "by_kind": [
+                {
+                  "allocated_bytes": 413575936,
+                  "allocation_count": 1077,
+                  "value": "buffer"
+                }
+              ],
+              "by_label": [
+                {
+                  "allocated_bytes": 235200,
+                  "allocation_count": 2,
+                  "value": "cpu_readback.buffer_pack"
+                },
+                {
+                  "allocated_bytes": 13824,
+                  "allocation_count": 288,
+                  "value": "linear"
+                },
+                {
+                  "allocated_bytes": 255135744,
+                  "allocation_count": 240,
+                  "value": "linear.pack"
+                },
+                {
+                  "allocated_bytes": 158191168,
+                  "allocation_count": 547,
+                  "value": "unlabeled"
+                }
+              ],
+              "by_role": [
+                {
+                  "allocated_bytes": 249024,
+                  "allocation_count": 290,
+                  "value": "activation_temp_or_unknown"
+                },
+                {
+                  "allocated_bytes": 255135744,
+                  "allocation_count": 240,
+                  "value": "packed_linear_storage"
+                },
+                {
+                  "allocated_bytes": 158191168,
+                  "allocation_count": 547,
+                  "value": "raw_tensor_or_unknown"
+                }
+              ],
+              "by_state": [
+                {
+                  "allocated_bytes": 413575936,
+                  "allocation_count": 1077,
+                  "value": "live"
+                }
+              ],
+              "owned_allocated_bytes": 413575936,
+              "requested_bytes": 413575936
+            },
+            "linear_pack": {
+              "count": 0,
+              "created": 0,
+              "packed_bytes": 0,
+              "raw_bias_bytes": 0,
+              "raw_weight_bytes": 0,
+              "raw_weight_vulkan": 0,
+              "retain_unpacked": 0,
+              "reused": 0,
+              "row_count": 0
+            },
+            "packed_weight_cache": {
+              "cache_limit_bytes": 2147483648,
+              "evictions": 0,
+              "hits": 0,
+              "live_bytes": 104349456,
+              "live_entries": 85,
+              "live_persistent_bytes": 104349456,
+              "lookups": 2,
+              "manager_cache_bytes": 104349456,
+              "manager_persistent_cache_bytes": 104349456,
+              "mismatch_bias": 2,
+              "mismatch_context_device": 0,
+              "mismatch_provenance_source": 2,
+              "mismatch_shape_stride_dtype": 0,
+              "mismatch_storage_identity": 2,
+              "mismatch_tensor_impl": 2,
+              "mismatch_version": 0,
+              "miss_empty_cache": 0,
+              "miss_no_match": 2,
+              "misses": 2,
+              "persistent_evictions": 0,
+              "pruned_expired_sources": 0,
+              "stores": 2,
+              "transient_evictions": 0
+            }
+          }
         },
         "graph_repeat_with_prior_output_live": {
           "baseline_live_bytes": 413575936,
           "end_live_bytes": 413732736,
-          "high_water_bytes": 436017888,
-          "peak_delta_bytes": 22441952
+          "high_water_bytes": 443912496,
+          "peak_delta_bytes": 30336560,
+          "residency": {
+            "allocator": {
+              "allocated_bytes": 413732736,
+              "allocation_count": 1078,
+              "by_kind": [
+                {
+                  "allocated_bytes": 413732736,
+                  "allocation_count": 1078,
+                  "value": "buffer"
+                }
+              ],
+              "by_label": [
+                {
+                  "allocated_bytes": 235200,
+                  "allocation_count": 2,
+                  "value": "cpu_readback.buffer_pack"
+                },
+                {
+                  "allocated_bytes": 13824,
+                  "allocation_count": 288,
+                  "value": "linear"
+                },
+                {
+                  "allocated_bytes": 255135744,
+                  "allocation_count": 240,
+                  "value": "linear.pack"
+                },
+                {
+                  "allocated_bytes": 158347968,
+                  "allocation_count": 548,
+                  "value": "unlabeled"
+                }
+              ],
+              "by_role": [
+                {
+                  "allocated_bytes": 249024,
+                  "allocation_count": 290,
+                  "value": "activation_temp_or_unknown"
+                },
+                {
+                  "allocated_bytes": 255135744,
+                  "allocation_count": 240,
+                  "value": "packed_linear_storage"
+                },
+                {
+                  "allocated_bytes": 158347968,
+                  "allocation_count": 548,
+                  "value": "raw_tensor_or_unknown"
+                }
+              ],
+              "by_state": [
+                {
+                  "allocated_bytes": 413732736,
+                  "allocation_count": 1078,
+                  "value": "live"
+                }
+              ],
+              "owned_allocated_bytes": 413732736,
+              "requested_bytes": 413732736
+            },
+            "linear_pack": {
+              "count": 0,
+              "created": 0,
+              "packed_bytes": 0,
+              "raw_bias_bytes": 0,
+              "raw_weight_bytes": 0,
+              "raw_weight_vulkan": 0,
+              "retain_unpacked": 0,
+              "reused": 0,
+              "row_count": 0
+            },
+            "packed_weight_cache": {
+              "cache_limit_bytes": 2147483648,
+              "evictions": 0,
+              "hits": 2,
+              "live_bytes": 104349456,
+              "live_entries": 85,
+              "live_persistent_bytes": 104349456,
+              "lookups": 2,
+              "manager_cache_bytes": 104349456,
+              "manager_persistent_cache_bytes": 104349456,
+              "mismatch_bias": 0,
+              "mismatch_context_device": 0,
+              "mismatch_provenance_source": 0,
+              "mismatch_shape_stride_dtype": 0,
+              "mismatch_storage_identity": 0,
+              "mismatch_tensor_impl": 0,
+              "mismatch_version": 0,
+              "miss_empty_cache": 0,
+              "miss_no_match": 0,
+              "misses": 0,
+              "persistent_evictions": 0,
+              "pruned_expired_sources": 0,
+              "stores": 0,
+              "transient_evictions": 0
+            }
+          }
         }
       },
       "name": "alternate",
+      "planning_diagnostics": {
+        "supported_eager": {
+          "route_decisions": [
+            {
+              "count": 29,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "buffer_float_conv2d",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedBufferFloatConv2d"
+            },
+            {
+              "count": 2,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "dynamic_pointwise_conv1x1_direct_buffer",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedDynamicPointwiseConv1x1DirectBuffer"
+            }
+          ],
+          "route_lanes": [
+            "Generic"
+          ],
+          "runtime_execution_phases": [
+            "None"
+          ],
+          "runtime_inferred_from_label_count": 0,
+          "runtime_model_domains": [
+            "Generic"
+          ],
+          "runtime_policies": [
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 29,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Bias",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 31,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Input",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 33,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Weight",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 199,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Elementwise",
+              "tensor_role": "Input",
+              "workload": "Elementwise"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 144,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "LinearMatmul",
+              "tensor_role": "Input",
+              "workload": "LinearMatmul"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 28,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Norm",
+              "tensor_role": "Input",
+              "workload": "Norm"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 12,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Reduction",
+              "tensor_role": "Input",
+              "workload": "Reduction"
+            }
+          ]
+        },
+        "vulkan_graph_program_first": {
+          "route_decisions": [
+            {
+              "count": 29,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "buffer_float_conv2d",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedBufferFloatConv2d"
+            },
+            {
+              "count": 2,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "dynamic_pointwise_conv1x1_direct_buffer",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedDynamicPointwiseConv1x1DirectBuffer"
+            }
+          ],
+          "route_lanes": [
+            "Generic"
+          ],
+          "runtime_execution_phases": [
+            "None"
+          ],
+          "runtime_inferred_from_label_count": 0,
+          "runtime_model_domains": [
+            "Generic"
+          ],
+          "runtime_policies": [
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Bias",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 31,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Input",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Weight",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 155,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Elementwise",
+              "tensor_role": "Input",
+              "workload": "Elementwise"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 144,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "LinearMatmul",
+              "tensor_role": "Input",
+              "workload": "LinearMatmul"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 6,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Norm",
+              "tensor_role": "Input",
+              "workload": "Norm"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 12,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Reduction",
+              "tensor_role": "Input",
+              "workload": "Reduction"
+            }
+          ]
+        },
+        "vulkan_graph_program_repeat": {
+          "route_decisions": [
+            {
+              "count": 29,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "buffer_float_conv2d",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedBufferFloatConv2d"
+            },
+            {
+              "count": 2,
+              "decision": "VulkanBufferDirectKernel",
+              "family": "dynamic_pointwise_conv1x1_direct_buffer",
+              "hard_fail": "0",
+              "lane": "Generic",
+              "op": "aten::convolution",
+              "reason": "None",
+              "telemetry": "SelectedDynamicPointwiseConv1x1DirectBuffer"
+            }
+          ],
+          "route_lanes": [
+            "Generic"
+          ],
+          "runtime_execution_phases": [
+            "None"
+          ],
+          "runtime_inferred_from_label_count": 0,
+          "runtime_model_domains": [
+            "Generic"
+          ],
+          "runtime_policies": [
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Bias",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 31,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Input",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 2,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Convolution",
+              "tensor_role": "Weight",
+              "workload": "Convolution"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 155,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Elementwise",
+              "tensor_role": "Input",
+              "workload": "Elementwise"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 144,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "PersistentPackedTexture",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "LinearMatmul",
+              "tensor_role": "Input",
+              "workload": "LinearMatmul"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 6,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Norm",
+              "tensor_role": "Input",
+              "workload": "Norm"
+            },
+            {
+              "attention_execution_strategy": "GenericMath",
+              "attention_kernel_family": "TextureMath",
+              "backend_route": "Vulkan",
+              "count": 12,
+              "execution_phase": "None",
+              "fixed_shape_graph": "0",
+              "inferred_from_label": "0",
+              "linear_kernel_family": "UnifiedBufferView",
+              "model_domain": "Generic",
+              "norm_kernel_family": "TextureWidth",
+              "prefer_packed_layout_propagation": "0",
+              "source_workload": "Reduction",
+              "tensor_role": "Input",
+              "workload": "Reduction"
+            }
+          ]
+        }
+      },
       "submission_counters": {
         "graph_program_invocation": {
           "aborted_submit": 0,
@@ -272,7 +1760,7 @@
           "fallback_readback": 0,
           "host_upload": 2,
           "normal_cmd_submit_frequency": 0,
-          "pending_command_flush": 48,
+          "pending_command_flush": 38,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
@@ -281,75 +1769,75 @@
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 52,
+          "total_queue_submits": 42,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.04376539999793749,
-        "repeated_run_seconds_reference_only": 0.03877389999979641,
+        "first_run_seconds": 0.13713940000161529,
+        "repeated_run_seconds_reference_only": 0.13639400000101887,
         "supported_default_latency": {
           "graph_invocation_generation_after": 15,
           "graph_invocation_generation_before": 2,
           "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
           "measurement_order": "supported_eager_first_on_even_rounds",
           "measurement_repeats_per_surface": 10,
-          "median_delta_percent": -65.45646698751013,
-          "median_ratio_graph_over_eager": 0.3454353301248987,
+          "median_delta_percent": -62.96372974982922,
+          "median_ratio_graph_over_eager": 0.3703627025017077,
           "method": "alternating_completed_device_resident_invocations",
           "output_readback_in_timed_region": false,
           "supported_eager": {
             "count": 10,
-            "max_seconds": 0.14418899999873247,
-            "mean_seconds": 0.12298421999803395,
-            "median_seconds": 0.11922274999596993,
-            "min_seconds": 0.11146719999669585,
-            "p90_seconds": 0.139284450004925,
-            "p95_seconds": 0.14173672500182874,
+            "max_seconds": 0.1295384999975795,
+            "mean_seconds": 0.11848234999924898,
+            "median_seconds": 0.11809815000015078,
+            "min_seconds": 0.11125690001063049,
+            "p90_seconds": 0.12687297000084072,
+            "p95_seconds": 0.12820573499921012,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.14418899999873247,
-              0.12567670000134967,
-              0.11170279999350896,
-              0.11369899999408517,
-              0.11445209999510553,
-              0.11502999999356689,
-              0.1314704000033089,
-              0.12341549999837298,
-              0.11146719999669585,
-              0.13873950000561308
+              0.11627120000775903,
+              0.1112870000069961,
+              0.11222209999687038,
+              0.11992509999254253,
+              0.12657680000120308,
+              0.12531199998920783,
+              0.12052009999752045,
+              0.11191379999218043,
+              0.11125690001063049,
+              0.1295384999975795
             ],
-            "stdev_seconds": 0.011222817962790836
+            "stdev_seconds": 0.006571473182059069
           },
           "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
           "vulkan_graph_program": {
             "count": 10,
-            "max_seconds": 0.04905710000457475,
-            "mean_seconds": 0.042334809999738356,
-            "median_seconds": 0.04118375000325614,
-            "min_seconds": 0.03798059999826364,
-            "p90_seconds": 0.047718799996800954,
-            "p95_seconds": 0.04838795000068785,
+            "max_seconds": 0.0495803999947384,
+            "mean_seconds": 0.04473787999886554,
+            "median_seconds": 0.0437391499945079,
+            "min_seconds": 0.042328099996666424,
+            "p90_seconds": 0.04760390999290393,
+            "p95_seconds": 0.04859215499382116,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.040457600000081584,
-              0.041064700002607424,
-              0.04172399999515619,
-              0.03798059999826364,
-              0.04064699999435106,
-              0.03844519999984186,
-              0.04130280000390485,
-              0.0475700999959372,
-              0.04905710000457475,
-              0.04509900000266498
+              0.043564499996136874,
+              0.04391379999287892,
+              0.0495803999947384,
+              0.04738429999270011,
+              0.046498600000631995,
+              0.04297969999606721,
+              0.04419440000492614,
+              0.043435400002636015,
+              0.04349960001127329,
+              0.042328099996666424
             ],
-            "stdev_seconds": 0.003517816570104905
+            "stdev_seconds": 0.002191643234178121
           },
           "warmup_repeats_per_surface": 3
         }
@@ -663,13 +2151,17 @@
     "instruction_count": 404,
     "invocation_generation": 2,
     "last_submission_complete": true,
-    "last_submission_value": 614,
+    "last_submission_value": 604,
     "list_argument_count": 53,
     "list_projection_instruction_count": 20,
     "mode": "cpp_plan",
     "output_count": 1,
     "plan_class": "VulkanGraphPlan",
     "plan_version": "v8",
+    "planning_execution_phase": "none",
+    "planning_fixed_shape_graph_input_sizes": null,
+    "planning_model_domain": "generic",
+    "planning_prefer_packed_layout_propagation": false,
     "reason": "immutable_ivalue_ssa_plan",
     "status": "compiled",
     "submission_owned": true,
@@ -723,8 +2215,8 @@
       "aten::squeeze.dim": 1,
       "aten::sym_size.int": 2,
       "aten::to.dtype": 2,
-      "aten::upsample_bicubic2d.vec": 1,
-      "aten::upsample_bilinear2d.vec": 5
+      "aten::upsample_bilinear2d.vec": 5,
+      "aten::upsample_nearest2d.vec": 1
     },
     "composite_runtime_verified": 129,
     "conditionally_supported": 0,
@@ -1626,32 +3118,42 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "9919e0d1e0f2f2a04ec661f70c9b85f3820630c23e01f80c37f938cdcbefb13e",
+    "graph_hash": "bfbc5bcc0da0ae249f3b702a5af9cc7b5ea17849ec3b4d01ee2a84c6d339a349",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
+    "planning_context": {
+      "execution_phase": "none",
+      "fixed_shape_graph_input_sizes": null,
+      "model_domain": "generic",
+      "prefer_packed_layout_propagation": false
+    },
     "state_fingerprint": "0f1656525d53216fd5ed59a80684369e31e170af01f612f7232007740be69a3b",
     "vendor_id": 4098
   },
   "runtime": {
     "api_version": "1.4.349",
-    "device": "vulkan",
+    "device": "vulkan:0",
     "device_id": 30032,
+    "device_index": 0,
+    "device_name": "AMD Radeon RX 9070",
+    "device_type": "discrete_gpu",
     "driver_version": 8389003,
     "loaded_files": {
       "c10.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\c10.dll",
-        "sha256": "fc8e8c3a1e96dd236fbe3ec1b34a41c4a7a5e7efdeb8b4f2758bbf0b6985fd3d"
+        "sha256": "46f7ebede587ded22e2d13d72bacea2501738ab6bc393d63bf9ed35b0e191c69"
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a"
+        "sha256": "11579e6b7f39c5a28ad140a59d0c89aa16956142745a3630a57c1b85aa03a824"
       }
     },
+    "total_memory_bytes": 17095983104,
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "2d3c8492f2fd6b5c165d9bf921c2786c4689a3af",
+  "source_git_sha": "25b66ba0b8bcb641ddafc2be091f55884eb17077",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,

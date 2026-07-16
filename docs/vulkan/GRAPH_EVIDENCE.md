@@ -59,9 +59,9 @@ device order.
 
 The caller-owned output directory receives measured census and parity
 artifacts. The checked-in DAv2 and PaddleOCR evidence records the v8 executor
-at source commit `2d3c8492f2fd6b5c165d9bf921c2786c4689a3af` and
+at source commit `25b66ba0b8bcb641ddafc2be091f55884eb17077` and
 `torch_cpu.dll` SHA-256
-`1f97b32f32db5f1b546736b0555b9cf8cc16d75bd00fb47155285c6648a62e9a`.
+`11579e6b7f39c5a28ad140a59d0c89aa16956142745a3630a57c1b85aa03a824`.
 The DAv2 census lowers all 12 `linear_gelu_none` candidates with no rejection;
 PaddleOCR remains the control with no such candidates. Both corpora report zero
 unsupported nodes, exact graph-versus-eager Vulkan parity, and zero runtime CPU
@@ -76,7 +76,7 @@ replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
 
-A caller-owned exact-SHA HY-MT prefill integration artifact at `ed4975687b6`
+A caller-owned exact-SHA HY-MT prefill integration artifact at `25b66ba0b8b`
 on GTX 1080 captures 3,160 nodes, lowers 225, reports zero lower-time
 unsupported nodes, executes the complete immutable C++ plan, and returns 65
 tensor outputs. The plan contains 2,732 instructions, 2,466 IValue slots, 268
@@ -84,14 +84,16 @@ ordered effects, and 129 typed list arguments. Both the four-token case and the
 guard-recompiled five-token case stay within the recorded eager/CPU tolerances
 with zero graph fallback, sync readback, or deferred-value creation. The
 five-token unaligned boolean causal-mask broadcast stays in the generic native
-buffer path. Each two-run case records 336 graph-owner checkpoint flushes, four
-host uploads, 130 evidence output readbacks, and no retire-drain submits. Graph
-diagnostics carry explicit `LLM`/`Prefill` semantics with zero label inference,
-but supported eager still reports the legacy `DepthDiffusion` lane. The
+buffer path. Each two-run case records 228 graph-owner checkpoint flushes, four
+host uploads, 130 evidence output readbacks, 362 total queue submits, and no
+retire-drain submits. Graph peak memory ranges from 4.0% below to 0.03% above
+supported eager. Graph diagnostics carry explicit `LLM`/`Prefill` semantics
+with zero label inference, but supported eager still reports the legacy
+`DepthDiffusion` lane. The
 artifact therefore advances correctness, guard, submission, and residency
-coverage without clearing lane, latency, or memory deletion gates. The raw
-caller-owned files are under
-`agent_space/hymt_planning_residency_gtx1080_exact_ed4975687b6/`.
+coverage without clearing the lane or latency-distribution deletion gates. The
+raw caller-owned files are under
+`agent_space/graph_checkpoint24_exact_25b66ba0b8b/hymt/`.
 
 The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
 candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
@@ -121,19 +123,19 @@ a complete 290-instruction, 294-value C++ plan with one ordered effect, 14 list
 arguments, and one output. It retains exact graph-versus-eager parity, stays
 within the existing CPU tolerance, and reports zero fallback, readback, or
 deferred-value creation. Each PaddleOCR shape runs twice and records two scopes,
-two final-token captures, 42 owner checkpoint flushes, two input uploads, two
-output readbacks, 46 total queue submits, and no normal-frequency or
+two final-token captures, 28 owner checkpoint flushes, two input uploads, two
+output readbacks, 32 total queue submits, and no normal-frequency or
 retire-drain submits. DAv2 reports `submission_owned=true` for the complete
 plan and both shapes. Each two-run shape records two outer scopes and final
-tokens, 48 owner checkpoint flushes, zero retire-drain submits, and 52 total
+tokens, 38 owner checkpoint flushes, zero retire-drain submits, and 42 total
 submits. The prior supported graph artifact recorded 16 scopes, 56
 retire-drain submits, and 92 total submits. Graph versus eager Vulkan remains
 exact, CPU tolerance remains satisfied, and runtime fallback, readback, and
 deferred-value counters remain zero. The current DAv2 repeated-run samples are
 supplemented by supported-default distributions with three warmups and ten
-alternating samples per surface. DAv2 graph medians are 41.0 ms and 41.2 ms
-versus eager medians of 123.0 ms and 119.2 ms; PaddleOCR graph medians are
-42.8 ms and 54.3 ms versus eager medians of 141.3 ms and 146.9 ms. Graph p95
+alternating samples per surface. DAv2 graph medians are 38.6 ms and 43.7 ms
+versus eager medians of 111.4 ms and 118.1 ms; PaddleOCR graph medians are
+44.9 ms and 51.6 ms versus eager medians of 135.4 ms and 137.9 ms. Graph p95
 is below eager p95 in all four cases, and timed fallback/readback counters stay
 zero. This clears the recorded-shape latency no-regression bar against the two
 supported defaults. The caller-owned HY-MT worktree probe retains its complete
@@ -151,10 +153,24 @@ inference to measured dispatch recording plus submit calls. Current-SHA
 consumes idle submission/queue slack rather than extending wall latency. GPU
 timestamp wall times are intentionally excluded because profiling adds a reset
 submit and substantial collection overhead. The earlier checked-in 41.0/41.2
-ms distributions remain the supported deletion baseline. The next optimization
-question is generic graph checkpoint batching, not another shape-specific
+ms distributions were its supported deletion baseline. The next optimization
+question was generic graph checkpoint batching, not another shape-specific
 operator route. Caller-owned raw reports are under
 `agent_space/dav2_graph_fixed_cost_ed4975687b6/`.
+
+The exact-SHA `25b66ba0b8b` cadence keeps eager's frequency at 16 and gives
+graph execution its own frequency of 24. DAv2 drops from 24 to 19 graph
+checkpoints per inference, PaddleOCR records 14, and caller-owned HY-MT drops
+from 168 to 114. Exact supported-default memory remains within the 5% gate for
+all three corpora. Same-binary DAv2 30-repeat medians are 40.20 ms and 36.78 ms,
+18.1% and 25.1% below the `ed4975687b6` attribution medians. Candidate
+frequencies of 64 and 32 were rejected: DAv2 at 64 and PaddleOCR at 32 exceeded
+the 5% repeat-with-live-output peak-memory gate. The accepted evidence therefore
+supports bounded fixed-cost reduction, not unrestricted checkpoint deferral.
+The next target is generic next-submission token inheritance for bounded
+conv-region scratch. Raw accepted artifacts are under
+`agent_space/graph_checkpoint24_exact_25b66ba0b8b/` and
+`agent_space/dav2_graph_checkpoint24_79080a576b0/`.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.

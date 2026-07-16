@@ -585,7 +585,20 @@ The initial catalog records the current `vits_140` performance lane:
   collection overhead. The attribution reporter now names
   `pending_command_flush` explicitly instead of misclassifying the seventeenth
   submit-origin counter as an indexed/unknown field. The earlier checked-in
-  41.0/41.2 ms distributions remain the supported deletion-gate baseline;
+  41.0/41.2 ms distributions were the supported deletion-gate baseline;
+- bounded graph checkpoint cadence: accepted default infrastructure change.
+  Exact-SHA `25b66ba0b8b` keeps eager command frequency at 16 and uses a graph
+  frequency of 24. DAv2 drops from 24 to 19 graph checkpoints per inference,
+  PaddleOCR records 14, and caller-owned HY-MT drops from 168 to 114. Exact
+  supported-default memory stays inside the 5% gate across all three corpora.
+  Same-binary DAv2 30-repeat graph medians are 40.20 ms and 36.78 ms, 18.1%
+  and 25.1% below the `ed4975687b6` attribution medians. The exact checked-in
+  DAv2 supported medians are 38.6 ms and 43.7 ms against eager at 111.4 ms and
+  118.1 ms. Frequencies of 64 and 32 were rejected because DAv2 or PaddleOCR
+  repeat-with-live-output memory exceeded 5%. This keeps the optimization
+  bounded by lifetime and memory evidence. The next fixed-cost target is
+  generic next-submission token inheritance for bounded conv-region scratch,
+  not a model-specific operator route;
 - descriptor-update allocation flattening: accepted default infrastructure fix.
   `DescriptorSet` reserves its per-set binding list to the shader layout size,
   and `get_bind_handle()` uses an inline-capacity descriptor-write list for the

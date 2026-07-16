@@ -638,7 +638,7 @@
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
       "replacement": "C++ immutable graph plans followed by recorded graph-owned command partitions.",
       "delete_when": "DAv2 and affected corpus paths use the supported graph program with correctness, dynamic-shape, repeated-output lifetime, submit, memory, and latency parity.",
-      "baseline": "Compare only with plain concrete eager and VulkanGraphProgram artifacts recorded at deletion time. Exact-SHA ed4975687b6 DAv2 attribution still records 24 pending-command checkpoints per inference and a fixed submission/queue floor, so submission and latency retirement evidence remains open.",
+      "baseline": "Compare only with plain concrete eager and VulkanGraphProgram artifacts recorded at deletion time. Exact-SHA 25b66ba0b8b records 19 DAv2, 14 PaddleOCR, and 114 HY-MT graph checkpoints per inference with supported-default correctness and peak memory inside the 5% gate. Bounded conv-region scratch still requires explicit region-exit checkpoints, so generic next-submission token inheritance and the broader subsystem retirement gate remain open.",
       "paths": [
         "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
         "aten/src/ATen/native/vulkan/ops/VisionBlocks.h",
@@ -807,7 +807,7 @@
       "summary": "Allocation-label model-lane inference and device-name policy checks. VulkanGraphPlanningContext now carries explicit request fields through graph lowering and execution; eager label/tensor inference and device-name heuristics remain isolated in LegacyPlanningInference.* and LegacyDeviceNamePolicy.h.",
       "replacement": "Program-keyed VulkanGraphPlanningContext fields applied by graph lowering and the C++ plan, plus capability-keyed device policy.",
       "delete_when": "Graph programs pass explicit planning scope, HY-MT and PaddleOCR lane/residency parity is recorded on 8 GB adapters, and no caller depends on inferred labels.",
-      "baseline": "Record supported eager and graph lane, residency, fallback, readback, and peak-memory parity before removing inference. Exact-SHA ed4975687b6 GTX 1080 HY-MT graph evidence is clean and explicit LLM/Prefill, but supported eager still resolves DepthDiffusion; lane parity and the deletion gate remain open.",
+      "baseline": "Record supported eager and graph lane, residency, fallback, readback, and peak-memory parity before removing inference. Exact-SHA 25b66ba0b8b GTX 1080 HY-MT graph evidence is clean, inside the 5% memory gate, and explicit LLM/Prefill, but supported eager still resolves DepthDiffusion; lane parity and the deletion gate remain open.",
       "paths": [
         "aten/src/ATen/native/vulkan/planning/LegacyDeviceNamePolicy.h",
         "aten/src/ATen/native/vulkan/planning/LegacyPlanningInference.*",
