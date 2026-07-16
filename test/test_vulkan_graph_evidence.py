@@ -32,6 +32,7 @@ from scripts.benchmarks.vulkan_graph_export_evidence import (
     _planning_diagnostic_summary,
     _planning_context,
     _positive_repeat_count,
+    _state_replay_mapping,
     _summarize_latency_samples,
 )
 
@@ -376,6 +377,22 @@ def _fake_static_conv2d_relu_conv2d_report(
 
 
 class TestVulkanGraphEvidence(TestCase):
+    def test_state_replay_mapping_is_explicit_and_one_to_one(self):
+        self.assertEqual(_state_replay_mapping(None), ())
+        self.assertEqual(
+            _state_replay_mapping(((2, 1), [3, 2])),
+            ((2, 1), (3, 2)),
+        )
+        for value, message in (
+            ((), "non-empty sequence"),
+            (((2, 1), (2, 3)), "input leaf indices must be unique"),
+            (((2, 1), (3, 1)), "output leaf indices must be unique"),
+            (((True, 1),), "nonnegative integer leaf indices"),
+            (((-1, 1),), "nonnegative integer leaf indices"),
+        ):
+            with self.assertRaisesRegex(ValueError, message):
+                _state_replay_mapping(value)
+
     def test_device_and_planning_diagnostics_are_structured(self):
         self.assertEqual(_device_index("1"), 1)
         with self.assertRaises(argparse.ArgumentTypeError):

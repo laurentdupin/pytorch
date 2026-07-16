@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import torch
 from torch.export._unlift import GuardsFn
+import torch.utils._pytree as pytree
 import torch.vulkan._graph as vulkan_graph
 import torch.vulkan._graph_lowering as vulkan_graph_lowering
 from scripts.benchmarks.vulkan_graph_export_evidence import _measure_case_latency
@@ -3999,6 +4000,55 @@ class TestVulkanGraph(TestCase):
             "input binding failed: runtime input tree",
         ):
             program(tensor, list(state))
+
+    def test_replays_nested_explicit_state_across_guard_variants(self):
+        class AppendState(torch.nn.Module):
+            def forward(self, token, state):
+                key, value = state
+                next_key = torch.cat((key, token), dim=1)
+                next_value = torch.cat((value, token + 1.0), dim=1)
+                return token, (next_key, next_value)
+
+        torch.manual_seed(4)
+        model = AppendState().eval()
+        first_token = torch.randn(1, 1, 4)
+        first_state = (torch.randn(1, 2, 4), torch.randn(1, 2, 4))
+        first_expected = model(first_token, first_state)
+        first_program = torch.vulkan.export_and_lower(
+            model,
+            (first_token, first_state),
+        )
+
+        second_token = torch.randn(1, 1, 4)
+        second_expected = model(second_token, first_expected[1])
+        second_program = torch.vulkan.export_and_lower(
+            model,
+            (second_token, first_expected[1]),
+        )
+        self.assertNotEqual(first_program.key, second_program.key)
+
+        first_output = first_program(first_token, first_state)
+        second_output = second_program(second_token, first_output[1])
+        self.assertEqual(
+            pytree.tree_map(
+                lambda tensor: tensor.cpu(),
+                second_output,
+            ),
+            second_expected,
+        )
+        self.assertEqual(
+            pytree.tree_map(
+                lambda tensor: tensor.cpu(),
+                first_output,
+            ),
+            first_expected,
+        )
+        for program in (first_program, second_program):
+            self.assertEqual(program.cpp_plan_report.input_count, 3)
+            self.assertEqual(program.cpp_plan_report.output_count, 3)
+            self.assertEqual(program.last_cpu_fallback_count, 0)
+            self.assertEqual(program.last_sync_readback_count, 0)
+            self.assertEqual(program.last_deferred_values_created, 0)
 
     def test_rejects_dynamic_linear_weight_before_execution(self):
         class DynamicWeightLinear(torch.nn.Module):

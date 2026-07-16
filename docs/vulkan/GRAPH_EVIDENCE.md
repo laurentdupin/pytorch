@@ -15,6 +15,7 @@ It receives `external_root` and `checkpoint` paths and returns a mapping with:
     "alternate_inputs": (cpu_tensor,),
     "dynamic_shapes": export_dynamic_shapes,
     "out_of_range_inputs": (cpu_tensor,),
+    "state_replay_input_from_output": ((target_leaf, source_leaf),),
 }
 ```
 
@@ -24,6 +25,15 @@ rejected by the exported guard. The harness runs CPU export, graph lowering,
 eager Vulkan and CPU parity references, and a readback-separated repeated
 graph reference run. It forces the remaining eager deferred canaries off for
 the graph execution.
+
+`state_replay_input_from_output` is optional. Each row maps one flattened leaf
+of `alternate_inputs` to a flattened output leaf from the normal graph program.
+When present, the harness runs the normal program, replaces the declared
+alternate CPU state leaves with its still-device-resident outputs, and invokes
+the alternate guard variant. It verifies source-state parity, target-output
+parity, zero implicit host boundaries, and source-output lifetime after the
+target invocation. This is an explicit state protocol; it cannot infer state
+from model names or silently copy state through CPU.
 
 Some model frontends export a guard-specialized program even when the adapter
 supplies a broader symbolic policy. If the normal program rejects the legal

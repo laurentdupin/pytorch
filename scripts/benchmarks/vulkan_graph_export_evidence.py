@@ -222,6 +222,37 @@ def _input_shapes(args: tuple[Any, ...]) -> list[list[int]]:
     return [list(tensor.shape) for tensor in _tensor_leaves(args)]
 
 
+def _state_replay_mapping(value: Any) -> tuple[tuple[int, int], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, tuple | list) or not value:
+        raise ValueError(
+            "Adapter state_replay_input_from_output must be a non-empty sequence"
+        )
+    mapping: list[tuple[int, int]] = []
+    for index, pair in enumerate(value):
+        if (
+            not isinstance(pair, tuple | list)
+            or len(pair) != 2
+            or any(
+                type(leaf_index) is not int or leaf_index < 0
+                for leaf_index in pair
+            )
+        ):
+            raise ValueError(
+                "Adapter state replay mapping row "
+                f"{index} must contain two nonnegative integer leaf indices"
+            )
+        mapping.append((pair[0], pair[1]))
+    input_indices = [input_index for input_index, _ in mapping]
+    output_indices = [output_index for _, output_index in mapping]
+    if len(set(input_indices)) != len(input_indices):
+        raise ValueError("Adapter state replay input leaf indices must be unique")
+    if len(set(output_indices)) != len(output_indices):
+        raise ValueError("Adapter state replay output leaf indices must be unique")
+    return tuple(mapping)
+
+
 def _planning_context(
     args: argparse.Namespace,
     inputs: tuple[Any, ...],
@@ -988,6 +1019,134 @@ def _run_case(
     )
 
 
+def _run_state_replay(
+    mapping: tuple[tuple[int, int], ...],
+    source_program: torch.vulkan.VulkanGraphProgram,
+    target_program: torch.vulkan.VulkanGraphProgram,
+    cpu_model: torch.nn.Module,
+    source_args: tuple[Any, ...],
+    target_args: tuple[Any, ...],
+    cpu_atol: float,
+    cpu_rtol: float,
+) -> dict[str, Any]:
+    if source_program.cpp_plan is None or target_program.cpp_plan is None:
+        raise RuntimeError("State replay requires compiled C++ graph plans")
+    with torch.inference_mode():
+        source_expected = cpu_model(*source_args)
+        target_expected = cpu_model(*target_args)
+        target_input_leaves, target_input_spec = pytree.tree_flatten(target_args)
+        source_generation_before = source_program.cpp_plan.invocation_generation()
+        target_generation_before = target_program.cpp_plan.invocation_generation()
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+        source_output = source_program(*source_args)
+        source_output_leaves, source_output_spec = pytree.tree_flatten(source_output)
+        replay_input_leaves = list(target_input_leaves)
+        mapping_rows = []
+        for input_index, output_index in mapping:
+            if input_index >= len(replay_input_leaves):
+                raise RuntimeError(
+                    f"State replay input leaf index {input_index} is out of range"
+                )
+            if output_index >= len(source_output_leaves):
+                raise RuntimeError(
+                    f"State replay output leaf index {output_index} is out of range"
+                )
+            expected_input = replay_input_leaves[input_index]
+            source_value = source_output_leaves[output_index]
+            if not isinstance(expected_input, torch.Tensor) or not isinstance(
+                source_value, torch.Tensor
+            ):
+                raise RuntimeError("State replay mappings must connect Tensor leaves")
+            if source_value.device.type != "vulkan":
+                raise RuntimeError("State replay source Tensor must remain on Vulkan")
+            if (
+                source_value.shape != expected_input.shape
+                or source_value.dtype != expected_input.dtype
+            ):
+                raise RuntimeError(
+                    "State replay source and target Tensor metadata do not match"
+                )
+            replay_input_leaves[input_index] = source_value
+            mapping_rows.append(
+                {
+                    "input_leaf_index": input_index,
+                    "output_leaf_index": output_index,
+                    "shape": list(source_value.shape),
+                    "dtype": str(source_value.dtype),
+                }
+            )
+        replay_args = pytree.tree_unflatten(replay_input_leaves, target_input_spec)
+        if not isinstance(replay_args, tuple):
+            raise RuntimeError("State replay input tree must reconstruct a tuple")
+        target_output = target_program(*replay_args)
+        submission_counters = {
+            "graph_program_invocation": _named_counter_snapshot(
+                _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES,
+                list(torch.ops.vulkan_prepack.graph_program_invocation_counters()),
+                "graph program invocation",
+            ),
+            "submit_origin": _named_counter_snapshot(
+                _SUBMIT_ORIGIN_COUNTER_NAMES,
+                list(torch.ops.vulkan_prepack.submit_origin_counters()),
+                "submit origin",
+            ),
+        }
+        replayed_state = tuple(
+            source_output_leaves[output_index] for _, output_index in mapping
+        )
+        expected_state = tuple(
+            target_input_leaves[input_index] for input_index, _ in mapping
+        )
+        state_parity = _parity(replayed_state, expected_state)
+        target_parity = _parity(target_output, target_expected)
+        source_parity_after_target = _parity(source_output, source_expected)
+        _assert_close(replayed_state, expected_state, cpu_atol, cpu_rtol)
+        _assert_close(target_output, target_expected, cpu_atol, cpu_rtol)
+        _assert_close(source_output, source_expected, cpu_atol, cpu_rtol)
+    source_counters = {
+        "cpu_fallback": source_program.last_cpu_fallback_count,
+        "sync_readback": source_program.last_sync_readback_count,
+        "deferred_values_created": source_program.last_deferred_values_created,
+    }
+    target_counters = {
+        "cpu_fallback": target_program.last_cpu_fallback_count,
+        "sync_readback": target_program.last_sync_readback_count,
+        "deferred_values_created": target_program.last_deferred_values_created,
+    }
+    if any(source_counters.values()) or any(target_counters.values()):
+        raise RuntimeError(
+            "State replay crossed an implicit host boundary: "
+            f"source={source_counters}, target={target_counters}"
+        )
+    return {
+        "status": "passed",
+        "protocol": "explicit_output_to_input_tensor_leaves",
+        "mapped_leaf_count": len(mapping),
+        "mapping": mapping_rows,
+        "source_output_tree_spec": str(source_output_spec),
+        "target_input_tree_spec": str(target_input_spec),
+        "source_program_key": _jsonable(source_program.key),
+        "target_program_key": _jsonable(target_program.key),
+        "source_invocation_generation_before": source_generation_before,
+        "source_invocation_generation_after": (
+            source_program.cpp_plan.invocation_generation()
+        ),
+        "target_invocation_generation_before": target_generation_before,
+        "target_invocation_generation_after": (
+            target_program.cpp_plan.invocation_generation()
+        ),
+        "source_runtime_counters": source_counters,
+        "target_runtime_counters": target_counters,
+        "submission_counters": submission_counters,
+        "replayed_state_vs_cpu": state_parity,
+        "target_output_vs_cpu": target_parity,
+        "source_output_after_target_vs_cpu": source_parity_after_target,
+        "source_output_preserved_after_target": True,
+        "tolerance": {"atol": cpu_atol, "rtol": cpu_rtol},
+    }
+
+
 def _out_of_range_guard(
     program: torch.vulkan.VulkanGraphProgram,
     args: tuple[Any, ...] | None,
@@ -1106,6 +1265,9 @@ def main() -> int:
             "--alternate-input-shape disagrees with adapter alternate_inputs"
         )
     dynamic_shapes = adapter.get("dynamic_shapes")
+    state_replay_mapping = _state_replay_mapping(
+        adapter.get("state_replay_input_from_output")
+    )
     planning_context = _planning_context(args, normal)
     original_export_start = time.perf_counter()
     original_export = torch.export.export(
@@ -1198,6 +1360,18 @@ def main() -> int:
         case["timing"]["supported_default_latency"] = normal_latency
     for case in (alternate_census, alternate_parity):
         case["timing"]["supported_default_latency"] = alternate_latency
+    state_replay = None
+    if state_replay_mapping:
+        state_replay = _run_state_replay(
+            state_replay_mapping,
+            normal_program,
+            alternate_program,
+            model,
+            normal,
+            alternate,
+            args.cpu_atol,
+            args.cpu_rtol,
+        )
     if out_of_range_guard["status"] == "unexpectedly_accepted":
         raise RuntimeError("Out-of-range input was accepted by exported guards")
     lowering_reports = _lowering_reports(program)
@@ -1219,6 +1393,8 @@ def main() -> int:
         "execution_plan": execution_plan,
         **lowering_reports,
     }
+    if state_replay is not None:
+        common["state_replay"] = state_replay
     census = {
         **common,
         "artifact_type": "export_census",
