@@ -209,7 +209,7 @@ int64_t constant_index(const int64_t argument_ref) {
   return -argument_ref - 1;
 }
 
-bool any_implicit_boundary(const std::vector<int64_t>& counters) {
+bool any_implicit_boundary(const VulkanGraphExecutionScopeCounts& counters) {
   return std::any_of(counters.begin(), counters.end(), [](const int64_t value) {
     return value != 0;
   });
@@ -299,7 +299,7 @@ bool can_reuse_dead_input(
 
 void check_implicit_boundary(
     const VulkanGraphPlanInstruction& instruction,
-    const std::vector<int64_t>& counters) {
+    const VulkanGraphExecutionScopeCounts& counters) {
   TORCH_CHECK(
       !any_implicit_boundary(counters),
       "VulkanGraphPlan.v8 node '",
@@ -897,6 +897,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
 
   std::vector<c10::IValue> values(state.values.size());
   std::vector<bool> value_live(state.values.size(), false);
+  std::vector<c10::IValue> stack;
   for (const auto input_index : c10::irange(inputs.size())) {
     values[input_index] = inputs[input_index];
     value_live[input_index] = true;
@@ -904,7 +905,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
   for (const auto instruction_index : c10::irange(state.instructions.size())) {
     const VulkanGraphPlanInstruction& instruction =
         state.instructions[instruction_index];
-    std::vector<c10::IValue> stack;
+    stack.clear();
     stack.reserve(instruction.arguments.size());
     const auto load_argument_ref = [&](const int64_t argument_ref) {
       if (argument_ref >= 0) {
@@ -953,8 +954,8 @@ std::vector<Tensor> run_vulkan_graph_plan(
         execute_graph_scalar_instruction(instruction, stack);
       }
     } catch (const c10::Error& error) {
-      const std::vector<int64_t> counters =
-          end_vulkan_graph_execution_scope(scope_token);
+      const VulkanGraphExecutionScopeCounts counters =
+          end_vulkan_graph_execution_scope_counts(scope_token);
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
@@ -965,8 +966,8 @@ std::vector<Tensor> run_vulkan_graph_plan(
           ") failed: ",
           error.what_without_backtrace());
     } catch (const std::exception& error) {
-      const std::vector<int64_t> counters =
-          end_vulkan_graph_execution_scope(scope_token);
+      const VulkanGraphExecutionScopeCounts counters =
+          end_vulkan_graph_execution_scope_counts(scope_token);
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
@@ -977,8 +978,8 @@ std::vector<Tensor> run_vulkan_graph_plan(
           ") failed: ",
           error.what());
     } catch (...) {
-      const std::vector<int64_t> counters =
-          end_vulkan_graph_execution_scope(scope_token);
+      const VulkanGraphExecutionScopeCounts counters =
+          end_vulkan_graph_execution_scope_counts(scope_token);
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
@@ -988,8 +989,8 @@ std::vector<Tensor> run_vulkan_graph_plan(
           instruction.operator_name,
           ") failed with a non-standard exception");
     }
-    const std::vector<int64_t> counters =
-        end_vulkan_graph_execution_scope(scope_token);
+    const VulkanGraphExecutionScopeCounts counters =
+        end_vulkan_graph_execution_scope_counts(scope_token);
     check_implicit_boundary(instruction, counters);
     if (reuse_dead_input) {
       state.dead_input_reuse_count.fetch_add(1u, std::memory_order_relaxed);

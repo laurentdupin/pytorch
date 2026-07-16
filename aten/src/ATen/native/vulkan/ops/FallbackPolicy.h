@@ -5,6 +5,7 @@
 #include <ATen/core/Tensor.h>
 #include <c10/util/ArrayRef.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -33,6 +34,9 @@ enum class VulkanFallbackPhase : uint8_t {
 uint64_t vulkan_cpu_fallback_count();
 uint64_t vulkan_sync_readback_count();
 int64_t begin_vulkan_graph_execution_scope();
+using VulkanGraphExecutionScopeCounts = std::array<int64_t, 3>;
+VulkanGraphExecutionScopeCounts end_vulkan_graph_execution_scope_counts(
+    int64_t token);
 std::vector<int64_t> end_vulkan_graph_execution_scope(int64_t token);
 void guard_vulkan_deferred_value_registration(const char* producer);
 void reset_vulkan_fallback_counters();

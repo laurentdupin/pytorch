@@ -450,7 +450,8 @@ int64_t begin_vulkan_graph_execution_scope() {
   return next_token;
 }
 
-std::vector<int64_t> end_vulkan_graph_execution_scope(const int64_t token) {
+VulkanGraphExecutionScopeCounts end_vulkan_graph_execution_scope_counts(
+    const int64_t token) {
   std::vector<VulkanGraphExecutionScope>& scopes = graph_execution_scopes_tls();
   TORCH_CHECK(
       !scopes.empty(),
@@ -462,12 +463,18 @@ std::vector<int64_t> end_vulkan_graph_execution_scope(const int64_t token) {
       scope.token,
       ", got ",
       token);
-  const std::vector<int64_t> counts = {
+  const VulkanGraphExecutionScopeCounts counts = {
       static_cast<int64_t>(scope.cpu_fallback_count),
       static_cast<int64_t>(scope.sync_readback_count),
       static_cast<int64_t>(scope.deferred_value_creation_count)};
   scopes.pop_back();
   return counts;
+}
+
+std::vector<int64_t> end_vulkan_graph_execution_scope(const int64_t token) {
+  const VulkanGraphExecutionScopeCounts counts =
+      end_vulkan_graph_execution_scope_counts(token);
+  return std::vector<int64_t>(counts.begin(), counts.end());
 }
 
 void guard_vulkan_deferred_value_registration(const char* producer) {
