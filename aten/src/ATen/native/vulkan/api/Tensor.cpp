@@ -343,11 +343,8 @@ vTensor::vTensor(
               memory_layout))),
       execution_desc_(
           make_execution_desc(resolve_storage_type(sizes, dtype, storage_type), false)),
-      // Utility Uniform Buffers that can be passed to shaders as arguments
+      // Utility uniform buffer that can be passed to shaders as an argument
       metadata_uniform_(),
-      cpu_sizes_uniform_(nullptr),
-      gpu_sizes_uniform_(nullptr),
-      extents_uniform_(nullptr),
       // Construct Tensor storage
       view_(std::make_shared<vTensorStorage>(
           context,
@@ -398,9 +395,6 @@ vTensor::vTensor(
           make_execution_desc(resolve_storage_type(sizes, dtype, storage_type), false)),
       // Vulkan uniform buffer containing sizes and stride info
       metadata_uniform_(),
-      cpu_sizes_uniform_(nullptr),
-      gpu_sizes_uniform_(nullptr),
-      extents_uniform_(nullptr),
       // Quantization params
       is_quantized_{true},
       q_scale_{q_scale},
@@ -443,9 +437,6 @@ vTensor::vTensor(
       },
       execution_desc_(make_execution_desc(src.storage_type(), true, src.execution_desc_.persistent)),
       metadata_uniform_(),
-      cpu_sizes_uniform_(nullptr),
-      gpu_sizes_uniform_(nullptr),
-      extents_uniform_(nullptr),
       is_quantized_(src.is_quantized_),
       q_scale_(src.q_scale_),
       q_zero_point_(src.q_zero_point_),
@@ -479,9 +470,6 @@ vTensor::vTensor(
       execution_desc_(make_execution_desc(
           src.storage_type(), true, src.execution_desc_.persistent)),
       metadata_uniform_(),
-      cpu_sizes_uniform_(nullptr),
-      gpu_sizes_uniform_(nullptr),
-      extents_uniform_(nullptr),
       buffer_length_override_(buffer_length_override),
       is_quantized_(src.is_quantized_),
       q_scale_(src.q_scale_),
@@ -523,9 +511,6 @@ vTensor::vTensor(
           make_execution_desc(
               src.storage_type(), false, src.execution_desc_.persistent)),
       metadata_uniform_(),
-      cpu_sizes_uniform_(nullptr),
-      gpu_sizes_uniform_(nullptr),
-      extents_uniform_(nullptr),
       is_quantized_(src.is_quantized_),
       q_scale_(src.q_scale_),
       q_zero_point_(src.q_zero_point_),
@@ -575,18 +560,9 @@ std::vector<api::VulkanBuffer> vTensor::release_graph_program_owned_buffers() {
           execution_layout() == api::ExecutionLayout::BUFFER_DIRECT &&
           !view_->image_ && view_->buffer_,
       "Graph program resource release requires unaliased direct buffer storage");
-  TORCH_CHECK(
-      !cpu_sizes_uniform_ || cpu_sizes_uniform_.use_count() == 1,
-      "Graph program resource release requires unaliased CPU size metadata");
-  TORCH_CHECK(
-      !gpu_sizes_uniform_ || gpu_sizes_uniform_.use_count() == 1,
-      "Graph program resource release requires unaliased GPU size metadata");
-  TORCH_CHECK(
-      !extents_uniform_ || extents_uniform_.use_count() == 1,
-      "Graph program resource release requires unaliased extent metadata");
 
   std::vector<api::VulkanBuffer> buffers;
-  buffers.reserve(5u);
+  buffers.reserve(2u);
   const auto release_buffer = [&buffers](api::VulkanBuffer& buffer) {
     if (buffer) {
       buffers.emplace_back(std::move(buffer));
@@ -594,15 +570,6 @@ std::vector<api::VulkanBuffer> vTensor::release_graph_program_owned_buffers() {
   };
   release_buffer(view_->buffer_);
   release_buffer(metadata_uniform_.buffer());
-  if (cpu_sizes_uniform_) {
-    release_buffer(cpu_sizes_uniform_->buffer());
-  }
-  if (gpu_sizes_uniform_) {
-    release_buffer(gpu_sizes_uniform_->buffer());
-  }
-  if (extents_uniform_) {
-    release_buffer(extents_uniform_->buffer());
-  }
   view_->last_access_ = {};
   return buffers;
 }
@@ -618,48 +585,6 @@ api::VulkanBuffer& vTensor::buffer_metadata() {
         storage_type());
   }
   return metadata_uniform_.buffer();
-}
-
-std::shared_ptr<api::UniformParamsBuffer> vTensor::cpu_sizes_ubo() {
-  if (!cpu_sizes_uniform_) {
-    cpu_sizes_uniform_.reset(new api::UniformParamsBuffer(
-        view_->context_, api::utils::make_whcn_ivec4(logical_desc_.sizes)));
-  }
-  return cpu_sizes_uniform_;
-}
-
-std::shared_ptr<api::UniformParamsBuffer> vTensor::gpu_sizes_ubo() {
-  if (!gpu_sizes_uniform_) {
-    gpu_sizes_uniform_.reset(new api::UniformParamsBuffer(
-        view_->context_, api::utils::make_whcn_ivec4(physical_desc_.sizes)));
-  }
-  return gpu_sizes_uniform_;
-}
-
-std::shared_ptr<api::UniformParamsBuffer> vTensor::extents_ubo() {
-  if (!extents_uniform_) {
-    extents_uniform_.reset(new api::UniformParamsBuffer(
-        view_->context_,
-        api::utils::uvec4(
-            {view_->extents_.data[0],
-             view_->extents_.data[1],
-             view_->extents_.data[2],
-             1u})));
-  }
-  return extents_uniform_;
-}
-
-vTensor::BufferMetadata vTensor::get_cpu_buffer_metadata() const {
-  return {
-      api::utils::make_whcn_uvec4(logical_desc_.sizes),
-      api::utils::make_whcn_uvec4(calc_contiguous_strides(logical_desc_.sizes)),
-      {
-          api::utils::safe_downcast<uint32_t>(logical_desc_.sizes.size()),
-          api::utils::safe_downcast<uint32_t>(numel()),
-          0u,
-          0u,
-      },
-  };
 }
 
 bool vTensor::has_direct_buffer_layout() const {
@@ -733,23 +658,6 @@ void vTensor::update_size_metadata(const std::vector<int64_t>& new_sizes) {
       physical_desc_.sizes,
       storage_type(),
       physical_desc_.memory_layout);
-
-  if (cpu_sizes_uniform_) {
-    cpu_sizes_uniform_->update(api::utils::make_whcn_ivec4(logical_desc_.sizes));
-  }
-
-  if (gpu_sizes_uniform_) {
-    gpu_sizes_uniform_->update(
-        api::utils::make_whcn_ivec4(physical_desc_.sizes));
-  }
-
-  if (extents_uniform_) {
-    extents_uniform_->update(api::utils::uvec4(
-        {physical_desc_.virtual_extents.data[0],
-         physical_desc_.virtual_extents.data[1],
-         physical_desc_.virtual_extents.data[2],
-         1u}));
-  }
 }
 
 void vTensor::reallocate(const std::vector<int64_t>& new_sizes) {

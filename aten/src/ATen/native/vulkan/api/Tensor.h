@@ -223,19 +223,6 @@ class vTensor final {
   // can be passed into a shader.
   api::UniformParamsBuffer metadata_uniform_;
 
-  // A Vulkan uniform buffer containing the tensor sizes that can be passed into
-  // a shader.
-  std::shared_ptr<api::UniformParamsBuffer> cpu_sizes_uniform_;
-
-  // A Vulkan uniform buffer containing the GPU tensor sizes that can be passed
-  // into a shader. GPU sizes refers to the sizes of the tensor after padding
-  // has been applied to one dimension to align it to the next multiple of 4.
-  std::shared_ptr<api::UniformParamsBuffer> gpu_sizes_uniform_;
-
-  // A Vulkan uniform buffer containing the image extents of the underlying
-  // image texture that can be passed into a shader.
-  std::shared_ptr<api::UniformParamsBuffer> extents_uniform_;
-
   // Optional override for the logical buffer length exposed to shaders for
   // shared-storage aliases.
   int64_t buffer_length_override_{-1};
@@ -462,33 +449,6 @@ class vTensor final {
    * buffer
    */
   api::VulkanBuffer& buffer_metadata();
-
-  /*
-   * Get a uniform buffer object containing the tensor sizes to use in a compute
-   * shader. Note that the UBO will be created the first time this function is
-   * called.
-   */
-  std::shared_ptr<api::UniformParamsBuffer> cpu_sizes_ubo();
-
-  /*
-   * Get a uniform buffer object containing the tensor GPU sizes to use in a
-   * compute shader. Note that the UBO will be created the first time this
-   * function is called.
-   */
-  std::shared_ptr<api::UniformParamsBuffer> gpu_sizes_ubo();
-
-  /*
-   * Get a uniform buffer object containing the image extents to use in a
-   * compute shader. Note that the UBO will be created the first time this
-   * function is called.
-   */
-  std::shared_ptr<api::UniformParamsBuffer> extents_ubo();
-
-  /*
-   * Constructs a BufferMetdata struct based on the original sizes and strides
-   * to pass into a shader.
-   */
-  BufferMetadata get_cpu_buffer_metadata() const;
 
   bool has_direct_buffer_layout() const;
 

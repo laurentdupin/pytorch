@@ -766,6 +766,32 @@
         "Context::snapshot_stack_planned_recording_stats"
       ],
       "consequence": "The permanently empty bridge-private pending-retire scaffold, its always-zero retained-state fields, and four zero-caller Context wrappers were deleted. Live cleanup ownership and evidence-critical bridge proof diagnostics remain."
+    },
+    {
+      "id": "unused_vtensor_metadata_ubos",
+      "decision": "retire_dead_state",
+      "status": "deleted",
+      "basis": [
+        "Repository reachability for the vTensor CPU-size, padded-size, and extent UBO accessors ends at their declarations and definitions; no production, test, benchmark, callback, function-pointer, or dispatcher caller exists.",
+        "Every constructor initialized the three shared pointers to null, so their alias checks, graph-resource release branches, and resize updates were structurally inactive in all supported eager and VulkanGraphProgram executions.",
+        "The live metadata_uniform_ and buffer_metadata path remain unchanged and continue to carry logical sizes, strides, buffer length, and storage offset for direct-buffer shaders."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "torch/csrc/vulkan",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "forbidden_code_symbols": [
+        "cpu_sizes_uniform_",
+        "gpu_sizes_uniform_",
+        "extents_uniform_",
+        "vTensor::cpu_sizes_ubo",
+        "vTensor::gpu_sizes_ubo",
+        "vTensor::extents_ubo",
+        "vTensor::get_cpu_buffer_metadata"
+      ],
+      "consequence": "Three permanently null shared pointers were removed from every vTensor together with their unreachable lazy allocation, alias-validation, resource-release, and resize machinery. Live buffer metadata and graph-owned scratch retirement remain unchanged."
     }
   ],
   "entries": [
