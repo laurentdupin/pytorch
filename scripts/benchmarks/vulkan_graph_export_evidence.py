@@ -325,6 +325,9 @@ def _execution_plan_summary(
             report.list_projection_instruction_count
         ),
         "list_argument_count": report.list_argument_count,
+        "dead_input_reuse_instruction_count": (
+            report.dead_input_reuse_instruction_count
+        ),
         "value_count": report.value_count,
         "output_count": report.output_count,
         "submission_owned": report.submission_owned,
@@ -336,6 +339,7 @@ def _execution_plan_summary(
                 "invocation_generation": plan.invocation_generation(),
                 "last_submission_value": plan.last_submission_value(),
                 "last_submission_complete": plan.last_submission_complete(),
+                "dead_input_reuse_count": plan.dead_input_reuse_count(),
             }
         )
     return summary

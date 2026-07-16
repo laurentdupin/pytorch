@@ -179,6 +179,18 @@ are the supported deletion baseline. Historical raw artifacts are under
 `agent_space/dav2_graph_checkpoint24_79080a576b0/`; current exact raw artifacts
 are under `agent_space/graph_submission_inheritance_exact_b157c550fc5/`.
 
+A worktree candidate uses SSA last-use, non-escape, unique Vulkan-storage, and
+live-alias guards to reuse dead `aten::relu` inputs, then widens the graph
+cadence from 24 to 32 jobs. DAv2 records 10 submissions per inference with
+30-sample graph medians of 43.78/41.80 ms and peak memory 0.9% to 3.9% above
+eager. PaddleOCR records 11 submissions with graph medians of 41.92/52.72 ms
+and peak memory 1.4% to 4.3% above eager. Caller-owned HY-MT records 88
+submissions and stays between 4.0% below and 0.04% above eager peak memory.
+All cases preserve recorded correctness and zero graph fallback/readback. The
+worktree binary SHA-256 is
+`537802036062d3277a4d74ad7a27f28a76a16f7f4a4022c1ff1e132052989a9f`;
+an exact-SHA artifact refresh remains open.
+
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.
 Multi-instruction plans capture the final timeline token per invocation,

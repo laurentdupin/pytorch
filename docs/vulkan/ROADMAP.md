@@ -516,12 +516,18 @@ consume immutable symbolic-size reads without Python callbacks. Unsupported
 plan structure or scalar type reports a reason and retains the Python
 correctness executor.
 
+The first bounded storage-reuse rule executes functional `aten::relu` in-place
+only for a non-escaping value at exact last use with unique Vulkan storage and
+no graph-input, constant, duplicate-live-value, or metadata-view alias. The
+plan reports candidate and accepted reuse counts. This is a direct Stage 2
+lifetime result, not a model route or a claim that the program arena exists.
+
 Compatible plans own the outer normal Context recording transaction for the
 whole invocation, including direct-buffer `aten::lift_fresh_copy` and bounded
 `VulkanGraphRegionPlan` instructions. Frequency and large-linear maintenance
-boundaries become graph-owner checkpoints, bounded conv regions retain their
-exact scratch timeline token, and the plan exposes the completed final token
-by invocation generation. Command-free plans complete without a synthetic
+boundaries become graph-owner checkpoints, bounded conv regions inherit the
+next outer submission token for their scratch, and the plan exposes the final
+token by invocation generation. Command-free plans complete without a synthetic
 token. Repeated executions preserve an earlier live output.
 
 `VulkanGraphPlanningContext` now supplies the model domain, execution phase,
@@ -533,21 +539,22 @@ tensor-shape inference. The removal gate remains open until supported HY-MT and
 PaddleOCR eager/graph runs record lane, residency, fallback/readback, and
 peak-memory parity on 8 GB adapters.
 
-The exact-SHA DAv2 and PaddleOCR evidence at `2d3c8492f2f` records complete
-executor outcomes on both shapes. DAv2 executes a 404-instruction plan with two
-scopes, no retire-drain submits, and 52 total submits per two-run case.
-PaddleOCR executes a 290-instruction plan with two scopes, no normal-frequency
-or retire-drain submits, and 46 total submits. Both retain exact
-graph-versus-eager parity, zero runtime fallback/readback/deferred values, live
-prior outputs, graph peak memory inside 5% of supported eager, and graph median
-and p95 latency no worse than supported eager. These are recorded-shape results,
-not corpus-specific production routes or whole-corpus deletion evidence.
+Exact-SHA `b157c550fc5` DAv2 and PaddleOCR evidence records complete executor
+outcomes on both shapes. A subsequent worktree candidate combines liveness-owned
+ReLU reuse with a 32-job cadence: DAv2 records 10 submissions per inference and
+PaddleOCR records 11, down from 13 and 14. Their 30-sample graph medians remain
+below supported eager, and all first/repeat-with-live-output peaks remain inside
+the 5% memory gate. These are recorded-shape results, not corpus-specific
+production routes or whole-corpus deletion evidence; exact-SHA promotion of the
+candidate remains open.
 
-The four-token HY-MT probe executes its complete 2,732-instruction plan with
-top-level submission/completion ownership and zero fallback or readback, but it
-still lacks checked-in numerical parity, dynamic-guard, repeated-output,
-peak-memory, and latency evidence. Program-preallocated SSA/resource slots,
-descriptor and barrier plans, recorded command partitions, generation-gated
+The four- and five-token HY-MT probes execute the complete 2,732-instruction
+plan with top-level submission/completion ownership, recorded numerical parity,
+zero graph fallback/readback, repeated live outputs, and peak memory inside the
+5% gate. The worktree 32-job cadence reduces submissions from 114 to 88 per
+inference. Checked-in latency-distribution and lane parity gates remain open.
+Program-preallocated SSA/resource slots, descriptor and barrier plans, recorded
+command partitions, generation-gated
 slot reuse, deeper container support, and an explicit stateful-input protocol
 also remain Phase 5/6 work.
 

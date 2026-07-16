@@ -882,12 +882,18 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.execution_mode, "cpp_plan")
         self.assertTrue(program.cpp_plan_report.submission_owned)
         self.assertEqual(program.cpp_plan_report.instruction_count, 130)
+        self.assertEqual(
+            program.cpp_plan.dead_input_reuse_instruction_count(), 130
+        )
+        self.assertEqual(program.cpp_plan.dead_input_reuse_count(), 0)
         torch.ops.vulkan_prepack.reset_submit_origin_counters()
         output = program(device_tensor)
         submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
 
-        self.assertEqual(submit_origins[15], 6)
-        self.assertEqual(submit_origins[0], 6)
+        self.assertEqual(submit_origins[15], 5)
+        self.assertEqual(submit_origins[0], 5)
+        self.assertEqual(program.cpp_plan.dead_input_reuse_count(), 129)
+        self.assertEqual(device_tensor.cpu(), tensor)
         self.assertEqual(output.cpu(), model(tensor))
 
         torch.ops.vulkan_prepack.reset_submit_origin_counters()
@@ -904,6 +910,25 @@ class TestVulkanGraph(TestCase):
         for _ in range(17):
             eager_expected = torch.relu(eager_expected)
         self.assertEqual(eager_output.cpu(), eager_expected)
+
+    def test_cpp_graph_plan_dead_input_reuse_preserves_live_view(self):
+        class LiveTransposeRelu(torch.nn.Module):
+            def forward(self, tensor):
+                value = tensor * 2.0
+                view = value.transpose(0, 1)
+                return view, torch.relu(value)
+
+        model = LiveTransposeRelu().eval()
+        tensor = torch.tensor([[-3.0, -2.0, -1.0], [0.0, 1.0, 2.0]])
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(
+            program.cpp_plan.dead_input_reuse_instruction_count(), 1
+        )
+        output = tuple(value.cpu() for value in program(tensor))
+
+        self.assertEqual(program.cpp_plan.dead_input_reuse_count(), 0)
+        self.assertEqual(output, model(tensor))
 
     def test_cpp_graph_plan_owns_large_linear_checkpoint_submissions(self):
         class RepeatedLinear(torch.nn.Module):

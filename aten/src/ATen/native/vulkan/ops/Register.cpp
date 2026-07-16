@@ -148,6 +148,12 @@ int register_vulkan_graph_plan() {
           .def(
               "list_argument_count",
               &utils::VulkanGraphPlan::list_argument_count)
+          .def(
+              "dead_input_reuse_instruction_count",
+              &utils::VulkanGraphPlan::dead_input_reuse_instruction_count)
+          .def(
+              "dead_input_reuse_count",
+              &utils::VulkanGraphPlan::dead_input_reuse_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)
           .def("output_count", &utils::VulkanGraphPlan::output_count)
           .def("submission_owned", &utils::VulkanGraphPlan::submission_owned)

@@ -273,6 +273,10 @@ class vTensor final {
     return physical_desc_.storage_type;
   }
 
+  inline bool owns_unique_storage() const {
+    return view_ && view_.use_count() == 1;
+  }
+
   inline api::VulkanImage& image() const& {
     return view_->image_;
   }

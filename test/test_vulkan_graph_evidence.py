@@ -588,6 +588,7 @@ class TestVulkanGraphEvidence(TestCase):
             graph_scalar_instruction_count=2,
             list_projection_instruction_count=1,
             list_argument_count=1,
+            dead_input_reuse_instruction_count=3,
             value_count=5,
             output_count=2,
             submission_owned=True,
@@ -599,6 +600,7 @@ class TestVulkanGraphEvidence(TestCase):
                 invocation_generation=lambda: 2,
                 last_submission_value=lambda: 37,
                 last_submission_complete=lambda: True,
+                dead_input_reuse_count=lambda: 7,
             ),
             cpp_plan_report=report,
         )
@@ -621,12 +623,14 @@ class TestVulkanGraphEvidence(TestCase):
                 "graph_scalar_instruction_count": 2,
                 "list_projection_instruction_count": 1,
                 "list_argument_count": 1,
+                "dead_input_reuse_instruction_count": 3,
                 "value_count": 5,
                 "output_count": 2,
                 "submission_owned": True,
                 "invocation_generation": 2,
                 "last_submission_value": 37,
                 "last_submission_complete": True,
+                "dead_input_reuse_count": 7,
             },
         )
         self.assertEqual(

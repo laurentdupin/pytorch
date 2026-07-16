@@ -197,7 +197,7 @@ run only after the current instruction and its last-use releases. Each
 partition retains its real stream timeline token, and the plan records the
 final token with one invocation generation. Plain eager execution retains the
 16-job submit cadence, while a graph invocation requests a frequency checkpoint
-after 24 recorded jobs. Large-linear maintenance waits for the exact partition
+after 32 recorded jobs. Large-linear maintenance waits for the exact partition
 token before releasing its captured cache batches; frequency-only checkpoints
 remain asynchronous, and returning a graph output does not imply that the final
 token has already completed. Command-free metadata plans complete with no
@@ -211,6 +211,14 @@ unwinding. A direct region invocation outside a graph plan still creates and
 submits its own private transaction. Eager-only pending-retirement
 checkpoints in LayerNorm, pool, and reduction-dimension softmax defer to an
 active outer graph scope; plain eager execution retains those checkpoints.
+
+The first bounded SSA storage-reuse rule applies functional `aten::relu`
+in-place only when its input is a non-escaping value at exact last use. The
+runtime additionally requires unique Vulkan storage and rejects graph inputs,
+constants, duplicate live TensorImpl references, and shared metadata views.
+The plan reports both candidate instructions and cumulative accepted reuses.
+This is a used executor lifetime rule that pays for the 32-job cadence; it is
+not a preallocated arena or a general in-place rewrite.
 
 The v8 plan does not yet implement deeper or non-list dynamic containers,
 projection from nested, tuple, or dictionary values, preallocated memory slots,
@@ -258,17 +266,18 @@ HY-MT prefill and decode are separate program families. Python generation
 control remains outside the tensor program unless a later graph representation
 can express it without host synchronization.
 
-The immutable C++ graph plan currently runs a four-token HY-MT prefill to
-completion with zero fallback or readback. The graph has no stateful mutable
-operator after graph preparation: all 64 `aten::detach_` nodes are proven to
-consume single-user chains rooted at `aten::lift_fresh_copy` and are rewritten
-to functional `aten::detach`. Input aliases and branched fresh values remain
-mutable and fail closed. A caller-owned worktree probe transfers top-level
-submission and completion ownership across lifted copies and 225 linear
-contexts, including bounded large-linear maintenance checkpoints. Resource
-arenas, descriptors, explicit barrier construction, dynamic guards,
-repeated-output corpus evidence, and supported-default memory/latency parity
-remain Phase 5 work.
+The immutable C++ graph plan runs both four- and five-token HY-MT prefill to
+completion with zero graph fallback or readback. The graph has no stateful
+mutable operator after graph preparation: all 64 `aten::detach_` nodes are
+proven to consume single-user chains rooted at `aten::lift_fresh_copy` and are
+rewritten to functional `aten::detach`. Input aliases and branched fresh values
+remain mutable and fail closed. A caller-owned exact-SHA probe transfers
+top-level submission and completion ownership across lifted copies and 225 linear
+contexts, including bounded large-linear maintenance checkpoints. Exact-SHA
+caller-owned evidence covers numerical parity, the guard variant, repeated live
+outputs, and peak memory. Resource arenas, descriptors, explicit barrier
+construction, a checked-in latency distribution, and lane parity remain Phase
+5 work.
 
 DAv2 uses the same fail-closed preparation principle for two exported
 `aten::relu_` nodes. Each source must be a single-use result of a non-mutating
@@ -277,28 +286,28 @@ functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
 values remain mutable. Exact-SHA normal and alternate DAv2 runs execute a
 404-instruction immutable C++ plan with exact graph-versus-eager parity and zero
 fallback, readback, or deferred values. Its 12 linear/GELU and eight
-conv/ReLU/conv region calls use one outer owner per invocation. The two-run
-shape evidence drops from 16 scopes and 92 total submits to two scopes and 52
-total submits, including zero retire-drain submits. Supported-default evidence
-uses the same preuploaded Vulkan inputs for three warmups and ten alternating
-samples per surface. Graph medians are 41.0 ms and 41.2 ms versus eager medians
-of 123.0 ms and 119.2 ms, with graph p95 below eager p95 and no timed fallback
-or readback. Graph allocator high-water is 0.7% to 1.4% below eager across the
-first and repeat-with-prior-output-live phases. This transfers execution and
-top-level submission/completion ownership and clears recorded-shape latency and
-peak-memory no-regression, but does not provide a program memory arena or
-descriptor ownership.
+conv/ReLU/conv region calls use one outer owner per invocation. Worktree
+liveness-owned ReLU reuse and the 32-job cadence record 20 owner checkpoints
+and 24 total submits per two-run shape, including zero retire-drain submits.
+Thirty-sample graph medians are 43.78 ms and 41.80 ms versus eager medians of
+121.20 ms and 118.31 ms, with graph p95 below eager p95 and no timed fallback
+or readback. Graph allocator high-water ranges from 0.9% to 3.9% above eager
+across the first and repeat-with-prior-output-live phases. This transfers
+execution and top-level submission/completion ownership and clears
+recorded-shape latency and peak-memory no-regression, but does not provide a
+program memory arena or descriptor ownership.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and
-zero fallback, readback, or deferred values. The two-run evidence records 42
-bounded owner checkpoints and 46 total submits rather than one unbounded
-command partition. Its graph medians are 42.8 ms and 54.3 ms versus eager
-medians of 141.3 ms and 146.9 ms, with graph p95 below eager p95. Graph
-allocator high-water ranges from 0.2% to 3.3% above eager and stays inside the
-5% gate. It transfers boxed execution and top-level submission/completion
-ownership and clears recorded-shape latency and peak-memory no-regression, but
+zero fallback, readback, or deferred values. Worktree liveness-owned ReLU reuse
+and the 32-job cadence record 22 owner checkpoints and 26 total submits per
+two-run shape rather than one unbounded command partition. Thirty-sample graph
+medians are 41.92 ms and 52.72 ms versus eager medians of 134.38 ms and
+136.43 ms, with graph p95 below eager p95. Graph allocator high-water ranges
+from 1.4% to 4.3% above eager and stays inside the 5% gate. It transfers boxed
+execution and top-level submission/completion ownership and clears
+recorded-shape latency and peak-memory no-regression, but
 not program memory or descriptor ownership.
 
 Metadata-only `aten::sym_size.int` reads also execute through the C++ plan as

@@ -77,6 +77,23 @@ HY-MT remains at 114 because neither path captures this scratch. Every recorded
 memory phase stays inside the 5% gate. Timestamp-instrumented wall
 time is not a production latency baseline; the checked-in 42.1/41.0 ms
 distributions are the supported deletion-gate artifact.
+
+A worktree candidate built as `torch_cpu.dll` SHA-256
+`537802036062d3277a4d74ad7a27f28a76a16f7f4a4022c1ff1e132052989a9f`
+uses SSA last-use plus unique Vulkan-storage ownership to reuse dead ReLU inputs,
+then widens the graph cadence from 24 to 32 jobs. DAv2 falls from 13 to 10
+submissions per inference; 30-sample graph medians are 43.78/41.80 ms against
+eager at 121.20/118.31 ms, and graph peak memory is 0.9% to 3.9% above eager.
+PaddleOCR falls from 14 to 11 submissions; graph medians are 41.92/52.72 ms
+against eager at 134.38/136.43 ms, and peak memory is 1.4% to 4.3% above eager.
+Caller-owned HY-MT falls from 114 to 88 submissions and remains between 4.0%
+below and 0.04% above eager peak memory. All graph paths retain their recorded
+correctness and zero fallback/readback properties. These worktree artifacts
+clear the implementation gate; an exact-SHA refresh remains required before
+they replace the checked-in `b157c550fc5` deletion baseline. Raw files are under
+`agent_space/graph_dead_relu_reuse_checkpoint32_worktree_fastguard_repeat30/`
+and `agent_space/graph_dead_relu_reuse_checkpoint32_worktree_fastguard/hymt/`.
+
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.

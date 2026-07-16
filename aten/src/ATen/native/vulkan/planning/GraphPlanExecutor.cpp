@@ -4,6 +4,7 @@
 
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/planning/Request.h>
 
@@ -59,6 +60,7 @@ struct VulkanGraphPlanInstruction final {
   VulkanGraphPlanInstructionKind kind{
       VulkanGraphPlanInstructionKind::Dispatcher};
   std::optional<c10::OperatorHandle> operator_handle;
+  std::optional<c10::OperatorHandle> dead_input_reuse_operator_handle;
   std::vector<VulkanGraphPlanArgument> arguments;
   std::vector<int64_t> output_value_ids;
 };
@@ -213,6 +215,88 @@ bool any_implicit_boundary(const std::vector<int64_t>& counters) {
   });
 }
 
+bool ivalue_references_tensor_impl(
+    const c10::IValue& value,
+    const TensorImpl* const candidate_impl) {
+  if (value.isTensor()) {
+    const Tensor tensor = value.toTensor();
+    return tensor.defined() && tensor.unsafeGetTensorImpl() == candidate_impl;
+  }
+  if (value.isList()) {
+    for (const c10::IValue& element : value.toList()) {
+      if (ivalue_references_tensor_impl(element, candidate_impl)) {
+        return true;
+      }
+    }
+  }
+  if (value.isTuple()) {
+    for (const c10::IValue& element : value.toTupleRef().elements()) {
+      if (ivalue_references_tensor_impl(element, candidate_impl)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool can_reuse_dead_input(
+    const VulkanGraphPlanInstruction& instruction,
+    const size_t instruction_index,
+    const std::vector<VulkanGraphPlanValue>& value_plan,
+    const std::vector<c10::IValue>& values,
+    const std::vector<bool>& value_live,
+    const std::vector<Tensor>& inputs,
+    const std::vector<c10::IValue>& constants) {
+  if (
+      !instruction.dead_input_reuse_operator_handle ||
+      instruction.arguments.empty() ||
+      instruction.arguments.front().kind != VulkanGraphPlanArgumentKind::Value) {
+    return false;
+  }
+  const int64_t value_id = instruction.arguments.front().refs.front();
+  if (
+      value_id < static_cast<int64_t>(inputs.size()) ||
+      value_id >= static_cast<int64_t>(values.size()) ||
+      !value_live[static_cast<size_t>(value_id)]) {
+    return false;
+  }
+  const VulkanGraphPlanValue& planned_value =
+      value_plan[static_cast<size_t>(value_id)];
+  if (
+      planned_value.escapes ||
+      planned_value.last_use != static_cast<int64_t>(instruction_index) ||
+      !values[static_cast<size_t>(value_id)].isTensor()) {
+    return false;
+  }
+  const Tensor candidate = values[static_cast<size_t>(value_id)].toTensor();
+  if (!candidate.defined() || !candidate.is_vulkan()) {
+    return false;
+  }
+  if (!convert(candidate).owns_unique_storage()) {
+    return false;
+  }
+  const TensorImpl* const candidate_impl = candidate.unsafeGetTensorImpl();
+  for (const Tensor& input : inputs) {
+    if (input.unsafeGetTensorImpl() == candidate_impl) {
+      return false;
+    }
+  }
+  for (const c10::IValue& constant : constants) {
+    if (ivalue_references_tensor_impl(constant, candidate_impl)) {
+      return false;
+    }
+  }
+  for (const auto live_value_id : c10::irange(values.size())) {
+    if (
+        live_value_id != static_cast<size_t>(value_id) &&
+        value_live[live_value_id] &&
+        ivalue_references_tensor_impl(values[live_value_id], candidate_impl)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void check_implicit_boundary(
     const VulkanGraphPlanInstruction& instruction,
     const std::vector<int64_t>& counters) {
@@ -260,6 +344,7 @@ struct VulkanGraphPlan::State final {
   c10::DeviceIndex submission_device_index{-1};
   api::VulkanSubmission last_submission{};
   uint64_t invocation_generation{0u};
+  mutable std::atomic<uint64_t> dead_input_reuse_count{0u};
 };
 
 VulkanGraphPlan::VulkanGraphPlan(std::shared_ptr<State> state)
@@ -325,6 +410,30 @@ int64_t VulkanGraphPlan::list_argument_count() const {
         }));
   }
   return count;
+}
+
+int64_t VulkanGraphPlan::dead_input_reuse_instruction_count() const {
+  if (!state_) {
+    return 0;
+  }
+  return static_cast<int64_t>(std::count_if(
+      state_->instructions.begin(),
+      state_->instructions.end(),
+      [](const VulkanGraphPlanInstruction& instruction) {
+        return instruction.dead_input_reuse_operator_handle.has_value();
+      }));
+}
+
+int64_t VulkanGraphPlan::dead_input_reuse_count() const {
+  if (!state_) {
+    return 0;
+  }
+  const uint64_t count =
+      state_->dead_input_reuse_count.load(std::memory_order_relaxed);
+  TORCH_CHECK(
+      count <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
+      "VulkanGraphPlan.v8 dead-input reuse count overflow");
+  return static_cast<int64_t>(count);
 }
 
 int64_t VulkanGraphPlan::value_count() const {
@@ -431,6 +540,15 @@ bool VulkanGraphPlan::valid() const {
         instruction.node_name.empty() || instruction.operator_name.empty() ||
         ((instruction.kind == VulkanGraphPlanInstructionKind::Dispatcher) !=
          instruction.operator_handle.has_value())) {
+      return false;
+    }
+    if (
+        instruction.dead_input_reuse_operator_handle &&
+        (instruction.kind != VulkanGraphPlanInstructionKind::Dispatcher ||
+         instruction.arguments.size() != 1u ||
+         instruction.arguments.front().kind !=
+             VulkanGraphPlanArgumentKind::Value ||
+         instruction.output_value_ids.size() != 1u)) {
       return false;
     }
     if (
@@ -592,6 +710,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         internal_instruction_kind.value_or(
             VulkanGraphPlanInstructionKind::Dispatcher);
     std::optional<c10::OperatorHandle> operator_handle;
+    std::optional<c10::OperatorHandle> dead_input_reuse_operator_handle;
     const c10::FunctionSchema* schema = nullptr;
     if (internal_instruction_kind) {
       TORCH_CHECK(
@@ -613,6 +732,16 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           has_plan_dispatch(*operator_handle),
           "VulkanGraphPlan.v8 requires a Vulkan or composite kernel for ",
           schema->operator_name());
+      if (
+          operator_names[instruction_index] == "aten::relu" &&
+          overload_names[instruction_index].empty()) {
+        dead_input_reuse_operator_handle.emplace(
+            c10::Dispatcher::singleton().findSchemaOrThrow("aten::relu_", ""));
+        TORCH_CHECK(
+            has_plan_dispatch(*dead_input_reuse_operator_handle),
+            "VulkanGraphPlan.v8 requires a Vulkan in-place reuse kernel for ",
+            schema->operator_name());
+      }
     }
     std::vector<int64_t>& output_value_ids_for_instruction =
         instruction_output_value_ids[instruction_index];
@@ -719,6 +848,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         std::move(diagnostic_operator_name),
         instruction_kind,
         std::move(operator_handle),
+        std::move(dead_input_reuse_operator_handle),
         std::move(arguments),
         std::move(output_value_ids_for_instruction)});
     defined_value_count += static_cast<int64_t>(
@@ -800,12 +930,22 @@ std::vector<Tensor> run_vulkan_graph_plan(
       stack.emplace_back(std::move(list));
     }
 
+    const bool reuse_dead_input = can_reuse_dead_input(
+        instruction,
+        instruction_index,
+        state.values,
+        values,
+        value_live,
+        inputs,
+        state.constants);
     const int64_t scope_token = begin_vulkan_graph_execution_scope();
     try {
       if (instruction.kind == VulkanGraphPlanInstructionKind::Dispatcher) {
         TORCH_INTERNAL_ASSERT(instruction.operator_handle);
         c10::Dispatcher::singleton().callBoxed(
-            *instruction.operator_handle, &stack);
+            reuse_dead_input ? *instruction.dead_input_reuse_operator_handle
+                             : *instruction.operator_handle,
+            &stack);
       } else if (
           instruction.kind == VulkanGraphPlanInstructionKind::ListGetItem) {
         execute_list_getitem_instruction(instruction, stack);
@@ -851,6 +991,9 @@ std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<int64_t> counters =
         end_vulkan_graph_execution_scope(scope_token);
     check_implicit_boundary(instruction, counters);
+    if (reuse_dead_input) {
+      state.dead_input_reuse_count.fetch_add(1u, std::memory_order_relaxed);
+    }
     if (instruction.output_value_ids.empty()) {
       TORCH_CHECK(
           stack.empty(),

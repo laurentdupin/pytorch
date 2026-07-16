@@ -1433,7 +1433,7 @@ class StackRegionControlPlaneDepthScope final {
 
 ContextConfig default_context_config() {
   const uint32_t submit_frequency = 16u;
-  const uint32_t graph_program_checkpoint_frequency = 24u;
+  const uint32_t graph_program_checkpoint_frequency = 32u;
 
   const CommandPoolConfig cmd_config{
       32u, // cmdPoolInitialSize
