@@ -341,19 +341,6 @@ inline uvec4 make_whcn_uvec4(const std::vector<int64_t>& arr) {
 }
 
 /*
- * Given an vector of up to 4 int64_t representing the sizes of a tensor,
- * constructs an ivec4 containing those elements in reverse order.
- */
-inline ivec4 make_whcn_ivec4(const std::vector<int64_t>& arr) {
-  int32_t w = val_at(-1, arr);
-  int32_t h = val_at(-2, arr);
-  int32_t c = val_at(-3, arr);
-  int32_t n = val_at(-4, arr);
-
-  return {w, h, c, n};
-}
-
-/*
  * Wrapper around std::accumulate that accumulates values of a container of
  * integral types into int64_t. Taken from `multiply_integers` in
  * <c10/util/accumulate.h>

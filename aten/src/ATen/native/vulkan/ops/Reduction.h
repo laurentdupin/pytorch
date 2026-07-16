@@ -16,10 +16,6 @@ namespace reduction {
 
 using namespace api::utils;
 
-inline uvec4 make_logical_buffer_sizes(const std::vector<int64_t>& sizes) {
-  return api::utils::make_whcn_uvec4(sizes);
-}
-
 inline std::vector<int64_t> calc_logical_contiguous_strides(
     const std::vector<int64_t>& sizes) {
   std::vector<int64_t> strides(sizes.size(), 1);
@@ -27,14 +23,6 @@ inline std::vector<int64_t> calc_logical_contiguous_strides(
     strides[idx] = strides[idx + 1] * std::max<int64_t>(sizes[idx + 1], 1);
   }
   return strides;
-}
-
-inline uvec4 make_logical_buffer_strides(const std::vector<int64_t>& sizes) {
-  return api::utils::make_whcn_uvec4(calc_logical_contiguous_strides(sizes));
-}
-
-inline uint32_t to_whcn_dim(const int64_t dim, const int64_t ndim) {
-  return safe_downcast<uint32_t>(ndim - 1 - dim);
 }
 
 inline std::vector<int64_t> reduced_output_sizes(

@@ -205,34 +205,6 @@ struct VulkanExecutableRegion final {
   }
 };
 
-inline const char* realization_kind_name(const RealizationKind kind) {
-  switch (kind) {
-    case RealizationKind::ExternalInput:
-      return "ExternalInput";
-    case RealizationKind::Constant:
-      return "Constant";
-    case RealizationKind::Materialized:
-      return "Materialized";
-    case RealizationKind::View:
-      return "View";
-    case RealizationKind::InPlaceVersion:
-      return "InPlaceVersion";
-    case RealizationKind::Virtual:
-      return "Virtual";
-  }
-  return "UnknownRealizationKind";
-}
-
-inline const char* boundary_role_name(const BoundaryRole role) {
-  switch (role) {
-    case BoundaryRole::Internal:
-      return "Internal";
-    case BoundaryRole::RegionOutput:
-      return "RegionOutput";
-  }
-  return "UnknownBoundaryRole";
-}
-
 inline const char* stage_kind_name(const StageKind kind) {
   switch (kind) {
     case StageKind::ImageEntry:
@@ -249,22 +221,6 @@ inline const char* stage_kind_name(const StageKind kind) {
       return "Unknown";
   }
   return "UnknownStageKind";
-}
-
-inline const char* exec_opcode_name(const ExecOpcode opcode) {
-  switch (opcode) {
-    case ExecOpcode::Dispatch:
-      return "Dispatch";
-    case ExecOpcode::Copy:
-      return "Copy";
-    case ExecOpcode::Fill:
-      return "Fill";
-    case ExecOpcode::Barrier:
-      return "Barrier";
-    case ExecOpcode::Export:
-      return "Export";
-  }
-  return "UnknownExecOpcode";
 }
 
 inline const char* dispatch_kind_name(const DispatchKind kind) {
@@ -305,34 +261,6 @@ inline const char* dispatch_kind_name(const DispatchKind kind) {
       return "Unknown";
   }
   return "UnknownDispatchKind";
-}
-
-inline const char* view_transform_kind_name(const ViewTransformKind kind) {
-  switch (kind) {
-    case ViewTransformKind::Identity:
-      return "Identity";
-    case ViewTransformKind::Reshape:
-      return "Reshape";
-    case ViewTransformKind::Slice:
-      return "Slice";
-    case ViewTransformKind::Reinterpret:
-      return "Reinterpret";
-    case ViewTransformKind::Opaque:
-      return "Opaque";
-  }
-  return "UnknownViewTransformKind";
-}
-
-inline const char* memory_class_name(const MemoryClass kind) {
-  switch (kind) {
-    case MemoryClass::DeviceLocal:
-      return "DeviceLocal";
-    case MemoryClass::HostVisible:
-      return "HostVisible";
-    case MemoryClass::External:
-      return "External";
-  }
-  return "UnknownMemoryClass";
 }
 
 } // namespace utils

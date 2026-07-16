@@ -1109,6 +1109,37 @@
         "scripts/benchmarks"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "Repository-wide reachability for five executable-region enum stringifiers, three reduction layout helpers, the signed WHCN vector converter, and InferenceCache::erase_if ended at their inline definitions; no production, generated, test, benchmark, callback, function-pointer, custom-class, or dispatcher caller exists.",
+        "Executable-region diagnostics use stage_kind_name and dispatch_kind_name; reduction execution uses the live permutation, canonicalization, and output helpers; cache eviction uses erase_if_budgeted; tensor metadata uses the unsigned WHCN converter.",
+        "The generated execution-contract helper surface remains unchanged because its checked-in symbol manifest requires a separate codegen-aware cleanup decision."
+      ],
+      "consequence": "Ten definition-only C++ helpers were deleted. Live executable-region diagnostics, reduction behavior, bounded cache eviction, tensor metadata conversion, and generated contract APIs remain unchanged.",
+      "decision": "retire_dead_surface",
+      "forbidden_code_symbols": [
+        "make_whcn_ivec4",
+        "make_logical_buffer_sizes",
+        "make_logical_buffer_strides",
+        "to_whcn_dim",
+        "size_t erase_if(Predicate&& predicate)",
+        "realization_kind_name",
+        "boundary_role_name",
+        "exec_opcode_name",
+        "view_transform_kind_name",
+        "memory_class_name"
+      ],
+      "id": "unused_vulkan_header_helpers",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "aten/src/ATen/test",
+        "torch/csrc/vulkan",
+        "tools",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
