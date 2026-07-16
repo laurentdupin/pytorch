@@ -299,6 +299,25 @@ class VulkanFreshReluFunctionalizationReport:
 
 
 @dataclasses.dataclass(frozen=True)
+class VulkanStaticInferenceIdentityNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    operator_name: str
+    source_node_name: str | None
+    probability: float | None
+    training: bool | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticInferenceIdentityReport:
+    candidate_count: int
+    lowered_count: int
+    skipped_count: int
+    nodes: tuple[VulkanStaticInferenceIdentityNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
 class VulkanStaticFactoryConstantNodeReport:
     node_name: str
     status: str
@@ -1339,6 +1358,115 @@ def functionalize_fresh_relu_mutations(
         candidate_count=len(reports),
         functionalized_count=functionalized_count,
         rejected_count=len(reports) - functionalized_count,
+        nodes=tuple(reports),
+    )
+
+
+def _bound_schema_arguments(node: torch.fx.Node) -> tuple[Any, ...] | None:
+    if not isinstance(node.target, torch._ops.OpOverload):
+        return None
+    positional = iter(node.args)
+    kwargs = dict(node.kwargs)
+    values: list[Any] = []
+    for argument in node.target._schema.arguments:
+        if not argument.kwarg_only:
+            try:
+                values.append(next(positional))
+                continue
+            except StopIteration:
+                pass
+        if argument.name in kwargs:
+            values.append(kwargs.pop(argument.name))
+        elif argument.has_default_value():
+            values.append(argument.default_value)
+        else:
+            return None
+    try:
+        next(positional)
+    except StopIteration:
+        pass
+    else:
+        return None
+    if kwargs:
+        return None
+    return tuple(values)
+
+
+def lower_static_inference_identities(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticInferenceIdentityReport:
+    graph = graph_module.graph
+    reports: list[VulkanStaticInferenceIdentityNodeReport] = []
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.dropout.default
+        ):
+            continue
+        bound_arguments = _bound_schema_arguments(node)
+        source = bound_arguments[0] if bound_arguments else None
+        probability = bound_arguments[1] if bound_arguments else None
+        training = bound_arguments[2] if bound_arguments else None
+        static_probability = (
+            float(probability) if type(probability) in (int, float) else None
+        )
+        source_name = source.name if isinstance(source, torch.fx.Node) else None
+        reason = None
+        if (
+            not isinstance(source, torch.fx.Node)
+            or static_probability is None
+            or type(training) is not bool
+        ):
+            reason = "dropout_arguments_not_static"
+        elif (
+            not math.isfinite(static_probability)
+            or static_probability < 0.0
+            or static_probability > 1.0
+        ):
+            reason = "dropout_probability_out_of_range"
+        elif static_probability != 0.0 and training:
+            reason = "dropout_training_enabled"
+        if reason is not None:
+            reports.append(
+                VulkanStaticInferenceIdentityNodeReport(
+                    node_name=node.name,
+                    status="skipped",
+                    reason=reason,
+                    operator_name="aten::dropout",
+                    source_node_name=source_name,
+                    probability=static_probability,
+                    training=training if type(training) is bool else None,
+                )
+            )
+            continue
+
+        node.replace_all_uses_with(source)
+        graph.erase_node(node)
+        reports.append(
+            VulkanStaticInferenceIdentityNodeReport(
+                node_name=node.name,
+                status="lowered",
+                reason=(
+                    "static_dropout_probability_zero"
+                    if static_probability == 0.0
+                    else "static_dropout_training_disabled"
+                ),
+                operator_name="aten::dropout",
+                source_node_name=source_name,
+                probability=static_probability,
+                training=training,
+            )
+        )
+
+    lowered_count = sum(report.status == "lowered" for report in reports)
+    if lowered_count:
+        graph.eliminate_dead_code()
+        graph.lint()
+        graph_module.recompile()
+    return VulkanStaticInferenceIdentityReport(
+        candidate_count=len(reports),
+        lowered_count=lowered_count,
+        skipped_count=len(reports) - lowered_count,
         nodes=tuple(reports),
     )
 
@@ -4158,6 +4286,8 @@ __all__ = [
     "VulkanGraphInputNormalizationReport",
     "VulkanGraphTensorPlacementNodeReport",
     "VulkanGraphTensorPlacementReport",
+    "VulkanStaticInferenceIdentityNodeReport",
+    "VulkanStaticInferenceIdentityReport",
     "VulkanLiftedTensorConstantNodeReport",
     "VulkanLiftedTensorConstantReport",
     "VulkanStaticFactoryConstantNodeReport",
@@ -4189,6 +4319,7 @@ __all__ = [
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",
     "lower_graph_input_dtype_normalizations",
+    "lower_static_inference_identities",
     "lower_lifted_tensor_constants",
     "lower_static_factory_constants",
     "lower_static_identity_advanced_indices",

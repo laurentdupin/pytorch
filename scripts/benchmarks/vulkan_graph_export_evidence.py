@@ -407,6 +407,9 @@ def _lowering_report_objects(
         "fresh_relu_functionalization": getattr(
             program, "fresh_relu_functionalization", None
         ),
+        "static_inference_identities": getattr(
+            program, "static_inference_identities", None
+        ),
         "static_identity_advanced_indices": getattr(
             program, "static_identity_advanced_indices", None
         ),

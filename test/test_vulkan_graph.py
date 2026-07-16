@@ -1532,6 +1532,103 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.nodes[0].reason, "fresh_value_has_other_users")
         self.assertEqual(relu.target, torch.ops.aten.relu_.default)
 
+    def test_cpp_graph_plan_elides_static_inference_dropout(self):
+        class InferenceDropout(torch.nn.Module):
+            def forward(self, tensor):
+                dropped = torch.ops.aten.dropout.default(tensor, 0.25, False)
+                zero_probability = torch.ops.aten.dropout.default(
+                    dropped, 0.0, True
+                )
+                return zero_probability + 1.0
+
+        model = InferenceDropout().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        report = program.static_inference_identities
+        self.assertEqual(report.candidate_count, 2)
+        self.assertEqual(report.lowered_count, 2)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertEqual(
+            tuple(node.status for node in report.nodes),
+            ("lowered", "lowered"),
+        )
+        self.assertEqual(
+            tuple(node.reason for node in report.nodes),
+            (
+                "static_dropout_training_disabled",
+                "static_dropout_probability_zero",
+            ),
+        )
+        self.assertEqual(
+            tuple(node.probability for node in report.nodes),
+            (0.25, 0.0),
+        )
+        self.assertEqual(
+            tuple(node.training for node in report.nodes),
+            (False, True),
+        )
+        self.assertFalse(
+            any(
+                node.target == torch.ops.aten.dropout.default
+                for node in program.graph_module.graph.nodes
+            )
+        )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.instruction_count, 1)
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor)
+        self.assertEqual(output.cpu(), model(tensor))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_static_inference_dropout_preserves_training_semantics(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        dropout = graph.call_function(
+            torch.ops.aten.dropout.default,
+            (tensor, 0.25, True),
+        )
+        graph.output(dropout)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.lower_static_inference_identities(
+            graph_module
+        )
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 1)
+        self.assertEqual(report.nodes[0].reason, "dropout_training_enabled")
+        self.assertEqual(dropout.target, torch.ops.aten.dropout.default)
+
+    def test_static_inference_dropout_preserves_probability_validation(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        dropout = graph.call_function(
+            torch.ops.aten.dropout.default,
+            (tensor, 1.25, False),
+        )
+        graph.output(dropout)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.lower_static_inference_identities(
+            graph_module
+        )
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "dropout_probability_out_of_range",
+        )
+        self.assertEqual(dropout.target, torch.ops.aten.dropout.default)
+
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
             def __init__(self):
