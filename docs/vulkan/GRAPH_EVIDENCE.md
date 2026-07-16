@@ -114,6 +114,35 @@ deletion gate remain open. The reviewed artifacts are checked in as
 `test/vulkan_graph/evidence/hymt_prefill_export_parity.json`; the external
 model adapter remains caller-owned.
 
+The checked exact-SHA HY-MT decode artifacts at
+`79bf8d01ef0db5c01997042071e12434eac1b443` use separate first-step and
+second-step guard variants on the same 8 GB GTX 1080. Each variant captures
+3,224 nodes, lowers 225 linear contexts, and compiles a complete
+2,732-instruction/2,530-value C++ plan with 66 inputs and 65 tensor outputs.
+The 66 leaves are the token, attention mask, and 64 flattened key/value cache
+tensors. Both variants stay within the eager and CPU tolerances, keep graph
+fallback/readback/deferred-value counters at zero, and keep first/repeat peak
+memory from 4.03% below to 0.02% above eager.
+
+The explicit replay row maps all 64 first-step cache outputs to the second
+guard variant's cache inputs. Across the chained pair it records 68 host
+uploads: 66 initial inputs followed by only the next token and attention mask.
+The state handoff itself records no host upload or output readback. Two graph
+scopes capture two final tokens, issue 172 owner checkpoints and 240 total
+submits, and retain the first-step 65 outputs after the second step completes.
+Replayed state, second-step output, and preserved first-step output all remain
+within CPU tolerance, with zero implicit host boundary counters.
+
+The 30-sample latency result remains a rejection gate. First-step medians are
+2,188.41 ms graph versus 1,324.03 ms eager; second-step medians are 1,897.01 ms
+versus 1,341.53 ms. Graph p95 is 2,199.57/1,923.29 ms versus eager at
+1,337.71/1,356.77 ms. Plain eager also retains its `DepthDiffusion` lane and
+five fallbacks plus one readback per timed invocation, while graph execution is
+explicit `LLM`/`Decode` and clean. The state protocol is accepted; latency and
+lane parity are not. The reviewed files are checked in as
+`test/vulkan_graph/evidence/hymt_decode_export_census.json` and
+`test/vulkan_graph/evidence/hymt_decode_export_parity.json`.
+
 The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
 candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
 so the generic preparation pass rewrites all 64 to functional `aten::detach`

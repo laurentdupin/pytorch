@@ -556,14 +556,23 @@ for both guards. The four-token graph is 25.9% slower than plain eager while the
 five-token graph is 21.4% faster, so latency no-regression remains open. Plain
 eager also retains its legacy `DepthDiffusion` attention lane and host
 boundaries; lane parity remains open.
+
+Exact-SHA checked HY-MT decode evidence now compiles separate first-step and
+second-step 2,732-instruction plans with 66 inputs and 65 outputs. All 64
+key/value outputs from the first guard variant feed the second guard variant
+directly on Vulkan. The chained replay uploads only the next token and mask,
+performs no state readback, preserves the first generation's outputs, and stays
+inside correctness and memory gates. Its 30-sample graph medians remain
+41%-65% slower than eager and plain eager retains the legacy lane, so this
+closes the explicit state-protocol item without clearing latency or lane gates.
 Exact-SHA `8b60bf3ba4a` preallocates the host boxed-SSA invocation workspace,
 liveness bytes, dispatcher stack, and alias-safe typed list recipes. Program-owned
 Vulkan tensor-resource slots, descriptor and barrier plans, recorded command
-partitions, generation-gated resource-slot reuse, deeper container support, and
-an explicit stateful-input protocol remain Phase 5/6 work. The next performance
-work should reduce these per-inference graph costs while preserving the proven
-32-job boundaries; exact-op kernel tuning is secondary until attribution shows
-GPU work is dominant.
+partitions, generation-gated resource-slot reuse, deeper operator-schema
+containers, and mutable/in-place state protocols remain Phase 5/6 work. The
+next performance work should reduce these per-inference graph costs while
+preserving the proven 32-job boundaries; exact-op kernel tuning is secondary
+until attribution shows GPU work is dominant.
 
 Exact-SHA `46ece5d7dc9` removes 48 statically proven inference-dropout identities
 from DAv2 before plan construction, reducing the plan from 404 to 356

@@ -151,6 +151,26 @@ attention lane and records five fallbacks plus one readback per timed
 invocation. The checked artifacts close the missing HY-MT distribution-evidence
 item but keep the lane and latency deletion gates open.
 
+The checked exact-SHA `79bf8d01ef0db5c01997042071e12434eac1b443` HY-MT
+decode follow-up accepts the exported runtime PyTree for a token, mask, and 64
+flattened cache tensors. Separate first-step and second-step guard variants
+compile complete 2,732-instruction/2,530-value C++ plans with 66 inputs and 65
+outputs. Both retain eager/CPU numerical parity, zero graph fallback/readback,
+and first/repeat peak memory from 4.03% below to 0.02% above eager. The explicit
+state protocol maps all 64 first-step cache outputs to second-step inputs on
+Vulkan. Across the chained pair, 68 uploads cover 66 initial leaves plus only
+the next token and mask; there is no cache readback or reupload. Both invocation
+generations capture final tokens and the first generation's outputs remain
+valid after the second completes.
+
+Decode latency remains rejected. Thirty-sample graph medians are 2,188.41 ms
+and 1,897.01 ms versus eager at 1,324.03 ms and 1,341.53 ms, with graph p95
+also higher. Graph planning is explicit `LLM`/`Decode`; plain eager still
+selects `DepthDiffusion` and records five fallbacks plus one readback per timed
+invocation. This accepts explicit device-resident KV state replay and closes
+the deeper exported-input-container gap, but does not clear latency, lane,
+recorded-resource, replay/compiled-session, or legacy-inference deletion gates.
+
 Exact-SHA `c8332a964bb` moves SSA release discovery into immutable plan
 construction. Every non-escaping value with a last use is assigned exactly once
 to an instruction release list, and construction validates bounds, uniqueness,

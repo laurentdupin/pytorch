@@ -3678,6 +3678,85 @@
         "After program-owned resources or recorded partitions change HY-MT fixed cost, rerun both guard distributions against this exact artifact.",
         "Before retiring legacy planning inference, require both guards to meet the supported-default latency and lane gates."
       ]
+    },
+    {
+      "id": "hymt_graph_decode_state_replay_2026_07_16",
+      "status": "accepted_reporting_infrastructure",
+      "head": "79bf8d01ef0db5c01997042071e12434eac1b443",
+      "model_provenance": {
+        "models": [
+          "HY-MT 1.5 1.8B decode"
+        ],
+        "inputs": [
+          "first decode step with sequence-4 KV cache and length-5 mask",
+          "second decode step with sequence-5 KV cache and length-6 mask"
+        ],
+        "purpose": "Prove that graph-owned KV outputs can feed a later guard variant directly on Vulkan while preserving parity, counters, and prior-output lifetime."
+      },
+      "device_notes": "GTX 1080 8 GB supported plain-eager and VulkanGraphProgram evidence. Both graph variants use explicit LLM/Decode semantics; plain eager retains legacy lane inference and host boundaries.",
+      "contract_or_topology_scope": [
+        "exported runtime PyTree input binding",
+        "VulkanGraphPlan.v8",
+        "explicit output-to-input Tensor state replay",
+        "HY-MT decode guard variants",
+        "supported-default lane and latency deletion gates"
+      ],
+      "candidate": "Flatten nested exported state through the export TreeSpec, compile one plan per decode guard, and bind every prior cache output leaf directly to the next plan's corresponding input leaf.",
+      "correctness": {
+        "status": "passed_state_replay_with_open_performance_gate",
+        "tests": [
+          "126 Vulkan graph tests including nested state replay across guard variants",
+          "first- and second-step graph versus eager and CPU numerical parity",
+          "64 device-resident KV output-to-input mappings with no state readback or reupload",
+          "prior graph outputs preserved after the next guard variant completes",
+          "three warmups and 30 alternating samples per supported surface"
+        ]
+      },
+      "counters": {
+        "input_tensor_leaf_count": 66,
+        "output_tensor_leaf_count": 65,
+        "state_replay_tensor_leaf_count": 64,
+        "instruction_count": 2732,
+        "value_slot_count": 2530,
+        "normal_two_run_pending_command_flush": 173,
+        "alternate_two_run_pending_command_flush": 172,
+        "replay_pair_host_upload": 68,
+        "replay_pair_pending_command_flush": 172,
+        "replay_pair_tensor_cpu_readback": 0,
+        "replay_pair_total_queue_submits": 240,
+        "normal_graph_first_high_water_over_eager_percent": 0.007,
+        "normal_graph_repeat_live_high_water_over_eager_percent": 0.015,
+        "alternate_graph_first_high_water_over_eager_percent": -4.030,
+        "alternate_graph_repeat_live_high_water_over_eager_percent": -4.025,
+        "graph_cpu_fallback_per_inference": 0,
+        "graph_sync_readback_per_inference": 0,
+        "eager_cpu_fallback_per_inference": 5,
+        "eager_sync_readback_per_inference": 1
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 1324.03,
+        "normal_supported_eager_p95": 1337.71,
+        "normal_graph_median": 2188.41,
+        "normal_graph_p95": 2199.57,
+        "normal_graph_over_eager_ratio": 1.6528,
+        "alternate_supported_eager_median": 1341.53,
+        "alternate_supported_eager_p95": 1356.77,
+        "alternate_graph_median": 1897.01,
+        "alternate_graph_p95": 1923.29,
+        "alternate_graph_over_eager_ratio": 1.4141,
+        "measurement_repeats": 30,
+        "performance_claim": "state replay is accepted, but both decode guard variants fail latency no-regression and eager/graph lane parity remains open"
+      },
+      "artifacts": [
+        "test/vulkan_graph/evidence/hymt_decode_export_census.json",
+        "test/vulkan_graph/evidence/hymt_decode_export_parity.json"
+      ],
+      "decision": "Accept exported PyTree binding and explicit device-resident KV replay as the supported state protocol. Do not claim decode performance parity or delete replay, compiled-session, or legacy planning systems: both graph variants are slower, and plain eager still selects DepthDiffusion with five fallbacks and one readback per invocation.",
+      "revisit_conditions": [
+        "After program-owned Vulkan resources or recorded partitions reduce decode fixed cost, rerun both guard distributions and the chained replay counters.",
+        "After supported eager callers receive explicit semantic planning fields, rerun lane and host-boundary parity on the same 8 GB adapter.",
+        "Before replacing the explicit functional cache protocol with mutable slots, require generation-safe in-place state ownership and failure recovery."
+      ]
     }
   ]
 }

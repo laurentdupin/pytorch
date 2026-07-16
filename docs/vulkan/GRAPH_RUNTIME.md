@@ -269,6 +269,7 @@ versions, and model buffers updated between calls.
 Each stateful input is one of:
 
 - a stable input slot copied before execution;
+- a device-resident output leaf bound to a later guard variant's input leaf;
 - a device-visible scalar/parameter updated by an execution prologue;
 - a versioned constant that invalidates and recompiles the program;
 - an unsupported stateful boundary that splits the graph.
@@ -287,8 +288,18 @@ top-level submission and completion ownership across lifted copies and 225 linea
 contexts, including bounded large-linear maintenance checkpoints. Exact-SHA
 caller-owned evidence covers numerical parity, the guard variant, repeated live
 outputs, and peak memory. Resource arenas, descriptors, explicit barrier
-construction, a checked-in latency distribution, and lane parity remain Phase
-5 work.
+construction, latency no-regression, and lane parity remain Phase 5 work.
+
+The checked HY-MT decode evidence uses two explicit guard variants. Each C++
+plan accepts a token, attention mask, and 64 flattened key/value Tensor leaves
+and returns logits plus 64 updated cache leaves. The generic replay protocol
+binds every first-step cache output directly to the second-step cache input on
+Vulkan. Across the pair, 68 host uploads cover the 66 initial leaves and only
+the next token and mask; the cache handoff performs no host upload or readback.
+Both generations remain numerically valid and the first generation's outputs
+survive the second. This proves explicit output-to-input state transfer, not a
+mutable in-place cache, a persistent resource arena, or latency parity. The
+30-sample decode medians remain 41%-65% slower than plain eager.
 
 DAv2 uses the same fail-closed preparation principle for two exported
 `aten::relu_` nodes. Each source must be a single-use result of a non-mutating

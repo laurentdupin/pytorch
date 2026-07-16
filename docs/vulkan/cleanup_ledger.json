@@ -814,7 +814,7 @@
       "summary": "Replay bundles, compiled sessions, their public bridges, and stale-output diagnostics.",
       "replacement": "Generated graph command partitions with explicit state, binding, generation, and completion ownership.",
       "delete_when": "Every live caller is migrated and graph partitions preserve repeated-run lifetime and stale-output rejection.",
-      "baseline": "Compare only with supported concrete eager and VulkanGraphProgram routes; historical replay timings are not deletion bars.",
+      "baseline": "Compare only with supported concrete eager and VulkanGraphProgram routes; historical replay timings are not deletion bars. Checked exact-SHA 79bf8d01ef0db5c01997042071e12434eac1b443 HY-MT decode proves explicit device-resident output-to-input state replay across guard variants, but graph medians remain 41%-65% slower than eager and program-owned recorded resources are not implemented. Replay/compiled-session deletion remains blocked.",
       "paths": [
         "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp",
         "aten/src/ATen/native/vulkan/planning/InferenceGraphs.h",
@@ -872,7 +872,7 @@
       "summary": "Allocation-label model-lane inference and device-name policy checks. VulkanGraphPlanningContext now carries explicit request fields through graph lowering and execution; eager label/tensor inference and device-name heuristics remain isolated in LegacyPlanningInference.* and LegacyDeviceNamePolicy.h.",
       "replacement": "Program-keyed VulkanGraphPlanningContext fields applied by graph lowering and the C++ plan, plus capability-keyed device policy.",
       "delete_when": "Graph programs pass explicit planning scope, HY-MT and PaddleOCR lane/residency parity is recorded on 8 GB adapters, and no caller depends on inferred labels.",
-      "baseline": "Record supported eager and graph lane, residency, fallback, readback, and peak-memory parity before removing inference. Checked exact-SHA 019faaebf1593fd2f2fcbd8e5cec66a8202fd62e GTX 1080 HY-MT graph evidence is clean, inside the 5% memory gate, explicit LLM/Prefill, and distribution-measured. Plain eager still resolves DepthDiffusion and records five fallbacks plus one readback per timed invocation; lane parity and the deletion gate remain open.",
+      "baseline": "Record supported eager and graph lane, residency, fallback, readback, and peak-memory parity before removing inference. Checked exact-SHA 019faaebf1593fd2f2fcbd8e5cec66a8202fd62e prefill and 79bf8d01ef0db5c01997042071e12434eac1b443 decode evidence are clean, inside the 5% memory gate, explicit LLM/Prefill or LLM/Decode, and distribution-measured. Plain eager still resolves DepthDiffusion and records five fallbacks plus one readback per timed invocation; lane parity and the deletion gate remain open.",
       "paths": [
         "aten/src/ATen/native/vulkan/planning/LegacyDeviceNamePolicy.h",
         "aten/src/ATen/native/vulkan/planning/LegacyPlanningInference.*",
