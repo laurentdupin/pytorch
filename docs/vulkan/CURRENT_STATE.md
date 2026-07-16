@@ -1152,12 +1152,12 @@ existing `VisionBackboneProgram`/replay-bundle path is observed. Those rows have
 stable replay-program slot ids and allocation identity, but remain
 non-authorizing because they are not yet joined to the stack planned-recording
 descriptor/live binding rows.
-The Depth Anything V2 benchmark now has a benchmark-only
-`--vulkan-stack-output-device-bridge-mode=compiled_session_bridge` canary that routes
-through the existing `run_depth_anything_v2_compiled_session_bridge`. This is not
-the default path and not production routing. Current `vits_140` evidence shows
-the canary exits with Windows stack overflow `-1073741571`, so it is cataloged
-as unsafe until the replay/compiled-session stack-overflow failure is fixed.
+The Depth Anything V2 benchmark previously carried a benchmark-only
+`compiled_session_bridge` canary over
+`run_depth_anything_v2_compiled_session_bridge`. Its `vits_140` evidence ended
+in Windows stack overflow `-1073741571`; the selectable mode and its unreachable
+caller branch are now deleted. The public compiled-session backend remains
+Migration-gated until graph-owned recorded partitions replace it.
 `Context` now has an empty-by-default bridge-private capture pending-retire
 handoff batch scaffold with clear/restore/retire helpers. No producer moves
 entries into that batch yet, so it is behavior-neutral and does not change
