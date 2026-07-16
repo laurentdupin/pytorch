@@ -646,6 +646,13 @@ The initial catalog records the current `vits_140` performance lane:
   graph/eager and graph/CPU error, zero graph fallback/readback, unchanged 88
   checkpoints per inference, and peak high-water inside the 5% gate. The one
   timing sample per surface is not a latency-distribution claim;
+- immutable graph release scheduling: accepted structurally at exact-SHA
+  `c8332a964bb`. Plan construction validates one exact release owner for every
+  non-escaping SSA value, while invocation skips redundant full-plan validation
+  and argument/output last-use scans. DAv2 retains exact parity, zero graph
+  fallback/readback, 10 submissions per inference, and identical memory phases.
+  Two 30-repeat passes produce combined graph/eager median ratios of 0.348/0.344;
+  ambient movement prevents a separate latency-win claim;
 - post-reuse 64-job graph cadence: rejected. DAv2 fell to five submissions per
   inference, but normal peak memory reached 5.6% to 6.1% above eager and the
   alternate shape reached 8.5% to 9.9%. Graph medians also worsened to

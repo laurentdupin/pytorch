@@ -244,6 +244,18 @@ sample per surface is insufficient for a latency claim; the HY-MT distribution
 and lane-parity gates remain open. Raw files are under
 `agent_space/hymt_static_detach_identity_exact_e536f16cf36/`.
 
+Exact-SHA `c8332a964bb` validates the immutable C++ plan and its complete SSA
+release schedule once at construction. Runtime execution consumes per-instruction
+release IDs directly instead of revalidating every instruction/argument and then
+rescanning argument/output recipes for last uses. The exact DAv2 artifact keeps
+356 instructions, 377 values, exact graph/eager parity, zero fallback/readback,
+10 pending submissions per inference, and first/repeat high-water between 0.9%
+and 3.2% above eager. Across two 30-repeat passes, combined graph/eager median
+ratios are 0.348/0.344; host load moved enough that this is not an isolated
+latency claim. The change advances structural resource lifetime ownership but
+does not clear replay, compiled-session, or stack deletion gates. Raw files are
+under `agent_space/graph_release_schedule_exact_c8332a964bb/`.
+
 A worktree 64-job cadence on the same implementation cuts DAv2 to five pending
 submissions per inference but fails the deletion gate: normal first/repeat peak
 memory is 5.6%/6.1% above eager and alternate is 8.5%/9.9% above eager. Its

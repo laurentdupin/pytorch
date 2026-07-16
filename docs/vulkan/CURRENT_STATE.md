@@ -138,6 +138,19 @@ in opposite directions relative to prior runs and do not establish a latency
 win or distribution gate. Raw evidence is under
 `agent_space/hymt_static_detach_identity_exact_e536f16cf36/`.
 
+Exact-SHA `c8332a964bb` moves SSA release discovery into immutable plan
+construction. Every non-escaping value with a last use is assigned exactly once
+to an instruction release list, and construction validates bounds, uniqueness,
+escape state, and last-use equality. Invocation no longer revalidates the whole
+immutable schema or rescans arguments and outputs to rediscover releases. DAv2
+retains its 356-instruction/377-value plan, exact graph/eager parity, zero graph
+fallback/readback, 10 pending submissions per inference, and the identical
+0.9%-3.2% high-water envelope. Two exact 30-repeat passes moved with ambient
+host load; their combined graph/eager median ratios are 0.348/0.344. This is
+structural lifetime ownership and behavioral no-regression evidence, not an
+isolated latency claim or a legacy-subsystem deletion gate. Raw evidence is
+under `agent_space/graph_release_schedule_exact_c8332a964bb/`.
+
 A 64-job cadence was re-probed after dead-ReLU reuse and rejected again. It cut
 DAv2 to five submissions per inference, but graph peak memory rose to
 5.6%-6.1% above eager for the normal shape and 8.5%-9.9% for the alternate

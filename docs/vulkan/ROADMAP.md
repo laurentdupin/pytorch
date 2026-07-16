@@ -576,6 +576,14 @@ detach aliases remain untouched. Single-sample timing is mixed, so this is a
 bounded control-plane reduction rather than a latency claim; integration and
 recorded resource ownership remain higher priority than further identity rules.
 
+Exact-SHA `c8332a964bb` precomputes and validates per-instruction SSA release
+lists during immutable plan construction. Invocation no longer validates the
+whole plan or rescans argument/output recipes to rediscover last uses. DAv2 keeps
+its exact parity, 10-submission cadence, and memory envelope. This is a direct
+step toward program-owned resource slots, but it does not yet preallocate Vulkan
+tensor storage, descriptors, barriers, or recorded partitions and therefore
+does not make a migration subsystem delete-ready.
+
 Exit criteria:
 
 - the C++ executor matches the Python correctness executor;
