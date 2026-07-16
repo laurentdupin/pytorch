@@ -149,6 +149,15 @@ int register_vulkan_graph_plan() {
               "list_argument_count",
               &utils::VulkanGraphPlan::list_argument_count)
           .def(
+              "invocation_value_slot_count",
+              &utils::VulkanGraphPlan::invocation_value_slot_count)
+          .def(
+              "invocation_list_slot_count",
+              &utils::VulkanGraphPlan::invocation_list_slot_count)
+          .def(
+              "invocation_stack_capacity",
+              &utils::VulkanGraphPlan::invocation_stack_capacity)
+          .def(
               "dead_input_reuse_instruction_count",
               &utils::VulkanGraphPlan::dead_input_reuse_instruction_count)
           .def(

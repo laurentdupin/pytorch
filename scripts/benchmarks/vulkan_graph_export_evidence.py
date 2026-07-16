@@ -325,6 +325,9 @@ def _execution_plan_summary(
             report.list_projection_instruction_count
         ),
         "list_argument_count": report.list_argument_count,
+        "invocation_value_slot_count": report.invocation_value_slot_count,
+        "invocation_list_slot_count": report.invocation_list_slot_count,
+        "invocation_stack_capacity": report.invocation_stack_capacity,
         "dead_input_reuse_instruction_count": (
             report.dead_input_reuse_instruction_count
         ),

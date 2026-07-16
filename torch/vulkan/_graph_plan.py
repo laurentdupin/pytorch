@@ -85,6 +85,9 @@ class VulkanGraphPlanReport:
     graph_scalar_instruction_count: int
     list_projection_instruction_count: int
     list_argument_count: int
+    invocation_value_slot_count: int
+    invocation_list_slot_count: int
+    invocation_stack_capacity: int
     dead_input_reuse_instruction_count: int
     value_count: int
     output_count: int
@@ -136,6 +139,9 @@ def _rejected(
             graph_scalar_instruction_count=0,
             list_projection_instruction_count=0,
             list_argument_count=0,
+            invocation_value_slot_count=0,
+            invocation_list_slot_count=0,
+            invocation_stack_capacity=0,
             dead_input_reuse_instruction_count=0,
             value_count=0,
             output_count=0,
@@ -583,6 +589,9 @@ def compile_vulkan_graph_plan(
             for instruction_kinds in argument_kinds
             for kind in instruction_kinds
         ),
+        invocation_value_slot_count=plan.invocation_value_slot_count(),
+        invocation_list_slot_count=plan.invocation_list_slot_count(),
+        invocation_stack_capacity=plan.invocation_stack_capacity(),
         dead_input_reuse_instruction_count=(
             plan.dead_input_reuse_instruction_count()
         ),
@@ -603,6 +612,14 @@ def compile_vulkan_graph_plan(
         or plan.list_projection_instruction_count()
         != report.list_projection_instruction_count
         or plan.list_argument_count() != report.list_argument_count
+        or plan.invocation_value_slot_count()
+        != report.invocation_value_slot_count
+        or plan.invocation_list_slot_count()
+        != report.invocation_list_slot_count
+        or plan.invocation_stack_capacity()
+        != report.invocation_stack_capacity
+        or report.invocation_value_slot_count != report.value_count
+        or report.invocation_list_slot_count > report.list_argument_count
         or plan.dead_input_reuse_instruction_count()
         != report.dead_input_reuse_instruction_count
         or plan.value_count() != report.value_count

@@ -474,15 +474,17 @@ class TestVulkanGraph(TestCase):
             rtol=1e-4,
             atol=1e-4,
         )
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "VulkanGraphPlan.v8 node 'getitem'.*"
-            "index 1 is out of range for length 1",
-        ):
-            torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
-                [vulkan_tensor],
-                list_projection_plan(1),
-            )
+        failing_plan = list_projection_plan(1)
+        for _ in range(2):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "VulkanGraphPlan.v8 node 'getitem'.*"
+                "index 1 is out of range for length 1",
+            ):
+                torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                    [vulkan_tensor],
+                    failing_plan,
+                )
 
     def test_static_linear_biasless_tanh_gelu_region_preserves_tanh_semantics(self):
         class LinearGelu(torch.nn.Module):
@@ -740,6 +742,9 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.effect_instruction_count, 0)
         self.assertEqual(report.graph_scalar_instruction_count, 0)
         self.assertEqual(report.list_argument_count, 0)
+        self.assertEqual(report.invocation_value_slot_count, 4)
+        self.assertEqual(report.invocation_list_slot_count, 0)
+        self.assertGreaterEqual(report.invocation_stack_capacity, 2)
         self.assertEqual(report.value_count, 4)
         self.assertEqual(report.output_count, 1)
         self.assertTrue(report.submission_owned)
@@ -750,6 +755,12 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.effect_instruction_count(), 0)
         self.assertEqual(program.cpp_plan.graph_scalar_instruction_count(), 0)
         self.assertEqual(program.cpp_plan.list_argument_count(), 0)
+        self.assertEqual(
+            program.cpp_plan.invocation_value_slot_count(),
+            report.value_count,
+        )
+        self.assertEqual(program.cpp_plan.invocation_list_slot_count(), 0)
+        self.assertGreaterEqual(program.cpp_plan.invocation_stack_capacity(), 2)
         self.assertEqual(program.cpp_plan.value_count(), 4)
         self.assertEqual(program.cpp_plan.output_count(), 1)
         self.assertTrue(program.cpp_plan.submission_owned())
@@ -1156,10 +1167,16 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.effect_instruction_count, 0)
         self.assertEqual(report.graph_scalar_instruction_count, 0)
         self.assertEqual(report.list_argument_count, 1)
+        self.assertEqual(report.invocation_value_slot_count, 4)
+        self.assertEqual(report.invocation_list_slot_count, 1)
+        self.assertGreaterEqual(report.invocation_stack_capacity, 2)
         self.assertEqual(report.value_count, 4)
         self.assertEqual(report.value_use_counts, (1, 1, 1, 0))
         self.assertEqual(report.value_last_uses, (0, 0, 1, 1))
         self.assertEqual(program.cpp_plan.list_argument_count(), 1)
+        self.assertEqual(program.cpp_plan.invocation_value_slot_count(), 4)
+        self.assertEqual(program.cpp_plan.invocation_list_slot_count(), 1)
+        self.assertGreaterEqual(program.cpp_plan.invocation_stack_capacity(), 2)
 
         with patch.object(
             vulkan_graph._VulkanGraphInterpreter,
@@ -1195,6 +1212,9 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.instruction_count, 1)
         self.assertEqual(report.list_argument_count, 1)
         self.assertEqual(program.cpp_plan.list_argument_count(), 1)
+        self.assertEqual(program.cpp_plan.invocation_value_slot_count(), 2)
+        self.assertEqual(program.cpp_plan.invocation_list_slot_count(), 1)
+        self.assertGreaterEqual(program.cpp_plan.invocation_stack_capacity(), 2)
         with patch.object(
             vulkan_graph._VulkanGraphInterpreter,
             "run_node",
@@ -1205,6 +1225,34 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_keeps_list_return_arguments_transient(self):
+        plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+            ["broadcast", "getitem"],
+            ["aten::broadcast_tensors", "vulkan_graph::list_getitem"],
+            ["", ""],
+            [[[0, 1]], [[2], [-1]]],
+            [[1], [0, 0]],
+            [[2], [3]],
+            [0],
+            2,
+            [3],
+        )
+        self.assertEqual(plan.list_argument_count(), 1)
+        self.assertEqual(plan.invocation_list_slot_count(), 0)
+
+        left = torch.randn(2, 1)
+        right = torch.randn(1, 3)
+        vulkan_inputs = [left.to("vulkan"), right.to("vulkan")]
+        for _ in range(2):
+            output = torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                vulkan_inputs,
+                plan,
+            )
+            torch.testing.assert_close(
+                output[0].cpu(),
+                torch.broadcast_tensors(left, right)[0],
+            )
 
     def test_cpp_graph_plan_rejects_list_recipe_for_scalar_argument(self):
         with self.assertRaisesRegex(

@@ -10,6 +10,7 @@
 
 #include <c10/core/DispatchKey.h>
 #include <c10/util/Exception.h>
+#include <c10/util/ScopeExit.h>
 #include <c10/util/irange.h>
 #include <c10/util/safe_numerics.h>
 
@@ -61,8 +62,34 @@ struct VulkanGraphPlanInstruction final {
       VulkanGraphPlanInstructionKind::Dispatcher};
   std::optional<c10::OperatorHandle> operator_handle;
   std::optional<c10::OperatorHandle> dead_input_reuse_operator_handle;
+  bool reusable_list_arguments{false};
   std::vector<VulkanGraphPlanArgument> arguments;
   std::vector<int64_t> output_value_ids;
+};
+
+struct VulkanGraphPlanInvocationWorkspace final {
+  std::vector<c10::IValue> values;
+  std::vector<uint8_t> value_live;
+  std::vector<c10::IValue> stack;
+  std::vector<std::vector<std::optional<c10::impl::GenericList>>>
+      list_arguments;
+
+  void reset() {
+    stack.clear();
+    for (auto& instruction_lists : list_arguments) {
+      for (auto& list : instruction_lists) {
+        if (list) {
+          list->clear();
+        }
+      }
+    }
+    for (const auto value_index : c10::irange(values.size())) {
+      if (value_live[value_index]) {
+        values[value_index] = c10::IValue();
+        value_live[value_index] = 0u;
+      }
+    }
+  }
 };
 
 std::optional<VulkanGraphPlanInstructionKind> graph_scalar_instruction_kind(
@@ -201,6 +228,19 @@ bool has_plan_dispatch(const c10::OperatorHandle& operator_handle) {
           c10::DispatchKey::CompositeExplicitAutogradNonFunctional);
 }
 
+bool schema_has_list_return(const c10::FunctionSchema& schema) {
+  return std::any_of(
+      schema.returns().begin(),
+      schema.returns().end(),
+      [](const c10::Argument& argument) {
+        c10::TypePtr type = argument.type();
+        if (const auto optional_type = type->cast<c10::OptionalType>()) {
+          type = optional_type->getElementType();
+        }
+        return type->cast<c10::ListType>() != nullptr;
+      });
+}
+
 int64_t constant_index(const int64_t argument_ref) {
   TORCH_INTERNAL_ASSERT(argument_ref < 0);
   TORCH_CHECK(
@@ -244,7 +284,7 @@ bool can_reuse_dead_input(
     const size_t instruction_index,
     const std::vector<VulkanGraphPlanValue>& value_plan,
     const std::vector<c10::IValue>& values,
-    const std::vector<bool>& value_live,
+    const std::vector<uint8_t>& value_live,
     const std::vector<Tensor>& inputs,
     const std::vector<c10::IValue>& constants) {
   if (
@@ -340,6 +380,7 @@ struct VulkanGraphPlan::State final {
   int64_t input_count{0};
   bool submission_owned{true};
   VulkanPlanningRequest planning_request;
+  mutable VulkanGraphPlanInvocationWorkspace invocation_workspace;
   mutable std::mutex submission_mutex;
   c10::DeviceIndex submission_device_index{-1};
   api::VulkanSubmission last_submission{};
@@ -410,6 +451,33 @@ int64_t VulkanGraphPlan::list_argument_count() const {
         }));
   }
   return count;
+}
+
+int64_t VulkanGraphPlan::invocation_value_slot_count() const {
+  return state_
+      ? static_cast<int64_t>(state_->invocation_workspace.values.size())
+      : 0;
+}
+
+int64_t VulkanGraphPlan::invocation_list_slot_count() const {
+  if (!state_) {
+    return 0;
+  }
+  int64_t count = 0;
+  for (const auto& instruction_lists :
+       state_->invocation_workspace.list_arguments) {
+    count += static_cast<int64_t>(std::count_if(
+        instruction_lists.begin(),
+        instruction_lists.end(),
+        [](const auto& list) { return list.has_value(); }));
+  }
+  return count;
+}
+
+int64_t VulkanGraphPlan::invocation_stack_capacity() const {
+  return state_
+      ? static_cast<int64_t>(state_->invocation_workspace.stack.capacity())
+      : 0;
 }
 
 int64_t VulkanGraphPlan::dead_input_reuse_instruction_count() const {
@@ -528,20 +596,30 @@ bool VulkanGraphPlan::valid() const {
   if (
       !state_ || state_->input_count <= 0 || state_->instructions.empty() ||
       state_->output_value_ids.empty() ||
-      state_->values.size() < static_cast<size_t>(state_->input_count)) {
+      state_->values.size() < static_cast<size_t>(state_->input_count) ||
+      state_->invocation_workspace.values.size() != state_->values.size() ||
+      state_->invocation_workspace.value_live.size() != state_->values.size() ||
+      state_->invocation_workspace.list_arguments.size() !=
+          state_->instructions.size()) {
     return false;
   }
   int64_t next_value_id = state_->input_count;
+  size_t maximum_argument_count = 0u;
   for (const auto instruction_index :
        c10::irange(state_->instructions.size())) {
     const VulkanGraphPlanInstruction& instruction =
         state_->instructions[instruction_index];
+    const auto& instruction_lists =
+        state_->invocation_workspace.list_arguments[instruction_index];
     if (
         instruction.node_name.empty() || instruction.operator_name.empty() ||
         ((instruction.kind == VulkanGraphPlanInstructionKind::Dispatcher) !=
-         instruction.operator_handle.has_value())) {
+         instruction.operator_handle.has_value()) ||
+        instruction_lists.size() != instruction.arguments.size()) {
       return false;
     }
+    maximum_argument_count =
+        std::max(maximum_argument_count, instruction.arguments.size());
     if (
         instruction.dead_input_reuse_operator_handle &&
         (instruction.kind != VulkanGraphPlanInstructionKind::Dispatcher ||
@@ -557,12 +635,18 @@ bool VulkanGraphPlan::valid() const {
          instruction.arguments.size() != 2u)) {
       return false;
     }
-    for (const VulkanGraphPlanArgument& argument : instruction.arguments) {
+    for (const auto argument_index :
+         c10::irange(instruction.arguments.size())) {
+      const VulkanGraphPlanArgument& argument =
+          instruction.arguments[argument_index];
       if (
           (argument.kind == VulkanGraphPlanArgumentKind::Value &&
            argument.refs.size() != 1u) ||
           (argument.kind == VulkanGraphPlanArgumentKind::List &&
-           !argument.list_element_type)) {
+           !argument.list_element_type) ||
+          instruction_lists[argument_index].has_value() !=
+              (argument.kind == VulkanGraphPlanArgumentKind::List &&
+               instruction.reusable_list_arguments)) {
         return false;
       }
       if (
@@ -579,6 +663,9 @@ bool VulkanGraphPlan::valid() const {
     }
   }
   if (next_value_id != static_cast<int64_t>(state_->values.size())) {
+    return false;
+  }
+  if (state_->invocation_workspace.stack.capacity() < maximum_argument_count) {
     return false;
   }
   return std::all_of(
@@ -849,6 +936,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         instruction_kind,
         std::move(operator_handle),
         std::move(dead_input_reuse_operator_handle),
+        schema == nullptr || !schema_has_list_return(*schema),
         std::move(arguments),
         std::move(output_value_ids_for_instruction)});
     defined_value_count += static_cast<int64_t>(
@@ -862,6 +950,29 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         "VulkanGraphPlan.v8 output value is out of range");
     state->values[static_cast<size_t>(output_value_id)].escapes = true;
   }
+  VulkanGraphPlanInvocationWorkspace& workspace = state->invocation_workspace;
+  workspace.values.resize(state->values.size());
+  workspace.value_live.resize(state->values.size(), uint8_t{0u});
+  workspace.list_arguments.reserve(state->instructions.size());
+  size_t maximum_argument_count = 0u;
+  for (const VulkanGraphPlanInstruction& instruction : state->instructions) {
+    maximum_argument_count =
+        std::max(maximum_argument_count, instruction.arguments.size());
+    auto& instruction_lists = workspace.list_arguments.emplace_back();
+    instruction_lists.reserve(instruction.arguments.size());
+    for (const VulkanGraphPlanArgument& argument : instruction.arguments) {
+      if (
+          argument.kind == VulkanGraphPlanArgumentKind::List &&
+          instruction.reusable_list_arguments) {
+        instruction_lists.emplace_back(
+            c10::impl::GenericList(argument.list_element_type));
+        instruction_lists.back()->reserve(argument.refs.size());
+      } else {
+        instruction_lists.emplace_back(std::nullopt);
+      }
+    }
+  }
+  workspace.stack.reserve(maximum_argument_count);
   return c10::make_intrusive<VulkanGraphPlan>(std::move(state));
 }
 
@@ -895,18 +1006,23 @@ std::vector<Tensor> run_vulkan_graph_plan(
     submission_scope.emplace(*api::context(device_index));
   }
 
-  std::vector<c10::IValue> values(state.values.size());
-  std::vector<bool> value_live(state.values.size(), false);
-  std::vector<c10::IValue> stack;
+  VulkanGraphPlanInvocationWorkspace& workspace = state.invocation_workspace;
+  auto reset_workspace = c10::make_scope_exit([&workspace]() {
+    workspace.reset();
+  });
+  std::vector<c10::IValue>& values = workspace.values;
+  std::vector<uint8_t>& value_live = workspace.value_live;
+  std::vector<c10::IValue>& stack = workspace.stack;
   for (const auto input_index : c10::irange(inputs.size())) {
     values[input_index] = inputs[input_index];
-    value_live[input_index] = true;
+    value_live[input_index] = 1u;
   }
   for (const auto instruction_index : c10::irange(state.instructions.size())) {
     const VulkanGraphPlanInstruction& instruction =
         state.instructions[instruction_index];
     stack.clear();
     stack.reserve(instruction.arguments.size());
+    std::vector<c10::impl::GenericList> transient_lists;
     const auto load_argument_ref = [&](const int64_t argument_ref) {
       if (argument_ref >= 0) {
         TORCH_CHECK(
@@ -918,17 +1034,29 @@ std::vector<Tensor> run_vulkan_graph_plan(
       }
       return state.constants[static_cast<size_t>(constant_index(argument_ref))];
     };
-    for (const VulkanGraphPlanArgument& argument : instruction.arguments) {
+    for (const auto argument_index :
+         c10::irange(instruction.arguments.size())) {
+      const VulkanGraphPlanArgument& argument =
+          instruction.arguments[argument_index];
       if (argument.kind == VulkanGraphPlanArgumentKind::Value) {
         stack.push_back(load_argument_ref(argument.refs.front()));
         continue;
       }
-      c10::impl::GenericList list(argument.list_element_type);
-      list.reserve(argument.refs.size());
-      for (const int64_t argument_ref : argument.refs) {
-        list.emplace_back(load_argument_ref(argument_ref));
+      auto& reusable_list =
+          workspace.list_arguments[instruction_index][argument_index];
+      c10::impl::GenericList* list = nullptr;
+      if (reusable_list) {
+        TORCH_INTERNAL_ASSERT(reusable_list->empty());
+        list = &*reusable_list;
+      } else {
+        transient_lists.emplace_back(argument.list_element_type);
+        list = &transient_lists.back();
       }
-      stack.emplace_back(std::move(list));
+      list->reserve(argument.refs.size());
+      for (const int64_t argument_ref : argument.refs) {
+        list->emplace_back(load_argument_ref(argument_ref));
+      }
+      stack.emplace_back(*list);
     }
 
     const bool reuse_dead_input = can_reuse_dead_input(
@@ -992,6 +1120,11 @@ std::vector<Tensor> run_vulkan_graph_plan(
     const VulkanGraphExecutionScopeCounts counters =
         end_vulkan_graph_execution_scope_counts(scope_token);
     check_implicit_boundary(instruction, counters);
+    for (auto& list : workspace.list_arguments[instruction_index]) {
+      if (list) {
+        list->clear();
+      }
+    }
     if (reuse_dead_input) {
       state.dead_input_reuse_count.fetch_add(1u, std::memory_order_relaxed);
     }
@@ -1018,7 +1151,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
         const int64_t output_value_id =
             instruction.output_value_ids[output_index];
         values[static_cast<size_t>(output_value_id)] = std::move(output);
-        value_live[static_cast<size_t>(output_value_id)] = true;
+        value_live[static_cast<size_t>(output_value_id)] = 1u;
       }
     }
 
@@ -1033,7 +1166,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
             !value.escapes &&
             value.last_use == static_cast<int64_t>(instruction_index)) {
           values[static_cast<size_t>(argument_ref)] = c10::IValue();
-          value_live[static_cast<size_t>(argument_ref)] = false;
+          value_live[static_cast<size_t>(argument_ref)] = 0u;
         }
       }
     }
@@ -1044,7 +1177,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
           !value.escapes &&
           value.last_use == static_cast<int64_t>(instruction_index)) {
         values[static_cast<size_t>(output_value_id)] = c10::IValue();
-        value_live[static_cast<size_t>(output_value_id)] = false;
+        value_live[static_cast<size_t>(output_value_id)] = 0u;
       }
     }
     if (submission_scope && submission_scope->checkpoint_requested()) {
