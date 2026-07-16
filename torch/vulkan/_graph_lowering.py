@@ -1394,9 +1394,68 @@ def _bound_schema_arguments(node: torch.fx.Node) -> tuple[Any, ...] | None:
 
 def lower_static_inference_identities(
     graph_module: torch.fx.GraphModule,
+    fresh_detach_functionalization: VulkanFreshDetachFunctionalizationReport
+    | None = None,
 ) -> VulkanStaticInferenceIdentityReport:
     graph = graph_module.graph
     reports: list[VulkanStaticInferenceIdentityNodeReport] = []
+    fresh_detach_proofs = {
+        report.node_name: report
+        for report in (
+            fresh_detach_functionalization.nodes
+            if fresh_detach_functionalization is not None
+            else ()
+        )
+        if report.status == "functionalized"
+        and report.replacement_target == "aten::detach"
+    }
+    detach_candidates: list[
+        tuple[torch.fx.Node, torch.fx.Node, VulkanStaticInferenceIdentityNodeReport]
+    ] = []
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.detach.default
+            or node.name not in fresh_detach_proofs
+        ):
+            continue
+        bound_arguments = _bound_schema_arguments(node)
+        source = bound_arguments[0] if bound_arguments else None
+        proof = fresh_detach_proofs[node.name]
+        source_name = source.name if isinstance(source, torch.fx.Node) else None
+        if source_name != proof.source_node_name:
+            reports.append(
+                VulkanStaticInferenceIdentityNodeReport(
+                    node_name=node.name,
+                    status="skipped",
+                    reason="fresh_detach_proof_mismatch",
+                    operator_name="aten::detach",
+                    source_node_name=source_name,
+                    probability=None,
+                    training=None,
+                )
+            )
+            continue
+        detach_candidates.append(
+            (
+                node,
+                source,
+                VulkanStaticInferenceIdentityNodeReport(
+                    node_name=node.name,
+                    status="lowered",
+                    reason="functionalized_fresh_detach_under_inference",
+                    operator_name="aten::detach",
+                    source_node_name=source_name,
+                    probability=None,
+                    training=None,
+                ),
+            )
+        )
+    reports.extend(report for _, _, report in detach_candidates)
+    for node, source, _ in reversed(detach_candidates):
+        node.replace_all_uses_with(source)
+        graph.erase_node(node)
+
     for node in tuple(graph.nodes):
         if (
             node.op != "call_function"

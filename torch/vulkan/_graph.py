@@ -1495,7 +1495,10 @@ def export_and_lower(
         graph_module
     )
     fresh_relu_functionalization = functionalize_fresh_relu_mutations(graph_module)
-    static_inference_identities = lower_static_inference_identities(graph_module)
+    static_inference_identities = lower_static_inference_identities(
+        graph_module,
+        fresh_detach_functionalization,
+    )
     static_identity_advanced_indices = lower_static_identity_advanced_indices(
         graph_module
     )

@@ -1308,7 +1308,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
-    def test_cpp_graph_plan_functionalizes_fresh_detach_chain(self):
+    def test_cpp_graph_plan_elides_functionalized_fresh_detach_chain(self):
         class FreshDetachCat(torch.nn.Module):
             def forward(self, tensor):
                 fresh = torch.tensor([1.0, 2.0])
@@ -1349,7 +1349,22 @@ class TestVulkanGraph(TestCase):
                 node.target == torch.ops.aten.detach.default
                 for node in program.graph_module.graph.nodes
             ),
-            2,
+            0,
+        )
+        identities = program.static_inference_identities
+        self.assertEqual(identities.candidate_count, 2)
+        self.assertEqual(identities.lowered_count, 2)
+        self.assertEqual(identities.skipped_count, 0)
+        self.assertEqual(
+            tuple(node.reason for node in identities.nodes),
+            (
+                "functionalized_fresh_detach_under_inference",
+                "functionalized_fresh_detach_under_inference",
+            ),
+        )
+        self.assertEqual(
+            tuple(node.operator_name for node in identities.nodes),
+            ("aten::detach", "aten::detach"),
         )
         self.assertEqual(program.execution_mode, "cpp_plan")
         self.assertEqual(program.cpp_plan_report.status, "compiled")
@@ -1628,6 +1643,22 @@ class TestVulkanGraph(TestCase):
             "dropout_probability_out_of_range",
         )
         self.assertEqual(dropout.target, torch.ops.aten.dropout.default)
+
+    def test_static_inference_identity_preserves_unproven_detach(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        detached = graph.call_function(torch.ops.aten.detach.default, (tensor,))
+        graph.output(detached)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.lower_static_inference_identities(
+            graph_module
+        )
+
+        self.assertEqual(report.candidate_count, 0)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.skipped_count, 0)
+        self.assertEqual(detached.target, torch.ops.aten.detach.default)
 
     def test_static_linear_gelu_tied_context_stays_unfused(self):
         class TiedLinearGelu(torch.nn.Module):
