@@ -105,10 +105,14 @@ A 64-job cadence was re-probed after dead-ReLU reuse and rejected again. It cut
 DAv2 to five submissions per inference, but graph peak memory rose to
 5.6%-6.1% above eager for the normal shape and 8.5%-9.9% for the alternate
 shape. Graph medians also worsened to 42.12/43.07 ms. The supported default
-therefore remains 32 jobs; reducing the remaining submit floor requires stronger
-generic lifetime/resource reuse or recorded command partitions, not a wider
-unbounded checkpoint interval. Raw rejection evidence is under
-`agent_space/graph_checkpoint64_post_reuse_worktree/dav2/`.
+therefore remains 32 jobs. The intermediate 48-job cadence was also rejected:
+it reduced DAv2 from 10 to 7 submissions per inference, but graph medians
+worsened to 44.57/48.77 ms and alternate repeat-with-live-output peak memory
+reached 6.9% above eager. Reducing the remaining submit floor requires stronger
+generic lifetime/resource reuse or recorded command partitions that preserve
+useful CPU/GPU overlap, not a wider unbounded checkpoint interval. Raw rejection
+evidence is under `agent_space/graph_checkpoint64_post_reuse_worktree/dav2/`
+and `agent_space/graph_checkpoint48_probe_worktree/dav2/`.
 
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel

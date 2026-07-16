@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-07-03",
+  "last_updated": "2026-07-16",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -3402,6 +3402,66 @@
         "If a no-cache RawDirectWeightLinearPlan or InferenceOwnedPackedLinearModulePlan is implemented for GTX 1080/RX 6700 XT, rerun all three adapters and update this entry instead of broadening cache policy.",
         "If broad `aten::linear` dispatch shows a correctness or layout regression on non-HY-MT workloads, add generated `LinearDirectDispatchContract` coverage or narrow the dispatch predicate before claiming model speedups.",
         "If HY-MT timings are compared, use multi-repeat runs; the recorded timings are one-token smoke evidence."
+      ]
+    },
+    {
+      "id": "dav2_graph_checkpoint48_rejected_2026_07_16",
+      "status": "rejected_mixed",
+      "head": "worktree_on_eb2dce0a85b",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Test whether an intermediate graph checkpoint cadence can reduce fixed per-inference submission cost without repeating the 64-job memory and overlap failure."
+      },
+      "device_notes": "RX 9070 supported-default eager/graph evidence. The candidate changes a generic graph-owner checkpoint cadence, not a DAv2 production route.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v8",
+        "GraphProgramInvocationScope",
+        "graph-owned pending-command checkpoints",
+        "repeat-with-prior-output-live memory gate"
+      ],
+      "candidate": "Widen the supported graph checkpoint cadence from 32 to 48 recorded jobs while retaining all existing liveness-owned ReLU reuse and submission-token inheritance.",
+      "correctness": {
+        "status": "passed_but_performance_and_memory_rejected",
+        "tests": [
+          "python test/test_vulkan_graph.py (118/119 passed; the only failure pinned the supported 32-job submit count)",
+          "DAv2 normal and alternate graph-versus-eager exact parity",
+          "DAv2 normal and alternate graph-versus-CPU tolerance",
+          "zero timed CPU fallback and sync readback"
+        ]
+      },
+      "counters": {
+        "supported_32_pending_command_flush_per_inference": 10,
+        "candidate_48_pending_command_flush_per_inference": 7,
+        "normal_graph_peak_over_eager_percent": 4.03,
+        "alternate_graph_first_peak_over_eager_percent": 5.02,
+        "alternate_graph_repeat_live_peak_over_eager_percent": 6.89,
+        "memory_gate_percent": 5.0,
+        "cpu_fallback": 0,
+        "sync_readback": 0
+      },
+      "timing_ms": {
+        "supported_32_normal_graph_median": 39.10,
+        "supported_32_alternate_graph_median": 40.07,
+        "candidate_48_normal_graph_median": 44.57,
+        "candidate_48_alternate_graph_median": 48.77,
+        "measurement_repeats": 30
+      },
+      "artifacts": [
+        "agent_space/graph_executor_fixed_alloc_exact_1fb325d1d0c/dav2/dav2_vits_export_parity.json",
+        "agent_space/graph_checkpoint48_probe_worktree/dav2/dav2_vits_export_census.json",
+        "agent_space/graph_checkpoint48_probe_worktree/dav2/dav2_vits_export_parity.json"
+      ],
+      "decision": "Reject and restore the 32-job default. Fewer submissions alone loses useful CPU/GPU overlap and the alternate shape exceeds the memory gate. Chase fixed cost through program-owned resource reuse and recorded partitions that preserve proven boundaries.",
+      "revisit_conditions": [
+        "If program-owned SSA/resource slots materially reduce live bytes at the 48-job boundary.",
+        "If recorded command partitions reduce per-partition control-plane cost while preserving the 32-job submission topology.",
+        "If a new queue-overlap measurement explains and removes the 48-job latency regression without exact-shape routing."
       ]
     }
   ]

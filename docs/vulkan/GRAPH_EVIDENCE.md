@@ -214,6 +214,15 @@ memory is 5.6%/6.1% above eager and alternate is 8.5%/9.9% above eager. Its
 cadence is rejected and was removed; raw evidence is under
 `agent_space/graph_checkpoint64_post_reuse_worktree/dav2/`.
 
+The intermediate 48-job cadence is rejected as well. It cuts DAv2 from 10 to 7
+pending submissions per inference, but graph medians regress to 44.57/48.77 ms
+from the 32-job control's 39.10/40.07 ms. Normal first/repeat peak memory is
+2.8%/4.0% above eager, while alternate first/repeat peak memory is 5.0%/6.9%
+above eager and fails the supported 5% gate. The result confirms that cadence
+widening alone loses useful CPU/GPU overlap; recorded partitions or stronger
+resource reuse must preserve the supported boundaries. Raw evidence is under
+`agent_space/graph_checkpoint48_probe_worktree/dav2/`.
+
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.
 Multi-instruction plans capture the final timeline token per invocation,
