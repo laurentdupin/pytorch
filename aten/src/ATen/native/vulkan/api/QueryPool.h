@@ -109,7 +109,6 @@ class QueryPool final {
 
   void extract_results();
   void print_results();
-  uint64_t get_total_op_ns(const std::string& op_name);
   uint64_t ns_per_tick_;
   void shader_log_for_each(std::function<void(const ShaderDuration&)> fn);
   bool has_pending_results();

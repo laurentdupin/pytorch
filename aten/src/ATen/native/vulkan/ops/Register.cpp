@@ -376,11 +376,6 @@ utils::VulkanGraphRegionPlan::values() const {
   return values_;
 }
 
-const std::vector<utils::VulkanGraphRegionInstructionSchema>&
-utils::VulkanGraphRegionPlan::instructions() const {
-  return instructions_;
-}
-
 const c10::intrusive_ptr<LinearPackedContext>&
 utils::VulkanGraphRegionPlan::linear_context(const size_t slot) const {
   TORCH_CHECK(

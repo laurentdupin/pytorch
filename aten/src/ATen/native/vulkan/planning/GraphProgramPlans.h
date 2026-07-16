@@ -133,7 +133,6 @@ class VulkanGraphRegionPlan final : public torch::jit::CustomClassHolder {
 
   const VulkanGraphRegionPlanSchema& schema() const;
   const std::vector<VulkanGraphRegionValueSchema>& values() const;
-  const std::vector<VulkanGraphRegionInstructionSchema>& instructions() const;
   const c10::intrusive_ptr<LinearPackedContext>& linear_context(size_t) const;
   const c10::intrusive_ptr<Conv2dPackedContext>& conv2d_context(size_t) const;
   bool valid() const;

@@ -827,6 +827,28 @@
         "memory_.allocation"
       ],
       "consequence": "The unselected deferred/manual allocation route, unused staging helper, and caller-free tensor resizing machinery were deleted. Vulkan resources now store their VMA allocation handle directly; supported allocation behavior and evidence-critical ownership, failure, residency, and retirement diagnostics are unchanged."
+    },
+    {
+      "id": "unused_vulkan_introspection_accessors",
+      "decision": "retire_dead_surface",
+      "status": "deleted",
+      "basis": [
+        "QueryPool::get_total_op_ns and VulkanGraphRegionPlan::instructions had declarations and definitions but no production, benchmark, test, callback, function-pointer, custom-class, or dispatcher caller.",
+        "GPU timestamp logging consumes QueryPool::shader_log_for_each, Android diagnostics consume print_results, Kineto consumes get_shader_name_and_execution_duration_ns, and the query-pool reset/result lifecycle remains live.",
+        "Graph-region validation and execution consume instructions_ directly; schema, value, static-context, scratch ownership, and graph plan reporting surfaces remain live."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "aten/src/ATen/test",
+        "torch/csrc/vulkan",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "forbidden_code_symbols": [
+        "QueryPool::get_total_op_ns",
+        "VulkanGraphRegionPlan::instructions"
+      ],
+      "consequence": "Two caller-free introspection getters were deleted. Live GPU timestamp attribution, Android/Kineto profiling, graph-region validation, instruction ownership, execution, and behavioral coverage are unchanged."
     }
   ],
   "entries": [
