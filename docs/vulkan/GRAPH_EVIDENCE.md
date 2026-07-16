@@ -198,6 +198,22 @@ graph fallback/readback. The DAv2 and PaddleOCR manifests are now the checked
 supported-default deletion baseline; current raw exact-SHA artifacts are under
 `agent_space/graph_dead_relu_reuse_checkpoint32_exact_4b688faac33/`.
 
+Exact-SHA `1fb325d1d0c` removes the executor's per-instruction counter-vector and
+boxed-stack allocations while preserving the vector-returning Python diagnostic
+surface. Its 30-sample DAv2 control keeps the 10-submission cadence, identical
+memory phases, exact graph/eager parity, and zero fallback/readback. Graph
+medians are 39.10/40.07 ms versus eager at 110.64/111.37 ms; normalized ratios
+are effectively unchanged from the checked baseline, so the evidence establishes
+no regression rather than an isolated latency win. Raw files are under
+`agent_space/graph_executor_fixed_alloc_exact_1fb325d1d0c/dav2/`.
+
+A worktree 64-job cadence on the same implementation cuts DAv2 to five pending
+submissions per inference but fails the deletion gate: normal first/repeat peak
+memory is 5.6%/6.1% above eager and alternate is 8.5%/9.9% above eager. Its
+42.12/43.07 ms graph medians are also slower than the 32-job control. The wider
+cadence is rejected and was removed; raw evidence is under
+`agent_space/graph_checkpoint64_post_reuse_worktree/dav2/`.
+
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.
 Multi-instruction plans capture the final timeline token per invocation,

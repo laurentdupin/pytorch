@@ -93,6 +93,23 @@ fallback/readback properties. The checked-in DAv2 and PaddleOCR manifests now
 make this the supported deletion baseline. Raw exact-SHA files are under
 `agent_space/graph_dead_relu_reuse_checkpoint32_exact_4b688faac33/`.
 
+Exact-SHA `1fb325d1d0c` removes per-instruction heap allocation for the C++
+executor's fallback counters and boxed argument stack without changing the
+Python diagnostic surface. A 30-sample DAv2 control retains 10 submissions per
+inference and identical peak memory; graph medians are 39.10/40.07 ms against
+eager at 110.64/111.37 ms. The graph/eager ratios remain within 0.4% of the
+checked baseline, so this is accepted as a structural fixed-cost removal and
+latency no-regression, not as a separately measurable speedup.
+
+A 64-job cadence was re-probed after dead-ReLU reuse and rejected again. It cut
+DAv2 to five submissions per inference, but graph peak memory rose to
+5.6%-6.1% above eager for the normal shape and 8.5%-9.9% for the alternate
+shape. Graph medians also worsened to 42.12/43.07 ms. The supported default
+therefore remains 32 jobs; reducing the remaining submit floor requires stronger
+generic lifetime/resource reuse or recorded command partitions, not a wider
+unbounded checkpoint interval. Raw rejection evidence is under
+`agent_space/graph_checkpoint64_post_reuse_worktree/dav2/`.
+
 The GELU `none` CPU tolerance is documented in
 `docs/vulkan/GRAPH_EVIDENCE.md`; it reflects the existing eager tanh-kernel
 behavior rather than a graph-only approximation.

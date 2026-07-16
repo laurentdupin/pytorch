@@ -613,6 +613,18 @@ The initial catalog records the current `vits_140` performance lane:
   records 11 submissions, 42.61/54.94 ms graph medians, and 1.4% to 4.3%
   overhead. HY-MT records 88 submissions and remains inside the memory gate.
   The checked DAv2 and PaddleOCR manifests are the supported deletion baseline;
+- C++ executor per-node allocation removal: accepted at exact-SHA
+  `1fb325d1d0c`. Fallback counters use a fixed-size internal value and one boxed
+  argument stack is reused across instructions while Python keeps its existing
+  vector diagnostic. DAv2 retains 10 submissions per inference, identical peak
+  memory, and 39.10/40.07 ms graph medians against eager at 110.64/111.37 ms.
+  Normalized graph/eager ratios are effectively unchanged, so this is structural
+  fixed-cost removal with no-regression evidence, not a claimed isolated win;
+- post-reuse 64-job graph cadence: rejected. DAv2 fell to five submissions per
+  inference, but normal peak memory reached 5.6% to 6.1% above eager and the
+  alternate shape reached 8.5% to 9.9%. Graph medians also worsened to
+  42.12/43.07 ms. The inactive cadence was removed; further submit reduction is
+  gated on generic lifetime/resource reuse or recorded partitions;
 - descriptor-update allocation flattening: accepted default infrastructure fix.
   `DescriptorSet` reserves its per-set binding list to the shader layout size,
   and `get_bind_handle()` uses an inline-capacity descriptor-write list for the
