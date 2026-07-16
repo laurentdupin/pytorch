@@ -937,7 +937,6 @@ class StorageBuffer final {
         vulkan_buffer_(context_p_->adapter_ptr()->vma().create_storage_buffer(
             nbytes_,
             gpuonly,
-            true,
             host_access)) {
     if (
         retire_role_ == VulkanRetiredResourceRole::Unknown &&

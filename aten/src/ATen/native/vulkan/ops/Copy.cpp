@@ -2460,7 +2460,6 @@ vTensor to_vulkan(
         convert_dtype(src.scalar_type()),
         api::StorageType::BUFFER,
         api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-        /*allocate_memory=*/true,
         /*buffer_gpu_only=*/!use_host_visible_buffer,
     };
 
@@ -2483,7 +2482,6 @@ vTensor to_vulkan(
       convert_dtype(src.scalar_type()),
       resolved_storage_type,
       get_gpu_memory_layout(resolved_storage_type, src.suggest_memory_format()),
-      /*allocate_memory=*/true,
       /*buffer_gpu_only=*/!use_host_visible_buffer,
   };
 

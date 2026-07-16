@@ -36,7 +36,6 @@ class vTensorStorage final {
       const api::GPUMemoryLayout gpu_memory_layout,
       const std::vector<int64_t>& sizes,
       const api::ScalarType dtype,
-      const bool allocate_memory = true,
       const bool buffer_gpu_only = true);
 
   vTensorStorage(const vTensorStorage&) = delete;
@@ -99,16 +98,6 @@ class vTensorStorage final {
   inline VkFormat texture_format() {
     return image_.format();
   }
-
-  void discard_and_reallocate(
-      const std::vector<int64_t>& gpu_sizes,
-      const api::GPUMemoryLayout gpu_memory_layout,
-      const api::ScalarType dtype,
-      const std::vector<int64_t>& logical_sizes,
-      const std::vector<int64_t>& logical_strides,
-      bool direct_buffer,
-      bool buffer_storage,
-      bool image_storage);
 };
 
 class vTensor final {
@@ -124,7 +113,6 @@ class vTensor final {
       const api::StorageType storage_type = api::StorageType::TEXTURE_3D,
       const api::GPUMemoryLayout memory_layout =
           api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED,
-      const bool allocate_memory = true,
       const bool buffer_gpu_only = true);
 
   // Default constructor for quantized vTensor
@@ -516,42 +504,6 @@ class vTensor final {
   inline bool buffer_uses_host_visible_allocation() const {
     return storage_type() == api::StorageType::BUFFER && !view_->buffer_gpu_only_;
   }
-
-  /*
-   * Return the VmaAllocationCreateInfo of the underlying resource
-   */
-  VmaAllocationCreateInfo get_allocation_create_info() const;
-
-  /*
-   * Return the VkMemoryRequirements of the underlying resource
-   */
-  VkMemoryRequirements get_memory_requirements() const;
-
-  /*
-   * Binds the underlying resource to the given memory allocation
-   */
-  void bind_allocation(const api::MemoryAllocation& allocation);
-
- private:
-  /*
-   * Update the size metadata of the vTensor to be new sizes. Should not be used
-   * directly, reallocate() or virtual_resize() should be used instead.
-   */
-  void update_size_metadata(const std::vector<int64_t>& new_sizes);
-
- public:
-  /*
-   * Discard the underlying VkImage or VkBuffer and re-allocate based on new
-   * tensor sizes
-   */
-  void reallocate(const std::vector<int64_t>& new_sizes);
-
-  /*
-   * Perform a virtual resize of the vTensor by modifying the size metadata that
-   * gets used in compute shaders. This allows the shader to treat the
-   * underlying resource as if it were a different size.
-   */
-  void virtual_resize(const std::vector<int64_t>& new_sizes);
 };
 
 void add_buffer_barrier(

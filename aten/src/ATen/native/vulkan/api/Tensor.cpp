@@ -320,7 +320,6 @@ vTensor::vTensor(
     const api::ScalarType dtype,
     const api::StorageType storage_type,
     const api::GPUMemoryLayout memory_layout,
-    const bool allocate_memory,
     const bool buffer_gpu_only)
     : logical_desc_(make_logical_desc(
           sizes,
@@ -352,7 +351,6 @@ vTensor::vTensor(
           physical_desc_.memory_layout,
           physical_desc_.sizes,
           logical_desc_.dtype,
-          allocate_memory,
           buffer_gpu_only)) {
   view_->set_stack_retire_provenance(
       logical_desc_.sizes,
@@ -600,107 +598,6 @@ bool vTensor::has_direct_buffer_layout() const {
           api::StorageType::BUFFER);
 }
 
-VmaAllocationCreateInfo vTensor::get_allocation_create_info() const {
-  switch (storage_type()) {
-    case api::StorageType::BUFFER:
-      return view_->buffer_.allocation_create_info();
-    case api::StorageType::TEXTURE_2D:
-    case api::StorageType::TEXTURE_3D:
-      return view_->image_.allocation_create_info();
-    case api::StorageType::UNKNOWN:
-      break;
-  }
-  return {};
-}
-
-VkMemoryRequirements vTensor::get_memory_requirements() const {
-  switch (storage_type()) {
-    case api::StorageType::BUFFER:
-      return view_->buffer_.get_memory_requirements();
-    case api::StorageType::TEXTURE_2D:
-    case api::StorageType::TEXTURE_3D:
-      return view_->image_.get_memory_requirements();
-    case api::StorageType::UNKNOWN:
-      break;
-  }
-  return {};
-}
-
-void vTensor::bind_allocation(const api::MemoryAllocation& allocation) {
-  switch (storage_type()) {
-    case api::StorageType::BUFFER:
-      view_->buffer_.bind_allocation(allocation);
-      break;
-    case api::StorageType::TEXTURE_2D:
-    case api::StorageType::TEXTURE_3D:
-      view_->image_.bind_allocation(allocation);
-      break;
-    case api::StorageType::UNKNOWN:
-      break;
-  }
-}
-
-void vTensor::update_size_metadata(const std::vector<int64_t>& new_sizes) {
-  logical_desc_.sizes = new_sizes;
-  if (execution_layout() != api::ExecutionLayout::BUFFER_VIEW) {
-    logical_desc_.strides = calc_strides(
-        logical_desc_.sizes,
-        physical_desc_.memory_layout,
-        storage_type());
-  }
-  physical_desc_.sizes =
-      calc_gpu_sizes(logical_desc_.sizes, physical_desc_.memory_layout, storage_type());
-  physical_desc_.strides = calc_strides(
-      physical_desc_.sizes,
-      physical_desc_.memory_layout,
-      storage_type());
-  physical_desc_.virtual_extents = create_image_extents(
-      physical_desc_.sizes,
-      storage_type(),
-      physical_desc_.memory_layout);
-}
-
-void vTensor::reallocate(const std::vector<int64_t>& new_sizes) {
-  update_size_metadata(new_sizes);
-  view_->discard_and_reallocate(
-      calc_gpu_sizes(new_sizes, physical_desc_.memory_layout, storage_type()),
-      physical_desc_.memory_layout,
-      logical_desc_.dtype,
-      logical_desc_.sizes,
-      logical_desc_.strides,
-      this->uses_buffer_execution(),
-      this->storage_type() == api::StorageType::BUFFER,
-      this->storage_type() != api::StorageType::BUFFER);
-}
-
-void vTensor::virtual_resize(const std::vector<int64_t>& new_sizes) {
-  update_size_metadata(new_sizes);
-  if (storage_type() == api::StorageType::BUFFER) {
-    if (gpu_nbytes() > view_->buffer_.mem_size()) {
-      VK_THROW(
-          "Cannot virtual_resize a vTensor with sizes that require a larger "
-          "buffer! reallocate() should be used instead.");
-    }
-  } else {
-    bool valid_resize = true;
-    if (physical_desc_.virtual_extents.data[0] > view_->extents_.data[0]) {
-      valid_resize = false;
-    }
-    if (physical_desc_.virtual_extents.data[1] > view_->extents_.data[1]) {
-      valid_resize = false;
-    }
-    if (physical_desc_.virtual_extents.data[2] > view_->extents_.data[2]) {
-      valid_resize = false;
-    }
-
-    if (!valid_resize) {
-      VK_THROW(
-          "Cannot virtual_resize a vTensor with sizes that require a larger "
-          "image texture! reallocate() should be used instead.");
-    }
-  }
-}
-
 //
 // vTensorStorage
 //
@@ -709,8 +606,7 @@ static api::VulkanImage allocate_image(
     api::Context* const context_ptr,
     api::utils::uvec3& extents,
     const api::StorageType storage_type,
-    const VkFormat image_format,
-    const bool allocate_memory) {
+    const VkFormat image_format) {
   api::Adapter* adapter_ptr = context_ptr->adapter_ptr();
 
   api::ImageSampler::Properties sampler_props{
@@ -746,8 +642,7 @@ static api::VulkanImage allocate_image(
       image_view_type,
       sampler_props,
       sampler,
-      /*allow_transfer = */ true,
-      /*allocate_memory = */ allocate_memory);
+      /*allow_transfer = */ true);
 }
 
 static api::VulkanBuffer allocate_buffer(
@@ -755,7 +650,6 @@ static api::VulkanBuffer allocate_buffer(
     const int64_t numel,
     const api::StorageType storage_type,
     const api::ScalarType dtype,
-    const bool allocate_memory,
     const bool gpu_only) {
   api::Adapter* adapter_ptr = context_ptr->adapter_ptr();
 
@@ -768,7 +662,7 @@ static api::VulkanBuffer allocate_buffer(
   }
 
   return adapter_ptr->vma().create_storage_buffer(
-      api::element_size(dtype) * numel, gpu_only, allocate_memory);
+      api::element_size(dtype) * numel, gpu_only);
 }
 
 vTensorStorage::vTensorStorage(
@@ -777,7 +671,6 @@ vTensorStorage::vTensorStorage(
     const api::GPUMemoryLayout gpu_memory_layout,
     const std::vector<int64_t>& gpu_sizes,
     const api::ScalarType dtype,
-    const bool allocate_memory,
     const bool buffer_gpu_only)
     : context_(context),
       storage_type_{storage_type},
@@ -789,15 +682,13 @@ vTensorStorage::vTensorStorage(
           extents_,
           storage_type_,
           storage_type_ == api::StorageType::BUFFER ? VK_FORMAT_UNDEFINED
-                                                    : api::to_vkformat(dtype),
-          allocate_memory)),
+                                                    : api::to_vkformat(dtype))),
       buffer_gpu_only_(buffer_gpu_only),
       buffer_(allocate_buffer(
           context_,
           buffer_length_,
           storage_type_,
           dtype,
-          allocate_memory,
           buffer_gpu_only_)),
       last_access_{} {}
 
@@ -942,48 +833,6 @@ void add_buffer_barrier(
         api::vk_access(cur_stage, cur_access),
         buffer);
   }
-}
-
-void vTensorStorage::discard_and_reallocate(
-    const std::vector<int64_t>& gpu_sizes,
-    const api::GPUMemoryLayout gpu_memory_layout,
-    const api::ScalarType dtype,
-    const std::vector<int64_t>& logical_sizes,
-    const std::vector<int64_t>& logical_strides,
-    const bool direct_buffer,
-    const bool buffer_storage,
-    const bool image_storage) {
-  const bool image_owns_memory = image_.owns_memory();
-  const bool buffer_owns_memory = buffer_.owns_memory();
-
-  flush();
-
-  extents_ = create_image_extents(gpu_sizes, storage_type_, gpu_memory_layout);
-  image_ = allocate_image(
-      context_,
-      extents_,
-      storage_type_,
-      storage_type_ == api::StorageType::BUFFER ? VK_FORMAT_UNDEFINED
-                                                : api::to_vkformat(dtype),
-      image_owns_memory);
-
-  buffer_length_ = api::utils::multiply_integers(gpu_sizes);
-  buffer_ = allocate_buffer(
-      context_,
-      buffer_length_,
-      storage_type_,
-      dtype,
-      buffer_owns_memory,
-      buffer_gpu_only_);
-  stack_retire_provenance_ = api::current_stack_retire_provenance(
-      logical_sizes,
-      logical_strides,
-      static_cast<int64_t>(dtype),
-      direct_buffer,
-      buffer_storage,
-      image_storage,
-      /*alias_or_view=*/false,
-      api::VulkanStackRetireProvenanceSource::StorageReallocation);
 }
 
 } // namespace vulkan

@@ -960,6 +960,41 @@
         "scripts/benchmarks"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The manual MemoryAllocator allocation factory, staging-buffer factory, resource requirement queries, bind helpers, and vTensor facade had declarations and definitions but no production, test, benchmark, callback, or function-pointer caller.",
+        "Every live image, storage buffer, uniform buffer, tensor storage, readback object, and graph scratch allocation already requested immediate VMA-backed allocation; allocate_memory=false existed only as an unselected parameter chain.",
+        "The vTensor reallocate and virtual_resize entry points, their metadata updater, and the storage discard/reallocate implementation likewise had no caller; Vulkan does not register aten::resize_ and graph programs create shape-specific storage instead.",
+        "Live has_memory and owns_memory evidence, allocation identities and generations, failure snapshots, residency accounting, host-visible buffer policy, and timeline retirement remain on the immediate VMA path."
+      ],
+      "consequence": "The unselected deferred/manual allocation route, unused staging helper, and caller-free tensor resizing machinery were deleted. Vulkan resources now store their VMA allocation handle directly; supported allocation behavior and evidence-critical ownership, failure, residency, and retirement diagnostics are unchanged.",
+      "decision": "retire_dead_mechanism",
+      "forbidden_code_symbols": [
+        "struct MemoryAllocation final",
+        "MemoryAllocator::create_allocation",
+        "MemoryAllocator::create_staging_buffer",
+        "vTensor::get_allocation_create_info",
+        "vTensor::get_memory_requirements",
+        "vTensor::bind_allocation",
+        "VulkanBuffer::get_memory_requirements",
+        "VulkanImage::get_memory_requirements",
+        "vTensor::update_size_metadata",
+        "vTensor::reallocate",
+        "vTensor::virtual_resize",
+        "vTensorStorage::discard_and_reallocate",
+        "const bool allocate_memory",
+        "owns_memory_",
+        "memory_.allocation"
+      ],
+      "id": "unused_deferred_resource_allocation",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "torch/csrc/vulkan",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [

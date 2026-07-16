@@ -674,11 +674,12 @@ bytes. A future batching/proof change should target a complete co-present group;
 partial byte reductions, such as qkv-only batching, are not enough when other
 old-path blockers remain in the same drain.
 
-Missing-proof blocker rows also report `provenance_loss_reason`. The first
-source-level fix keeps stack reallocation provenance logical: `vTensor::reallocate`
-now forwards the updated logical sizes/strides to `vTensorStorage` instead of
-retagging storage with physical GPU sizes. This is provenance propagation, not a
-retire batching policy change.
+Missing-proof blocker rows also report `provenance_loss_reason`. Logical sizes
+and strides are attached when current tensor storage is created. The earlier
+caller-free tensor resize/reallocation helper that attempted to preserve this
+property was retired with the unused deferred-allocation surface; Vulkan does
+not register in-place resize, and graph programs create shape-specific storage.
+This remains provenance propagation, not a retire batching policy change.
 
 The next proof-only refinement closes the plan gap for merged attention output.
 The fixed stack plan already describes direct attention output in head layout

@@ -364,7 +364,6 @@ ReadbackBufferObject create_vulkan_readback_buffer_object(
       context->adapter_ptr()->vma().create_storage_buffer(
           size_bytes,
           false,
-          true,
           api::MemoryAllocator::BufferHostAccess::RandomRead);
   return ReadbackBufferObject(std::make_shared<ReadbackBufferObject::State>(
       std::move(buffer), size_bytes));
