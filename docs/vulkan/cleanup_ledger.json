@@ -501,6 +501,45 @@
         "permits_generic_sdpa"
       ],
       "consequence": "The unused declarations and definitions were deleted. Live infer_model_lane/model_lane_name behavior and the still-open legacy label-inference Migration gate are unchanged."
+    },
+    {
+      "id": "unused_legacy_planning_accessors",
+      "decision": "retire_dead_surface",
+      "status": "deleted",
+      "basis": [
+        "The removed execution-object, execution-program, tensor-slot, and wrapper-replay accessors had declarations and definitions but no tracked production, benchmark, or test caller.",
+        "No removed method was registered as an operator schema or custom class method, and the deployment compatibility audit found no serialized Vulkan planning API consumer.",
+        "Live cache keys, storage construction, allocation metadata, program slots, replay phase steps, resident-byte accounting, and evidence-critical generic diagnostics remain unchanged."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "KVCacheObject::sequence_dim",
+        "KVCacheObject::sequence_length",
+        "KVCacheObject::read_view",
+        "KVCacheObject::append_view",
+        "KVCacheObject::memory_layout",
+        "ScratchArena::used_bytes",
+        "ScratchArena::available_bytes",
+        "ScratchArena::memory_layout",
+        "AttentionRuntimeProgram::kernel_family",
+        "AttentionRuntimeProgram::key_cache",
+        "AttentionRuntimeProgram::value_cache",
+        "VisionBackboneProgram::batch_size",
+        "VisionBackboneProgram::token_count",
+        "VisionBackboneProgram::embed_dim",
+        "VisionBackboneProgram::hidden_dim",
+        "ExecutionGraphTensorSlots::tensor_count",
+        "ExecutionGraphTensorSlots::optional_tensor_count",
+        "AttentionRuntimeInferenceReplay::graph_replay",
+        "VisionBackboneInferenceReplay::graph_replay",
+        "VisionDecoderInferenceReplay::graph_replay",
+        "VisionDecoderHeadInferenceReplay::graph_replay"
+      ],
+      "consequence": "Unused introspection and view-construction APIs, their dead metadata storage, and mechanism-only log fields were deleted without changing live planning, cache, replay, or allocation behavior. The owning subsystems remain Migration until their graph replacement gates close."
     }
   ],
   "entries": [

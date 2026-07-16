@@ -454,32 +454,23 @@ size_t optional_kv_cache_resident_nbytes(
 } // namespace
 
 struct AttentionRuntimeProgram::State final {
-  VulkanAttentionKernelFamily kernel_family_{
-      VulkanAttentionKernelFamily::TextureMath};
   std::optional<KVCacheObject> key_cache_;
   std::optional<KVCacheObject> value_cache_;
   std::optional<ScratchArena> scratch_arena_;
   bool persistent_{true};
 
   State(
-      const VulkanAttentionKernelFamily kernel_family,
       std::optional<KVCacheObject> key_cache,
       std::optional<KVCacheObject> value_cache,
       std::optional<ScratchArena> scratch_arena,
       const bool persistent)
-      : kernel_family_(kernel_family),
-        key_cache_(std::move(key_cache)),
+      : key_cache_(std::move(key_cache)),
         value_cache_(std::move(value_cache)),
         scratch_arena_(std::move(scratch_arena)),
         persistent_(persistent) {}
 };
 
 struct VisionBackboneProgram::State final {
-  ScalarType dtype_{kFloat};
-  int64_t batch_size_{1};
-  int64_t token_count_{1};
-  int64_t embed_dim_{1};
-  int64_t hidden_dim_{1};
   int64_t num_heads_{1};
   std::optional<ScratchArena> scratch_arena_;
   Tensor norm1_output_;
@@ -500,34 +491,29 @@ struct VisionBackboneProgram::State final {
       const int64_t num_heads,
       std::optional<ScratchArena> scratch_arena,
       const bool persistent)
-      : dtype_(dtype),
-        batch_size_(batch_size),
-        token_count_(token_count),
-        embed_dim_(embed_dim),
-        hidden_dim_(hidden_dim),
-        num_heads_(num_heads),
+      : num_heads_(num_heads),
         scratch_arena_(std::move(scratch_arena)),
         persistent_(persistent) {
     const std::vector<int64_t> hidden_sizes{
-        batch_size_ * token_count_,
-        embed_dim_,
+        batch_size * token_count,
+        embed_dim,
     };
     const std::vector<int64_t> qkv_sizes{
-        batch_size_ * token_count_,
-        3 * embed_dim_,
+        batch_size * token_count,
+        3 * embed_dim,
     };
     const std::vector<int64_t> fc1_sizes{
-        batch_size_ * token_count_,
-        hidden_dim_,
+        batch_size * token_count,
+        hidden_dim,
     };
 
-    norm1_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
-    qkv_output_ = create_program_buffer_tensor(qkv_sizes, dtype_, persistent_);
-    merge_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
-    proj_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
-    norm2_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
-    fc1_output_ = create_program_buffer_tensor(fc1_sizes, dtype_, persistent_);
-    fc2_output_ = create_program_buffer_tensor(hidden_sizes, dtype_, persistent_);
+    norm1_output_ = create_program_buffer_tensor(hidden_sizes, dtype, persistent_);
+    qkv_output_ = create_program_buffer_tensor(qkv_sizes, dtype, persistent_);
+    merge_output_ = create_program_buffer_tensor(hidden_sizes, dtype, persistent_);
+    proj_output_ = create_program_buffer_tensor(hidden_sizes, dtype, persistent_);
+    norm2_output_ = create_program_buffer_tensor(hidden_sizes, dtype, persistent_);
+    fc1_output_ = create_program_buffer_tensor(fc1_sizes, dtype, persistent_);
+    fc2_output_ = create_program_buffer_tensor(hidden_sizes, dtype, persistent_);
   }
 };
 
@@ -624,22 +610,6 @@ bool AttentionRuntimeProgram::defined() const {
   return static_cast<bool>(state_);
 }
 
-VulkanAttentionKernelFamily AttentionRuntimeProgram::kernel_family() const {
-  return state_ ? state_->kernel_family_
-                : VulkanAttentionKernelFamily::TextureMath;
-}
-
-const std::optional<KVCacheObject>& AttentionRuntimeProgram::key_cache() const {
-  static const std::optional<KVCacheObject> empty;
-  return state_ ? state_->key_cache_ : empty;
-}
-
-const std::optional<KVCacheObject>& AttentionRuntimeProgram::value_cache()
-    const {
-  static const std::optional<KVCacheObject> empty;
-  return state_ ? state_->value_cache_ : empty;
-}
-
 std::optional<ScratchArena>& AttentionRuntimeProgram::scratch_arena() {
   static std::optional<ScratchArena> empty;
   return state_ ? state_->scratch_arena_ : empty;
@@ -684,22 +654,6 @@ const void* AttentionRuntimeProgram::identity() const {
 
 bool VisionBackboneProgram::defined() const {
   return static_cast<bool>(state_);
-}
-
-int64_t VisionBackboneProgram::batch_size() const {
-  return state_ ? state_->batch_size_ : 1;
-}
-
-int64_t VisionBackboneProgram::token_count() const {
-  return state_ ? state_->token_count_ : 1;
-}
-
-int64_t VisionBackboneProgram::embed_dim() const {
-  return state_ ? state_->embed_dim_ : 1;
-}
-
-int64_t VisionBackboneProgram::hidden_dim() const {
-  return state_ ? state_->hidden_dim_ : 1;
 }
 
 int64_t VisionBackboneProgram::num_heads() const {
@@ -924,7 +878,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
   }
 
   AttentionRuntimeProgram created{std::make_shared<AttentionRuntimeProgram::State>(
-      kernel_family,
       std::move(key_cache),
       std::move(value_cache),
       std::move(scratch_arena),

@@ -30,9 +30,6 @@ class AttentionRuntimeProgram final {
       : state_(std::move(state)) {}
 
   bool defined() const;
-  VulkanAttentionKernelFamily kernel_family() const;
-  const std::optional<KVCacheObject>& key_cache() const;
-  const std::optional<KVCacheObject>& value_cache() const;
   std::optional<ScratchArena>& scratch_arena();
   const std::optional<ScratchArena>& scratch_arena() const;
   bool persistent() const;
@@ -56,10 +53,6 @@ class VisionBackboneProgram final {
       : state_(std::move(state)) {}
 
   bool defined() const;
-  int64_t batch_size() const;
-  int64_t token_count() const;
-  int64_t embed_dim() const;
-  int64_t hidden_dim() const;
   int64_t num_heads() const;
   std::optional<ScratchArena>& scratch_arena();
   const std::optional<ScratchArena>& scratch_arena() const;

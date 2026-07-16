@@ -944,14 +944,6 @@ const void* InferenceReplay::identity() const {
   return state_.get();
 }
 
-size_t ExecutionGraphTensorSlots::tensor_count() const {
-  return state_ ? state_->tensors_.size() : 0u;
-}
-
-size_t ExecutionGraphTensorSlots::optional_tensor_count() const {
-  return state_ ? state_->optional_tensors_.size() : 0u;
-}
-
 Tensor& ExecutionGraphTensorSlots::tensor(const size_t idx) {
   TORCH_INTERNAL_ASSERT(defined(), "Undefined ExecutionGraphTensorSlots");
   TORCH_INTERNAL_ASSERT(
@@ -1877,11 +1869,6 @@ const InferenceReplay& AttentionRuntimeInferenceReplay::replay() const {
   return graph_replay_.replay();
 }
 
-const ExecutionGraphReplay& AttentionRuntimeInferenceReplay::graph_replay()
-    const {
-  return graph_replay_;
-}
-
 ExecutionGraphReplayStep AttentionRuntimeInferenceReplay::phase_step(
     std::function<void()> record_step) const {
   return make_execution_graph_replay_step(graph_replay_, std::move(record_step));
@@ -2041,10 +2028,6 @@ bool VisionBackboneInferenceReplay::recorded() const {
 
 const InferenceReplay& VisionBackboneInferenceReplay::replay() const {
   return graph_replay_.replay();
-}
-
-const ExecutionGraphReplay& VisionBackboneInferenceReplay::graph_replay() const {
-  return graph_replay_;
 }
 
 ExecutionGraphReplayStep VisionBackboneInferenceReplay::phase_step(
@@ -2298,10 +2281,6 @@ const InferenceReplay& VisionDecoderInferenceReplay::replay() const {
   return graph_replay_.replay();
 }
 
-const ExecutionGraphReplay& VisionDecoderInferenceReplay::graph_replay() const {
-  return graph_replay_;
-}
-
 ExecutionGraphReplayStep VisionDecoderInferenceReplay::phase_step(
     std::function<void()> record_step) const {
   return make_execution_graph_replay_step(graph_replay_, std::move(record_step));
@@ -2346,11 +2325,6 @@ bool VisionDecoderHeadInferenceReplay::recorded() const {
 
 const InferenceReplay& VisionDecoderHeadInferenceReplay::replay() const {
   return graph_replay_.replay();
-}
-
-const ExecutionGraphReplay& VisionDecoderHeadInferenceReplay::graph_replay()
-    const {
-  return graph_replay_;
 }
 
 ExecutionGraphReplayStep VisionDecoderHeadInferenceReplay::phase_step(

@@ -669,6 +669,45 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The removed execution-object, execution-program, tensor-slot, and wrapper-replay accessors had declarations and definitions but no tracked production, benchmark, or test caller.",
+        "No removed method was registered as an operator schema or custom class method, and the deployment compatibility audit found no serialized Vulkan planning API consumer.",
+        "Live cache keys, storage construction, allocation metadata, program slots, replay phase steps, resident-byte accounting, and evidence-critical generic diagnostics remain unchanged."
+      ],
+      "consequence": "Unused introspection and view-construction APIs, their dead metadata storage, and mechanism-only log fields were deleted without changing live planning, cache, replay, or allocation behavior. The owning subsystems remain Migration until their graph replacement gates close.",
+      "decision": "retire_dead_surface",
+      "forbidden_code_symbols": [
+        "KVCacheObject::sequence_dim",
+        "KVCacheObject::sequence_length",
+        "KVCacheObject::read_view",
+        "KVCacheObject::append_view",
+        "KVCacheObject::memory_layout",
+        "ScratchArena::used_bytes",
+        "ScratchArena::available_bytes",
+        "ScratchArena::memory_layout",
+        "AttentionRuntimeProgram::kernel_family",
+        "AttentionRuntimeProgram::key_cache",
+        "AttentionRuntimeProgram::value_cache",
+        "VisionBackboneProgram::batch_size",
+        "VisionBackboneProgram::token_count",
+        "VisionBackboneProgram::embed_dim",
+        "VisionBackboneProgram::hidden_dim",
+        "ExecutionGraphTensorSlots::tensor_count",
+        "ExecutionGraphTensorSlots::optional_tensor_count",
+        "AttentionRuntimeInferenceReplay::graph_replay",
+        "VisionBackboneInferenceReplay::graph_replay",
+        "VisionDecoderInferenceReplay::graph_replay",
+        "VisionDecoderHeadInferenceReplay::graph_replay"
+      ],
+      "id": "unused_legacy_planning_accessors",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -944,7 +983,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 2596,
+          "line": 2570,
           "source": "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp"
         }
       ],

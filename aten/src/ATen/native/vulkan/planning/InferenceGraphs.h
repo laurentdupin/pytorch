@@ -94,8 +94,6 @@ class TORCH_API ExecutionGraphTensorSlots final {
       : state_(std::move(state)) {}
 
   bool defined() const;
-  size_t tensor_count() const;
-  size_t optional_tensor_count() const;
   Tensor& tensor(size_t idx);
   const Tensor& tensor(size_t idx) const;
   std::optional<Tensor>& optional_tensor(size_t idx);
@@ -343,7 +341,6 @@ class AttentionRuntimeInferenceReplay final {
   bool defined() const;
   bool recorded() const;
   const InferenceReplay& replay() const;
-  const ExecutionGraphReplay& graph_replay() const;
   ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
   const AttentionRuntimeProgram& program() const;
   AttentionRuntimeProgram& program();
@@ -407,7 +404,6 @@ class VisionBackboneInferenceReplay final {
   bool defined() const;
   bool recorded() const;
   const InferenceReplay& replay() const;
-  const ExecutionGraphReplay& graph_replay() const;
   ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
   const VisionBackboneProgram& program() const;
   VisionBackboneProgram& program();
@@ -478,7 +474,6 @@ class VisionDecoderInferenceReplay final {
   bool defined() const;
   bool recorded() const;
   const InferenceReplay& replay() const;
-  const ExecutionGraphReplay& graph_replay() const;
   ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
   const VisionDecoderProgram& program() const;
   VisionDecoderProgram& program();
@@ -501,7 +496,6 @@ class VisionDecoderHeadInferenceReplay final {
   bool defined() const;
   bool recorded() const;
   const InferenceReplay& replay() const;
-  const ExecutionGraphReplay& graph_replay() const;
   ExecutionGraphReplayStep phase_step(std::function<void()> record_step) const;
   Tensor& layer1_slot();
   Tensor& layer2_slot();
