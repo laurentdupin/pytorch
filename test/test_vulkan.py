@@ -199,6 +199,7 @@ class TestVulkanGovernance(TestCase):
     def _active_temporary_exception_sections(cls):
         doc = cls._repo_text("docs", "vulkan", "TEMPORARY_EXCEPTIONS.md")
         active = doc.split("## Active Exceptions", 1)[1]
+        active = active.split("## Retired Historical Records", 1)[0]
         active = active.split("## Rules For New Exceptions", 1)[0]
         return re.findall(r"^### (.+?)\n(.*?)(?=^### |\Z)", active, re.S | re.M)
 
