@@ -893,6 +893,8 @@ class TestVulkanGraphEvidence(TestCase):
         for name, artifact_type in (
             ("dav2_vits_export_census.json", "export_census"),
             ("dav2_vits_export_parity.json", "parity"),
+            ("hymt_prefill_export_census.json", "export_census"),
+            ("hymt_prefill_export_parity.json", "parity"),
             ("paddleocr_recognition_export_census.json", "export_census"),
             ("paddleocr_recognition_export_parity.json", "parity"),
         ):
@@ -903,6 +905,120 @@ class TestVulkanGraphEvidence(TestCase):
             self.assertEqual(len(payload["cases"]), 2)
             self.assertIsInstance(payload["source_git_sha"], str)
             self.assertEqual(validate_evidence_payload(payload), [])
+
+    def test_checked_in_hymt_evidence_keeps_open_gates_explicit(self):
+        evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"
+        payloads = tuple(
+            json.loads((evidence_dir / name).read_text(encoding="utf-8"))
+            for name in (
+                "hymt_prefill_export_census.json",
+                "hymt_prefill_export_parity.json",
+            )
+        )
+        for payload in payloads:
+            self.assertEqual(
+                payload["source_git_sha"],
+                "019faaebf1593fd2f2fcbd8e5cec66a8202fd62e",
+            )
+            self.assertEqual(
+                payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"],
+                "b2ba673689b6110d06861884456a50808e294e62ee4c64e195b3d5f5256cd2c1",
+            )
+            plan = payload["execution_plan"]
+            self.assertEqual(plan["status"], "compiled")
+            self.assertEqual(plan["plan_version"], "v8")
+            self.assertEqual(plan["instruction_count"], 2668)
+            self.assertEqual(plan["value_count"], 2402)
+            self.assertEqual(plan["output_count"], 65)
+            self.assertTrue(plan["submission_owned"])
+            self.assertEqual(
+                (
+                    payload["fresh_detach_functionalization"]["candidate_count"],
+                    payload["fresh_detach_functionalization"][
+                        "functionalized_count"
+                    ],
+                    payload["fresh_detach_functionalization"]["rejected_count"],
+                ),
+                (64, 64, 0),
+            )
+        for case in payloads[0]["cases"]:
+            self.assertEqual(set(case["runtime_counters"].values()), {0})
+
+        parity = payloads[1]
+        cases = {case["name"]: case for case in parity["cases"]}
+        self.assertEqual(cases["normal"]["guard"]["status"], "accepted")
+        self.assertEqual(
+            cases["alternate"]["guard"]["status"],
+            "recompiled_guard_variant",
+        )
+        for case in cases.values():
+            self.assertLessEqual(
+                case["graph_vs_eager_vulkan"]["max_abs"],
+                case["tolerance"]["graph_vs_eager_vulkan"]["atol"],
+            )
+            self.assertLessEqual(
+                case["graph_vs_cpu"]["max_abs"],
+                case["tolerance"]["graph_vs_cpu"]["atol"],
+            )
+            self.assertEqual(
+                case["submission_counters"]["submit_origin"][
+                    "pending_command_flush"
+                ],
+                176,
+            )
+            eager_peak = case["memory"]["eager"]["high_water_bytes"]
+            for phase in (
+                "graph_first",
+                "graph_repeat_with_prior_output_live",
+            ):
+                self.assertLessEqual(
+                    case["memory"][phase]["high_water_bytes"],
+                    eager_peak * 1.05,
+                )
+
+            eager_planning = case["planning_diagnostics"]["supported_eager"]
+            graph_planning = case["planning_diagnostics"][
+                "vulkan_graph_program_first"
+            ]
+            self.assertEqual(eager_planning["route_lanes"], ["DepthDiffusion"])
+            self.assertEqual(graph_planning["route_lanes"], ["LLM"])
+            self.assertEqual(
+                eager_planning["runtime_model_domains"],
+                ["Generic", "LLM"],
+            )
+            self.assertEqual(graph_planning["runtime_model_domains"], ["LLM"])
+
+            latency = case["timing"]["supported_default_latency"]
+            self.assertEqual(latency["warmup_repeats_per_surface"], 3)
+            self.assertEqual(latency["measurement_repeats_per_surface"], 30)
+            self.assertEqual(
+                latency["supported_eager"]["runtime_counters"],
+                {"cpu_fallback": 150, "sync_readback": 30},
+            )
+            self.assertEqual(
+                latency["vulkan_graph_program"]["runtime_counters"],
+                {"cpu_fallback": 0, "sync_readback": 0},
+            )
+            for surface in ("supported_eager", "vulkan_graph_program"):
+                samples = latency[surface]["samples_seconds"]
+                self.assertEqual(len(samples), 30)
+                self.assertEqual(
+                    latency[surface]["median_seconds"],
+                    statistics.median(samples),
+                )
+
+        self.assertGreater(
+            cases["normal"]["timing"]["supported_default_latency"][
+                "median_ratio_graph_over_eager"
+            ],
+            1.0,
+        )
+        self.assertLess(
+            cases["alternate"]["timing"]["supported_default_latency"][
+                "median_ratio_graph_over_eager"
+            ],
+            1.0,
+        )
 
     def test_checked_in_corpus_evidence_records_graph_plan_progress(self):
         evidence_dir = Path(__file__).parent / "vulkan_graph" / "evidence"

@@ -547,11 +547,15 @@ first/repeat-with-live-output peaks remain inside the 5% memory gate. These are
 recorded-shape results, not corpus-specific production routes or whole-corpus
 deletion evidence.
 
-The four- and five-token HY-MT probes execute the complete 2,732-instruction
+The four- and five-token HY-MT probes execute the complete 2,668-instruction
 plan with top-level submission/completion ownership, recorded numerical parity,
 zero graph fallback/readback, repeated live outputs, and peak memory inside the
 5% gate. The exact-SHA 32-job cadence reduces submissions from 114 to 88 per
-inference. Checked-in latency-distribution and lane parity gates remain open.
+inference. Exact-SHA checked evidence now records 30 alternating latency samples
+for both guards. The four-token graph is 25.9% slower than plain eager while the
+five-token graph is 21.4% faster, so latency no-regression remains open. Plain
+eager also retains its legacy `DepthDiffusion` attention lane and host
+boundaries; lane parity remains open.
 Exact-SHA `8b60bf3ba4a` preallocates the host boxed-SSA invocation workspace,
 liveness bytes, dispatcher stack, and alias-safe typed list recipes. Program-owned
 Vulkan tensor-resource slots, descriptor and barrier plans, recorded command
@@ -575,6 +579,8 @@ its 88-checkpoint cadence, parity, fallback/readback, or memory gate. Arbitrary
 detach aliases remain untouched. Single-sample timing is mixed, so this is a
 bounded control-plane reduction rather than a latency claim; integration and
 recorded resource ownership remain higher priority than further identity rules.
+The checked 30-sample follow-up confirms a mixed guard-dependent latency result
+and records the eager lane mismatch rather than promoting it as parity.
 
 Exact-SHA `c8332a964bb` precomputes and validates per-instruction SSA release
 lists during immutable plan construction. Invocation no longer validates the

@@ -76,28 +76,33 @@ replaced. The harness
 requires an explicit source SHA when `git` is not on `PATH`, so a sanitized
 runtime cannot emit unproven provenance.
 
-A caller-owned exact-SHA HY-MT prefill integration artifact at `4b688faac33`
-on GTX 1080 captures 3,160 nodes, lowers 225, reports zero lower-time
-unsupported nodes, executes the complete immutable C++ plan, and returns 65
-tensor outputs. The plan contains 2,732 instructions, 2,466 IValue slots, 268
-ordered effects, and 129 typed list arguments. Both the four-token case and the
-guard-recompiled five-token case stay within the recorded eager/CPU tolerances
-with zero graph fallback, sync readback, or deferred-value creation. The
-five-token unaligned boolean causal-mask broadcast stays in the generic native
-buffer path. Each two-run case records 176 graph-owner checkpoint flushes, four
-host uploads, 130 evidence output readbacks, 310 total queue submits, and no
-retire-drain submits. Graph peak memory ranges from 4.0% below to 0.05% above
-supported eager. Graph diagnostics carry explicit `LLM`/`Prefill` semantics
-with zero label inference, but supported eager still reports the legacy
-`DepthDiffusion` lane. The
-artifact therefore advances correctness, guard, submission, and residency
-coverage without clearing the lane or latency-distribution deletion gates. The
-raw caller-owned files are under
-`agent_space/graph_dead_relu_reuse_checkpoint32_exact_4b688faac33/hymt_retry/`.
-The first exact-SHA process lost the GTX 1080 device during a supported-eager
-LM-head staging copy; a fresh process completed both cases, so the passing retry
-is the regression-control artifact and the transient failure is not attributed
-to graph execution.
+The checked exact-SHA HY-MT prefill artifacts at
+`019faaebf1593fd2f2fcbd8e5cec66a8202fd62e` on the 8 GB GTX 1080 capture
+3,160 nodes, lower 225, report zero lower-time unsupported nodes, execute the
+complete immutable C++ plan, and return 65 tensor outputs. Static inference
+identity lowering consumes all 64 proven fresh detaches, so each plan contains
+2,668 instructions, 2,402 IValue slots, 268 ordered effects, and 129 typed list
+arguments. Both the four-token case and the guard-recompiled five-token case
+stay within the recorded eager/CPU tolerances with zero graph fallback, sync
+readback, or deferred-value creation. Each two-run evidence case records 176
+graph-owner checkpoint flushes, four host uploads, 130 explicit evidence output
+readbacks, 310 total queue submits, and no retire-drain submits. Graph first and
+repeat high-water ranges from 4.0% below to 0.04% above supported eager.
+
+The same checked artifacts contain three warmups and 30 alternating samples
+per supported surface. Four-token medians are 2,193.66 ms graph versus
+1,742.38 ms eager, with p95 at 2,232.31 ms versus 1,759.69 ms. Five-token
+medians are 1,404.20 ms graph versus 1,786.36 ms eager, with p95 at 1,461.69 ms
+versus 1,797.07 ms. The distribution is therefore mixed: it proves the
+measurement gate and a shape-dependent result, not graph latency no-regression.
+Graph diagnostics remain explicitly `LLM`/`Prefill` with the `LLM` route lane
+and zero timed fallback/readback. Plain eager still mixes `Generic` and `LLM`,
+selects the legacy `DepthDiffusion` attention lane, and records five fallbacks
+plus one readback per timed invocation. Lane parity and the HY-MT latency
+deletion gate remain open. The reviewed artifacts are checked in as
+`test/vulkan_graph/evidence/hymt_prefill_export_census.json` and
+`test/vulkan_graph/evidence/hymt_prefill_export_parity.json`; the external
+model adapter remains caller-owned.
 
 The same caller-owned probe identifies 64 `aten::detach_` candidates. Every
 candidate has a single-user producer chain rooted at `aten::lift_fresh_copy`,
@@ -144,9 +149,9 @@ versus eager medians of 114.08 ms and 116.76 ms; PaddleOCR graph medians are
 42.61 ms and 54.94 ms versus eager medians of 135.79 ms and 145.76 ms. Graph p95
 is below eager p95 in all four cases, and timed fallback/readback counters stay
 zero. This clears the recorded-shape latency no-regression bar against the two
-supported defaults. The caller-owned exact-SHA HY-MT probe retains its complete
-plan and records the owned checkpoint/token evidence described above, but does
-not yet provide the matching checked-in distribution.
+supported defaults. The checked HY-MT evidence retains its complete plan and
+owned checkpoint/token evidence, but its mixed distribution and eager lane
+mismatch keep the HY-MT deletion gates open as described above.
 
 An exact-SHA `ed4975687b6` RX 9070 fixed-cost pass reuses the supported DAv2
 graph boundary and isolates timestamp and CPU-timeline instrumentation after
@@ -243,6 +248,15 @@ first/repeat high-water stays between 4.0% below and 0.035% above eager. One
 sample per surface is insufficient for a latency claim; the HY-MT distribution
 and lane-parity gates remain open. Raw files are under
 `agent_space/hymt_static_detach_identity_exact_e536f16cf36/`.
+
+The checked exact-SHA `019faaebf1593fd2f2fcbd8e5cec66a8202fd62e`
+follow-up preserves the same 2,668-instruction plans, numerical errors,
+88-checkpoint cadence, graph fallback/readback result, and memory envelope. Its
+30-sample distribution is mixed: graph is 25.9% slower for the four-token
+guard and 21.4% faster for the five-token guard. This closes the missing
+measurement-evidence item without claiming latency parity. Plain eager's
+`DepthDiffusion` lane and five-fallback/one-readback behavior remain the
+explicit blockers.
 
 Exact-SHA `c8332a964bb` validates the immutable C++ plan and its complete SSA
 release schedule once at construction. Runtime execution consumes per-instruction

@@ -33,7 +33,7 @@ schema-default empty `avg_pool2d` stride as a typed zero-leaf list recipe, and
 executes 290 instructions. Its top-level plan records two scopes and final
 tokens per two-run shape, 22 owner checkpoint flushes, two input uploads, two
 output readbacks, 26 total queue submits, and no normal-frequency or
-retire-drain submits. A caller-owned exact-SHA HY-MT artifact transfers
+retire-drain submits. A checked exact-SHA HY-MT artifact transfers
 lifted-copy and large-linear checkpoint submission ownership across its
 complete plan; its evidence and remaining deletion-gate blockers are described
 below.
@@ -138,6 +138,19 @@ in opposite directions relative to prior runs and do not establish a latency
 win or distribution gate. Raw evidence is under
 `agent_space/hymt_static_detach_identity_exact_e536f16cf36/`.
 
+The checked exact-SHA `019faaebf1593fd2f2fcbd8e5cec66a8202fd62e` GTX 1080
+follow-up records three warmups and 30 alternating samples per surface for both
+guards. Four-token medians are 2,193.66 ms graph versus 1,742.38 ms eager;
+five-token medians are 1,404.20 ms graph versus 1,786.36 ms eager. Graph p95 is
+2,232.31/1,461.69 ms versus eager at 1,759.69/1,797.07 ms. Both graph programs
+retain numerical parity, zero fallback/readback, 88 submissions per inference,
+and first/repeat high-water from 4.0% below to 0.04% above eager. The mixed
+latency result does not clear no-regression. Graph execution is explicit
+`LLM`/`Prefill`, while plain eager still selects the legacy `DepthDiffusion`
+attention lane and records five fallbacks plus one readback per timed
+invocation. The checked artifacts close the missing HY-MT distribution-evidence
+item but keep the lane and latency deletion gates open.
+
 Exact-SHA `c8332a964bb` moves SSA release discovery into immutable plan
 construction. Every non-escaping value with a last use is assigned exactly once
 to an instruction release list, and construction validates bounds, uniqueness,
@@ -197,6 +210,8 @@ HY-MT lane parity is not established and
 `LegacyPlanningInference`/`ModelLanePolicy` remain Migration. The latency rows
 have one sample per surface and do not by themselves clear the full
 distribution deletion gate.
+The checked 30-sample follow-up above supersedes the single-sample timing
+conclusion while preserving the same open lane and latency gates.
 
 Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v8`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator

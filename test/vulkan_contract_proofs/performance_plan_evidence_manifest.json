@@ -3605,6 +3605,79 @@
         "If export begins canonicalizing dropout away upstream, retain the report schema with zero candidates and remove duplicate local rewriting only after checked corpus evidence confirms it.",
         "When recorded command partitions land, compare their instruction and submission evidence against this 356-instruction supported baseline."
       ]
+    },
+    {
+      "id": "hymt_graph_prefill_checked_distribution_2026_07_16",
+      "status": "accepted_reporting_infrastructure",
+      "head": "019faaebf1593fd2f2fcbd8e5cec66a8202fd62e",
+      "model_provenance": {
+        "models": [
+          "HY-MT 1.5 1.8B prefill"
+        ],
+        "inputs": [
+          "four-token prefill",
+          "guard-recompiled five-token prefill"
+        ],
+        "purpose": "Turn caller-owned HY-MT graph correctness, memory, submission, lane, and latency evidence into a checked regression artifact without promoting a mixed result to a deletion gate."
+      },
+      "device_notes": "GTX 1080 8 GB supported plain-eager and VulkanGraphProgram evidence. The graph uses explicit LLM/Prefill semantics; plain eager retains legacy lane inference and host boundaries.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v8",
+        "HY-MT prefill guard variants",
+        "explicit LLM/Prefill planning context",
+        "32-job graph checkpoint cadence",
+        "supported-default lane and latency deletion gates"
+      ],
+      "candidate": "Check in a 30-sample exact-SHA HY-MT distribution on an 8 GB adapter and preserve the observed lane and host-boundary mismatch as an open gate.",
+      "correctness": {
+        "status": "passed_full_graph_and_exact_model_evidence_with_open_performance_gate",
+        "tests": [
+          "four- and five-token graph versus eager and CPU numerical parity",
+          "zero graph fallback, sync readback, and deferred values",
+          "repeated live-output peak memory inside the 5% gate",
+          "three warmups and 30 alternating samples per supported surface",
+          "checked evidence schema, source-SHA, loaded-DLL, lane, and mixed-latency gates"
+        ]
+      },
+      "counters": {
+        "instruction_count": 2668,
+        "value_slot_count": 2402,
+        "output_count": 65,
+        "fresh_detach_identity_count": 64,
+        "pending_command_flush_per_inference": 88,
+        "normal_graph_first_high_water_over_eager_percent": 0.019,
+        "normal_graph_repeat_live_high_water_over_eager_percent": 0.038,
+        "alternate_graph_first_high_water_over_eager_percent": -4.004,
+        "alternate_graph_repeat_live_high_water_over_eager_percent": -3.992,
+        "graph_cpu_fallback_per_inference": 0,
+        "graph_sync_readback_per_inference": 0,
+        "eager_cpu_fallback_per_inference": 5,
+        "eager_sync_readback_per_inference": 1
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 1742.38,
+        "normal_supported_eager_p95": 1759.69,
+        "normal_graph_median": 2193.66,
+        "normal_graph_p95": 2232.31,
+        "normal_graph_over_eager_ratio": 1.2590,
+        "alternate_supported_eager_median": 1786.36,
+        "alternate_supported_eager_p95": 1797.07,
+        "alternate_graph_median": 1404.20,
+        "alternate_graph_p95": 1461.69,
+        "alternate_graph_over_eager_ratio": 0.7861,
+        "measurement_repeats": 30,
+        "performance_claim": "mixed guard-dependent distribution; measurement evidence is accepted, but latency no-regression and eager/graph lane parity remain open"
+      },
+      "artifacts": [
+        "test/vulkan_graph/evidence/hymt_prefill_export_census.json",
+        "test/vulkan_graph/evidence/hymt_prefill_export_parity.json"
+      ],
+      "decision": "Accept the artifacts as the checked HY-MT regression record. Do not delete legacy planning inference or claim HY-MT latency parity: the four-token graph regresses, and plain eager still selects DepthDiffusion with five fallbacks and one readback per invocation.",
+      "revisit_conditions": [
+        "After supported eager callers receive explicit semantic planning fields, rerun lane, residency, fallback, and readback parity on the same 8 GB adapter.",
+        "After program-owned resources or recorded partitions change HY-MT fixed cost, rerun both guard distributions against this exact artifact.",
+        "Before retiring legacy planning inference, require both guards to meet the supported-default latency and lane gates."
+      ]
     }
   ]
 }
