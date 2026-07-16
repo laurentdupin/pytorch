@@ -49,38 +49,6 @@ VulkanModelLane infer_model_lane(const VulkanPlanningRequest& request) {
   return VulkanModelLane::Generic;
 }
 
-bool prefers_buffer_resident_tokens(const VulkanModelLane lane) {
-  return lane == VulkanModelLane::DepthVisionTransformer ||
-      lane == VulkanModelLane::AdjacentDepthVision ||
-      lane == VulkanModelLane::LLM;
-}
-
-bool permits_compiled_replay(
-    const VulkanModelLane lane,
-    const VulkanWorkloadClass workload_class) {
-  if (lane == VulkanModelLane::DepthDiffusion) {
-    return false;
-  }
-  return workload_class == VulkanWorkloadClass::VisionBackbone ||
-      workload_class == VulkanWorkloadClass::VisionDecoder ||
-      workload_class == VulkanWorkloadClass::Attention ||
-      workload_class == VulkanWorkloadClass::Generic;
-}
-
-bool permits_generic_sdpa(
-    const VulkanModelLane lane,
-    const VulkanAttentionShapeDesc* attention_shape) {
-  if (!attention_shape) {
-    return true;
-  }
-  const bool diffusion_style_4d =
-      lane == VulkanModelLane::DepthDiffusion &&
-      attention_shape->batch_heads > 1 &&
-      attention_shape->head_dim >= 64 &&
-      attention_shape->target_length >= 64;
-  return !diffusion_style_4d;
-}
-
 } // namespace utils
 } // namespace ops
 } // namespace vulkan

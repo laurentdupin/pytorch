@@ -480,6 +480,27 @@
         "VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES"
       ],
       "consequence": "The unreachable benchmark constant set, special quarantine branch, backend-name selector, and compiled-session invocation branch were deleted. Generic unsupported-mode handling still rejects the historical spelling in a behavioral regression; public replay/compiled-session APIs remain Migration rather than being expanded or prematurely removed."
+    },
+    {
+      "id": "unused_model_lane_policy_predicates",
+      "decision": "retire_dead_policy",
+      "status": "deleted",
+      "basis": [
+        "The three predicates were introduced with the original model-lane policy but never gained a tracked production, benchmark, or test caller.",
+        "Current route selection consumes infer_model_lane plus contract and route-policy decisions directly; no supported eager or graph path consults these predicates.",
+        "Their compiled-replay and generic-SDPA booleans encode superseded global lane permissions rather than the current fail-closed contract and graph-program direction."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "prefers_buffer_resident_tokens",
+        "permits_compiled_replay",
+        "permits_generic_sdpa"
+      ],
+      "consequence": "The unused declarations and definitions were deleted. Live infer_model_lane/model_lane_name behavior and the still-open legacy label-inference Migration gate are unchanged."
     }
   ],
   "entries": [
