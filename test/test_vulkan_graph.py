@@ -3974,6 +3974,32 @@ class TestVulkanGraph(TestCase):
         ):
             program(tensor)
 
+    def test_binds_nested_runtime_inputs_in_exported_pytree_order(self):
+        class NestedResidual(torch.nn.Module):
+            def forward(self, tensor, state):
+                first, second = state
+                return torch.relu(tensor + first + second)
+
+        torch.manual_seed(3)
+        model = NestedResidual().eval()
+        tensor = torch.randn(2, 4)
+        state = (torch.randn(2, 4), torch.randn(2, 4))
+        program = torch.vulkan.export_and_lower(model, (tensor, state))
+        self.assertEqual(program(tensor, state).cpu(), model(tensor, state))
+        self.assertEqual(
+            tuple(
+                node.target
+                for node in program.graph_module.graph.nodes
+                if node.op == "placeholder"
+            ),
+            ("tensor", "state_0", "state_1"),
+        )
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "input binding failed: runtime input tree",
+        ):
+            program(tensor, list(state))
+
     def test_rejects_dynamic_linear_weight_before_execution(self):
         class DynamicWeightLinear(torch.nn.Module):
             def forward(self, tensor, weight):

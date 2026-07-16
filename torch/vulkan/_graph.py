@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import hashlib
-import inspect
 import operator
 import re
 import threading
@@ -923,32 +922,38 @@ def _bind_runtime_inputs(
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
 ) -> tuple[Any, ...]:
-    signature = inspect.signature(graph_module.forward)
-    parameters = tuple(signature.parameters.values())
-    if any(
-        parameter.kind
-        in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-        for parameter in parameters
-    ):
+    input_spec = getattr(graph_module, "_in_spec", None)
+    if not isinstance(input_spec, pytree.TreeSpec):
         raise VulkanGraphExecutionError(
-            "VulkanGraphProgram cannot prove runtime binding for variadic "
-            "GraphModule.forward"
+            "VulkanGraphProgram cannot prove runtime binding without the "
+            "exported input tree spec"
         )
     try:
-        bound = signature.bind(*args, **kwargs)
-    except TypeError as error:
+        from torch.export._tree_utils import reorder_kwargs
+        from torch.export._unlift import eq_spec
+
+        reordered_kwargs = reorder_kwargs(dict(kwargs), input_spec)
+        flat_args_with_path, received_spec = pytree.tree_flatten_with_path(
+            (args, reordered_kwargs)
+        )
+    except (AssertionError, KeyError, TypeError, ValueError) as error:
         raise VulkanGraphExecutionError(
             f"VulkanGraphProgram input binding failed: {error}"
         ) from error
-    bound.apply_defaults()
-    parameter_names = tuple(parameter.name for parameter in parameters)
-    placeholder_names = _graph_placeholder_names(graph_module)
-    if placeholder_names != parameter_names:
+    if not eq_spec(received_spec, input_spec):
         raise VulkanGraphExecutionError(
-            "VulkanGraphProgram cannot prove GraphModule placeholder order: "
-            f"forward={parameter_names}, graph={placeholder_names}"
+            "VulkanGraphProgram input binding failed: runtime input tree "
+            f"{received_spec} does not match exported tree {input_spec}"
         )
-    return tuple(bound.arguments[name] for name in parameter_names)
+    flat_args = tuple(value for _, value in flat_args_with_path)
+    placeholder_names = _graph_placeholder_names(graph_module)
+    if len(flat_args) != len(placeholder_names):
+        raise VulkanGraphExecutionError(
+            "VulkanGraphProgram input binding failed: exported input tree has "
+            f"{len(flat_args)} leaves for "
+            f"{len(placeholder_names)} graph placeholders"
+        )
+    return flat_args
 
 
 def _linear_lowering_rejection_message(
