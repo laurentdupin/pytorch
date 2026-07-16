@@ -10,6 +10,7 @@ import torch
 from torch.export._unlift import GuardsFn
 import torch.vulkan._graph as vulkan_graph
 import torch.vulkan._graph_lowering as vulkan_graph_lowering
+from scripts.benchmarks.vulkan_graph_export_evidence import _measure_case_latency
 from torch.testing._internal.common_utils import run_tests, TestCase
 
 
@@ -3170,6 +3171,42 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_unaligned_causal_mask_broadcast_stays_on_device(self):
+        class CausalAttentionMask(torch.nn.Module):
+            def forward(self, attention_mask):
+                positions = torch.arange(
+                    attention_mask.shape[-1],
+                    device=attention_mask.device,
+                )
+                keys = positions.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+                queries = positions.unsqueeze(0).unsqueeze(0).unsqueeze(-1)
+                causal = torch.tensor(True, device=attention_mask.device) & (
+                    keys <= queries
+                )
+                runtime = attention_mask.view(1, 1, 1, -1)
+                return causal & runtime
+
+        attention_mask = torch.tensor(
+            [[True, True, True, False, True]], dtype=torch.bool
+        )
+        model = CausalAttentionMask().eval()
+        program = torch.vulkan.export_and_lower(model, attention_mask)
+
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            first = program(attention_mask)
+            second = program(attention_mask)
+
+        self.assertEqual(first.cpu(), model(attention_mask))
+        self.assertEqual(second.cpu(), model(attention_mask))
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
     def test_bool_graph_input_accepts_program_device_tensor(self):
         class BoolAnd(torch.nn.Module):
             def forward(self, mask):
@@ -3855,6 +3892,40 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_evidence_latency_preserves_normalized_graph_input_contract(self):
+        class NormalizeMask(torch.nn.Module):
+            def forward(self, attention_mask):
+                return attention_mask.to(
+                    device=attention_mask.device,
+                    dtype=torch.bool,
+                )
+
+        attention_mask = torch.tensor([[1, 1, 0]], dtype=torch.int64)
+        model = NormalizeMask().eval()
+        program = torch.vulkan.export_and_lower(model, attention_mask)
+
+        result = _measure_case_latency(
+            program,
+            model,
+            (attention_mask,),
+            warmup_repeats=0,
+            measurement_repeats=1,
+        )
+
+        self.assertEqual(
+            result["method"],
+            "alternating_completed_supported_surface_invocations",
+        )
+        self.assertEqual(
+            result["input_boundary"],
+            "supported_eager_preuploaded_vulkan_inputs_and_graph_contract_"
+            "inputs_to_completed_vulkan_outputs",
+        )
+        self.assertEqual(
+            result["vulkan_graph_program"]["runtime_counters"],
+            {"cpu_fallback": 0, "sync_readback": 0},
+        )
 
     def test_normalizes_identity_expand_with_multiplaceholder_export_guard(self):
         class NormalizeTimestep(torch.nn.Module):

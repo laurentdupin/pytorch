@@ -591,8 +591,7 @@ bool should_run_buffer_bool_and_tensor(
   if (!is_bool_buffer_compute_candidate(other)) {
     return false;
   }
-  return utils::last_dim_is_width_aligned(self) &&
-      utils::last_dim_is_width_aligned(other);
+  return self.dim() <= 4 && other.dim() <= 4;
 }
 
 bool should_run_bool_or_tensor_native(const Tensor& self, const Tensor& other) {

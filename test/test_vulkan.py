@@ -15361,18 +15361,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_bool_buffer_and_broadcast_falls_back(self):
+    def test_bool_buffer_and_unaligned_broadcast_is_native(self):
         x = torch.tensor([False, True, False], dtype=torch.bool)
         y = torch.tensor([[False, True, False]], dtype=torch.bool)
-        x_vulkan = x.to("vulkan")
-        y_vulkan = y.to("vulkan")
+        x_vulkan = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+            x, torch.device("vulkan")
+        )
+        y_vulkan = torch.ops.vulkan_prepack.upload_graph_tensor_to_buffer(
+            y, torch.device("vulkan")
+        )
 
         torch.ops.vulkan_prepack.reset_fallback_counters()
         with torch.inference_mode():
-            actual = torch.bitwise_and(x_vulkan, y_vulkan)
+            for _ in range(3):
+                actual = torch.bitwise_and(x_vulkan, y_vulkan)
+                self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
 
-        self.assertEqual(torch.bitwise_and(x, y), actual.cpu())
-        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_maximum_scalar_metadata_hymt_dynamic_rope_shape(self):
         position_ids = torch.arange(14, dtype=torch.int64).unsqueeze(0)

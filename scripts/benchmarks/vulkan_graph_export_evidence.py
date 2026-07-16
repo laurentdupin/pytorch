@@ -774,28 +774,56 @@ def _measure_case_latency(
     measurement_repeats: int,
 ) -> dict[str, Any]:
     with torch.inference_mode():
-        latency_args = pytree.tree_map(
+        eager_latency_args = pytree.tree_map(
             lambda value: value.to("vulkan")
             if isinstance(value, torch.Tensor)
             else value,
             args,
+        )
+        normalized_placeholders = {
+            node.placeholder_name
+            for node in program.input_normalization.nodes
+            if node.status == "lowered" and node.placeholder_name is not None
+        }
+        placeholder_names = tuple(
+            str(node.target)
+            for node in program.graph_module.graph.nodes
+            if node.op == "placeholder"
+        )
+        graph_latency_args = tuple(
+            value
+            if placeholder_name in normalized_placeholders
+            else pytree.tree_map(
+                lambda leaf: leaf.to("vulkan")
+                if isinstance(leaf, torch.Tensor)
+                else leaf,
+                value,
+            )
+            for placeholder_name, value in zip(placeholder_names, args)
         )
         plan = getattr(program, "cpp_plan", None)
         generation_before = (
             plan.invocation_generation() if plan is not None else None
         )
         result = _measure_latency_pair(
-            lambda: eager_model(*latency_args),
-            lambda: program(*latency_args),
+            lambda: eager_model(*eager_latency_args),
+            lambda: program(*graph_latency_args),
             warmup_repeats,
             measurement_repeats,
         )
+        if normalized_placeholders:
+            result["method"] = "alternating_completed_supported_surface_invocations"
+            result["input_boundary"] = (
+                "supported_eager_preuploaded_vulkan_inputs_and_graph_contract_"
+                "inputs_to_completed_vulkan_outputs"
+            )
         generation_after = (
             plan.invocation_generation() if plan is not None else None
         )
         result["graph_invocation_generation_before"] = generation_before
         result["graph_invocation_generation_after"] = generation_after
-        del latency_args
+        del eager_latency_args
+        del graph_latency_args
     return result
 
 
