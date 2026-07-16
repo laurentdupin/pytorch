@@ -540,6 +540,35 @@
         "VisionDecoderHeadInferenceReplay::graph_replay"
       ],
       "consequence": "Unused introspection and view-construction APIs, their dead metadata storage, and mechanism-only log fields were deleted without changing live planning, cache, replay, or allocation behavior. The owning subsystems remain Migration until their graph replacement gates close."
+    },
+    {
+      "id": "write_only_kv_sequence_bookkeeping",
+      "decision": "retire_dead_state",
+      "status": "deleted",
+      "basis": [
+        "KV sequence length was assigned on attention-program creation, cache hits, and replay lookup but had no remaining read after the unused cache-view API was deleted.",
+        "The sequence values were absent from cache and replay keys, and every live call supplied the current key/value tensor extent against an identically sized storage spec, making the capacity check tautological.",
+        "The reset and sequence-update diagnostic fields had no benchmark, test, evidence-manifest, or production-log consumer; KV allocation hits, stores, identity, storage ownership, and resident-byte accounting remain live."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "forbidden_code_symbols": [
+        "KVCacheObject::set_sequence_length",
+        "AttentionRuntimeProgram::set_sequence_lengths",
+        "KVCacheObject::defined",
+        "KVCacheObject::sizes",
+        "KVCacheObject::max_sequence_length",
+        "KVCacheObject::reset",
+        "KVCacheObject::execution_layout",
+        "KVCacheObject::storage_type",
+        "KVCacheObject::persistent",
+        "kv_resets",
+        "kv_sequence_updates"
+      ],
+      "consequence": "Write-only sequence state, propagation parameters, tautological validation, and mechanism-only counters were deleted. KV storage allocation and caching remain Migration until graph-owned recorded resources satisfy the broader deletion gate."
     }
   ],
   "entries": [
@@ -874,7 +903,7 @@
       "summary": "Replay bundles, compiled sessions, their public bridges, and stale-output diagnostics.",
       "replacement": "Generated graph command partitions with explicit state, binding, generation, and completion ownership.",
       "delete_when": "Every live caller is migrated and graph partitions preserve repeated-run lifetime and stale-output rejection.",
-      "baseline": "Compare only with supported concrete eager and VulkanGraphProgram routes; historical replay timings are not deletion bars. Checked exact-SHA 79bf8d01ef0db5c01997042071e12434eac1b443 HY-MT decode proves explicit device-resident output-to-input state replay across guard variants, but graph medians remain 41%-65% slower than eager and program-owned recorded resources are not implemented. Replay/compiled-session deletion remains blocked.",
+      "baseline": "Compare only with supported concrete eager and VulkanGraphProgram routes; historical replay timings are not deletion bars. Checked exact-SHA 79bf8d01ef0db5c01997042071e12434eac1b443 HY-MT decode proves explicit device-resident output-to-input state replay across guard variants, but graph medians remain 41%-65% slower than eager and program-owned recorded resources are not implemented. At exact source d367724389c, the Windows GTX 1080 attention replay regression records one invocation and then exits with 0xC00000FD after the second replay hit; an A/B rebuild reproduced it before and after write-only KV sequence-state removal. Replay/compiled-session deletion remains blocked.",
       "paths": [
         "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp",
         "aten/src/ATen/native/vulkan/planning/InferenceGraphs.h",

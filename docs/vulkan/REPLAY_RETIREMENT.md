@@ -54,6 +54,17 @@ Do not add another public replay bridge API. If a generated command-list
 successor needs a public test hook, name it after generated regions or command
 plans, not replay.
 
+The attention replay bridge also has a current repeated-submit blocker on the
+Windows GTX 1080 lane. At exact source `d367724389c`,
+`test_vulkan_attention_runtime_inference_replay_bridge` records and completes
+its first invocation, then exits with `0xC00000FD` after the second invocation
+logs `execution_graph_plan event=replay_hit` and before it logs a replay submit.
+An A/B rebuild reproduced the same boundary with and without removal of the
+write-only KV sequence bookkeeping, so that cleanup is not the cause. Keep the
+behavioral test: the bridge cannot satisfy its repeated-run lifetime gate until
+the overflow is fixed or the generated attention command-list region replaces
+it.
+
 ### Kept for diagnostics and safety
 
 These pieces remain for now because they are diagnostics, state validation, or

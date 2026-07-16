@@ -634,20 +634,6 @@ size_t AttentionRuntimeProgram::resident_nbytes() const {
       optional_scratch_resident_nbytes(state_->scratch_arena_);
 }
 
-void AttentionRuntimeProgram::set_sequence_lengths(
-    const int64_t key_sequence_length,
-    const int64_t value_sequence_length) const {
-  if (!state_) {
-    return;
-  }
-  if (state_->key_cache_.has_value()) {
-    state_->key_cache_->set_sequence_length(key_sequence_length);
-  }
-  if (state_->value_cache_.has_value()) {
-    state_->value_cache_->set_sequence_length(value_sequence_length);
-  }
-}
-
 const void* AttentionRuntimeProgram::identity() const {
   return state_.get();
 }
@@ -829,8 +815,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     const std::optional<VulkanKVCacheSpec>& key_cache_spec,
     const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-    const int64_t key_sequence_length,
-    const int64_t value_sequence_length,
     const VulkanExecutionProgramPlanningDesc& program_plan) {
   const AttentionRuntimeProgramKey query{
       normalize_program_label(allocation_label, "attention_runtime"),
@@ -844,7 +828,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
           hash_attention_runtime_program_key,
           [](const AttentionRuntimeProgramKey& lhs,
              const AttentionRuntimeProgramKey& rhs) { return lhs == rhs; })) {
-    cached->set_sequence_lengths(key_sequence_length, value_sequence_length);
     log_execution_program_event(
         VulkanExecutionProgramKind::AttentionRuntime,
         "hit",
@@ -859,7 +842,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     key_cache = lookup_or_create_labeled_kv_cache_object(
         program_object_label(query.allocation_label, "key_cache"),
         *key_cache_spec);
-    key_cache->set_sequence_length(key_sequence_length);
   }
 
   std::optional<KVCacheObject> value_cache;
@@ -867,7 +849,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     value_cache = lookup_or_create_labeled_kv_cache_object(
         program_object_label(query.allocation_label, "value_cache"),
         *value_cache_spec);
-    value_cache->set_sequence_length(value_sequence_length);
   }
 
   std::optional<ScratchArena> scratch_arena;

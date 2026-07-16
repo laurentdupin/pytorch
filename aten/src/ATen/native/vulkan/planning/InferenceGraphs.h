@@ -311,8 +311,6 @@ class AttentionRuntimeInferenceGraph final {
       const std::optional<VulkanKVCacheSpec>& key_cache_spec,
       const std::optional<VulkanKVCacheSpec>& value_cache_spec,
       const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-      int64_t key_sequence_length,
-      int64_t value_sequence_length,
       const VulkanExecutionProgramPlanningDesc& program_plan) const;
   AttentionRuntimeInferenceReplay lookup_or_create_replay(
       const std::string& allocation_label,
@@ -323,8 +321,6 @@ class AttentionRuntimeInferenceGraph final {
       const std::optional<VulkanKVCacheSpec>& key_cache_spec,
       const std::optional<VulkanKVCacheSpec>& value_cache_spec,
       const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-      int64_t key_sequence_length,
-      int64_t value_sequence_length,
       const VulkanExecutionProgramPlanningDesc& program_plan) const;
   const void* identity() const;
 };

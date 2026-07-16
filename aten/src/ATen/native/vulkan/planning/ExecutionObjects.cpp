@@ -92,8 +92,6 @@ std::mutex& execution_object_log_mutex() {
 struct ExecutionObjectLogState final {
   std::atomic<uint64_t> kv_hits{0u};
   std::atomic<uint64_t> kv_stores{0u};
-  std::atomic<uint64_t> kv_resets{0u};
-  std::atomic<uint64_t> kv_sequence_updates{0u};
   std::atomic<uint64_t> scratch_hits{0u};
   std::atomic<uint64_t> scratch_stores{0u};
   std::atomic<uint64_t> scratch_resets{0u};
@@ -112,9 +110,6 @@ struct ExecutionObjectLogState final {
     out << "execution_object_summary kind=KVCache"
         << " hits=" << kv_hits.load(std::memory_order_relaxed)
         << " stores=" << kv_stores.load(std::memory_order_relaxed)
-        << " resets=" << kv_resets.load(std::memory_order_relaxed)
-        << " sequence_updates="
-        << kv_sequence_updates.load(std::memory_order_relaxed)
         << '\n';
     out << "execution_object_summary kind=ScratchArena"
         << " hits=" << scratch_hits.load(std::memory_order_relaxed)
@@ -317,65 +312,9 @@ std::string make_vulkan_runtime_object_label(
   return stream.str();
 }
 
-bool KVCacheObject::defined() const {
-  return state_ && state_->storage_.defined();
-}
-
 const Tensor& KVCacheObject::storage() const {
   TORCH_CHECK(state_, "KV cache object is not initialized");
   return state_->storage_;
-}
-
-const std::vector<int64_t>& KVCacheObject::sizes() const {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  return state_->sizes_;
-}
-
-int64_t KVCacheObject::max_sequence_length() const {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  return state_->sizes_.at(state_->sequence_dim_);
-}
-
-void KVCacheObject::reset() {
-  if (state_) {
-    execution_object_log_state().kv_resets.fetch_add(
-        1u, std::memory_order_relaxed);
-    log_execution_object_event(
-        "KVCache", "reset", std::string(),
-        identity());
-  }
-  set_sequence_length(0);
-}
-
-void KVCacheObject::set_sequence_length(const int64_t sequence_length) {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  TORCH_CHECK(
-      sequence_length >= 0 && sequence_length <= max_sequence_length(),
-      "Requested KV cache sequence length ",
-      sequence_length,
-      " exceeds cache capacity ",
-      max_sequence_length());
-  std::lock_guard<std::mutex> lock(state_->mutex_);
-  state_->sequence_length_ = sequence_length;
-  execution_object_log_state().kv_sequence_updates.fetch_add(
-      1u, std::memory_order_relaxed);
-  log_execution_object_event(
-      "KVCache", "set_sequence_length", std::string(), identity());
-}
-
-api::ExecutionLayout KVCacheObject::execution_layout() const {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  return state_->execution_layout_;
-}
-
-api::StorageType KVCacheObject::storage_type() const {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  return state_->storage_type_;
-}
-
-bool KVCacheObject::persistent() const {
-  TORCH_CHECK(state_, "KV cache object is not initialized");
-  return state_->persistent_;
 }
 
 const void* KVCacheObject::identity() const {
@@ -494,13 +433,8 @@ KVCacheObject create_vulkan_kv_cache_object(const VulkanKVCacheSpec& spec) {
       spec.memory_layout,
       spec.storage_type,
       spec.persistent);
-  return KVCacheObject(std::make_shared<KVCacheObject::State>(
-      std::move(storage),
-      spec.sizes,
-      spec.sequence_dim,
-      spec.execution_layout,
-      spec.storage_type,
-      spec.persistent));
+  return KVCacheObject(
+      std::make_shared<KVCacheObject::State>(std::move(storage)));
 }
 
 ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec& spec) {

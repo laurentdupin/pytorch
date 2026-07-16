@@ -708,6 +708,35 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "KV sequence length was assigned on attention-program creation, cache hits, and replay lookup but had no remaining read after the unused cache-view API was deleted.",
+        "The sequence values were absent from cache and replay keys, and every live call supplied the current key/value tensor extent against an identically sized storage spec, making the capacity check tautological.",
+        "The reset and sequence-update diagnostic fields had no benchmark, test, evidence-manifest, or production-log consumer; KV allocation hits, stores, identity, storage ownership, and resident-byte accounting remain live."
+      ],
+      "consequence": "Write-only sequence state, propagation parameters, tautological validation, and mechanism-only counters were deleted. KV storage allocation and caching remain Migration until graph-owned recorded resources satisfy the broader deletion gate.",
+      "decision": "retire_dead_state",
+      "forbidden_code_symbols": [
+        "KVCacheObject::set_sequence_length",
+        "AttentionRuntimeProgram::set_sequence_lengths",
+        "KVCacheObject::defined",
+        "KVCacheObject::sizes",
+        "KVCacheObject::max_sequence_length",
+        "KVCacheObject::reset",
+        "KVCacheObject::execution_layout",
+        "KVCacheObject::storage_type",
+        "KVCacheObject::persistent",
+        "kv_resets",
+        "kv_sequence_updates"
+      ],
+      "id": "write_only_kv_sequence_bookkeeping",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "scripts/benchmarks",
+        "test"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -983,7 +1012,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 2570,
+          "line": 2558,
           "source": "aten/src/ATen/native/vulkan/planning/InferenceGraphs.cpp"
         }
       ],
@@ -1569,7 +1598,7 @@
         {
           "access": "read",
           "callee": "std::getenv",
-          "line": 984,
+          "line": 980,
           "source": "aten/src/ATen/native/vulkan/ops/Softmax.cpp"
         }
       ],

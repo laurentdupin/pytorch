@@ -40,27 +40,8 @@ class KVCacheObject final {
 
   struct State final {
     Tensor storage_;
-    std::vector<int64_t> sizes_;
-    int64_t sequence_dim_{2};
-    int64_t sequence_length_{0};
-    api::ExecutionLayout execution_layout_{api::ExecutionLayout::BUFFER_DIRECT};
-    api::StorageType storage_type_{api::StorageType::BUFFER};
-    bool persistent_{true};
-    mutable std::mutex mutex_;
 
-    State(
-        Tensor storage,
-        std::vector<int64_t> sizes,
-        int64_t sequence_dim,
-        api::ExecutionLayout execution_layout,
-        api::StorageType storage_type,
-        bool persistent)
-        : storage_(std::move(storage)),
-          sizes_(std::move(sizes)),
-          sequence_dim_(sequence_dim),
-          execution_layout_(execution_layout),
-          storage_type_(storage_type),
-          persistent_(persistent) {}
+    explicit State(Tensor storage) : storage_(std::move(storage)) {}
   };
 
   std::shared_ptr<State> state_;
@@ -70,15 +51,7 @@ class KVCacheObject final {
   explicit KVCacheObject(std::shared_ptr<State> state)
       : state_(std::move(state)) {}
 
-  bool defined() const;
   const Tensor& storage() const;
-  const std::vector<int64_t>& sizes() const;
-  int64_t max_sequence_length() const;
-  void reset();
-  void set_sequence_length(int64_t sequence_length);
-  api::ExecutionLayout execution_layout() const;
-  api::StorageType storage_type() const;
-  bool persistent() const;
   const void* identity() const;
 };
 

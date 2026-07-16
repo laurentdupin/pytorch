@@ -34,9 +34,6 @@ class AttentionRuntimeProgram final {
   const std::optional<ScratchArena>& scratch_arena() const;
   bool persistent() const;
   size_t resident_nbytes() const;
-  void set_sequence_lengths(
-      int64_t key_sequence_length,
-      int64_t value_sequence_length) const;
   const void* identity() const;
 };
 
@@ -105,8 +102,6 @@ AttentionRuntimeProgram lookup_or_create_labeled_attention_runtime_program(
     const std::optional<VulkanKVCacheSpec>& key_cache_spec,
     const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-    int64_t key_sequence_length,
-    int64_t value_sequence_length,
     const VulkanExecutionProgramPlanningDesc& program_plan);
 
 VisionBackboneProgram lookup_or_create_labeled_vision_backbone_program(

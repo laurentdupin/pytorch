@@ -643,8 +643,6 @@ lookup_attention_runtime_program_for_inputs(
       key_cache_spec,
       value_cache_spec,
       scratch_spec,
-      key.size(1),
-      value.size(1),
       *input_policy.execution_program_plan);
 }
 
@@ -931,8 +929,6 @@ Tensor run_attention_runtime_buffer_math_replay_impl(
       std::nullopt,
       std::nullopt,
       scratch_spec,
-      key.size(1),
-      value.size(1),
       program_plan);
   copy_tensor_for_attention_replay(attention_replay.query_slot(), query);
   copy_tensor_for_attention_replay(attention_replay.key_slot(), key);

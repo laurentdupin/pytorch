@@ -1752,8 +1752,6 @@ AttentionRuntimeProgram AttentionRuntimeInferenceGraph::lookup_or_create_program
     const std::optional<VulkanKVCacheSpec>& key_cache_spec,
     const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-    const int64_t key_sequence_length,
-    const int64_t value_sequence_length,
     const VulkanExecutionProgramPlanningDesc& program_plan) const {
   TORCH_INTERNAL_ASSERT(
       defined(), "Undefined AttentionRuntimeInferenceGraph");
@@ -1772,11 +1770,8 @@ AttentionRuntimeProgram AttentionRuntimeInferenceGraph::lookup_or_create_program
                 key_cache_spec,
                 value_cache_spec,
                 scratch_spec,
-                key_sequence_length,
-                value_sequence_length,
                 program_plan);
           }));
-  program.set_sequence_lengths(key_sequence_length, value_sequence_length);
   return program;
 }
 
@@ -1790,8 +1785,6 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
     const std::optional<VulkanKVCacheSpec>& key_cache_spec,
     const std::optional<VulkanKVCacheSpec>& value_cache_spec,
     const std::optional<VulkanScratchArenaSpec>& scratch_spec,
-    const int64_t key_sequence_length,
-    const int64_t value_sequence_length,
     const VulkanExecutionProgramPlanningDesc& program_plan) const {
   TORCH_INTERNAL_ASSERT(
       defined(), "Undefined AttentionRuntimeInferenceGraph");
@@ -1816,8 +1809,6 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
             key_cache_spec,
             value_cache_spec,
             scratch_spec,
-            key_sequence_length,
-            value_sequence_length,
             program_plan);
         std::vector<Tensor> tensors;
         tensors.reserve(4u);
@@ -1847,10 +1838,7 @@ AttentionRuntimeInferenceGraph::lookup_or_create_replay(
             std::move(programs));
       });
 
-  AttentionRuntimeInferenceReplay replay{std::move(graph_replay)};
-  replay.program().set_sequence_lengths(
-      key_sequence_length, value_sequence_length);
-  return replay;
+  return AttentionRuntimeInferenceReplay{std::move(graph_replay)};
 }
 
 const void* AttentionRuntimeInferenceGraph::identity() const {
