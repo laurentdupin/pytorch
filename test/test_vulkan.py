@@ -283,23 +283,26 @@ class TestVulkanGovernance(TestCase):
             )
             self.assertIn(f"TILE_SIZE = {tile}", shader)
 
-    def test_vulkan_depth_benchmark_replay_bridge_mode_is_quarantined(self):
+    def test_vulkan_depth_benchmark_only_exposes_stack_capture_bridge(self):
         benchmark = self._depth_anything_benchmark_module()
-        compiled_session = (
-            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
-        )
-        self.assertIn(
-            compiled_session,
-            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES,
-        )
-        self.assertNotIn(
-            compiled_session,
-            benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES,
-        )
         self.assertEqual(
             benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES,
             (benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,),
         )
+        model = types.SimpleNamespace(pretrained=object(), forward=lambda x: x)
+        with self.assertRaisesRegex(
+            ValueError,
+            "Unsupported Vulkan stack output bridge mode: "
+            "compiled_session_bridge",
+        ):
+            benchmark.VulkanStackOutputDeviceBridge(
+                torch,
+                model,
+                types.SimpleNamespace(),
+                {},
+                "test",
+                "compiled_session_bridge",
+            )
 
     def test_vulkan_public_replay_bridge_api_set_is_quarantined(self):
         register_cpp = self._repo_text(
@@ -610,9 +613,7 @@ class TestVulkanGovernance(TestCase):
                 benchmark.maybe_enable_vulkan_stack_output_bridge_auto_deep_split(
                     device_kind="vulkan",
                     bridge_requested=True,
-                    bridge_mode=(
-                        benchmark.VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
-                    ),
+                    bridge_mode="compiled_session_bridge",
                     stack_owned_mode="segmented_stack_wide4_to_exit",
                     model=fake_model(24),
                 )

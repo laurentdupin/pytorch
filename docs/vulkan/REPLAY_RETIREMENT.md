@@ -29,8 +29,10 @@ another eager op-stream capture or replay bridge while migrating.
 
 `scripts/benchmarks/benchmark_depth_anything.py` no longer exposes
 `compiled_session_bridge` as a selectable
-`--vulkan-stack-output-device-bridge-mode`. The mode remains named only as a
-deprecated replay mode so old evidence and docs can be interpreted.
+`--vulkan-stack-output-device-bridge-mode`. Its unreachable backend-name and
+execution branches are deleted. The spelling survives only in a behavioral
+regression that proves generic unsupported-mode handling fails closed; Git and
+the evidence documents preserve the retired implementation context.
 
 ### Public replay bridge APIs
 

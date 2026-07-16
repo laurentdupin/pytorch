@@ -462,6 +462,24 @@
         "decoder_bridge_recording_scope_closed_before_release"
       ],
       "consequence": "The environment read, bridge recording scope, and mechanism-only scope-closed diagnostic field were deleted. Historical JSON manifests retain the measured configuration and result. Behavioral graph rows and tests continue to prove decoder consumption completes before bridge exit without public/host/readback escape."
+    },
+    {
+      "id": "benchmark_compiled_session_bridge_caller",
+      "decision": "retire_experiment",
+      "status": "deleted",
+      "basis": [
+        "The benchmark mode allowlist contains only stack_capture_decoder_preprocess, and constructor validation rejected compiled_session_bridge before any compiled-session state could be reached.",
+        "The remaining backend-name selector and compiled-session call branch were therefore unreachable code, not a live Migration caller.",
+        "The replay and compiled-session backend stays Migration until graph-owned recorded partitions satisfy its separate lifetime and stale-output gate."
+      ],
+      "scan_roots": [
+        "scripts/benchmarks"
+      ],
+      "forbidden_code_symbols": [
+        "VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION",
+        "VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES"
+      ],
+      "consequence": "The unreachable benchmark constant set, special quarantine branch, backend-name selector, and compiled-session invocation branch were deleted. Generic unsupported-mode handling still rejects the historical spelling in a behavioral regression; public replay/compiled-session APIs remain Migration rather than being expanded or prematurely removed."
     }
   ],
   "entries": [

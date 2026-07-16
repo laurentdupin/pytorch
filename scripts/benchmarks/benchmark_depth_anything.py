@@ -112,10 +112,6 @@ VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_SUPPORTED_MODES = frozenset(
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE = (
     "stack_capture_decoder_preprocess"
 )
-VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION = "compiled_session_bridge"
-VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES = (
-    VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION,
-)
 VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES = (
     VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE,
 )
@@ -1019,13 +1015,6 @@ class VulkanStackOutputDeviceBridge:
         self.pretrained = getattr(model, "pretrained")
         self.stack_owner = stack_owner
         self.original_forward = model.forward
-        if bridge_mode in VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES:
-            raise ValueError(
-                "Deprecated Vulkan replay/compiled-session bridge mode is "
-                f"quarantined: {bridge_mode}. Use "
-                f"{VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_STACK_CAPTURE} or "
-                "the generated command-list path under development."
-            )
         if bridge_mode not in VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODES:
             raise ValueError(
                 f"Unsupported Vulkan stack output bridge mode: {bridge_mode}"
@@ -1033,9 +1022,7 @@ class VulkanStackOutputDeviceBridge:
         self.bridge_mode = bridge_mode
         self.deep_split_runtime_mode = deep_split_runtime_mode
         self.backend_op_name = (
-            "vulkan_prepack::run_depth_anything_v2_compiled_session_bridge"
-            if bridge_mode == VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
-            else "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge"
+            "vulkan_prepack::run_vision_stack_captures_decoder_preprocess_bridge"
         )
         self.capture_indices = [
             int(index)
@@ -1119,39 +1106,20 @@ class VulkanStackOutputDeviceBridge:
             self.torch,
             SUBMIT_PHASE_STACK_OWNER,
         ), vulkan_fallback_phase(self.torch, FALLBACK_PHASE_OWNER_FORWARD):
+            previous_deep_split = os.environ.get(
+                VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV
+            )
             if (
-                self.bridge_mode
-                == VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION
+                self.deep_split_runtime_mode
+                == VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
             ):
+                os.environ[VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV] = (
+                    VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
+                )
+            try:
                 depth = (
                     self.torch.ops.vulkan_prepack
-                    .run_depth_anything_v2_compiled_session_bridge(
-                        tokens,
-                        self.stack_owner.block_contexts,
-                        self.capture_indices,
-                        self.normalized_shape,
-                        self.norm_context,
-                        patch_h,
-                        patch_w,
-                        output_size,
-                        self.decoder_context,
-                    )
-                )
-            else:
-                previous_deep_split = os.environ.get(
-                    VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV
-                )
-                if (
-                    self.deep_split_runtime_mode
-                    == VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
-                ):
-                    os.environ[VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV] = (
-                        VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
-                    )
-                try:
-                    depth = (
-                        self.torch.ops.vulkan_prepack
-                        .run_vision_stack_captures_decoder_preprocess_bridge(
+                    .run_vision_stack_captures_decoder_preprocess_bridge(
                         tokens,
                         self.stack_owner.stack_context,
                         self.capture_indices,
@@ -1162,22 +1130,22 @@ class VulkanStackOutputDeviceBridge:
                         patch_w,
                         output_size,
                         self.decoder_context,
-                        )
                     )
-                finally:
-                    if (
-                        self.deep_split_runtime_mode
-                        == VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
-                    ):
-                        if previous_deep_split is None:
-                            os.environ.pop(
-                                VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV,
-                                None,
-                            )
-                        else:
-                            os.environ[VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV] = (
-                                previous_deep_split
-                            )
+                )
+            finally:
+                if (
+                    self.deep_split_runtime_mode
+                    == VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_NATIVE_CANARY
+                ):
+                    if previous_deep_split is None:
+                        os.environ.pop(
+                            VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV,
+                            None,
+                        )
+                    else:
+                        os.environ[VULKAN_STACK_OUTPUT_BRIDGE_DEEP_SPLIT_ENV] = (
+                            previous_deep_split
+                        )
         return self.torch.relu(depth).squeeze(1)
 
 

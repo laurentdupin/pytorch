@@ -544,6 +544,24 @@
         "test"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "The benchmark mode allowlist contains only stack_capture_decoder_preprocess, and constructor validation rejected compiled_session_bridge before any compiled-session state could be reached.",
+        "The remaining backend-name selector and compiled-session call branch were therefore unreachable code, not a live Migration caller.",
+        "The replay and compiled-session backend stays Migration until graph-owned recorded partitions satisfy its separate lifetime and stale-output gate."
+      ],
+      "consequence": "The unreachable benchmark constant set, special quarantine branch, backend-name selector, and compiled-session invocation branch were deleted. Generic unsupported-mode handling still rejects the historical spelling in a behavioral regression; public replay/compiled-session APIs remain Migration rather than being expanded or prematurely removed.",
+      "decision": "retire_experiment",
+      "forbidden_code_symbols": [
+        "VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_MODE_COMPILED_SESSION",
+        "VULKAN_STACK_OUTPUT_DEVICE_BRIDGE_DEPRECATED_REPLAY_MODES"
+      ],
+      "id": "benchmark_compiled_session_bridge_caller",
+      "scan_roots": [
+        "scripts/benchmarks"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [
@@ -980,7 +998,7 @@
         },
         {
           "access": "read",
-          "line": 544,
+          "line": 540,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1125,7 +1143,7 @@
         },
         {
           "access": "read",
-          "line": 1801,
+          "line": 1769,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1469,7 +1487,7 @@
       "sites": [
         {
           "access": "delete",
-          "line": 1173,
+          "line": 1141,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
@@ -1480,27 +1498,27 @@
         },
         {
           "access": "read",
-          "line": 1141,
+          "line": 1109,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 126,
+          "line": 122,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 135,
+          "line": 131,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1148,
+          "line": 1116,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "write",
-          "line": 1178,
+          "line": 1146,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
@@ -1574,12 +1592,12 @@
         },
         {
           "access": "read",
-          "line": 2942,
+          "line": 2910,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         },
         {
           "access": "read",
-          "line": 2991,
+          "line": 2959,
           "source": "scripts/benchmarks/benchmark_depth_anything.py"
         }
       ],
