@@ -539,19 +539,18 @@ tensor-shape inference. The removal gate remains open until supported HY-MT and
 PaddleOCR eager/graph runs record lane, residency, fallback/readback, and
 peak-memory parity on 8 GB adapters.
 
-Exact-SHA `b157c550fc5` DAv2 and PaddleOCR evidence records complete executor
-outcomes on both shapes. A subsequent worktree candidate combines liveness-owned
-ReLU reuse with a 32-job cadence: DAv2 records 10 submissions per inference and
-PaddleOCR records 11, down from 13 and 14. Their 30-sample graph medians remain
-below supported eager, and all first/repeat-with-live-output peaks remain inside
-the 5% memory gate. These are recorded-shape results, not corpus-specific
-production routes or whole-corpus deletion evidence; exact-SHA promotion of the
-candidate remains open.
+Exact-SHA `4b688faac33` DAv2 and PaddleOCR evidence records complete executor
+outcomes on both shapes. Liveness-owned ReLU reuse with a 32-job cadence records
+10 DAv2 and 11 PaddleOCR submissions per inference, down from 13 and 14. Their
+30-sample graph medians remain below supported eager, and all
+first/repeat-with-live-output peaks remain inside the 5% memory gate. These are
+recorded-shape results, not corpus-specific production routes or whole-corpus
+deletion evidence.
 
 The four- and five-token HY-MT probes execute the complete 2,732-instruction
 plan with top-level submission/completion ownership, recorded numerical parity,
 zero graph fallback/readback, repeated live outputs, and peak memory inside the
-5% gate. The worktree 32-job cadence reduces submissions from 114 to 88 per
+5% gate. The exact-SHA 32-job cadence reduces submissions from 114 to 88 per
 inference. Checked-in latency-distribution and lane parity gates remain open.
 Program-preallocated SSA/resource slots, descriptor and barrier plans, recorded
 command partitions, generation-gated

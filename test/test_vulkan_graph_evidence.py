@@ -909,7 +909,7 @@ class TestVulkanGraphEvidence(TestCase):
         source_shas = {payload["source_git_sha"] for payload in payloads}
         self.assertEqual(
             source_shas,
-            {"b157c550fc5f59a80c89a4a4f25b242799a227d7"},
+            {"4b688faac338f3784a1286a327292735a3b334b0"},
         )
         torch_cpu_shas = {
             payload["runtime"]["loaded_files"]["torch_cpu.dll"]["sha256"]
@@ -918,7 +918,7 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(
             torch_cpu_shas,
             {
-                "e15d1b0d3fe80df554415b39a342cc42f634a8002958a2ff8457bfaaa26e3d86"
+                "537802036062d3277a4d74ad7a27f28a76a16f7f4a4022c1ff1e132052989a9f"
             },
         )
         for payload in payloads:
@@ -954,6 +954,15 @@ class TestVulkanGraphEvidence(TestCase):
             )
             self.assertTrue(
                 payload["execution_plan"]["last_submission_complete"]
+            )
+            self.assertEqual(
+                payload["execution_plan"][
+                    "dead_input_reuse_instruction_count"
+                ],
+                9,
+            )
+            self.assertEqual(
+                payload["execution_plan"]["dead_input_reuse_count"], 4
             )
             self.assertEqual(
                 (
@@ -993,6 +1002,15 @@ class TestVulkanGraphEvidence(TestCase):
             )
             self.assertTrue(
                 payload["execution_plan"]["last_submission_complete"]
+            )
+            self.assertEqual(
+                payload["execution_plan"][
+                    "dead_input_reuse_instruction_count"
+                ],
+                53,
+            )
+            self.assertEqual(
+                payload["execution_plan"]["dead_input_reuse_count"], 212
             )
             self.assertEqual(
                 payload["fresh_relu_functionalization"]["candidate_count"],
@@ -1100,7 +1118,7 @@ class TestVulkanGraphEvidence(TestCase):
                 )
                 self.assertFalse(latency["output_readback_in_timed_region"])
                 self.assertEqual(latency["warmup_repeats_per_surface"], 3)
-                self.assertEqual(latency["measurement_repeats_per_surface"], 10)
+                self.assertEqual(latency["measurement_repeats_per_surface"], 30)
                 for surface in ("supported_eager", "vulkan_graph_program"):
                     summary = latency[surface]
                     self.assertEqual(
@@ -1119,8 +1137,8 @@ class TestVulkanGraphEvidence(TestCase):
                         },
                     )
                     samples = summary["samples_seconds"]
-                    self.assertEqual(summary["count"], 10)
-                    self.assertEqual(len(samples), 10)
+                    self.assertEqual(summary["count"], 30)
+                    self.assertEqual(len(samples), 30)
                     self.assertTrue(all(sample > 0.0 for sample in samples))
                     self.assertEqual(summary["mean_seconds"], statistics.fmean(samples))
                     self.assertEqual(
@@ -1155,7 +1173,7 @@ class TestVulkanGraphEvidence(TestCase):
                 self.assertEqual(
                     latency["graph_invocation_generation_after"]
                     - latency["graph_invocation_generation_before"],
-                    13,
+                    33,
                 )
         expected_dav2_graph_counters = {
             "scope_begun": 2,
@@ -1170,7 +1188,7 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_dav2_submit_origins = {
-            "total_queue_submits": 30,
+            "total_queue_submits": 24,
             "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
@@ -1185,7 +1203,7 @@ class TestVulkanGraphEvidence(TestCase):
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 26,
+            "pending_command_flush": 20,
             "unknown": 0,
         }
         for payload in (dav2_census, dav2_parity):
@@ -1221,7 +1239,7 @@ class TestVulkanGraphEvidence(TestCase):
             "scratch_immediate_release": 0,
         }
         expected_paddle_submit_origins = {
-            "total_queue_submits": 32,
+            "total_queue_submits": 26,
             "normal_cmd_submit_frequency": 0,
             "stack_planned_recording_submit": 0,
             "pre_stack_flush": 0,
@@ -1236,7 +1254,7 @@ class TestVulkanGraphEvidence(TestCase):
             "shutdown": 0,
             "debug_validation": 0,
             "conv_prepack_upload": 0,
-            "pending_command_flush": 28,
+            "pending_command_flush": 22,
             "unknown": 0,
         }
         for payload in (paddle_census, paddle_parity):

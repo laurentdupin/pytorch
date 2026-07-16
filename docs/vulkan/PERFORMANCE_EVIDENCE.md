@@ -603,15 +603,16 @@ The initial catalog records the current `vits_140` performance lane:
   116.13 ms and 121.64 ms, with repeated-output memory 0.8% and 1.8% above
   eager. PaddleOCR and HY-MT remain at 14 and 114 submissions and inside the
   5% memory gate because neither captures this scratch;
-- liveness-owned ReLU reuse and 32-job graph cadence: worktree candidate.
+- liveness-owned ReLU reuse and 32-job graph cadence: accepted exact-SHA
+  fixed-cost reduction at `4b688faac33`.
   The C++ plan replaces functional `aten::relu` with `aten::relu_` only for a
   non-escaping input at exact last use with unique Vulkan storage and no live
   TensorImpl alias. This pays the memory cost of widening the cadence without a
-  model route. DAv2 records 10 submissions per inference, 43.78/41.80 ms
-  30-sample graph medians, and 0.9% to 3.9% peak-memory overhead. PaddleOCR
-  records 11 submissions, 41.92/52.72 ms graph medians, and 1.4% to 4.3%
+  model route. DAv2 records 10 submissions per inference, 40.14/41.91 ms
+  30-sample graph medians, and 0.9% to 3.2% peak-memory overhead. PaddleOCR
+  records 11 submissions, 42.61/54.94 ms graph medians, and 1.4% to 4.3%
   overhead. HY-MT records 88 submissions and remains inside the memory gate.
-  Exact-SHA promotion remains open;
+  The checked DAv2 and PaddleOCR manifests are the supported deletion baseline;
 - descriptor-update allocation flattening: accepted default infrastructure fix.
   `DescriptorSet` reserves its per-set binding list to the shader layout size,
   and `get_bind_handle()` uses an inline-capacity descriptor-write list for the

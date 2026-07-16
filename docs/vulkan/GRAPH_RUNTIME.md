@@ -286,12 +286,12 @@ functional `aten::relu`. Placeholder inputs, view returns, and branched fresh
 values remain mutable. Exact-SHA normal and alternate DAv2 runs execute a
 404-instruction immutable C++ plan with exact graph-versus-eager parity and zero
 fallback, readback, or deferred values. Its 12 linear/GELU and eight
-conv/ReLU/conv region calls use one outer owner per invocation. Worktree
+conv/ReLU/conv region calls use one outer owner per invocation. Exact-SHA
 liveness-owned ReLU reuse and the 32-job cadence record 20 owner checkpoints
 and 24 total submits per two-run shape, including zero retire-drain submits.
-Thirty-sample graph medians are 43.78 ms and 41.80 ms versus eager medians of
-121.20 ms and 118.31 ms, with graph p95 below eager p95 and no timed fallback
-or readback. Graph allocator high-water ranges from 0.9% to 3.9% above eager
+Thirty-sample graph medians are 40.14 ms and 41.91 ms versus eager medians of
+114.08 ms and 116.76 ms, with graph p95 below eager p95 and no timed fallback
+or readback. Graph allocator high-water ranges from 0.9% to 3.2% above eager
 across the first and repeat-with-prior-output-live phases. This transfers
 execution and top-level submission/completion ownership and clears
 recorded-shape latency and peak-memory no-regression, but does not provide a
@@ -300,11 +300,11 @@ program memory arena or descriptor ownership.
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and
-zero fallback, readback, or deferred values. Worktree liveness-owned ReLU reuse
+zero fallback, readback, or deferred values. Exact-SHA liveness-owned ReLU reuse
 and the 32-job cadence record 22 owner checkpoints and 26 total submits per
 two-run shape rather than one unbounded command partition. Thirty-sample graph
-medians are 41.92 ms and 52.72 ms versus eager medians of 134.38 ms and
-136.43 ms, with graph p95 below eager p95. Graph allocator high-water ranges
+medians are 42.61 ms and 54.94 ms versus eager medians of 135.79 ms and
+145.76 ms, with graph p95 below eager p95. Graph allocator high-water ranges
 from 1.4% to 4.3% above eager and stays inside the 5% gate. It transfers boxed
 execution and top-level submission/completion ownership and clears
 recorded-shape latency and peak-memory no-regression, but

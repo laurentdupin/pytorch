@@ -3,13 +3,15 @@
   "cases": [
     {
       "execution_plan": {
+        "dead_input_reuse_count": 4,
+        "dead_input_reuse_instruction_count": 9,
         "effect_instruction_count": 2,
         "graph_scalar_instruction_count": 8,
         "input_count": 1,
         "instruction_count": 404,
         "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 592,
+        "last_submission_value": 586,
         "list_argument_count": 53,
         "list_projection_instruction_count": 20,
         "mode": "cpp_plan",
@@ -158,8 +160,8 @@
         "graph_first": {
           "baseline_live_bytes": 297094256,
           "end_live_bytes": 303570864,
-          "high_water_bytes": 316065444,
-          "peak_delta_bytes": 18971188,
+          "high_water_bytes": 316761312,
+          "peak_delta_bytes": 19667056,
           "residency": {
             "allocator": {
               "allocated_bytes": 303570864,
@@ -172,6 +174,11 @@
                 }
               ],
               "by_label": [
+                {
+                  "allocated_bytes": 78400,
+                  "allocation_count": 1,
+                  "value": "conv.float_buffer"
+                },
                 {
                   "allocated_bytes": 78400,
                   "allocation_count": 1,
@@ -188,15 +195,15 @@
                   "value": "linear.pack"
                 },
                 {
-                  "allocated_bytes": 130345328,
-                  "allocation_count": 396,
+                  "allocated_bytes": 130266928,
+                  "allocation_count": 395,
                   "value": "unlabeled"
                 }
               ],
               "by_role": [
                 {
-                  "allocated_bytes": 3190336,
-                  "allocation_count": 195,
+                  "allocated_bytes": 3268736,
+                  "allocation_count": 196,
                   "value": "activation_temp_or_unknown"
                 },
                 {
@@ -205,8 +212,8 @@
                   "value": "packed_linear_storage"
                 },
                 {
-                  "allocated_bytes": 130345328,
-                  "allocation_count": 396,
+                  "allocated_bytes": 130266928,
+                  "allocation_count": 395,
                   "value": "raw_tensor_or_unknown"
                 }
               ],
@@ -261,8 +268,8 @@
         "graph_repeat_with_prior_output_live": {
           "baseline_live_bytes": 303570864,
           "end_live_bytes": 303649264,
-          "high_water_bytes": 316480880,
-          "peak_delta_bytes": 12910016,
+          "high_water_bytes": 319431400,
+          "peak_delta_bytes": 15860536,
           "residency": {
             "allocator": {
               "allocated_bytes": 303649264,
@@ -275,6 +282,11 @@
                 }
               ],
               "by_label": [
+                {
+                  "allocated_bytes": 156800,
+                  "allocation_count": 2,
+                  "value": "conv.float_buffer"
+                },
                 {
                   "allocated_bytes": 78400,
                   "allocation_count": 1,
@@ -291,15 +303,15 @@
                   "value": "linear.pack"
                 },
                 {
-                  "allocated_bytes": 130423728,
-                  "allocation_count": 397,
+                  "allocated_bytes": 130266928,
+                  "allocation_count": 395,
                   "value": "unlabeled"
                 }
               ],
               "by_role": [
                 {
-                  "allocated_bytes": 3190336,
-                  "allocation_count": 195,
+                  "allocated_bytes": 3347136,
+                  "allocation_count": 197,
                   "value": "activation_temp_or_unknown"
                 },
                 {
@@ -308,8 +320,8 @@
                   "value": "packed_linear_storage"
                 },
                 {
-                  "allocated_bytes": 130423728,
-                  "allocation_count": 397,
+                  "allocated_bytes": 130266928,
+                  "allocation_count": 395,
                   "value": "raw_tensor_or_unknown"
                 }
               ],
@@ -831,7 +843,7 @@
           "fallback_readback": 0,
           "host_upload": 2,
           "normal_cmd_submit_frequency": 0,
-          "pending_command_flush": 26,
+          "pending_command_flush": 20,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
@@ -840,75 +852,115 @@
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 30,
+          "total_queue_submits": 24,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.1253735000063898,
-        "repeated_run_seconds_reference_only": 0.12547499999345746,
+        "first_run_seconds": 0.14822889999777544,
+        "repeated_run_seconds_reference_only": 0.15877640001417603,
         "supported_default_latency": {
-          "graph_invocation_generation_after": 15,
+          "graph_invocation_generation_after": 35,
           "graph_invocation_generation_before": 2,
           "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
           "measurement_order": "supported_eager_first_on_even_rounds",
-          "measurement_repeats_per_surface": 10,
-          "median_delta_percent": -63.74353856812329,
-          "median_ratio_graph_over_eager": 0.362564614318767,
+          "measurement_repeats_per_surface": 30,
+          "median_delta_percent": -64.80983607849092,
+          "median_ratio_graph_over_eager": 0.3519016392150909,
           "method": "alternating_completed_device_resident_invocations",
           "output_readback_in_timed_region": false,
           "supported_eager": {
-            "count": 10,
-            "max_seconds": 0.12718689999019261,
-            "mean_seconds": 0.11574358999787364,
-            "median_seconds": 0.11613129999750527,
-            "min_seconds": 0.10566600000311155,
-            "p90_seconds": 0.12345234999957029,
-            "p95_seconds": 0.12531962499488145,
+            "count": 30,
+            "max_seconds": 0.1295218000013847,
+            "mean_seconds": 0.11471406333342506,
+            "median_seconds": 0.11407789999793749,
+            "min_seconds": 0.10754860000452027,
+            "p90_seconds": 0.12008493000175804,
+            "p95_seconds": 0.12353329999532432,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.12056850000226405,
-              0.12718689999019261,
-              0.12011160000110976,
-              0.11494539999694098,
-              0.10566600000311155,
-              0.11175419999926817,
-              0.11099339999782387,
-              0.12303740000061225,
-              0.11731719999806955,
-              0.10585529998934362
+              0.11634549999143928,
+              0.1200715000013588,
+              0.12625579998712055,
+              0.1202058000053512,
+              0.11985069999354891,
+              0.1295218000013847,
+              0.11347789999854285,
+              0.1096891999914078,
+              0.10754860000452027,
+              0.10995179999736138,
+              0.11095379998732824,
+              0.11959060000663158,
+              0.10912129998905584,
+              0.10975170000165235,
+              0.1076314999954775,
+              0.11693810000724625,
+              0.10804030000872444,
+              0.11044240000774153,
+              0.11264149998896755,
+              0.1107042000076035,
+              0.1147525999986101,
+              0.11334710000664927,
+              0.11912060000759084,
+              0.11467789999733213,
+              0.11539459999767132,
+              0.11589159999857657,
+              0.11669340000662487,
+              0.11240410000027623,
+              0.11960200000612531,
+              0.11080400001083035
             ],
-            "stdev_seconds": 0.006836938412611085
+            "stdev_seconds": 0.005306775434698788
           },
           "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
           "vulkan_graph_program": {
-            "count": 10,
-            "max_seconds": 0.051679699987289496,
-            "mean_seconds": 0.042461409998941234,
-            "median_seconds": 0.04210509999393253,
-            "min_seconds": 0.03727660000731703,
-            "p90_seconds": 0.04767731000029016,
-            "p95_seconds": 0.04967850499378983,
+            "count": 30,
+            "max_seconds": 0.04695190000347793,
+            "mean_seconds": 0.040534473333779415,
+            "median_seconds": 0.04014420000748942,
+            "min_seconds": 0.03727479999361094,
+            "p90_seconds": 0.04348061999771744,
+            "p95_seconds": 0.044510164998791873,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.04436369999893941,
-              0.038740099989809096,
-              0.04405350000888575,
-              0.04044219999923371,
-              0.03932280000299215,
-              0.037734900004579686,
-              0.04723260000173468,
-              0.051679699987289496,
-              0.043767999988631345,
-              0.03727660000731703
+              0.04073549999156967,
+              0.03988229999959003,
+              0.04097860000911169,
+              0.03828880000219215,
+              0.04183839999313932,
+              0.03768379999382887,
+              0.04425479999918025,
+              0.03748790000099689,
+              0.041853599992464297,
+              0.04206400000839494,
+              0.04695190000347793,
+              0.04280389999621548,
+              0.04215039999689907,
+              0.042898600004264154,
+              0.03895760000159498,
+              0.043394599997554906,
+              0.03950240000267513,
+              0.03727479999361094,
+              0.03929929999867454,
+              0.037566099999821745,
+              0.04031970001233276,
+              0.03761470000608824,
+              0.04040160001022741,
+              0.03814819999388419,
+              0.03961040001013316,
+              0.03845989999535959,
+              0.04471909999847412,
+              0.042969599991920404,
+              0.039968700002646074,
+              0.037955000007059425
             ],
-            "stdev_seconds": 0.004388623256634793
+            "stdev_seconds": 0.002448255216534409
           },
           "warmup_repeats_per_surface": 3
         }
@@ -926,13 +978,15 @@
     },
     {
       "execution_plan": {
+        "dead_input_reuse_count": 4,
+        "dead_input_reuse_instruction_count": 9,
         "effect_instruction_count": 2,
         "graph_scalar_instruction_count": 8,
         "input_count": 1,
         "instruction_count": 404,
         "invocation_generation": 2,
         "last_submission_complete": true,
-        "last_submission_value": 1025,
+        "last_submission_value": 1013,
         "list_argument_count": 53,
         "list_projection_instruction_count": 20,
         "mode": "cpp_plan",
@@ -966,13 +1020,13 @@
       "guard": {
         "rejected_program_message": "fixed graph input shape mismatch: expected (1, 3, 140, 140), got (1, 3, 140, 280)",
         "status": "recompiled_guard_variant",
-        "variant_compile_seconds": 2.5911281000007875,
+        "variant_compile_seconds": 2.6724423999985447,
         "variant_program_key": {
           "api_version": "1.4.349",
           "device_id": 30032,
           "device_index": 0,
           "driver_version": 8389003,
-          "graph_hash": "50a6237812e4125ee2c85294b5a7aa7e2cbddd8096e2f615d88fa50fd703eaae",
+          "graph_hash": "b172b5e37c6d9af8229c6c560b1dbea0f06150e77d2e08382ed186679bb9c1ac",
           "input_signature": [
             "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
           ],
@@ -1106,8 +1160,8 @@
         "graph_first": {
           "baseline_live_bytes": 409961088,
           "end_live_bytes": 422853376,
-          "high_water_bytes": 447556316,
-          "peak_delta_bytes": 37595228,
+          "high_water_bytes": 451890784,
+          "peak_delta_bytes": 41929696,
           "residency": {
             "allocator": {
               "allocated_bytes": 422853376,
@@ -1120,6 +1174,11 @@
                 }
               ],
               "by_label": [
+                {
+                  "allocated_bytes": 156800,
+                  "allocation_count": 1,
+                  "value": "conv.float_buffer"
+                },
                 {
                   "allocated_bytes": 235200,
                   "allocation_count": 2,
@@ -1136,15 +1195,15 @@
                   "value": "linear.pack"
                 },
                 {
-                  "allocated_bytes": 158191168,
-                  "allocation_count": 547,
+                  "allocated_bytes": 158034368,
+                  "allocation_count": 546,
                   "value": "unlabeled"
                 }
               ],
               "by_role": [
                 {
-                  "allocated_bytes": 9526464,
-                  "allocation_count": 294,
+                  "allocated_bytes": 9683264,
+                  "allocation_count": 295,
                   "value": "activation_temp_or_unknown"
                 },
                 {
@@ -1153,8 +1212,8 @@
                   "value": "packed_linear_storage"
                 },
                 {
-                  "allocated_bytes": 158191168,
-                  "allocation_count": 547,
+                  "allocated_bytes": 158034368,
+                  "allocation_count": 546,
                   "value": "raw_tensor_or_unknown"
                 }
               ],
@@ -1209,8 +1268,8 @@
         "graph_repeat_with_prior_output_live": {
           "baseline_live_bytes": 422853376,
           "end_live_bytes": 423010176,
-          "high_water_bytes": 453189936,
-          "peak_delta_bytes": 30336560,
+          "high_water_bytes": 459232000,
+          "peak_delta_bytes": 36378624,
           "residency": {
             "allocator": {
               "allocated_bytes": 423010176,
@@ -1223,6 +1282,11 @@
                 }
               ],
               "by_label": [
+                {
+                  "allocated_bytes": 313600,
+                  "allocation_count": 2,
+                  "value": "conv.float_buffer"
+                },
                 {
                   "allocated_bytes": 235200,
                   "allocation_count": 2,
@@ -1239,15 +1303,15 @@
                   "value": "linear.pack"
                 },
                 {
-                  "allocated_bytes": 158347968,
-                  "allocation_count": 548,
+                  "allocated_bytes": 158034368,
+                  "allocation_count": 546,
                   "value": "unlabeled"
                 }
               ],
               "by_role": [
                 {
-                  "allocated_bytes": 9526464,
-                  "allocation_count": 294,
+                  "allocated_bytes": 9840064,
+                  "allocation_count": 296,
                   "value": "activation_temp_or_unknown"
                 },
                 {
@@ -1256,8 +1320,8 @@
                   "value": "packed_linear_storage"
                 },
                 {
-                  "allocated_bytes": 158347968,
-                  "allocation_count": 548,
+                  "allocated_bytes": 158034368,
+                  "allocation_count": 546,
                   "value": "raw_tensor_or_unknown"
                 }
               ],
@@ -1779,7 +1843,7 @@
           "fallback_readback": 0,
           "host_upload": 2,
           "normal_cmd_submit_frequency": 0,
-          "pending_command_flush": 26,
+          "pending_command_flush": 20,
           "post_stack_flush": 0,
           "pre_stack_flush": 0,
           "profiling_timestamp_readback": 0,
@@ -1788,75 +1852,115 @@
           "shutdown": 0,
           "stack_planned_recording_submit": 0,
           "tensor_cpu_readback": 2,
-          "total_queue_submits": 30,
+          "total_queue_submits": 24,
           "unknown": 0
         }
       },
       "timing": {
-        "first_run_seconds": 0.1263813000114169,
-        "repeated_run_seconds_reference_only": 0.13106559999869205,
+        "first_run_seconds": 0.15987389998917934,
+        "repeated_run_seconds_reference_only": 0.1402407999994466,
         "supported_default_latency": {
-          "graph_invocation_generation_after": 15,
+          "graph_invocation_generation_after": 35,
           "graph_invocation_generation_before": 2,
           "input_boundary": "preuploaded_vulkan_inputs_to_completed_vulkan_outputs",
           "measurement_order": "supported_eager_first_on_even_rounds",
-          "measurement_repeats_per_surface": 10,
-          "median_delta_percent": -66.32388738234705,
-          "median_ratio_graph_over_eager": 0.33676112617652953,
+          "measurement_repeats_per_surface": 30,
+          "median_delta_percent": -64.10252896261368,
+          "median_ratio_graph_over_eager": 0.35897471037386314,
           "method": "alternating_completed_device_resident_invocations",
           "output_readback_in_timed_region": false,
           "supported_eager": {
-            "count": 10,
-            "max_seconds": 0.12541459999920335,
-            "mean_seconds": 0.11850595000287285,
-            "median_seconds": 0.12164290000509936,
-            "min_seconds": 0.10830530000384897,
-            "p90_seconds": 0.12434422999504022,
-            "p95_seconds": 0.12487941499712178,
+            "count": 30,
+            "max_seconds": 0.16692070000863168,
+            "mean_seconds": 0.12033983666624408,
+            "median_seconds": 0.11675920000561746,
+            "min_seconds": 0.10802060000423808,
+            "p90_seconds": 0.13471679000358563,
+            "p95_seconds": 0.1360132449917728,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.12223360000643879,
-              0.12303350000001956,
-              0.12105220000375994,
-              0.10984699999971781,
-              0.12332120000792202,
-              0.12541459999920335,
-              0.10850820000632666,
-              0.12422529999457765,
-              0.10830530000384897,
-              0.11911860000691377
+              0.11501649999991059,
+              0.11492829999770038,
+              0.10988999999244697,
+              0.11068019999947865,
+              0.10802060000423808,
+              0.13382560000172816,
+              0.11615609998989385,
+              0.11000469999271445,
+              0.11533350001263898,
+              0.11022709999815561,
+              0.1124028000049293,
+              0.11207869999634568,
+              0.16692070000863168,
+              0.13469740000437014,
+              0.11870759999146685,
+              0.1202904999954626,
+              0.13489129999652505,
+              0.12752940000791568,
+              0.1369311999878846,
+              0.12059770000632852,
+              0.12925320000795182,
+              0.11788700000033714,
+              0.11666390000027604,
+              0.11607639999419916,
+              0.1123092999914661,
+              0.1188006000011228,
+              0.11340859999472741,
+              0.12230679999629501,
+              0.11750490000122227,
+              0.11685450001095887
             ],
-            "stdev_seconds": 0.00651049564076283
+            "stdev_seconds": 0.011761686482646201
           },
           "synchronization": "vulkan_prepack::synchronize_after_each_measurement",
           "vulkan_graph_program": {
-            "count": 10,
-            "max_seconds": 0.04361389999394305,
-            "mean_seconds": 0.04081461999739986,
-            "median_seconds": 0.04096459999709623,
-            "min_seconds": 0.03841749999264721,
-            "p90_seconds": 0.04227362000383437,
-            "p95_seconds": 0.042943759998888706,
+            "count": 30,
+            "max_seconds": 0.062907700004871,
+            "mean_seconds": 0.043963803334433275,
+            "median_seconds": 0.041913600005500484,
+            "min_seconds": 0.03831540000101086,
+            "p90_seconds": 0.050531159996171485,
+            "p95_seconds": 0.055867170001874904,
             "runtime_counters": {
               "cpu_fallback": 0,
               "sync_readback": 0
             },
             "samples_seconds": [
-              0.04090459999861196,
-              0.0421247000049334,
-              0.04361389999394305,
-              0.038899599996511824,
-              0.041824999992968515,
-              0.04203479998977855,
-              0.0410245999955805,
-              0.03968100000929553,
-              0.039620499999728054,
-              0.03841749999264721
+              0.04040149999491405,
+              0.04081249999580905,
+              0.04069939999317285,
+              0.03894310000760015,
+              0.040839699999196455,
+              0.038904799992451444,
+              0.04353409999748692,
+              0.038552800004254095,
+              0.04577690000587609,
+              0.03831540000101086,
+              0.049395199996070005,
+              0.038666300009936094,
+              0.05415150000771973,
+              0.05727089999709278,
+              0.043473800003994256,
+              0.04409280000254512,
+              0.05012889999488834,
+              0.04674820000946056,
+              0.04182060000312049,
+              0.04325580000295304,
+              0.062907700004871,
+              0.04200699999637436,
+              0.042371599993202835,
+              0.04166020000411663,
+              0.040735300004598685,
+              0.04200660000788048,
+              0.04115010000532493,
+              0.04905519999738317,
+              0.040922000000136904,
+              0.04031419999955688
             ],
-            "stdev_seconds": 0.0015568775109796695
+            "stdev_seconds": 0.005742371562561486
           },
           "warmup_repeats_per_surface": 3
         }
@@ -2164,13 +2268,15 @@
     "reused_context_count": 0
   },
   "execution_plan": {
+    "dead_input_reuse_count": 4,
+    "dead_input_reuse_instruction_count": 9,
     "effect_instruction_count": 2,
     "graph_scalar_instruction_count": 8,
     "input_count": 1,
     "instruction_count": 404,
     "invocation_generation": 2,
     "last_submission_complete": true,
-    "last_submission_value": 592,
+    "last_submission_value": 586,
     "list_argument_count": 53,
     "list_projection_instruction_count": 20,
     "mode": "cpp_plan",
@@ -3142,7 +3248,7 @@
     "device_id": 30032,
     "device_index": 0,
     "driver_version": 8389003,
-    "graph_hash": "71d680cf48bad6f9f7ce90f682b4d59c2b97187656e380b4cea396a1d6a93d3f",
+    "graph_hash": "fb9d020712acd3227dad4f08fd8895af4c72bcb31068bb29c7c6e2ad5169118e",
     "input_signature": [
       "tensor:dtype=torch.float32:rank=4:shape=('1', '3', '14*s51', '14*s47')"
     ],
@@ -3175,14 +3281,14 @@
       },
       "torch_cpu.dll": {
         "path": "C:\\Users\\Frere\\Source\\GitRepos\\pytorch\\torch\\lib\\torch_cpu.dll",
-        "sha256": "e15d1b0d3fe80df554415b39a342cc42f634a8002958a2ff8457bfaaa26e3d86"
+        "sha256": "537802036062d3277a4d74ad7a27f28a76a16f7f4a4022c1ff1e132052989a9f"
       }
     },
     "total_memory_bytes": 17095983104,
     "vendor_id": 4098
   },
   "schema": "VulkanGraphExportEvidence.v1",
-  "source_git_sha": "b157c550fc5f59a80c89a4a4f25b242799a227d7",
+  "source_git_sha": "4b688faac338f3784a1286a327292735a3b334b0",
   "speculative_eager_bridges": "disabled",
   "static_add_layernorm_regions": {
     "candidate_count": 22,
