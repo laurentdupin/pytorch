@@ -64,16 +64,11 @@ class TORCH_API Runtime final {
   std::vector<DeviceMapping> device_mappings_;
   std::vector<AdapterPtr> adapters_;
   std::mutex adapters_mutex_;
-  uint32_t default_adapter_i_;
   c10::DeviceIndex default_device_i_;
 
   VkDebugReportCallbackEXT debug_report_callback_;
 
  public:
-  inline VkInstance instance() const {
-    return instance_;
-  }
-
   inline Adapter* get_adapter_p() {
     return get_adapter_p_for_device(default_device_i_);
   }
@@ -93,10 +88,6 @@ class TORCH_API Runtime final {
 
   Adapter* get_adapter_p_for_device(c10::DeviceIndex device_index);
   const PhysicalDevice& get_physical_device(c10::DeviceIndex device_index) const;
-
-  inline uint32_t default_adapter_i() const {
-    return default_adapter_i_;
-  }
 
   inline c10::DeviceIndex default_device_index() const {
     return default_device_i_;

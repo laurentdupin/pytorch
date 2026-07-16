@@ -114,12 +114,6 @@ class VulkanBuffer final {
 
   ~VulkanBuffer();
 
-  struct Package final {
-    VkBuffer handle;
-    VkDeviceSize buffer_offset;
-    VkDeviceSize buffer_range;
-  };
-
   friend struct BufferMemoryBarrier;
 
  private:
@@ -309,13 +303,6 @@ class VulkanImage final {
 
   ~VulkanImage();
 
-  struct Package final {
-    VkImage handle;
-    VkImageLayout image_layout;
-    VkImageView image_view;
-    VkSampler image_sampler;
-  };
-
   friend struct ImageMemoryBarrier;
 
  private:
@@ -368,15 +355,6 @@ class VulkanImage final {
 
   inline VkSampler sampler() const {
     return handles_.sampler;
-  }
-
-  Package package() const {
-    return {
-        handles_.image,
-        layout_,
-        handles_.image_view,
-        handles_.sampler,
-    };
   }
 
   inline VkImageLayout layout() const {
@@ -503,12 +481,6 @@ class MemoryAllocator final {
    */
   template <typename Block>
   VulkanBuffer create_params_buffer(const Block& block);
-
-  VmaTotalStatistics get_memory_statistics() const {
-    VmaTotalStatistics stats = {};
-    vmaCalculateStatistics(allocator_, &stats);
-    return stats;
-  }
 };
 
 class VulkanFence final {
@@ -548,10 +520,6 @@ class VulkanFence final {
 
   // Trigger a synchronous wait for the fence to be signaled
   void wait();
-
-  bool waiting() const {
-    return waiting_;
-  }
 
   operator bool() const {
     return (VK_NULL_HANDLE != handle_);

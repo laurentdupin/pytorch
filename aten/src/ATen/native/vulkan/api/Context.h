@@ -530,14 +530,6 @@ class TORCH_API Context final {
 
   // Resource Pools
 
-  inline DescriptorPool& descriptor_pool() {
-    return descriptor_pool_;
-  }
-
-  inline DescriptorPool& persistent_descriptor_pool() {
-    return persistent_descriptor_pool_;
-  }
-
   inline FencePool& fences() {
     return fences_;
   }

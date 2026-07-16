@@ -901,6 +901,46 @@
         "void submit_cmds("
       ],
       "consequence": "The caller-free multi-command queue-submit wrapper was deleted. Live fence and timeline submission paths plus their diagnostics are unchanged."
+    },
+    {
+      "id": "unused_low_level_vulkan_accessors",
+      "decision": "retire_dead_surface",
+      "status": "deleted",
+      "basis": [
+        "Repository-wide reachability for the removed tensor metadata, image package, allocator statistics, fence state, adapter convenience, descriptor-pool, and Runtime getters ended at their inline declarations; no production, generated, test, benchmark, callback, function-pointer, custom-class, or dispatcher caller exists.",
+        "The default adapter index was assigned only during Runtime construction and exposed only through its unused getter; default device selection and lazy device-to-adapter mapping continue to use default_device_i_ and create_adapter.",
+        "Live tensor execution descriptors, packed-weight and storage identity, memory barriers, allocation and residency diagnostics, fence waiting, capability enumeration, descriptor ownership, and graph submit attribution remain unchanged."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "aten/src/ATen/test",
+        "torch/csrc/vulkan",
+        "tools",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "forbidden_code_symbols": [
+        "void verify() const;",
+        "last_access_stage() const",
+        "last_access_access() const",
+        "const LogicalTensorDesc& logical_desc() const",
+        "const PhysicalLayoutDesc& physical_desc() const",
+        "bool is_buffer_view() const",
+        "gpu_memory_layout_as_uint() const",
+        "const api::utils::uvec3& virtual_extents() const",
+        "struct Package final",
+        "Package package() const",
+        "get_memory_statistics() const",
+        "bool waiting() const",
+        "bool supports_cooperative_matrix() const",
+        "utils::uvec3 local_work_group_size() const",
+        "DescriptorPool& descriptor_pool()",
+        "DescriptorPool& persistent_descriptor_pool()",
+        "VkInstance instance() const",
+        "default_adapter_i_",
+        "uint32_t default_adapter_i() const"
+      ],
+      "consequence": "Nineteen zero-caller declarations, convenience getters, nested package types, and the write-only default adapter index were deleted. Supported eager and graph execution state, device selection, resource ownership, diagnostics, and behavioral tests are unchanged."
     }
   ],
   "entries": [

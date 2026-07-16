@@ -295,10 +295,6 @@ class Adapter final {
     return has_shader_int8() && has_storage_buffer_8bit();
   }
 
-  inline bool supports_cooperative_matrix() const {
-    return has_cooperative_matrix();
-  }
-
   inline bool supports_required_subgroup_size(
       const uint32_t stage,
       const uint32_t subgroup_size) const {
@@ -365,16 +361,6 @@ class Adapter final {
       VkSemaphore signal_semaphore,
       uint64_t signal_value,
       VkFence fence = VK_NULL_HANDLE);
-
-  // Miscellaneous
-
-  inline utils::uvec3 local_work_group_size() const {
-    return {
-        4u,
-        4u,
-        4u,
-    };
-  }
 
   std::string stringize() const;
   friend std::ostream& operator<<(std::ostream&, const Adapter&);

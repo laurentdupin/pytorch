@@ -91,9 +91,6 @@ class vTensorStorage final {
       const api::PipelineStageFlags,
       const api::MemoryAccessFlags);
 
-  // Validation
-  void verify() const;
-
  public:
   inline VkFormat texture_format() {
     return image_.format();
@@ -287,25 +284,9 @@ class vTensor final {
     return view_->extents_;
   }
 
-  inline api::PipelineStageFlags last_access_stage() const {
-    return view_->last_access_.stage;
-  }
-
-  inline api::MemoryAccessFlags last_access_access() const {
-    return view_->last_access_.access;
-  }
-
   inline bool last_write_was_compute() const {
     return (view_->last_access_.access & api::MemoryAccessType::WRITE) != 0 &&
         (view_->last_access_.stage & api::PipelineStage::COMPUTE) != 0;
-  }
-
-  inline const LogicalTensorDesc& logical_desc() const {
-    return logical_desc_;
-  }
-
-  inline const PhysicalLayoutDesc& physical_desc() const {
-    return physical_desc_;
   }
 
   inline const ExecutionViewDesc& execution_desc() const {
@@ -322,10 +303,6 @@ class vTensor final {
 
   inline bool uses_buffer_execution() const {
     return api::uses_buffer_execution(execution_layout());
-  }
-
-  inline bool is_buffer_view() const {
-    return execution_layout() == api::ExecutionLayout::BUFFER_VIEW;
   }
 
   inline bool is_packed_weight() const {
@@ -380,10 +357,6 @@ class vTensor final {
     return physical_desc_.memory_layout;
   }
 
-  inline uint32_t gpu_memory_layout_as_uint() const {
-    return static_cast<uint32_t>(physical_desc_.memory_layout);
-  }
-
   inline const std::vector<int64_t>& sizes() const {
     return logical_desc_.sizes;
   }
@@ -426,10 +399,6 @@ class vTensor final {
 
   inline std::weak_ptr<const vTensorStorage> storage_weak_ref() const {
     return view_;
-  }
-
-  inline const api::utils::uvec3& virtual_extents() const {
-    return physical_desc_.virtual_extents;
   }
 
   /*

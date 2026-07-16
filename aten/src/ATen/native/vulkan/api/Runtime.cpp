@@ -290,7 +290,6 @@ Runtime::Runtime(const RuntimeConfiguration config)
       device_mappings_(create_physical_devices(instance_)),
       adapters_{},
       adapters_mutex_{},
-      default_adapter_i_(UINT32_MAX),
       default_device_i_(-1),
       debug_report_callback_(create_debug_report_callback(instance_, config_)) {
   // List of adapters will never exceed the number of physical devices
@@ -302,8 +301,7 @@ Runtime::Runtime(const RuntimeConfiguration config)
         case AdapterSelector::First:
           default_device_i_ = utils::safe_downcast<c10::DeviceIndex>(
               select_first(device_mappings_));
-          default_adapter_i_ =
-              create_adapter(utils::safe_downcast<uint32_t>(default_device_i_));
+          create_adapter(utils::safe_downcast<uint32_t>(default_device_i_));
       }
     } catch (...) {
     }
