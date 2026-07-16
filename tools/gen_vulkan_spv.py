@@ -582,7 +582,7 @@ def validate_spv_file(
 
 
 ##############################################
-#  Shader Info and Shader Registry Handling  #
+#  Shader Info Handling  #
 ##############################################
 
 
@@ -592,7 +592,6 @@ class ShaderInfo:
     layouts: list[str]
     weight_storage_type: str = ""
     bias_storage_type: str = ""
-    register_for: tuple[str, list[str]] | None = None
 
 
 def getName(filePath: str) -> str:
@@ -643,23 +642,6 @@ def getBiasStorageType(lineStr: str) -> str:
     return matches.group(1)
 
 
-def isRegisterForLine(lineStr: str) -> bool:
-    # Check for Shader Name and a list of at least one Registry Key
-    register_for_id = (
-        r"^ \* REGISTER_FOR = \('([A-Za-z0-9_]+)'\s*,\s*\['([A-Za-z0-9_]+)'.*\]\)"
-    )
-    return re.search(register_for_id, lineStr) is not None
-
-
-def findRegisterFor(lineStr: str) -> tuple[str, list[str]]:
-    register_for_pattern = r"'([A-Za-z0-9_]+)'"
-    matches = re.findall(register_for_pattern, lineStr)
-    if matches is None:
-        raise AssertionError("matches is None in getBiasStorageType")
-    matches_list = list(matches)
-    return (matches_list[0], matches_list[1:])
-
-
 typeIdMapping = {
     r"image[123]D\b": "VK_DESCRIPTOR_TYPE_STORAGE_IMAGE",
     r"sampler[123]D\b": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
@@ -696,8 +678,6 @@ def getShaderInfo(srcFilePath: str) -> ShaderInfo:
                 shader_info.weight_storage_type = getWeightStorageType(line)
             if isBiasStorageTypeLine(line):
                 shader_info.bias_storage_type = getBiasStorageType(line)
-            if isRegisterForLine(line):
-                shader_info.register_for = findRegisterFor(line)
 
     return shader_info
 
@@ -726,8 +706,6 @@ namespace {{
 static void register_fn() {{
 
 {register_shader_infos}
-
-{shader_info_registry}
 
 }}
 
@@ -803,21 +781,6 @@ def generateShaderInfoStr(
     return shader_info_str
 
 
-def generateShaderDispatchStr(shader_info: ShaderInfo, name: str) -> str:
-    if shader_info.register_for is None:
-        return ""
-
-    (op_name, registry_keys) = shader_info.register_for
-    for registry_key in registry_keys:
-        shader_dispatch_str = textwrap.indent(
-            f'api::shader_registry().register_op_dispatch("{op_name}", api::DispatchKey::{registry_key.upper()}, "{name}");',
-            "    ",
-        )
-
-    # pyrefly: ignore [unbound-name]
-    return shader_dispatch_str
-
-
 def genCppFiles(
     spv_files: dict[str, str],
     cpp_header_path: str,
@@ -826,7 +789,6 @@ def genCppFiles(
 ) -> None:
     spv_bin_strs = []
     register_shader_info_strs = []
-    shader_registry_strs = []
 
     for spvPath, srcPath in spv_files.items():
         name = getName(spvPath).replace("_spv", "")
@@ -848,17 +810,12 @@ def genCppFiles(
             )
         )
 
-        if shader_info.register_for is not None:
-            shader_registry_strs.append(generateShaderDispatchStr(shader_info, name))
-
     spv_bin_arrays = "\n".join(spv_bin_strs)
     register_shader_infos = "\n".join(register_shader_info_strs)
-    shader_info_registry = "\n".join(shader_registry_strs)
 
     cpp = cpp_template.format(
         spv_bin_arrays=spv_bin_arrays,
         register_shader_infos=register_shader_infos,
-        shader_info_registry=shader_info_registry,
     )
 
     with open(cpp_src_file_path, "w") as fw:

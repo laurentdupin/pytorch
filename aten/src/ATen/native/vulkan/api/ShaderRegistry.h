@@ -20,21 +20,10 @@ namespace native {
 namespace vulkan {
 namespace api {
 
-enum class DispatchKey : int8_t {
-  CATCHALL,
-  ADRENO,
-  MALI,
-  OVERRIDE,
-};
-
 class ShaderRegistry final {
   using ShaderListing = std::unordered_map<std::string, ShaderInfo>;
-  using Dispatcher = std::unordered_map<DispatchKey, std::string>;
-  using Registry = std::unordered_map<std::string, Dispatcher>;
 
   ShaderListing listings_;
-  Dispatcher dispatcher_;
-  Registry registry_;
 
  public:
   /*
@@ -43,22 +32,9 @@ class ShaderRegistry final {
   bool has_shader(const std::string& shader_name);
 
   /*
-   * Check if the registry has a dispatch registered under the given name
-   */
-  bool has_dispatch(const std::string& op_name);
-
-  /*
    * Register a ShaderInfo to a given shader name
    */
   void register_shader(ShaderInfo&& shader_info);
-
-  /*
-   * Register a dispatch entry to the given op name
-   */
-  void register_op_dispatch(
-      const std::string& op_name,
-      const DispatchKey key,
-      const std::string& shader_name);
 
   /*
    * Given a shader name, return the ShaderInfo which contains the SPIRV binary

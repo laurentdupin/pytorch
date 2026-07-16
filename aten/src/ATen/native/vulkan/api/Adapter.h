@@ -356,11 +356,6 @@ class Adapter final {
       VkCommandBuffer,
       VkFence fence = VK_NULL_HANDLE);
 
-  void submit_cmds(
-      const Adapter::Queue&,
-      const std::vector<VkCommandBuffer>&,
-      VkFence fence = VK_NULL_HANDLE);
-
   void submit_cmd_timeline(
       const Queue&,
       VkCommandBuffer,

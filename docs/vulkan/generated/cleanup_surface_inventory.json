@@ -1017,6 +1017,58 @@
         "scripts/benchmarks"
       ],
       "status": "deleted"
+    },
+    {
+      "basis": [
+        "Vulkan shader codegen emitted two register_op_dispatch startup calls for conv2d and conv2d_pw, but no runtime, test, benchmark, callback, or generated consumer ever queried the resulting op-name and DispatchKey maps.",
+        "Shader selection uses explicit VK_KERNEL or VK_KERNEL_FROM_STR names and ShaderRegistry::get_shader_info against the live shader listing; general and pointwise conv execution do not consume the write-only registry.",
+        "The unused dispatcher_ member was never written or read, while registry_ was only populated during generated startup registration."
+      ],
+      "consequence": "The write-only op-dispatch maps, generated registration calls, parser and template plumbing, and stale conv shader metadata were deleted. Explicit shader registration and lookup remain the sole runtime registry contract.",
+      "decision": "retire_dead_state",
+      "forbidden_code_symbols": [
+        "enum class DispatchKey : int8_t",
+        "register_op_dispatch",
+        "ShaderRegistry::has_dispatch",
+        "bool has_dispatch(",
+        "REGISTER_FOR",
+        "register_for: tuple[str, list[str]] | None",
+        "shader_info.register_for",
+        "shader_info_registry",
+        "Dispatcher dispatcher_",
+        "Registry registry_"
+      ],
+      "id": "write_only_shader_op_dispatch_registry",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "aten/src/ATen/test",
+        "tools",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "status": "deleted"
+    },
+    {
+      "basis": [
+        "Adapter::submit_cmds had a declaration and definition but no production, generated, benchmark, test, callback, or function-pointer caller.",
+        "Live Context submission uses submit_cmd for fence-backed single-command work and submit_cmd_timeline for graph and stream timeline ownership.",
+        "Submit-origin and phase counters are recorded above the Adapter wrapper and remain evidence-critical."
+      ],
+      "consequence": "The caller-free multi-command queue-submit wrapper was deleted. Live fence and timeline submission paths plus their diagnostics are unchanged.",
+      "decision": "retire_dead_surface",
+      "forbidden_code_symbols": [
+        "Adapter::submit_cmds",
+        "void submit_cmds("
+      ],
+      "id": "unused_adapter_batch_submit",
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "aten/src/ATen/test",
+        "tools",
+        "test",
+        "scripts/benchmarks"
+      ],
+      "status": "deleted"
     }
   ],
   "surfaces": [

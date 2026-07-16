@@ -201,13 +201,11 @@ conv2d_dw_output_tile:
 conv2d_pw:
   parameter_names_with_default_values:
     OUTPUT_TILE_SIZE: !!python/tuple [1, 1]
-    REGISTER_FOR: null
   shader_variants:
     - NAME: conv2d_pw_output_tile_1x1
       OUTPUT_TILE_SIZE: !!python/tuple [1, 1]
     - NAME: conv2d_pw_output_tile_2x2
       OUTPUT_TILE_SIZE: !!python/tuple [2, 2]
-      REGISTER_FOR: !!python/tuple ["conv2d_pw", ["catchall"]]
 
 unary_op:
   parameter_names_with_default_values:
