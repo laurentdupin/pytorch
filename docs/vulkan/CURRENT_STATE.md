@@ -64,9 +64,15 @@ and 25.1% below the `ed4975687b6` attribution medians. The exact supported
 artifacts above keep graph peak memory within 1.2% below to 0.4% above eager.
 Candidate graph frequencies of 64 and 32 reduced submission further but were
 rejected after DAv2 or PaddleOCR repeat-with-live-output memory exceeded the 5%
-gate. The next fixed-cost target is therefore generic inheritance of the next
-submission token by bounded conv-region scratch, with the same lifetime and
-memory bounds, rather than operator micro-tuning. Timestamp-instrumented wall
+gate. Worktree validation of generic next-submission token inheritance for
+bounded conv-region scratch reduces DAv2 from 19 to 13 pending submissions per
+inference. Normal and alternate graph medians are 37.89 ms and 39.74 ms against
+eager at 107.74 ms and 111.90 ms, and repeat-with-live-output memory remains
+between 1.0% below and 0.5% above eager. PaddleOCR remains at 14 submissions and
+HY-MT remains at 114 because neither path captures this scratch. Their memory
+also stays inside the 5% gate. These worktree artifacts validate the fixed-cost
+change; an exact-SHA refresh remains the supported deletion baseline.
+Timestamp-instrumented wall
 time is not a production latency baseline; the checked-in 38.6/43.7 ms
 distributions are the supported deletion-gate artifact.
 The GELU `none` CPU tolerance is documented in
@@ -134,10 +140,12 @@ A command-free plan completes successfully with generation advancement and no
 synthetic token. Direct-buffer `aten::lift_fresh_copy` and
 `VulkanGraphRegionPlan` instructions now remain inside this ownership path.
 Linear regions record normally in the outer partition. Bounded conv regions
-submit an explicit outer-owner checkpoint at region exit so their private
-scratch ring retains the exact timeline token; direct region calls outside a
-graph plan retain their private transaction. Pool and reduction-dimension
-softmax retain their eager pending-retirement checkpoints but defer those
+associate their private scratch ring with the next outer submission token
+without forcing a region-exit checkpoint. Pending slots are not reusable until
+that token is assigned, and abort submission resolves them before unwinding.
+Direct region calls outside a graph plan retain their private transaction.
+Pool and reduction-dimension softmax retain their eager pending-retirement
+checkpoints but defer those
 checkpoints while this outer transaction is active.
 
 Plan selection is fail-closed. The v8 schema accepts tensor inputs, any

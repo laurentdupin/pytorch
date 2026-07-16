@@ -688,7 +688,7 @@
       "summary": "VisionBlocks model orchestration and the stack proof/canary control plane remaining in Sync and Context after generic counter extraction.",
       "replacement": "C++ immutable graph plans followed by recorded graph-owned command partitions.",
       "delete_when": "DAv2 and affected corpus paths use the supported graph program with correctness, dynamic-shape, repeated-output lifetime, submit, memory, and latency parity.",
-      "baseline": "Compare only with plain concrete eager and VulkanGraphProgram artifacts recorded at deletion time. Exact-SHA 25b66ba0b8b records 19 DAv2, 14 PaddleOCR, and 114 HY-MT graph checkpoints per inference with supported-default correctness and peak memory inside the 5% gate. Bounded conv-region scratch still requires explicit region-exit checkpoints, so generic next-submission token inheritance and the broader subsystem retirement gate remain open.",
+      "baseline": "Compare only with plain concrete eager and VulkanGraphProgram artifacts recorded at deletion time. Exact-SHA 25b66ba0b8b records 19 DAv2, 14 PaddleOCR, and 114 HY-MT graph checkpoints per inference with supported-default correctness and peak memory inside the 5% gate. Generic next-submission inheritance is implemented and worktree-validated at 13 DAv2 checkpoints per inference while PaddleOCR and HY-MT remain at 14 and 114 inside the memory gate. An exact-SHA evidence refresh and the broader subsystem retirement gate remain open.",
       "paths": [
         "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
         "aten/src/ATen/native/vulkan/ops/VisionBlocks.h",

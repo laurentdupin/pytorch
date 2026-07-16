@@ -2188,8 +2188,17 @@ class TestVulkanGraph(TestCase):
             eager_vulkan = copy.deepcopy(model).to("vulkan").eval()
             with torch.inference_mode():
                 eager_vulkan_output = eager_vulkan(tensor.to("vulkan")).cpu()
+            device_tensor = tensor.to("vulkan")
+            torch.ops.vulkan_prepack.synchronize()
             torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
-            graph_output = program(tensor).cpu()
+            torch.ops.vulkan_prepack.reset_submit_origin_counters()
+            graph_output_device = program(device_tensor)
+            submit_origins = list(
+                torch.ops.vulkan_prepack.submit_origin_counters()
+            )
+            self.assertEqual(submit_origins[15], 1)
+            self.assertEqual(submit_origins[0], 1)
+            graph_output = graph_output_device.cpu()
             with torch.inference_mode():
                 normal_context_output = torch.relu(tensor.to("vulkan")).cpu()
             torch.testing.assert_close(
@@ -2278,18 +2287,93 @@ class TestVulkanGraph(TestCase):
         )
         region_plan = getattr(program.graph_module, plan_attr)
         vulkan_tensor = tensor.to("vulkan")
+        torch.ops.vulkan_prepack.synchronize()
 
         torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
         output = torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default(
             [vulkan_tensor], region_plan
         )[0]
+        submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
 
         torch.testing.assert_close(
             output.cpu(), model(tensor), rtol=1e-4, atol=1e-4
         )
+        self.assertEqual(submit_origins[15], 1)
+        self.assertEqual(submit_origins[0], 1)
         self.assertEqual(
             _graph_program_invocation_counters(),
             [1, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+        )
+
+    def test_conv2d_region_scratch_inherits_abort_submission(self):
+        class ConvReluConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 4, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(4, 2, 3, padding=1)
+
+            def forward(self, tensor):
+                return self.conv1(torch.relu(self.conv0(tensor)))
+
+        torch.manual_seed(39)
+        model = ConvReluConv().eval()
+        tensor = torch.randn(2, 3, 8, 7)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        plan_attr = next(
+            iter(_static_conv2d_relu_conv2d_plan_attrs(program))
+        )
+        region_plan = getattr(program.graph_module, plan_attr)
+
+        def graph_plan(index):
+            return torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+                ["region", "getitem"],
+                [
+                    "vulkan_prepack::run_vulkan_graph_region_plan",
+                    "vulkan_graph::list_getitem",
+                ],
+                ["", ""],
+                [[[0], [-1]], [[1], [-2]]],
+                [[1, 0], [0, 0]],
+                [[1], [2]],
+                [region_plan, index],
+                1,
+                [2],
+            )
+
+        vulkan_tensor = tensor.to("vulkan")
+        torch.ops.vulkan_prepack.synchronize()
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "VulkanGraphPlan.v8 node 'getitem'.*"
+            "index 1 is out of range for length 1",
+        ):
+            torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+                [vulkan_tensor], graph_plan(1)
+            )
+        abort_submit_origins = list(
+            torch.ops.vulkan_prepack.submit_origin_counters()
+        )
+        self.assertEqual(abort_submit_origins[15], 1)
+        self.assertEqual(abort_submit_origins[0], 1)
+
+        torch.ops.vulkan_prepack.synchronize()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+        output = torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+            [vulkan_tensor], graph_plan(0)
+        )[0]
+        submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
+
+        torch.testing.assert_close(
+            output.cpu(), model(tensor), rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(submit_origins[15], 1)
+        self.assertEqual(submit_origins[0], 1)
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [2, 1, 1, 0, 0, 1, 1, 0, 0, 0],
         )
 
     def test_static_conv2d_relu_conv2d_region_rejects_host_sync_requirement(

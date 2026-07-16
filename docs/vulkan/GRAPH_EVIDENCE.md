@@ -167,10 +167,19 @@ all three corpora. Same-binary DAv2 30-repeat medians are 40.20 ms and 36.78 ms,
 frequencies of 64 and 32 were rejected: DAv2 at 64 and PaddleOCR at 32 exceeded
 the 5% repeat-with-live-output peak-memory gate. The accepted evidence therefore
 supports bounded fixed-cost reduction, not unrestricted checkpoint deferral.
-The next target is generic next-submission token inheritance for bounded
-conv-region scratch. Raw accepted artifacts are under
+Worktree validation of generic next-submission token inheritance for bounded
+conv-region scratch removes the region-exit checkpoint and drops DAv2 from 19
+to 13 pending submissions per inference. Normal and alternate graph medians are
+37.89 ms and 39.74 ms against eager at 107.74 ms and 111.90 ms, with graph
+repeat-with-live-output memory between 1.0% below and 0.5% above eager.
+PaddleOCR remains at 14 submissions and HY-MT remains at 114; both retain memory
+inside the 5% gate. Exact-SHA evidence remains required before this worktree
+result becomes a supported deletion baseline. Raw accepted artifacts are under
 `agent_space/graph_checkpoint24_exact_25b66ba0b8b/` and
-`agent_space/dav2_graph_checkpoint24_79080a576b0/`.
+`agent_space/dav2_graph_checkpoint24_79080a576b0/`; worktree artifacts are under
+`agent_space/dav2_graph_submission_inheritance_worktree/`,
+`agent_space/paddleocr_graph_submission_inheritance_worktree/`, and
+`agent_space/hymt_graph_submission_inheritance_worktree_retry/`.
 
 Checked-in corpus and unit-level v8 evidence add a real normal-Context ownership
 scope across ordinary instructions, lifted copies, and bounded graph regions.

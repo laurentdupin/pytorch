@@ -204,9 +204,11 @@ token has already completed. Command-free metadata plans complete with no
 fabricated token. Direct-buffer `aten::lift_fresh_copy` and
 `VulkanGraphRegionPlan` instructions execute inside this ownership path.
 Linear regions record into the current partition. Bounded conv regions submit
-an outer-owner checkpoint at region exit and associate their private scratch
-slot with that exact token. A direct region invocation outside a graph plan
-still creates its own private transaction. Eager-only pending-retirement
+their work into the outer partition and associate private scratch with its next
+submission token. A scratch slot remains pending and cannot be reused until
+that token is assigned. Abort submission resolves the same observer before
+unwinding. A direct region invocation outside a graph plan still creates and
+submits its own private transaction. Eager-only pending-retirement
 checkpoints in LayerNorm, pool, and reduction-dimension softmax defer to an
 active outer graph scope; plain eager execution retains those checkpoints.
 

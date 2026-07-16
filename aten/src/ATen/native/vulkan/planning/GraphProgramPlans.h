@@ -111,6 +111,7 @@ struct VulkanGraphRegionScratchSlot final {
   Tensor tensor;
   VulkanGraphRegionScratchDescriptor descriptor;
   api::VulkanSubmission submission;
+  bool submission_pending{false};
 };
 
 class VulkanGraphRegionPlan final : public torch::jit::CustomClassHolder {
@@ -146,6 +147,11 @@ class VulkanGraphRegionPlan final : public torch::jit::CustomClassHolder {
       Tensor,
       VulkanGraphRegionScratchDescriptor,
       api::VulkanSubmission);
+  void adopt_scratch_tensor_pending(
+      size_t,
+      Tensor,
+      VulkanGraphRegionScratchDescriptor);
+  void mark_scratch_submission_pending(size_t);
   void mark_scratch_submission(size_t, api::VulkanSubmission);
   bool try_begin_invocation();
   void end_invocation();

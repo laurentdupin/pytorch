@@ -166,6 +166,7 @@ class TORCH_API Context final {
     const VulkanSubmission& submission() const;
 
    private:
+    void notify_submission_observers();
     void run_post_submit_cleanup(
         std::function<void()> cleanup,
         bool wait_for_completion = false);
@@ -219,6 +220,8 @@ class TORCH_API Context final {
   bool graph_program_checkpoint_requested_{false};
   bool graph_program_checkpoint_requires_wait_{false};
   std::vector<std::function<void()>> graph_program_completion_cleanups_;
+  std::vector<std::function<void(const VulkanSubmission&)>>
+      graph_program_submission_observers_;
   CommandBuffer cmd_;
   CommandBuffer stack_region_owned_cmd_;
   uint32_t submit_count_;
@@ -492,6 +495,8 @@ class TORCH_API Context final {
   void request_graph_program_checkpoint(
       std::function<void()> cleanup,
       bool wait_for_completion = false);
+  void observe_next_graph_program_submission(
+      std::function<void(const VulkanSubmission&)> observer);
 
   inline void enable_op_profiling() {
     enable_op_profiling_ = true;

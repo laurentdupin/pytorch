@@ -596,9 +596,13 @@ The initial catalog records the current `vits_140` performance lane:
   DAv2 supported medians are 38.6 ms and 43.7 ms against eager at 111.4 ms and
   118.1 ms. Frequencies of 64 and 32 were rejected because DAv2 or PaddleOCR
   repeat-with-live-output memory exceeded 5%. This keeps the optimization
-  bounded by lifetime and memory evidence. The next fixed-cost target is
-  generic next-submission token inheritance for bounded conv-region scratch,
-  not a model-specific operator route;
+  bounded by lifetime and memory evidence. Worktree validation of generic
+  next-submission token inheritance for bounded conv-region scratch removes
+  the region-exit checkpoint and drops DAv2 from 19 to 13 pending submissions
+  per inference. Graph medians are 37.89 ms and 39.74 ms against eager at
+  107.74 ms and 111.90 ms, with memory between 1.0% below and 0.5% above eager.
+  PaddleOCR and HY-MT remain at 14 and 114 submissions and inside the 5% memory
+  gate because neither captures this scratch. Exact-SHA evidence remains open;
 - descriptor-update allocation flattening: accepted default infrastructure fix.
   `DescriptorSet` reserves its per-set binding list to the shader layout size,
   and `get_bind_handle()` uses an inline-capacity descriptor-write list for the

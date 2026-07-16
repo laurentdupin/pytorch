@@ -317,6 +317,7 @@ utils::VulkanGraphRegionPlan::~VulkanGraphRegionPlan() noexcept {
     }
     Tensor tensor = std::move(slot.tensor);
     if (
+        slot.submission_pending ||
         slot.submission.timeline == VK_NULL_HANDLE ||
         slot.submission.timeline_value == 0u) {
       (void)tensor.unsafeReleaseTensorImpl();
@@ -664,7 +665,8 @@ int64_t utils::VulkanGraphRegionPlan::find_reusable_scratch_slot(
   for (size_t index = 0; index < scratch_slots_.size(); ++index) {
     VulkanGraphRegionScratchSlot& slot = scratch_slots_[index];
     if (
-        slot.tensor.defined() && slot.descriptor.matches(descriptor) &&
+        slot.tensor.defined() && !slot.submission_pending &&
+        slot.descriptor.matches(descriptor) &&
         context.graph_program_submission_complete(slot.submission)) {
       return static_cast<int64_t>(index);
     }
@@ -682,7 +684,9 @@ int64_t utils::VulkanGraphRegionPlan::find_capture_scratch_slot(
   }
   for (size_t index = 0; index < scratch_slots_.size(); ++index) {
     VulkanGraphRegionScratchSlot& slot = scratch_slots_[index];
-    if (context.graph_program_submission_complete(slot.submission)) {
+    if (
+        !slot.submission_pending &&
+        context.graph_program_submission_complete(slot.submission)) {
       try {
         std::vector<api::VulkanBuffer> buffers =
             convert(slot.tensor).release_graph_program_owned_buffers();
@@ -716,17 +720,38 @@ void utils::VulkanGraphRegionPlan::adopt_scratch_tensor(
           submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
       "VulkanGraphRegionPlan.v1 cannot adopt invalid scratch state");
   scratch_slots_[index] = VulkanGraphRegionScratchSlot{
-      std::move(tensor), std::move(descriptor), submission};
+      std::move(tensor), std::move(descriptor), submission, false};
+}
+
+void utils::VulkanGraphRegionPlan::adopt_scratch_tensor_pending(
+    const size_t index,
+    Tensor tensor,
+    VulkanGraphRegionScratchDescriptor descriptor) {
+  TORCH_CHECK(
+      index < scratch_slots_.size() && tensor.defined(),
+      "VulkanGraphRegionPlan.v1 cannot adopt invalid pending scratch state");
+  scratch_slots_[index] = VulkanGraphRegionScratchSlot{
+      std::move(tensor), std::move(descriptor), {}, true};
+}
+
+void utils::VulkanGraphRegionPlan::mark_scratch_submission_pending(
+    const size_t index) {
+  TORCH_CHECK(
+      index < scratch_slots_.size() && scratch_slots_[index].tensor.defined(),
+      "VulkanGraphRegionPlan.v1 cannot mark invalid pending scratch state");
+  scratch_slots_[index].submission = {};
+  scratch_slots_[index].submission_pending = true;
 }
 
 void utils::VulkanGraphRegionPlan::mark_scratch_submission(
     const size_t index,
     const api::VulkanSubmission submission) {
   TORCH_CHECK(
-      index < scratch_slots_.size() &&
+      index < scratch_slots_.size() && scratch_slots_[index].tensor.defined() &&
           submission.timeline != VK_NULL_HANDLE && submission.timeline_value > 0u,
       "VulkanGraphRegionPlan.v1 cannot mark invalid scratch submission");
   scratch_slots_[index].submission = submission;
+  scratch_slots_[index].submission_pending = false;
 }
 
 bool utils::VulkanGraphRegionPlan::try_begin_invocation() {
@@ -768,6 +793,10 @@ class RegionMemoryTransaction final {
 
   const api::VulkanSubmission& submission() const {
     return submission_;
+  }
+
+  bool owns_private_scope() const {
+    return private_scope_.has_value();
   }
 };
 
@@ -906,23 +935,49 @@ std::vector<Tensor> utils::run_vulkan_graph_region_plan(
       intermediate = run_conv2d_context_relu(input, first_context);
     }
     Tensor output = run_conv2d_context(intermediate, second_context);
-    const api::VulkanSubmission submission = transaction.submit();
+    if (
+        !transaction.owns_private_scope() &&
+        (reused_scratch || created_scratch)) {
+      const size_t scratch_index = static_cast<size_t>(scratch_slot);
+      context.observe_next_graph_program_submission(
+          [plan, scratch_index](const api::VulkanSubmission& submission) {
+            plan->mark_scratch_submission(scratch_index, submission);
+          });
+      if (reused_scratch) {
+        utils::mark_tensor_execution(
+            plan->scratch_tensor(scratch_index),
+            api::ExecutionLayout::BUFFER_DIRECT,
+            true);
+        plan->mark_scratch_submission_pending(scratch_index);
+      } else {
+        plan->adopt_scratch_tensor_pending(
+            scratch_index,
+            utils::mark_tensor_execution(
+                intermediate, api::ExecutionLayout::BUFFER_DIRECT, true),
+            *expected_descriptor);
+      }
+    } else {
+      const api::VulkanSubmission submission = transaction.submit();
+      if (reused_scratch) {
+        utils::mark_tensor_execution(
+            plan->scratch_tensor(static_cast<size_t>(scratch_slot)),
+            api::ExecutionLayout::BUFFER_DIRECT,
+            true);
+        plan->mark_scratch_submission(
+            static_cast<size_t>(scratch_slot), submission);
+      } else if (created_scratch) {
+        plan->adopt_scratch_tensor(
+            static_cast<size_t>(scratch_slot),
+            utils::mark_tensor_execution(
+                intermediate, api::ExecutionLayout::BUFFER_DIRECT, true),
+            *expected_descriptor,
+            submission);
+      }
+    }
     if (reused_scratch) {
-      utils::mark_tensor_execution(
-          plan->scratch_tensor(static_cast<size_t>(scratch_slot)),
-          api::ExecutionLayout::BUFFER_DIRECT,
-          true);
-      plan->mark_scratch_submission(
-          static_cast<size_t>(scratch_slot), submission);
       api::vulkan_graph_program_invocation_counters()
           .scratch_reused_count.fetch_add(1u, std::memory_order_relaxed);
     } else if (created_scratch) {
-      plan->adopt_scratch_tensor(
-          static_cast<size_t>(scratch_slot),
-          utils::mark_tensor_execution(
-              intermediate, api::ExecutionLayout::BUFFER_DIRECT, true),
-          *expected_descriptor,
-          submission);
       api::vulkan_graph_program_invocation_counters()
           .scratch_captured_count.fetch_add(1u, std::memory_order_relaxed);
     }

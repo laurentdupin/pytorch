@@ -1658,6 +1658,10 @@ Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
   TORCH_CHECK(
       context_->graph_program_completion_cleanups_.empty(),
       "GraphProgramInvocationScope found stale completion cleanup state");
+  TORCH_CHECK(
+      context_->graph_program_submission_observers_.empty(),
+      "GraphProgramInvocationScope found stale submission observer state");
+  context_->graph_program_submission_observers_.reserve(16u);
   if (context_->cmd_) {
     context_->submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
@@ -1687,6 +1691,23 @@ Context::GraphProgramInvocationScope::~GraphProgramInvocationScope() noexcept {
 
 bool Context::GraphProgramInvocationScope::checkpoint_requested() const {
   return active() && context_->graph_program_checkpoint_requested_;
+}
+
+void Context::GraphProgramInvocationScope::notify_submission_observers() {
+  if (context_->graph_program_submission_observers_.empty()) {
+    return;
+  }
+  auto observers =
+      std::move(context_->graph_program_submission_observers_);
+  context_->graph_program_submission_observers_.clear();
+  TORCH_CHECK(
+      submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
+      "GraphProgramInvocationScope submission observers require a token");
+  for (auto& observer : observers) {
+    observer(submission_);
+  }
+  observers.clear();
+  context_->graph_program_submission_observers_ = std::move(observers);
 }
 
 void Context::GraphProgramInvocationScope::run_post_submit_cleanup(
@@ -1741,6 +1762,7 @@ VulkanSubmission Context::GraphProgramInvocationScope::checkpoint() {
       context_->graph_program_checkpoint_requires_wait_;
   context_->graph_program_checkpoint_requires_wait_ = false;
   if (!context_->cmd_ && context_->submit_count_ == 0u) {
+    notify_submission_observers();
     std::function<void()> completion_cleanup =
         context_->take_graph_program_completion_cleanup();
     run_post_submit_cleanup(
@@ -1752,6 +1774,7 @@ VulkanSubmission Context::GraphProgramInvocationScope::checkpoint() {
   TORCH_CHECK(
       submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
       "GraphProgramInvocationScope checkpoint requires a submission token");
+  notify_submission_observers();
   run_post_submit_cleanup(
       context_->take_graph_program_completion_cleanup(), wait_for_completion);
   return submission_;
@@ -1763,6 +1786,7 @@ VulkanSubmission Context::GraphProgramInvocationScope::submit() {
     checkpoint();
   }
   if (!context_->cmd_ && context_->submit_count_ == 0u) {
+    notify_submission_observers();
     std::function<void()> completion_cleanup =
         context_->take_graph_program_completion_cleanup();
     run_post_submit_cleanup(std::move(completion_cleanup));
@@ -1784,6 +1808,7 @@ VulkanSubmission Context::GraphProgramInvocationScope::submit() {
   TORCH_CHECK(
       submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
       "GraphProgramInvocationScope requires a normal submission token");
+  notify_submission_observers();
   run_post_submit_cleanup(context_->take_graph_program_completion_cleanup());
   lock_.unlock();
   g_graph_program_invocation_context = nullptr;
@@ -1815,6 +1840,7 @@ void Context::GraphProgramInvocationScope::abort() {
       vulkan_graph_program_invocation_counters()
           .aborted_submit_count.fetch_add(1u, std::memory_order_relaxed);
     }
+    notify_submission_observers();
     run_post_submit_cleanup(
         context_->take_graph_program_completion_cleanup(), wait_for_completion);
   } catch (...) {
@@ -1896,6 +1922,15 @@ void Context::request_graph_program_checkpoint(
   if (cleanup) {
     graph_program_completion_cleanups_.push_back(std::move(cleanup));
   }
+}
+
+void Context::observe_next_graph_program_submission(
+    std::function<void(const VulkanSubmission&)> observer) {
+  TORCH_CHECK(
+      owns_graph_program_invocation(),
+      "Graph submission observer requires an active graph invocation");
+  TORCH_CHECK(observer, "Graph submission observer cannot be empty");
+  graph_program_submission_observers_.push_back(std::move(observer));
 }
 
 std::function<void()> Context::take_graph_program_completion_cleanup() {
