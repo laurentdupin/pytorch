@@ -2163,8 +2163,8 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn("validated 9 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=179", result.stdout)
-        self.assertIn("sparse_gap=246152", result.stdout)
+        self.assertIn("rows=192", result.stdout)
+        self.assertIn("sparse_gap=1194875", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "probability_rows:rows=16",
@@ -3671,7 +3671,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(summary["wired_contracts"], 3)
         self.assertEqual(summary["wired_spec_rows"], 5)
         self.assertEqual(summary["wired_sources"], 3)
-        self.assertEqual(summary["unwired_contracts"], 16)
+        self.assertEqual(summary["unwired_contracts"], 17)
         self.assertEqual(summary["payload_fields"], 9)
 
         census = contract_spec_utils.admission_diagnostics_census(REPO_ROOT)
@@ -3731,7 +3731,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "validated admission diagnostics census wired_contracts=3 "
-            "wired_spec_rows=5 wired_sources=3 unwired_contracts=16 "
+            "wired_spec_rows=5 wired_sources=3 unwired_contracts=17 "
             "payload_fields=9",
             result.stdout,
         )
@@ -5420,11 +5420,19 @@ class TestVulkanGovernance(TestCase):
         for case in spec["negative_cases"]:
             _require_contract_spec_fields(
                 case,
-                ("violates", "expected_native_route", "expected_cpu_fallback"),
+                (
+                    "violates",
+                    "expected_native_route",
+                    "expected_broader_native_route",
+                    "expected_cpu_fallback",
+                ),
                 "ChannelCatContract negative case",
             )
             self.assertFalse(case["expected_native_route"])
-            self.assertTrue(case["expected_cpu_fallback"])
+            self.assertEqual(
+                case["expected_cpu_fallback"],
+                not case["expected_broader_native_route"],
+            )
 
     def test_vulkan_small_metadata_padded_conv2d_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec(
@@ -11535,7 +11543,13 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 for _, case, expect_native_route in (
                     contract_spec_utils.iter_shape_envelope_contract_cases(spec)
                 ):
-                    run_case(case, expect_native_route)
+                    run_case(
+                        case,
+                        case.get(
+                            "expected_broader_native_route",
+                            expect_native_route,
+                        ),
+                    )
             """
             self._run_repo_python_subprocess(
                 script,

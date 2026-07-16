@@ -4941,10 +4941,15 @@ def _channel_cat_base_shape(bounds):
     ]
 
 
-def _channel_cat_expected_negative_policy():
+def _channel_cat_expected_negative_policy(axis):
+    expected_broader_native_route = axis.get(
+        "expected_broader_native_route",
+        False,
+    )
     return {
         "expected_native_route": False,
-        "expected_cpu_fallback": True,
+        "expected_broader_native_route": expected_broader_native_route,
+        "expected_cpu_fallback": not expected_broader_native_route,
     }
 
 
@@ -5036,7 +5041,7 @@ def _generated_channel_cat_adjacent_negative_cases(spec):
             "dim": bounds["dim"] if dim is None else dim,
             "violates": violates,
         }
-        case.update(_channel_cat_expected_negative_policy())
+        case.update(_channel_cat_expected_negative_policy(axes[violates]))
         cases.append(case)
 
     if "input_count" in axes:
@@ -6744,6 +6749,7 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
                 }
             },
             "expected_native_route",
+            "expected_broader_native_route",
             "expected_cpu_fallback",
         ),
     },

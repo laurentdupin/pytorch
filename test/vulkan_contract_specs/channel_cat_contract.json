@@ -151,37 +151,44 @@
       {
         "violates": "input_count",
         "adjacent": "above_max",
-        "value": 9
+        "value": 9,
+        "expected_broader_native_route": true
       },
       {
         "violates": "channels.multiple_of",
         "adjacent": "not_multiple_of",
-        "value": 6
+        "value": 6,
+        "expected_broader_native_route": false
       },
       {
         "violates": "channels.max_per_input",
         "adjacent": "above_max",
-        "value": 1028
+        "value": 1028,
+        "expected_broader_native_route": true
       },
       {
         "violates": "channels.max_total",
         "adjacent": "above_max",
-        "value": 5120
+        "value": 5120,
+        "expected_broader_native_route": true
       },
       {
         "violates": "height.max",
         "adjacent": "above_max",
-        "value": 129
+        "value": 129,
+        "expected_broader_native_route": true
       },
       {
         "violates": "width.max",
         "adjacent": "above_max",
-        "value": 129
+        "value": 129,
+        "expected_broader_native_route": true
       },
       {
         "violates": "dim",
         "adjacent": "unsupported_value",
-        "value": 2
+        "value": 2,
+        "expected_broader_native_route": false
       }
     ],
     "fuzz_hints": {
@@ -320,7 +327,8 @@
       "dim": 1,
       "violates": "input_count",
       "expected_native_route": false,
-      "expected_cpu_fallback": true
+      "expected_broader_native_route": true,
+      "expected_cpu_fallback": false
     },
     {
       "name": "unaligned_channels",
@@ -332,6 +340,7 @@
       "dim": 1,
       "violates": "channels.multiple_of",
       "expected_native_route": false,
+      "expected_broader_native_route": false,
       "expected_cpu_fallback": true
     },
     {
@@ -344,7 +353,8 @@
       "dim": 1,
       "violates": "channels.max_per_input",
       "expected_native_route": false,
-      "expected_cpu_fallback": true
+      "expected_broader_native_route": true,
+      "expected_cpu_fallback": false
     },
     {
       "name": "total_channels_5120",
@@ -358,7 +368,8 @@
       "dim": 1,
       "violates": "channels.max_total",
       "expected_native_route": false,
-      "expected_cpu_fallback": true
+      "expected_broader_native_route": true,
+      "expected_cpu_fallback": false
     },
     {
       "name": "height_129",
@@ -370,7 +381,8 @@
       "dim": 1,
       "violates": "height.max",
       "expected_native_route": false,
-      "expected_cpu_fallback": true
+      "expected_broader_native_route": true,
+      "expected_cpu_fallback": false
     },
     {
       "name": "width_129",
@@ -382,7 +394,8 @@
       "dim": 1,
       "violates": "width.max",
       "expected_native_route": false,
-      "expected_cpu_fallback": true
+      "expected_broader_native_route": true,
+      "expected_cpu_fallback": false
     },
     {
       "name": "dim_not_channel",
@@ -394,6 +407,7 @@
       "dim": 2,
       "violates": "dim",
       "expected_native_route": false,
+      "expected_broader_native_route": false,
       "expected_cpu_fallback": true
     }
   ]

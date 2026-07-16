@@ -5,7 +5,7 @@
       "accepted_entry_count": 16,
       "admission_digest": "60b8c62b3c609fbe62334d9a5299b93e98fb5dc4db2d2511ae10bd6ab164660d",
       "cardinality_estimate": 16,
-      "dependency_digest": "14bc233df1a31b23b2a260045b4a6110294948378b1226d6ab51289496b59d65",
+      "dependency_digest": "ef4ea67f37295ebfc824bc26ab8797a14ef2f598b72f90a1903d4566a32608a9",
       "exact_sparse_row_count": 16,
       "factorized_group_count": 0,
       "proof_entry_count": 16
@@ -14,7 +14,7 @@
       "accepted_entry_count": 24,
       "admission_digest": "f33fecf80155569f334a7ab6a24f092a9cf1187f6aba239600f1e703720a4692",
       "cardinality_estimate": 24,
-      "dependency_digest": "5d37c977ae69b24cdf12e0ea2553fb99da34cd8018a3bc4f77273a2048b36e9c",
+      "dependency_digest": "96c1c2a2ca47d7d53fef2267105f5bd7bad3fe8db8c01392029957f5a1f533cc",
       "exact_sparse_row_count": 24,
       "factorized_group_count": 0,
       "proof_entry_count": 24
@@ -23,25 +23,25 @@
       "accepted_entry_count": 27,
       "admission_digest": "fc11dc8cd800dd54a75d3eebd30df8512f84ad14df56774e812c169276a262b5",
       "cardinality_estimate": 27,
-      "dependency_digest": "d318d71f5451ca4cd121be54b85b934500da9cbb01908af7826146129d37f5c3",
+      "dependency_digest": "4777c564ab5bb3896560b0a403e21659b6a9e08cbbacc73fa7448805230deec0",
       "exact_sparse_row_count": 27,
       "factorized_group_count": 0,
       "proof_entry_count": 27
     },
     "SmallSpatialPointwiseConvContract": {
-      "accepted_entry_count": 66,
-      "admission_digest": "0c97ee16743de1fa081d91bca7fb1d495588d02d913741ef3d89d18f143eb7a3",
-      "cardinality_estimate": 209,
-      "dependency_digest": "73abbb705fc2668d72c6cef0b0c2403500ce40e9fabd64f65c03a53b871adb31",
-      "exact_sparse_row_count": 65,
+      "accepted_entry_count": 68,
+      "admission_digest": "c643220829e479a4720e7db7c155dd8c4ebb9a94f54a1d7fec084f78ce23421e",
+      "cardinality_estimate": 211,
+      "dependency_digest": "10fb9b0bab9bbd469923758ae4cf055db043d2683b2302e785efd76d03f0cff8",
+      "exact_sparse_row_count": 67,
       "factorized_group_count": 1,
-      "proof_entry_count": 66
+      "proof_entry_count": 68
     },
     "TokenPrefixCatAddContract": {
       "accepted_entry_count": 30,
       "admission_digest": "22427b1785cf7a8583edafe1cfdebf328de8388819317295883358587811bee6",
       "cardinality_estimate": 30,
-      "dependency_digest": "cdc2f49b27ab43138bea90ac8ce1fbcf8fe516002fea0e5e82d110d31813bb83",
+      "dependency_digest": "cd1fa7cfabfab9a582cf9c50314edf0252f9f91d22c72f407c7ee46879df3624",
       "exact_sparse_row_count": 30,
       "factorized_group_count": 0,
       "proof_entry_count": 30
@@ -66,7 +66,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -94,7 +94,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -122,7 +122,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -150,7 +150,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -178,7 +178,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -206,7 +206,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -234,7 +234,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -262,7 +262,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -290,7 +290,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -318,7 +318,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -346,7 +346,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -374,7 +374,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -402,7 +402,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -430,7 +430,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -458,7 +458,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -486,7 +486,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "a15c9d7c7867d1ffd29a9d92362ccacccb9c23b479389ece48d1ba14bf8fce01",
+      "dependency_digest": "ad139e50b0603f132731ffd96a77a132f4c7b94c38e1154149d50d4381c545fe",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -514,7 +514,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -541,7 +541,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -568,7 +568,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -595,7 +595,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -622,7 +622,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -649,7 +649,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -676,7 +676,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -703,7 +703,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -730,7 +730,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -757,7 +757,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -784,7 +784,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -811,7 +811,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -838,7 +838,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -865,7 +865,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -892,7 +892,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -919,7 +919,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -946,7 +946,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -973,7 +973,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1000,7 +1000,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1027,7 +1027,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1054,7 +1054,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1081,7 +1081,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1108,7 +1108,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1135,7 +1135,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "0b2a13c56d18514f0d4c53f7b2ce2139f3200c3cd266cc6f06a8fc6eb04ac549",
+      "dependency_digest": "9aac86444a75cdeb786ebddb887adb2b756f7f6493fa363deecfc933257f2bda",
       "exact_row_debt": true,
       "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
       "fallback_readback_copy_budget": {
@@ -1162,7 +1162,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1189,7 +1189,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1216,7 +1216,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1243,7 +1243,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1270,7 +1270,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1297,7 +1297,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1324,7 +1324,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1351,7 +1351,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1378,7 +1378,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1405,7 +1405,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1432,7 +1432,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1459,7 +1459,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1486,7 +1486,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1513,7 +1513,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1540,7 +1540,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1567,7 +1567,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1594,7 +1594,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1621,7 +1621,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1648,7 +1648,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1675,7 +1675,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1702,7 +1702,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1729,7 +1729,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1756,7 +1756,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1783,7 +1783,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1810,7 +1810,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1837,7 +1837,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1864,7 +1864,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
-      "dependency_digest": "196c7f99ca6cff7c600981168e2ae4ab50bd2948d4fb2025bbbe9a8a8464a90e",
+      "dependency_digest": "1ec2d724d7429b97d219c1bc9966b8aae72b335224169e1922353c60d6a4f255",
       "exact_row_debt": true,
       "expiry": "broader kernel14 stride14 conv route proof covers adjacent image sizes and layouts",
       "fallback_readback_copy_budget": {
@@ -1891,7 +1891,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -1922,7 +1922,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -1953,7 +1953,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -1984,7 +1984,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2015,7 +2015,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2046,7 +2046,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2077,7 +2077,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2108,7 +2108,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2134,12 +2134,74 @@
         "small_spatial_pointwise_conv_contract.json negative_cases",
         "ShapeEnvelope adjacent-negative generator"
       ],
+      "admission_digest": "09bfc6c5293b0cc5ca3d3ef00386083c627911c27b2db516a8a64305175ba9a7",
+      "admission_key": "SmallSpatialPointwiseConvContract|SparseProjectionRows|exact_sparse_row|projection_rows|depth_projection_384_18x10_192",
+      "admission_kind": "exact_sparse_row",
+      "cardinality_estimate": 1,
+      "contract_name": "SmallSpatialPointwiseConvContract",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
+      "exact_row_debt": true,
+      "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
+      "fallback_readback_copy_budget": {
+        "cpu_fallback": 0,
+        "host_transfer": 0,
+        "sync_readback": 0
+      },
+      "family": "SparseProjectionRows",
+      "migration_target": "generated pointwise KernelFamilyContract with row-level proof ledger",
+      "positive_runtime_or_proof_cases": [
+        "small_spatial_pointwise_conv_contract.json positive_cases",
+        "agent_space/dav2_adjacent_pointwise_factorized_36_cross_gpu_isolated_proof.json",
+        "agent_space/dav2_midres_pointwise_8shape_parity.json",
+        "agent_space/dav2_midres_pointwise_downstream_4shape_parity.json",
+        "agent_space/dav2_midres_pointwise_next_blocker_parity.json",
+        "agent_space/dav2_midres_pointwise_1024_square_parity.json"
+      ],
+      "proof_status": "validated_sparse_rows_and_factorized_group",
+      "tuple_id": "depth_projection_384_18x10_192"
+    },
+    {
+      "adjacent_negative_coverage": [
+        "small_spatial_pointwise_conv_contract.json negative_cases",
+        "ShapeEnvelope adjacent-negative generator"
+      ],
+      "admission_digest": "12654f8d2b8e3aab940201c20a4ef99c8ec6d4f7a195758a1cdfa6f199ab2a61",
+      "admission_key": "SmallSpatialPointwiseConvContract|SparseProjectionRows|exact_sparse_row|projection_rows|depth_projection_384_18x10_384",
+      "admission_kind": "exact_sparse_row",
+      "cardinality_estimate": 1,
+      "contract_name": "SmallSpatialPointwiseConvContract",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
+      "exact_row_debt": true,
+      "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
+      "fallback_readback_copy_budget": {
+        "cpu_fallback": 0,
+        "host_transfer": 0,
+        "sync_readback": 0
+      },
+      "family": "SparseProjectionRows",
+      "migration_target": "generated pointwise KernelFamilyContract with row-level proof ledger",
+      "positive_runtime_or_proof_cases": [
+        "small_spatial_pointwise_conv_contract.json positive_cases",
+        "agent_space/dav2_adjacent_pointwise_factorized_36_cross_gpu_isolated_proof.json",
+        "agent_space/dav2_midres_pointwise_8shape_parity.json",
+        "agent_space/dav2_midres_pointwise_downstream_4shape_parity.json",
+        "agent_space/dav2_midres_pointwise_next_blocker_parity.json",
+        "agent_space/dav2_midres_pointwise_1024_square_parity.json"
+      ],
+      "proof_status": "validated_sparse_rows_and_factorized_group",
+      "tuple_id": "depth_projection_384_18x10_384"
+    },
+    {
+      "adjacent_negative_coverage": [
+        "small_spatial_pointwise_conv_contract.json negative_cases",
+        "ShapeEnvelope adjacent-negative generator"
+      ],
       "admission_digest": "31f6ef571dd4aef1b602244712dfdb13c291d00730f699ca5a5737d0ce3d83d4",
       "admission_key": "SmallSpatialPointwiseConvContract|SparseProjectionRows|exact_sparse_row|projection_rows|depth_projection_384_20x13_192",
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2170,7 +2232,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2201,7 +2263,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2232,7 +2294,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2263,7 +2325,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2294,7 +2356,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2325,7 +2387,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2356,7 +2418,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2387,7 +2449,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2418,7 +2480,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2449,7 +2511,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2480,7 +2542,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2511,7 +2573,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2542,7 +2604,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2573,7 +2635,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2604,7 +2666,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2635,7 +2697,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2666,7 +2728,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2697,7 +2759,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2728,7 +2790,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2759,7 +2821,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2790,7 +2852,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2821,7 +2883,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2852,7 +2914,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2883,7 +2945,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2914,7 +2976,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2945,7 +3007,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -2976,7 +3038,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3007,7 +3069,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3038,7 +3100,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3069,7 +3131,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3100,7 +3162,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3131,7 +3193,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3162,7 +3224,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3193,7 +3255,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3224,7 +3286,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3255,7 +3317,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3286,7 +3348,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3317,7 +3379,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3348,7 +3410,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3379,7 +3441,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3410,7 +3472,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3441,7 +3503,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3472,7 +3534,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3503,7 +3565,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3534,7 +3596,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3565,7 +3627,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3596,7 +3658,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3627,7 +3689,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3658,7 +3720,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3689,7 +3751,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3720,7 +3782,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3751,7 +3813,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3782,7 +3844,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3813,7 +3875,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3844,7 +3906,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3875,7 +3937,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": true,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3906,7 +3968,7 @@
       "admission_kind": "factorized_group",
       "cardinality_estimate": 144,
       "contract_name": "SmallSpatialPointwiseConvContract",
-      "dependency_digest": "8e1a75c31a6740df3d89cf25f65a94f28827c2db0b0530fdfb18d8c1b095f1a4",
+      "dependency_digest": "b08cf3acffa8aa6a4aaacb93d7ac9bb349a4740e34d6cb3bfe8670897574f542",
       "exact_row_debt": false,
       "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
       "fallback_readback_copy_budget": {
@@ -3937,7 +3999,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -3964,7 +4026,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -3991,7 +4053,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4018,7 +4080,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4045,7 +4107,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4072,7 +4134,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4099,7 +4161,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4126,7 +4188,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4153,7 +4215,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4180,7 +4242,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4207,7 +4269,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4234,7 +4296,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4261,7 +4323,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4288,7 +4350,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4315,7 +4377,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4342,7 +4404,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4369,7 +4431,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4396,7 +4458,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4423,7 +4485,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4450,7 +4512,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4477,7 +4539,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4504,7 +4566,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4531,7 +4593,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4558,7 +4620,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4585,7 +4647,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4612,7 +4674,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4639,7 +4701,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4666,7 +4728,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4693,7 +4755,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4720,7 +4782,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "9ab1a39e4d1fae2cbed516c98f7e7eaf8377eefaef62c49128414650558f1420",
+      "dependency_digest": "64ba7f50bbcbd7a7fe727e3a4d612119bb16e748e50f3021ed0c7d638fa3bf39",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4738,7 +4800,7 @@
       "tuple_id": "prefix1_tokens620_c768"
     }
   ],
-  "proof_manifest_digest": "42fe21276567f31468b40aeb23a37e11c478aaa11130b22c33fb0230a4c57ba1",
+  "proof_manifest_digest": "5556f94d1991ec051fecd61cf99b823b40a522e90ff037c823d281f0204bd613",
   "schema_version": 1,
-  "source_accepted_manifest_digest": "053e5d91f2c9b3516c7688d978ff7b682be35db38e1aa6bbbda8ab616cf08825"
+  "source_accepted_manifest_digest": "6bae9b489339e8d7cbf58c01b973926483fab7b9c2695728b9781dd852c61711"
 }
