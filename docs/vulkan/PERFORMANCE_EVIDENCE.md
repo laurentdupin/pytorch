@@ -620,6 +620,15 @@ The initial catalog records the current `vits_140` performance lane:
   memory, and 39.10/40.07 ms graph medians against eager at 110.64/111.37 ms.
   Normalized graph/eager ratios are effectively unchanged, so this is structural
   fixed-cost removal with no-regression evidence, not a claimed isolated win;
+- C++ executor per-invocation workspace ownership: accepted at exact-SHA
+  `8b60bf3ba4a`. The immutable DAv2 plan owns 425 boxed value slots, 33 of 53
+  alias-safe typed list recipes, byte liveness, and a dispatcher stack with
+  capacity eight. List-returning instructions remain transient, and repeated
+  failure tests prove scope-exit cleanup. The supported 32-job cadence remains
+  at 10 submissions per inference; first/repeat graph high-water is 0.9% to
+  3.2% above eager. Thirty-sample graph medians are 44.21/42.09 ms against eager
+  at 133.32/122.63 ms. Run-to-run host-load movement prevents an isolated speedup
+  claim, so acceptance is structural fixed-cost removal and no regression;
 - post-reuse 64-job graph cadence: rejected. DAv2 fell to five submissions per
   inference, but normal peak memory reached 5.6% to 6.1% above eager and the
   alternate shape reached 8.5% to 9.9%. Graph medians also worsened to

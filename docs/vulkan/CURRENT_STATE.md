@@ -101,6 +101,19 @@ eager at 110.64/111.37 ms. The graph/eager ratios remain within 0.4% of the
 checked baseline, so this is accepted as a structural fixed-cost removal and
 latency no-regression, not as a separately measurable speedup.
 
+Exact-SHA `8b60bf3ba4a` removes the remaining per-invocation allocation of the
+C++ executor's boxed SSA values, liveness state, argument stack, and alias-safe
+typed list recipes. The immutable DAv2 plan owns 425 value slots, 33 reusable
+list slots, and stack capacity eight; 20 list arguments remain transient
+because their instructions return a list and may alias an input container.
+Scope-exit cleanup releases live values after success or failure. The exact run
+retains 10 submissions per inference, exact graph/eager parity, and 0.9% to
+3.2% graph high-water overhead. Graph medians are 44.21/42.09 ms against eager
+at 133.32/122.63 ms. Because both surfaces moved with host load across runs,
+this is fixed-cost ownership and latency no-regression evidence, not an
+isolated speedup claim. Raw files are under
+`agent_space/graph_executor_workspace_exact_8b60bf3ba4a2/dav2/`.
+
 A 64-job cadence was re-probed after dead-ReLU reuse and rejected again. It cut
 DAv2 to five submissions per inference, but graph peak memory rose to
 5.6%-6.1% above eager for the normal shape and 8.5%-9.9% for the alternate

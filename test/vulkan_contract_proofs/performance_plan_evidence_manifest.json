@@ -3463,6 +3463,75 @@
         "If recorded command partitions reduce per-partition control-plane cost while preserving the 32-job submission topology.",
         "If a new queue-overlap measurement explains and removes the 48-job latency regression without exact-shape routing."
       ]
+    },
+    {
+      "id": "dav2_graph_invocation_workspace_2026_07_16",
+      "status": "accepted_default_fix",
+      "head": "8b60bf3ba4a",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Remove fixed host allocation from each immutable C++ graph-plan invocation while preserving the supported submission cadence and supported eager/graph behavior."
+      },
+      "device_notes": "RX 9070 supported-default eager/graph evidence. This is generic immutable-plan workspace ownership, not a DAv2 production route.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v8",
+        "immutable boxed-SSA invocation workspace",
+        "alias-safe typed list argument recipes",
+        "GraphProgramInvocationScope",
+        "32-job graph checkpoint cadence"
+      ],
+      "candidate": "Preallocate boxed SSA values, byte liveness, the dispatcher argument stack, and typed list arguments in the immutable plan. Keep list arguments transient when the instruction can return a list that aliases its input container.",
+      "correctness": {
+        "status": "passed_full_graph_and_exact_model_evidence",
+        "tests": [
+          "cmake --build build --config Release --target torch_cpu -- /m:1 /nodeReuse:false",
+          "python test/test_vulkan_graph.py (120 passed)",
+          "python test/test_vulkan_graph_evidence.py (17 passed)",
+          "focused list-return alias-safety and repeated-exception workspace-reset regressions",
+          "DAv2 normal and alternate exact graph-versus-eager parity with zero timed CPU fallback and sync readback"
+        ]
+      },
+      "counters": {
+        "invocation_value_slot_count": 425,
+        "list_argument_count": 53,
+        "invocation_reusable_list_slot_count": 33,
+        "list_return_transient_argument_count": 20,
+        "invocation_stack_capacity": 8,
+        "pending_command_flush_per_inference": 10,
+        "total_queue_submits_per_inference": 12,
+        "normal_graph_first_high_water_over_eager_percent": 0.897,
+        "normal_graph_repeat_live_high_water_over_eager_percent": 1.895,
+        "alternate_graph_first_high_water_over_eager_percent": 1.514,
+        "alternate_graph_repeat_live_high_water_over_eager_percent": 3.163,
+        "cpu_fallback": 0,
+        "sync_readback": 0
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 133.321,
+        "normal_graph_median": 44.210,
+        "normal_graph_over_eager_ratio": 0.331603,
+        "alternate_supported_eager_median": 122.630,
+        "alternate_graph_median": 42.090,
+        "alternate_graph_over_eager_ratio": 0.343230,
+        "measurement_repeats": 30,
+        "performance_claim": "structural fixed-cost removal and latency no-regression only; host-load movement across runs prevents an isolated speedup claim"
+      },
+      "artifacts": [
+        "agent_space/graph_executor_workspace_exact_8b60bf3ba4a2/dav2/dav2_vits_export_census.json",
+        "agent_space/graph_executor_workspace_exact_8b60bf3ba4a2/dav2/dav2_vits_export_parity.json"
+      ],
+      "decision": "Accept immutable-plan invocation workspace ownership as the supported path. Preserve the proven 32-job submission boundaries. Treat program-owned Vulkan tensor resources, descriptor reuse, and recorded command partitions as the next fixed-cost targets rather than inferring an exact-op kernel bottleneck from DAv2 shape scaling.",
+      "revisit_conditions": [
+        "If an operator with a list-valued return is proven not to alias its input list container, encode that schema-level proof before reusing its argument recipe.",
+        "If concurrent invocation is admitted, give each in-flight generation a separate workspace and resource-lifetime protocol.",
+        "When program-owned Vulkan tensor-resource slots or recorded partitions land, rerun both supported shapes against this exact artifact and the 32-job topology."
+      ]
     }
   ]
 }

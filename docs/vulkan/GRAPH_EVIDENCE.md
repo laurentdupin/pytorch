@@ -207,6 +207,19 @@ are effectively unchanged from the checked baseline, so the evidence establishes
 no regression rather than an isolated latency win. Raw files are under
 `agent_space/graph_executor_fixed_alloc_exact_1fb325d1d0c/dav2/`.
 
+Exact-SHA `8b60bf3ba4a` extends that ownership across invocations. The immutable
+plan preallocates 425 boxed value slots, byte liveness, a dispatcher stack with
+capacity eight, and 33 of 53 typed list arguments. The other 20 list arguments
+belong to list-returning instructions and remain transient to prevent input/output
+container aliasing. Repeated success and repeated-exception tests exercise the
+same workspace. The exact DAv2 run preserves 10 pending submissions per
+inference, exact graph/eager parity, zero fallback/readback, and first/repeat
+high-water between 0.9% and 3.2% above eager. Graph medians are 44.21/42.09 ms
+versus eager at 133.32/122.63 ms. Absolute host load varied enough across runs
+that this establishes structural fixed-cost ownership and no regression, not a
+separate latency win. Raw files are under
+`agent_space/graph_executor_workspace_exact_8b60bf3ba4a2/dav2/`.
+
 A worktree 64-job cadence on the same implementation cuts DAv2 to five pending
 submissions per inference but fails the deletion gate: normal first/repeat peak
 memory is 5.6%/6.1% above eager and alternate is 8.5%/9.9% above eager. Its

@@ -552,10 +552,14 @@ plan with top-level submission/completion ownership, recorded numerical parity,
 zero graph fallback/readback, repeated live outputs, and peak memory inside the
 5% gate. The exact-SHA 32-job cadence reduces submissions from 114 to 88 per
 inference. Checked-in latency-distribution and lane parity gates remain open.
-Program-preallocated SSA/resource slots, descriptor and barrier plans, recorded
-command partitions, generation-gated
-slot reuse, deeper container support, and an explicit stateful-input protocol
-also remain Phase 5/6 work.
+Exact-SHA `8b60bf3ba4a` preallocates the host boxed-SSA invocation workspace,
+liveness bytes, dispatcher stack, and alias-safe typed list recipes. Program-owned
+Vulkan tensor-resource slots, descriptor and barrier plans, recorded command
+partitions, generation-gated resource-slot reuse, deeper container support, and
+an explicit stateful-input protocol remain Phase 5/6 work. The next performance
+work should reduce these per-inference graph costs while preserving the proven
+32-job boundaries; exact-op kernel tuning is secondary until attribution shows
+GPU work is dominant.
 
 Exit criteria:
 

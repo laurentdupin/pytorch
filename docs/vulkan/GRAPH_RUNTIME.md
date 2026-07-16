@@ -220,9 +220,20 @@ The plan reports both candidate instructions and cumulative accepted reuses.
 This is a used executor lifetime rule that pays for the 32-job cadence; it is
 not a preallocated arena or a general in-place rewrite.
 
+The immutable plan also owns a reusable host invocation workspace: boxed SSA
+values, byte liveness state, a bounded dispatcher stack, and typed list
+argument containers whose operator cannot return an aliasing list. Instructions
+with list-valued returns retain transient list containers. A scope-exit reset
+releases every live boxed value and clears all owned containers after either
+success or failure. Concurrent invocation remains rejected, so one workspace
+per immutable plan is sufficient. This removes host control-plane allocation;
+it is not a Vulkan tensor-resource arena, descriptor plan, or recorded command
+partition.
+
 The v8 plan does not yet implement deeper or non-list dynamic containers,
-projection from nested, tuple, or dictionary values, preallocated memory slots,
-descriptor/barrier construction, or generation-gated output reuse.
+projection from nested, tuple, or dictionary values, program-owned Vulkan
+tensor-resource slots, descriptor/barrier construction, or generation-gated
+output reuse.
 Those remain Stage 2 requirements rather than being inferred from the boxed
 eager dispatch used by this slice.
 
@@ -296,6 +307,14 @@ across the first and repeat-with-prior-output-live phases. This transfers
 execution and top-level submission/completion ownership and clears
 recorded-shape latency and peak-memory no-regression, but does not provide a
 program memory arena or descriptor ownership.
+
+Exact-SHA `8b60bf3ba4a` additionally preallocates the host invocation workspace.
+The DAv2 plan reports 425 boxed value slots, 33 alias-safe reusable list slots,
+and stack capacity eight. Its 30-sample graph medians are 44.21 ms and 42.09 ms
+versus eager medians of 133.32 ms and 122.63 ms; the same 20 owner checkpoints
+and 24 total submits remain visible across each two-run shape. This is structural
+fixed-cost removal without a separate latency claim and does not change the
+remaining Vulkan resource-arena or recorded-partition work.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
