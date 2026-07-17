@@ -599,6 +599,9 @@ Exit criteria:
 - the C++ executor matches the Python correctness executor;
 - repeated no-readback execution cannot overwrite live outputs or overflow the
   host stack;
+- the RX 9070 long-session gate completes at least ten minutes and 3,000
+  per-frame-readback invocations with periodic guard recapture, numerical
+  parity, and bounded live/high-water memory;
 - fallback, transition, copy, submit, and memory counters remain explicit.
 
 ## Phase 6: Recorded Command Partitions And Fusion

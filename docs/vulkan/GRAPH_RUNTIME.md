@@ -398,6 +398,25 @@ Randomized family tests remain required for kernel and semantic admission.
 Corpus models validate graph coverage and integration; they do not create
 model-name production routes.
 
+### Long-Session Soak Gate
+
+Program-owned resources and recorded partitions must pass a backend-owned
+application-shaped soak before they can become supported defaults. The
+qualifying gate uses DAv2 `vits` on the RX 9070 for at least 600 seconds and
+3,000 completed invocations. It performs a real output readback and numerical
+parity check for every frame, recompiles alternating normal and guard-variant
+programs every 250 invocations, and samples Vulkan allocator live/high-water
+bytes every 50 invocations.
+
+The memory reference is a preflight that already overlaps the old and new
+program during replacement. The measured session must keep final live bytes
+and the replacement high-water peak within 5% of their respective references,
+record zero CPU fallback, and perform every scheduled periodic recapture. Runs
+shorter than ten minutes or collected on another adapter are diagnostic-only
+and cannot satisfy the gate. This exercises long-session drift, allocator
+fragmentation, recapture lifetime, and per-frame observation without requiring
+DeepDesktop packaging or changing the application repository.
+
 ## Migration And Deletion
 
 The replacement order is:

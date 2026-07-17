@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import copy
 import dataclasses
+import gc
 import importlib
 import importlib.util
 import os
@@ -96,6 +97,12 @@ _LINEAR_PACK_RESIDENCY_FIELDS = (
     "raw_weight_vulkan",
     "retain_unpacked",
 )
+_LONG_SESSION_SOAK_GATE_DURATION_SECONDS = 600
+_LONG_SESSION_SOAK_GATE_MINIMUM_INVOCATIONS = 3000
+_LONG_SESSION_SOAK_MEMORY_LIMIT_RATIO = 1.05
+_LONG_SESSION_SOAK_RECAPTURE_INTERVAL = 250
+_LONG_SESSION_SOAK_MEMORY_SAMPLE_INTERVAL = 50
+_LONG_SESSION_SOAK_DEVICE_NAME = "AMD Radeon RX 9070"
 
 
 def _named_counter_snapshot(
@@ -713,6 +720,99 @@ def _finish_memory_phase(baseline_live_bytes: int) -> dict[str, Any]:
     }
 
 
+def _counter_delta(
+    before: dict[str, int], after: dict[str, int]
+) -> dict[str, int]:
+    if before.keys() != after.keys():
+        raise ValueError("Counter snapshots use different schemas")
+    return {name: after[name] - before[name] for name in before}
+
+
+def _soak_memory_limit(reference_bytes: int) -> int:
+    return int(reference_bytes * _LONG_SESSION_SOAK_MEMORY_LIMIT_RATIO)
+
+
+def _evaluate_long_session_soak_gate(record: dict[str, Any]) -> dict[str, Any]:
+    configuration = record["configuration"]
+    measurement = record["measurement"]
+    memory = measurement["memory"]
+    runtime_counters = measurement["runtime_counters"]
+    submit_counters = measurement["submission_counters"]["submit_origin"]
+    preflight_peak = memory["replacement_preflight"]["high_water_bytes"]
+    soak_phase = memory["soak"]
+    checks = {
+        "rx_9070_adapter": (
+            record["device_name"] == _LONG_SESSION_SOAK_DEVICE_NAME
+        ),
+        "ten_minute_duration": (
+            measurement["elapsed_seconds"]
+            >= _LONG_SESSION_SOAK_GATE_DURATION_SECONDS
+        ),
+        "minimum_invocations": (
+            measurement["invocation_count"]
+            >= _LONG_SESSION_SOAK_GATE_MINIMUM_INVOCATIONS
+        ),
+        "periodic_guard_recapture": (
+            measurement["recapture_count"]
+            == max(
+                0,
+                (measurement["invocation_count"] - 1)
+                // _LONG_SESSION_SOAK_RECAPTURE_INTERVAL,
+            )
+        ),
+        "all_outputs_checked": (
+            measurement["parity_check_count"]
+            == measurement["invocation_count"]
+        ),
+        "zero_cpu_fallback": runtime_counters["cpu_fallback"] == 0,
+        "zero_unexpected_sync_readback": (
+            runtime_counters["sync_readback"] == 0
+        ),
+        "one_final_readback_per_frame": (
+            submit_counters["tensor_cpu_readback"]
+            == measurement["invocation_count"]
+        ),
+        "final_live_bytes_bounded": (
+            soak_phase["end_live_bytes"]
+            <= _soak_memory_limit(soak_phase["baseline_live_bytes"])
+        ),
+        "replacement_peak_bounded": (
+            soak_phase["high_water_bytes"]
+            <= _soak_memory_limit(preflight_peak)
+        ),
+    }
+    qualified = (
+        configuration["requested_duration_seconds"]
+        >= _LONG_SESSION_SOAK_GATE_DURATION_SECONDS
+        and record["device_name"] == _LONG_SESSION_SOAK_DEVICE_NAME
+    )
+    passed = all(checks.values())
+    status = "diagnostic_only"
+    if qualified:
+        status = "passed" if passed else "failed"
+    return {
+        "status": status,
+        "qualified_gate_run": qualified,
+        "all_checks_passed": passed,
+        "checks": checks,
+        "limits": {
+            "device_name": _LONG_SESSION_SOAK_DEVICE_NAME,
+            "duration_seconds": _LONG_SESSION_SOAK_GATE_DURATION_SECONDS,
+            "minimum_invocations": _LONG_SESSION_SOAK_GATE_MINIMUM_INVOCATIONS,
+            "recapture_interval_invocations": (
+                _LONG_SESSION_SOAK_RECAPTURE_INTERVAL
+            ),
+            "memory_limit_ratio": _LONG_SESSION_SOAK_MEMORY_LIMIT_RATIO,
+            "maximum_final_live_bytes": _soak_memory_limit(
+                soak_phase["baseline_live_bytes"]
+            ),
+            "maximum_replacement_peak_bytes": _soak_memory_limit(
+                preflight_peak
+            ),
+        },
+    }
+
+
 def _percentile(ordered: list[float], fraction: float) -> float:
     if len(ordered) == 1:
         return ordered[0]
@@ -866,6 +966,200 @@ def _measure_case_latency(
         del eager_latency_args
         del graph_latency_args
     return result
+
+
+def _run_long_session_soak(
+    args: argparse.Namespace,
+    model: torch.nn.Module,
+    normal_program: torch.vulkan.VulkanGraphProgram,
+    normal_args: tuple[Any, ...],
+    alternate_args: tuple[Any, ...],
+    dynamic_shapes: Any,
+    device: torch.device,
+    cpu_atol: float,
+    cpu_rtol: float,
+) -> dict[str, Any]:
+    device_name = torch.vulkan.get_device_properties(device).name
+    compile_seconds: list[float] = []
+
+    def compile_variant(
+        variant_args: tuple[Any, ...],
+    ) -> torch.vulkan.VulkanGraphProgram:
+        start = time.perf_counter()
+        variant = torch.vulkan.export_and_lower(
+            model,
+            variant_args,
+            dynamic_shapes=dynamic_shapes,
+            device=device,
+            planning_context=_planning_context(args, variant_args),
+        )
+        compile_seconds.append(time.perf_counter() - start)
+        return variant
+
+    def readback_and_check(
+        program: torch.vulkan.VulkanGraphProgram,
+        variant_args: tuple[Any, ...],
+        expected: Any,
+    ) -> None:
+        output = program(*variant_args)
+        runtime_counters = {
+            "cpu_fallback": program.last_cpu_fallback_count,
+            "sync_readback": program.last_sync_readback_count,
+            "deferred_values_created": program.last_deferred_values_created,
+        }
+        if any(runtime_counters.values()):
+            raise RuntimeError(
+                "Long-session graph invocation crossed an implicit host boundary: "
+                f"{runtime_counters}"
+            )
+        cpu_output = pytree.tree_map(
+            lambda value: value.cpu()
+            if isinstance(value, torch.Tensor)
+            else value,
+            output,
+        )
+        _assert_close(cpu_output, expected, cpu_atol, cpu_rtol)
+        del cpu_output
+        del output
+
+    with torch.inference_mode():
+        expected = {
+            "normal": model(*normal_args),
+            "alternate": model(*alternate_args),
+        }
+        torch.ops.vulkan_prepack.synchronize()
+        preflight_baseline = _begin_memory_phase()
+        active_variant = compile_variant(alternate_args)
+        readback_and_check(active_variant, alternate_args, expected["alternate"])
+        replacement = compile_variant(normal_args)
+        readback_and_check(replacement, normal_args, expected["normal"])
+        active_variant = replacement
+        del replacement
+        gc.collect()
+        torch.ops.vulkan_prepack.synchronize()
+        replacement_preflight = _finish_memory_phase(preflight_baseline)
+
+        runtime_before = _latency_runtime_snapshot()
+        graph_invocation_before = _named_counter_snapshot(
+            _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES,
+            list(torch.ops.vulkan_prepack.graph_program_invocation_counters()),
+            "graph program invocation",
+        )
+        submit_before = _named_counter_snapshot(
+            _SUBMIT_ORIGIN_COUNTER_NAMES,
+            list(torch.ops.vulkan_prepack.submit_origin_counters()),
+            "submit origin",
+        )
+        soak_baseline = _begin_memory_phase()
+        memory_samples: list[dict[str, Any]] = []
+        invocation_count = 0
+        parity_check_count = 0
+        recapture_count = 0
+        start = time.perf_counter()
+        while time.perf_counter() - start < args.long_session_soak_seconds:
+            run_program = normal_program
+            run_args = normal_args
+            expected_output = expected["normal"]
+            if (
+                invocation_count > 0
+                and invocation_count % _LONG_SESSION_SOAK_RECAPTURE_INTERVAL == 0
+            ):
+                recapture_case = (
+                    "alternate" if recapture_count % 2 == 0 else "normal"
+                )
+                run_args = (
+                    alternate_args if recapture_case == "alternate" else normal_args
+                )
+                expected_output = expected[recapture_case]
+                replacement = compile_variant(run_args)
+                active_variant = replacement
+                del replacement
+                gc.collect()
+                run_program = active_variant
+                recapture_count += 1
+            readback_and_check(run_program, run_args, expected_output)
+            invocation_count += 1
+            parity_check_count += 1
+            if (
+                invocation_count % _LONG_SESSION_SOAK_MEMORY_SAMPLE_INTERVAL == 0
+            ):
+                gc.collect()
+                torch.ops.vulkan_prepack.synchronize()
+                snapshot = _memory_usage_snapshot()
+                memory_samples.append(
+                    {
+                        "invocation": invocation_count,
+                        "elapsed_seconds": time.perf_counter() - start,
+                        "live_bytes": snapshot["live_bytes"],
+                        "high_water_bytes": snapshot["high_water_bytes"],
+                    }
+                )
+
+        gc.collect()
+        torch.ops.vulkan_prepack.synchronize()
+        elapsed_seconds = time.perf_counter() - start
+        soak_memory = _finish_memory_phase(soak_baseline)
+        if (
+            not memory_samples
+            or memory_samples[-1]["invocation"] != invocation_count
+        ):
+            memory_samples.append(
+                {
+                    "invocation": invocation_count,
+                    "elapsed_seconds": elapsed_seconds,
+                    "live_bytes": soak_memory["end_live_bytes"],
+                    "high_water_bytes": soak_memory["high_water_bytes"],
+                }
+            )
+        runtime_after = _latency_runtime_snapshot()
+        graph_invocation_after = _named_counter_snapshot(
+            _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES,
+            list(torch.ops.vulkan_prepack.graph_program_invocation_counters()),
+            "graph program invocation",
+        )
+        submit_after = _named_counter_snapshot(
+            _SUBMIT_ORIGIN_COUNTER_NAMES,
+            list(torch.ops.vulkan_prepack.submit_origin_counters()),
+            "submit origin",
+        )
+
+    record = {
+        "schema": "VulkanGraphLongSessionSoak.v0",
+        "device_name": device_name,
+        "configuration": {
+            "requested_duration_seconds": args.long_session_soak_seconds,
+            "steady_state_case": "normal",
+            "per_frame_output_readback": True,
+            "parity_check_every_invocation": True,
+            "recapture_interval_invocations": (
+                _LONG_SESSION_SOAK_RECAPTURE_INTERVAL
+            ),
+            "memory_sample_interval_invocations": (
+                _LONG_SESSION_SOAK_MEMORY_SAMPLE_INTERVAL
+            ),
+        },
+        "measurement": {
+            "elapsed_seconds": elapsed_seconds,
+            "invocation_count": invocation_count,
+            "parity_check_count": parity_check_count,
+            "recapture_count": recapture_count,
+            "recapture_compile_seconds": compile_seconds,
+            "runtime_counters": _counter_delta(runtime_before, runtime_after),
+            "submission_counters": {
+                "graph_program_invocation": _counter_delta(
+                    graph_invocation_before, graph_invocation_after
+                ),
+                "submit_origin": _counter_delta(submit_before, submit_after),
+            },
+            "memory": {
+                "replacement_preflight": replacement_preflight,
+                "soak": soak_memory,
+                "samples": memory_samples,
+            },
+        },
+    }
+    record["gate"] = _evaluate_long_session_soak_gate(record)
+    return record
 
 
 def _run_case(
@@ -1211,6 +1505,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--latency-measurement-repeats", type=_positive_repeat_count, default=10
     )
+    parser.add_argument(
+        "--long-session-soak-seconds",
+        type=_nonnegative_repeat_count,
+        default=0,
+        help=(
+            "Run the graph long-session soak for this many seconds. Only runs of "
+            "at least 600 seconds on the RX 9070 can satisfy the standing gate."
+        ),
+    )
     parser.add_argument("--normal-input-shape", default=None)
     parser.add_argument("--alternate-input-shape", default=None)
     return parser.parse_args()
@@ -1372,6 +1675,19 @@ def main() -> int:
             args.cpu_atol,
             args.cpu_rtol,
         )
+    long_session_soak = None
+    if args.long_session_soak_seconds:
+        long_session_soak = _run_long_session_soak(
+            args,
+            model,
+            normal_program,
+            normal,
+            alternate,
+            dynamic_shapes,
+            device,
+            args.cpu_atol,
+            args.cpu_rtol,
+        )
     if out_of_range_guard["status"] == "unexpectedly_accepted":
         raise RuntimeError("Out-of-range input was accepted by exported guards")
     lowering_reports = _lowering_reports(program)
@@ -1395,6 +1711,8 @@ def main() -> int:
     }
     if state_replay is not None:
         common["state_replay"] = state_replay
+    if long_session_soak is not None:
+        common["long_session_soak"] = long_session_soak
     census = {
         **common,
         "artifact_type": "export_census",
@@ -1417,6 +1735,20 @@ def main() -> int:
     )
     write_evidence(census_path, census)
     write_evidence(parity_path, parity)
+    if (
+        long_session_soak is not None
+        and long_session_soak["gate"]["qualified_gate_run"]
+        and long_session_soak["gate"]["status"] != "passed"
+    ):
+        failed_checks = [
+            name
+            for name, passed in long_session_soak["gate"]["checks"].items()
+            if not passed
+        ]
+        raise RuntimeError(
+            "Long-session graph soak failed registered gates: "
+            + ", ".join(failed_checks)
+        )
     return 0
 
 

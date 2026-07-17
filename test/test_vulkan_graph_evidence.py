@@ -4,6 +4,7 @@ import statistics
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import torch
 from torch.testing._internal.common_utils import run_tests, TestCase
@@ -21,6 +22,7 @@ from scripts.benchmarks.vulkan_graph_export_evidence import (
     _artifact_output_paths,
     _artifact_prefix,
     _device_index,
+    _evaluate_long_session_soak_gate,
     _execution_plan_summary,
     _graph_counts,
     _int_summary_row,
@@ -377,6 +379,60 @@ def _fake_static_conv2d_relu_conv2d_report(
 
 
 class TestVulkanGraphEvidence(TestCase):
+    def _long_session_soak_record(self) -> dict[str, Any]:
+        return {
+            "device_name": "AMD Radeon RX 9070",
+            "configuration": {"requested_duration_seconds": 600},
+            "measurement": {
+                "elapsed_seconds": 600.0,
+                "invocation_count": 3000,
+                "parity_check_count": 3000,
+                "recapture_count": 11,
+                "runtime_counters": {
+                    "cpu_fallback": 0,
+                    "sync_readback": 0,
+                },
+                "submission_counters": {
+                    "submit_origin": {"tensor_cpu_readback": 3000},
+                },
+                "memory": {
+                    "replacement_preflight": {"high_water_bytes": 1100},
+                    "soak": {
+                        "baseline_live_bytes": 1000,
+                        "end_live_bytes": 1050,
+                        "high_water_bytes": 1155,
+                    },
+                },
+            },
+        }
+
+    def test_long_session_soak_gate_accepts_registered_boundary(self):
+        gate = _evaluate_long_session_soak_gate(
+            self._long_session_soak_record()
+        )
+        self.assertEqual(gate["status"], "passed")
+        self.assertTrue(gate["qualified_gate_run"])
+        self.assertTrue(gate["all_checks_passed"])
+        self.assertEqual(set(gate["checks"].values()), {True})
+
+    def test_short_long_session_soak_is_diagnostic_only(self):
+        record = self._long_session_soak_record()
+        record["configuration"]["requested_duration_seconds"] = 60
+        record["measurement"]["elapsed_seconds"] = 60.0
+        record["measurement"]["invocation_count"] = 100
+        record["measurement"]["parity_check_count"] = 100
+        gate = _evaluate_long_session_soak_gate(record)
+        self.assertEqual(gate["status"], "diagnostic_only")
+        self.assertFalse(gate["qualified_gate_run"])
+
+    def test_qualified_long_session_soak_rejects_memory_drift(self):
+        record = self._long_session_soak_record()
+        record["measurement"]["memory"]["soak"]["end_live_bytes"] = 1051
+        gate = _evaluate_long_session_soak_gate(record)
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["qualified_gate_run"])
+        self.assertFalse(gate["checks"]["final_live_bytes_bounded"])
+
     def test_state_replay_mapping_is_explicit_and_one_to_one(self):
         self.assertEqual(_state_replay_mapping(None), ())
         self.assertEqual(

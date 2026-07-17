@@ -162,6 +162,10 @@ Use this checklist for Vulkan backend changes.
 - Recorded command buffers bind program-owned stable slots and descriptors.
 - Stateful values define update, version-invalidation, or partition-boundary
   behavior before recording is enabled.
+- Program-resource or recording-default changes carry a qualifying RX 9070
+  long-session artifact: at least 600 seconds and 3,000 invocations, per-frame
+  readback/parity, periodic guard recapture, zero fallback, and live/high-water
+  memory inside the registered 5% limits.
 - Runtime-generated shaders are graph codegen; production execution does not
   shell out to a manually configured compiler executable.
 - Legacy replay, stack-region, or deferred code may be changed only for a
