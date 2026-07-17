@@ -56,6 +56,10 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t resource_arena_spill_count() const;
   int64_t resource_write_count() const;
   int64_t resource_writer_bypass_count() const;
+  int64_t recorded_partition_candidate_instruction_count() const;
+  int64_t recorded_partition_capture_count() const;
+  int64_t recorded_partition_replay_count() const;
+  int64_t recorded_partition_failure_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
   bool submission_owned() const;
@@ -82,6 +86,7 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
       const api::VulkanSubmission& submission);
   void poison_resource_arena(int64_t arena_index) noexcept;
 
+  State& state();
   const State& state() const;
 };
 

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -1326,8 +1327,11 @@ void append_gpu_timestamp_log_line(const std::string& line) {
 
 struct ExternalCommandRecordingState final {
   api::CommandBuffer* cmd{nullptr};
+  api::DescriptorPool* descriptor_pool{nullptr};
   std::vector<PendingRetireBuffer> buffers_to_keep_alive;
   std::vector<PendingRetireImage> images_to_keep_alive;
+  bool graph_program_partition{false};
+  uint64_t dispatch_count{0u};
   bool segment_metadata_observed{false};
   uint64_t segment_count{0u};
   uint64_t segment_index{0u};
@@ -1533,6 +1537,23 @@ void append_cpu_timeline_log_line(const std::string& line) {
   }
 }
 
+GraphProgramRecordingResources::GraphProgramRecordingResources(
+    VkDevice device,
+    const uint32_t queue_family_index,
+    const ContextConfig& config)
+    : command_pool_(device, queue_family_index, config.cmdPoolConfig),
+      descriptor_pool_(device, config.descriptorPoolConfig) {}
+
+CommandBuffer GraphProgramRecordingResources::acquire_command_buffer() {
+  CommandBuffer cmd = command_pool_.get_new_cmd(/*reusable=*/true);
+  cmd.begin();
+  return cmd;
+}
+
+DescriptorPool& GraphProgramRecordingResources::recording_descriptor_pool() {
+  return descriptor_pool_;
+}
+
 Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
     : config_(config),
       // Important handles
@@ -1642,10 +1663,26 @@ Context::ScopedExternalCommandRecording::ScopedExternalCommandRecording(
   context_->begin_external_command_recording(cmd);
 }
 
+Context::ScopedExternalCommandRecording::ScopedExternalCommandRecording(
+    Context& context,
+    CommandBuffer& cmd,
+    DescriptorPool& descriptor_pool,
+    const bool graph_program_partition)
+    : context_(&context) {
+  context_->begin_external_command_recording(
+      cmd, &descriptor_pool, graph_program_partition);
+}
+
 Context::ScopedExternalCommandRecording::~ScopedExternalCommandRecording() {
   if (context_) {
     context_->end_external_command_recording();
   }
+}
+
+uint64_t Context::ScopedExternalCommandRecording::recorded_dispatch_count()
+    const {
+  TORCH_CHECK(context_, "External command recording scope is not active");
+  return context_->external_recording_dispatch_count();
 }
 
 Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
@@ -1691,7 +1728,14 @@ Context::GraphProgramInvocationScope::GraphProgramInvocationScope(
   TORCH_CHECK(
       context_->graph_program_submission_observers_.empty(),
       "GraphProgramInvocationScope found stale submission observer state");
+  TORCH_CHECK(
+      context_->graph_program_command_batch_.empty(),
+      "GraphProgramInvocationScope found a stale command batch");
+  TORCH_CHECK(
+      context_->graph_program_command_batch_recording_id_ == 0u,
+      "GraphProgramInvocationScope found a stale command batch ID");
   context_->graph_program_submission_observers_.reserve(16u);
+  context_->graph_program_command_batch_.reserve(32u);
   if (context_->cmd_) {
     context_->submit_cmd_to_gpu(
         VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
@@ -1791,7 +1835,9 @@ VulkanSubmission Context::GraphProgramInvocationScope::checkpoint() {
   const bool wait_for_completion =
       context_->graph_program_checkpoint_requires_wait_;
   context_->graph_program_checkpoint_requires_wait_ = false;
-  if (!context_->cmd_ && context_->submit_count_ == 0u) {
+  if (
+      !context_->cmd_ && context_->graph_program_command_batch_.empty() &&
+      context_->submit_count_ == 0u) {
     notify_submission_observers();
     std::function<void()> completion_cleanup =
         context_->take_graph_program_completion_cleanup();
@@ -1799,8 +1845,8 @@ VulkanSubmission Context::GraphProgramInvocationScope::checkpoint() {
         std::move(completion_cleanup), wait_for_completion);
     return submission_;
   }
-  submission_ = context_->submit_cmd_to_gpu(
-      VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+  submission_ = context_->submit_graph_program_command_batch(
+      VulkanSubmitOrigin::PendingCommandFlush);
   TORCH_CHECK(
       submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
       "GraphProgramInvocationScope checkpoint requires a submission token");
@@ -1815,7 +1861,9 @@ VulkanSubmission Context::GraphProgramInvocationScope::submit() {
   if (checkpoint_requested()) {
     checkpoint();
   }
-  if (!context_->cmd_ && context_->submit_count_ == 0u) {
+  if (
+      !context_->cmd_ && context_->graph_program_command_batch_.empty() &&
+      context_->submit_count_ == 0u) {
     notify_submission_observers();
     std::function<void()> completion_cleanup =
         context_->take_graph_program_completion_cleanup();
@@ -1833,8 +1881,8 @@ VulkanSubmission Context::GraphProgramInvocationScope::submit() {
     }
     return submission_;
   }
-  submission_ = context_->submit_cmd_to_gpu(
-      VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+  submission_ = context_->submit_graph_program_command_batch(
+      VulkanSubmitOrigin::PendingCommandFlush);
   TORCH_CHECK(
       submission_.timeline != VK_NULL_HANDLE && submission_.timeline_value > 0u,
       "GraphProgramInvocationScope requires a normal submission token");
@@ -1860,9 +1908,9 @@ void Context::GraphProgramInvocationScope::abort() {
   try {
     context_->graph_program_checkpoint_requested_ = false;
     context_->graph_program_checkpoint_requires_wait_ = false;
-    if (context_->cmd_) {
-      submission_ = context_->submit_cmd_to_gpu(
-          VK_NULL_HANDLE, false, VulkanSubmitOrigin::PendingCommandFlush);
+    if (context_->cmd_ || !context_->graph_program_command_batch_.empty()) {
+      submission_ = context_->submit_graph_program_command_batch(
+          VulkanSubmitOrigin::PendingCommandFlush);
       TORCH_CHECK(
           submission_.timeline != VK_NULL_HANDLE &&
               submission_.timeline_value > 0u,
@@ -1888,6 +1936,34 @@ void Context::GraphProgramInvocationScope::abort() {
   context_->graph_program_invocation_active_.store(
       false, std::memory_order_release);
   state_ = State::Aborted;
+}
+
+void Context::GraphProgramInvocationScope::enqueue_recorded_partition(
+    CommandBuffer& cmd,
+    const uint64_t recorded_dispatch_count) {
+  TORCH_CHECK(active(), "GraphProgramInvocationScope is not active");
+  TORCH_CHECK(
+      recorded_dispatch_count > 0u,
+      "Recorded graph partition must contain at least one dispatch");
+  context_->finalize_graph_program_normal_command();
+  if (context_->graph_program_command_batch_recording_id_ == 0u) {
+    context_->graph_program_command_batch_recording_id_ =
+        context_->next_command_buffer_recording_id_++;
+  }
+  context_->graph_program_command_batch_.push_back(cmd.get_submit_handle());
+  const uint32_t dispatch_count =
+      utils::safe_downcast<uint32_t>(recorded_dispatch_count);
+  TORCH_CHECK(
+      dispatch_count <=
+          std::numeric_limits<uint32_t>::max() - context_->submit_count_,
+      "Recorded graph partition dispatch count overflow");
+  context_->submit_count_ += dispatch_count;
+  if (
+      context_->config_.graphProgramCheckpointFrequency > 0u &&
+      context_->submit_count_ >=
+          context_->config_.graphProgramCheckpointFrequency) {
+    context_->graph_program_checkpoint_requested_ = true;
+  }
 }
 
 bool Context::GraphProgramInvocationScope::active() const {
@@ -2824,7 +2900,9 @@ Context::snapshot_stack_region_pending_retire_transfer_owner(
 
 DescriptorPool& Context::active_descriptor_pool() {
   if (external_recording_cmd()) {
-    return persistent_descriptor_pool_;
+    return g_external_command_recording_state.descriptor_pool
+        ? *g_external_command_recording_state.descriptor_pool
+        : persistent_descriptor_pool_;
   }
   if (stack_planned_recording_active_.load(std::memory_order_acquire)) {
     if (!stack_planned_recording_descriptor_pool_lease_) {
@@ -2884,7 +2962,10 @@ CommandBuffer& Context::active_cmd() {
   return cmd_;
 }
 
-void Context::begin_external_command_recording(CommandBuffer& cmd) {
+void Context::begin_external_command_recording(
+    CommandBuffer& cmd,
+    DescriptorPool* const descriptor_pool,
+    const bool graph_program_partition) {
   const bool external_recording_active =
       g_external_command_recording_state.cmd != nullptr;
   if (external_recording_active) {
@@ -2913,6 +2994,10 @@ void Context::begin_external_command_recording(CommandBuffer& cmd) {
       stack_region_external_descriptor_set_count_;
   ++stack_region_external_command_buffer_acquire_count_;
   g_external_command_recording_state.cmd = &cmd;
+  g_external_command_recording_state.descriptor_pool = descriptor_pool;
+  g_external_command_recording_state.graph_program_partition =
+      graph_program_partition;
+  g_external_command_recording_state.dispatch_count = 0u;
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
   g_external_command_recording_state.segment_metadata_observed = false;
@@ -2945,7 +3030,26 @@ void Context::end_external_command_recording() {
       "stack_region_recording_reentry_guard=external_recording_underflow "
       "max_supported_recording_depth=1");
   g_external_command_recording_state.cmd = nullptr;
+  g_external_command_recording_state.descriptor_pool = nullptr;
+  g_external_command_recording_state.graph_program_partition = false;
   g_external_command_recording_state.segment_metadata_observed = false;
+}
+
+bool Context::graph_program_partition_recording() const {
+  return external_recording_cmd() != nullptr &&
+      g_external_command_recording_state.graph_program_partition;
+}
+
+uint64_t Context::external_recording_dispatch_count() const {
+  TORCH_CHECK(
+      external_recording_cmd() != nullptr,
+      "External command recording is not active");
+  return g_external_command_recording_state.dispatch_count;
+}
+
+void Context::note_external_recording_dispatch() {
+  TORCH_INTERNAL_ASSERT(external_recording_cmd() != nullptr);
+  ++g_external_command_recording_state.dispatch_count;
 }
 
 void Context::flush_persistent_external_recording_pools_if_idle() {
@@ -3251,7 +3355,9 @@ void Context::begin_graph_submission_profile(CommandBuffer& cmd) {
       !querypool_.is_enabled()) {
     return;
   }
-  TORCH_INTERNAL_ASSERT(graph_submission_profile_log_idx_ == UINT32_MAX);
+  if (graph_submission_profile_log_idx_ != UINT32_MAX) {
+    return;
+  }
   std::ostringstream label;
   label << "graph_submission." << command_buffer_recording_id_;
   graph_submission_profile_log_idx_ = querypool_.shader_profile_begin(
@@ -3736,6 +3842,137 @@ VulkanSubmission Context::submit_cmd_handle_to_gpu(
   vulkan_sync_counters().stream_submit_count.fetch_add(
       1u, std::memory_order_relaxed);
   return VulkanSubmission{stream.id, stream.timeline, signal_value};
+}
+
+VulkanSubmission Context::submit_cmd_handles_to_gpu(
+    VulkanStreamState& stream,
+    const std::vector<VkCommandBuffer>& cmds,
+    const VulkanSubmitOrigin origin,
+    VkFence fence_handle,
+    const bool final_use) {
+  TORCH_CHECK(
+      !cmds.empty(), "Vulkan command batch requires at least one buffer");
+  std::vector<VkSemaphore> wait_semaphores;
+  std::vector<uint64_t> wait_values;
+  std::vector<VkPipelineStageFlags> wait_stages;
+  {
+    std::lock_guard<std::mutex> lock(stream.mutex);
+    wait_semaphores.reserve(stream.pending_waits.size());
+    wait_values.reserve(stream.pending_waits.size());
+    wait_stages.reserve(stream.pending_waits.size());
+    for (const auto& wait : stream.pending_waits) {
+      wait_semaphores.push_back(wait.semaphore);
+      wait_values.push_back(wait.value);
+      wait_stages.push_back(wait.wait_stage);
+    }
+    stream.pending_waits.clear();
+  }
+
+  const uint64_t signal_value = stream.reserve_signal_value();
+  VK_CHECK_COND(
+      stream.queue.family_index == queue_.family_index,
+      "Vulkan stream queue family does not match command buffer queue family");
+  try {
+    adapter_p_->submit_command_buffer_batch_timeline(
+        stream.queue,
+        cmds,
+        wait_semaphores,
+        wait_values,
+        wait_stages,
+        stream.timeline,
+        signal_value,
+        fence_handle);
+  } catch (const Error& error) {
+    VK_THROW(
+        error.msg(),
+        format_submit_failure_diagnostics(
+            stream,
+            origin,
+            signal_value,
+            wait_values.size(),
+            fence_handle,
+            final_use),
+        " command_buffer_count=",
+        cmds.size());
+  }
+  note_vulkan_queue_submit(origin);
+  vulkan_sync_counters().stream_submit_count.fetch_add(
+      1u, std::memory_order_relaxed);
+  return VulkanSubmission{stream.id, stream.timeline, signal_value};
+}
+
+void Context::finalize_graph_program_normal_command() {
+  TORCH_CHECK(
+      graph_program_invocation_active_for_current_thread(),
+      "Normal command batching requires an active graph invocation");
+  if (!cmd_) {
+    return;
+  }
+  if (graph_program_command_batch_recording_id_ == 0u) {
+    graph_program_command_batch_recording_id_ = command_buffer_recording_id_;
+  }
+  cmd_.end();
+  graph_program_command_batch_.push_back(cmd_.get_submit_handle());
+  command_buffer_recording_id_ = 0u;
+}
+
+VulkanSubmission Context::submit_graph_program_command_batch(
+    const VulkanSubmitOrigin origin) {
+  TORCH_CHECK(
+      graph_program_invocation_active_for_current_thread(),
+      "Graph command batch submission requires an active invocation");
+  const bool cpu_timeline = cpu_timeline_logging_enabled();
+  const uint64_t cpu_start_us = cpu_timeline ? cpu_timeline_now_us() : 0u;
+  finalize_graph_program_normal_command();
+  if (graph_program_command_batch_.empty()) {
+    poll_retire_queue();
+    return {};
+  }
+  if (
+      graph_submission_timeline_logging_enabled() && querypool_.is_enabled()) {
+    if (graph_submission_profile_log_idx_ == UINT32_MAX) {
+      CommandBuffer begin_marker = command_pool_.get_new_cmd();
+      begin_marker.begin();
+      command_buffer_recording_id_ = next_command_buffer_recording_id_++;
+      if (graph_program_command_batch_recording_id_ == 0u) {
+        graph_program_command_batch_recording_id_ =
+            command_buffer_recording_id_;
+      }
+      begin_graph_submission_profile(begin_marker);
+      begin_marker.end();
+      graph_program_command_batch_.insert(
+          graph_program_command_batch_.begin(),
+          begin_marker.get_submit_handle());
+      command_buffer_recording_id_ = 0u;
+    }
+    CommandBuffer end_marker = command_pool_.get_new_cmd();
+    end_marker.begin();
+    end_graph_submission_profile(end_marker);
+    end_marker.end();
+    graph_program_command_batch_.push_back(end_marker.get_submit_handle());
+  }
+  const uint64_t command_buffer_count = graph_program_command_batch_.size();
+  const uint64_t recording_id = graph_program_command_batch_recording_id_;
+  const uint64_t pending_dispatch_count = submit_count_;
+  VulkanSubmission submission = submit_cmd_handles_to_gpu(
+      current_stream(), graph_program_command_batch_, origin);
+  last_submission_ = submission;
+  graph_program_command_batch_.clear();
+  graph_program_command_batch_recording_id_ = 0u;
+  submit_count_ = 0u;
+  retire_deferred_cleanup(submission, origin);
+  poll_retire_queue();
+  if (cpu_timeline) {
+    std::ostringstream stream;
+    stream << "event=submit_graph_program_command_batch duration_us="
+           << (cpu_timeline_now_us() - cpu_start_us)
+           << " origin=" << submit_origin_name(origin)
+           << " recording_id=" << recording_id
+           << " command_buffer_count=" << command_buffer_count
+           << " pending_dispatch_count=" << pending_dispatch_count;
+    append_cpu_timeline_log_line(stream.str());
+  }
+  return submission;
 }
 
 void Context::retire_deferred_cleanup(
@@ -5598,6 +5835,13 @@ CommandBuffer Context::acquire_persistent_command_buffer() {
   CommandBuffer cmd = persistent_command_pool_.get_new_cmd(/*reusable=*/true);
   cmd.begin();
   return cmd;
+}
+
+std::unique_ptr<GraphProgramRecordingResources>
+Context::create_graph_program_recording_resources() {
+  return std::unique_ptr<GraphProgramRecordingResources>(
+      new GraphProgramRecordingResources(
+          device_, queue_.family_index, config_));
 }
 
 void Context::submit_prepared_command_buffer(

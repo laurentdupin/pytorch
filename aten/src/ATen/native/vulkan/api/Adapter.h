@@ -162,6 +162,17 @@ class Adapter final {
   SamplerCache sampler_cache_;
   MemoryAllocator vma_;
 
+  void submit_command_buffer_batch_timeline_impl(
+      const Queue&,
+      const VkCommandBuffer*,
+      uint32_t command_buffer_count,
+      const std::vector<VkSemaphore>& wait_semaphores,
+      const std::vector<uint64_t>& wait_values,
+      const std::vector<VkPipelineStageFlags>& wait_stages,
+      VkSemaphore signal_semaphore,
+      uint64_t signal_value,
+      VkFence fence);
+
  public:
   // Physical Device metadata
 
@@ -355,6 +366,16 @@ class Adapter final {
   void submit_cmd_timeline(
       const Queue&,
       VkCommandBuffer,
+      const std::vector<VkSemaphore>& wait_semaphores,
+      const std::vector<uint64_t>& wait_values,
+      const std::vector<VkPipelineStageFlags>& wait_stages,
+      VkSemaphore signal_semaphore,
+      uint64_t signal_value,
+      VkFence fence = VK_NULL_HANDLE);
+
+  void submit_command_buffer_batch_timeline(
+      const Queue&,
+      const std::vector<VkCommandBuffer>&,
       const std::vector<VkSemaphore>& wait_semaphores,
       const std::vector<uint64_t>& wait_values,
       const std::vector<VkPipelineStageFlags>& wait_stages,

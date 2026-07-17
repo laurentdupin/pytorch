@@ -166,29 +166,48 @@ class TestVulkanGraph(TestCase):
                 """
                 import torch
 
-                class Linear(torch.nn.Module):
+                class ChainedLinear(torch.nn.Module):
                     def __init__(self):
                         super().__init__()
-                        self.linear = torch.nn.Linear(8, 8)
+                        self.first = torch.nn.Linear(8, 8)
+                        self.second = torch.nn.Linear(8, 8)
+                        self.output = torch.nn.Linear(8, 8)
 
                     def forward(self, tensor):
-                        return self.linear(tensor).relu()
+                        tensor = self.first(tensor)
+                        tensor = self.second(tensor)
+                        return self.output(tensor)
 
                 torch.manual_seed(17)
-                model = Linear().eval()
+                model = ChainedLinear().eval()
                 sample = torch.randn(2, 8)
                 program = torch.vulkan.export_and_lower(model, sample)
+                assert (
+                    program.cpp_plan
+                    .recorded_partition_candidate_instruction_count()
+                    == 1
+                )
+                device_sample = sample.to("vulkan")
                 torch.ops.vulkan_prepack.synchronize()
+                torch.ops.vulkan_prepack.reset_submit_origin_counters()
                 previous = (
                     torch.ops.vulkan_prepack
                     .set_graph_program_checkpoint_frequency_for_testing(1)
                 )
                 try:
-                    output = program(sample)
-                    torch.testing.assert_close(
-                        output.cpu(), model(sample), rtol=1e-4, atol=1e-4
+                    for _ in range(3):
+                        output = program(device_sample)
+                        torch.testing.assert_close(
+                            output.cpu(), model(sample), rtol=1e-4, atol=1e-4
+                        )
+                        torch.ops.vulkan_prepack.synchronize()
+                    assert program.cpp_plan.recorded_partition_capture_count() == 1
+                    assert program.cpp_plan.recorded_partition_replay_count() == 1
+                    assert program.cpp_plan.recorded_partition_failure_count() == 0
+                    submit_origins = list(
+                        torch.ops.vulkan_prepack.submit_origin_counters()
                     )
-                    torch.ops.vulkan_prepack.synchronize()
+                    print(f"GRAPH_SUBMITS={submit_origins[15]}")
                 finally:
                     torch.ops.vulkan_prepack.synchronize()
                     observed = (
@@ -226,6 +245,9 @@ class TestVulkanGraph(TestCase):
             if "event=graph_submission_gpu_span" in line
         ]
         self.assertGreaterEqual(len(span_lines), 1)
+        submit_count_match = re.search(r"GRAPH_SUBMITS=(\d+)", result.stdout)
+        self.assertIsNotNone(submit_count_match)
+        self.assertEqual(len(span_lines), int(submit_count_match.group(1)))
         self.assertFalse(any("event=submit_compute" in line for line in lines))
         self.assertFalse(
             any("event=submit_cmd_to_gpu" in line for line in lines)
@@ -1209,6 +1231,73 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.resource_arena_spill_count(), 0)
         self.assertEqual(program.cpp_plan.resource_write_count(), 4)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_cpp_graph_plan_records_and_replays_arena_stable_linear(self):
+        class ChainedLinear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.first = torch.nn.Linear(4, 4)
+                self.second = torch.nn.Linear(4, 4)
+                self.output = torch.nn.Linear(4, 4)
+
+            def forward(self, tensor):
+                tensor = self.first(tensor)
+                tensor = self.second(tensor)
+                return self.output(tensor)
+
+        torch.manual_seed(0)
+        model = ChainedLinear().eval()
+        inputs = [torch.randn(2, 4) for _ in range(3)]
+        program = torch.vulkan.export_and_lower(model, inputs[0])
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.plan_version, "v9")
+        self.assertEqual(report.resource_writer_instruction_count, 2)
+        self.assertEqual(
+            report.recorded_partition_candidate_instruction_count, 1
+        )
+        self.assertEqual(
+            program.cpp_plan.recorded_partition_candidate_instruction_count(),
+            1,
+        )
+
+        with torch.inference_mode():
+            first_output = program(inputs[0])
+            first_before = first_output.cpu()
+            torch.ops.vulkan_prepack.synchronize()
+
+            second_output = program(inputs[1])
+            second_before = second_output.cpu()
+            torch.ops.vulkan_prepack.synchronize()
+
+            third_vulkan_input = inputs[2].to("vulkan")
+            torch.ops.vulkan_prepack.synchronize()
+            torch.ops.vulkan_prepack.reset_submit_origin_counters()
+            third_output = program(third_vulkan_input)
+            submit_origins = list(
+                torch.ops.vulkan_prepack.submit_origin_counters()
+            )
+            third_before = third_output.cpu()
+            torch.ops.vulkan_prepack.synchronize()
+
+            first_after = first_output.cpu()
+            second_after = second_output.cpu()
+
+        torch.testing.assert_close(first_before, model(inputs[0]))
+        torch.testing.assert_close(second_before, model(inputs[1]))
+        torch.testing.assert_close(third_before, model(inputs[2]))
+        torch.testing.assert_close(first_after, first_before)
+        torch.testing.assert_close(second_after, second_before)
+        self.assertEqual(submit_origins[15], 1)
+        self.assertEqual(submit_origins[0], 1)
+        self.assertEqual(program.cpp_plan.resource_arena_generation_count(), 1)
+        self.assertGreaterEqual(program.cpp_plan.resource_arena_reuse_count(), 2)
+        self.assertEqual(program.cpp_plan.resource_arena_spill_count(), 0)
+        self.assertEqual(program.cpp_plan.resource_write_count(), 6)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+        self.assertEqual(program.cpp_plan.recorded_partition_capture_count(), 1)
+        self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 1)
+        self.assertEqual(program.cpp_plan.recorded_partition_failure_count(), 0)
 
     def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):
         class LinearViewOutput(torch.nn.Module):

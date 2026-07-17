@@ -385,6 +385,9 @@ def _execution_plan_summary(
         "resource_writer_instruction_count": (
             report.resource_writer_instruction_count
         ),
+        "recorded_partition_candidate_instruction_count": (
+            report.recorded_partition_candidate_instruction_count
+        ),
         "resource_arena_flight_depth": report.resource_arena_flight_depth,
         "resource_alias_extended_lifetime_count": (
             report.resource_alias_extended_lifetime_count
@@ -415,6 +418,15 @@ def _execution_plan_summary(
                 "resource_write_count": plan.resource_write_count(),
                 "resource_writer_bypass_count": (
                     plan.resource_writer_bypass_count()
+                ),
+                "recorded_partition_capture_count": (
+                    plan.recorded_partition_capture_count()
+                ),
+                "recorded_partition_replay_count": (
+                    plan.recorded_partition_replay_count()
+                ),
+                "recorded_partition_failure_count": (
+                    plan.recorded_partition_failure_count()
                 ),
             }
         )
