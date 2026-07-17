@@ -52,12 +52,36 @@ bool gpu_timestamp_logging_enabled() {
   return !gpu_timestamp_log_path().empty();
 }
 
-const std::string& cpu_timeline_log_path() {
-  static const std::string path = []() {
+struct CpuTimelineLogConfig final {
+  std::string path;
+  bool graph_submission_only{false};
+};
+
+const CpuTimelineLogConfig& cpu_timeline_log_config() {
+  static const CpuTimelineLogConfig config = []() {
+    constexpr char kGraphSubmissionOnlyPrefix[] = "graph_submission_only:";
+    constexpr size_t kGraphSubmissionOnlyPrefixSize =
+        sizeof(kGraphSubmissionOnlyPrefix) - 1u;
     const char* env = std::getenv("PYTORCH_VULKAN_CPU_TIMELINE_LOG");
-    return env ? std::string(env) : std::string();
+    if (env == nullptr) {
+      return CpuTimelineLogConfig{};
+    }
+    std::string value(env);
+    if (value.compare(
+            0u,
+            kGraphSubmissionOnlyPrefixSize,
+            kGraphSubmissionOnlyPrefix,
+            kGraphSubmissionOnlyPrefixSize) == 0) {
+      return CpuTimelineLogConfig{
+          value.substr(kGraphSubmissionOnlyPrefixSize), true};
+    }
+    return CpuTimelineLogConfig{std::move(value), false};
   }();
-  return path;
+  return config;
+}
+
+const std::string& cpu_timeline_log_path() {
+  return cpu_timeline_log_config().path;
 }
 
 const std::string& cpu_timeline_summary_log_path() {
@@ -77,6 +101,11 @@ const std::string& stack_retained_state_log_path() {
 }
 
 bool cpu_timeline_line_logging_enabled() {
+  const CpuTimelineLogConfig& config = cpu_timeline_log_config();
+  return !config.path.empty() && !config.graph_submission_only;
+}
+
+bool graph_submission_timeline_logging_enabled() {
   return !cpu_timeline_log_path().empty();
 }
 
@@ -3217,7 +3246,7 @@ void Context::gpu_profile_end(CommandBuffer& cmd, const uint32_t log_idx) {
 }
 
 void Context::begin_graph_submission_profile(CommandBuffer& cmd) {
-  if (!cpu_timeline_line_logging_enabled() ||
+  if (!graph_submission_timeline_logging_enabled() ||
       !graph_program_invocation_active_for_current_thread() ||
       !querypool_.is_enabled()) {
     return;
@@ -3288,7 +3317,7 @@ void Context::dump_gpu_profile_log(const char* reason) {
   const bool write_op_profile =
       enable_op_profiling_ && gpu_timestamp_logging_enabled();
   const bool write_graph_submission_profile =
-      cpu_timeline_line_logging_enabled();
+      graph_submission_timeline_logging_enabled();
   if ((!write_op_profile && !write_graph_submission_profile) ||
       !querypool_.is_enabled() || !querypool_.has_pending_results()) {
     return;
@@ -3316,7 +3345,12 @@ void Context::dump_gpu_profile_log(const char* reason) {
              << " start_ns=" << entry.start_time_ns
              << " end_ns=" << entry.end_time_ns
              << " duration_ns=" << entry.execution_duration_ns;
-      append_cpu_timeline_log_line(stream.str());
+      if (cpu_timeline_log_config().graph_submission_only) {
+        std::ofstream out(cpu_timeline_log_path(), std::ios::app);
+        out << stream.str() << '\n';
+      } else {
+        append_cpu_timeline_log_line(stream.str());
+      }
     }
     if (write_op_profile) {
       std::ostringstream stream;

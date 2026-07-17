@@ -148,14 +148,16 @@ def _raise_graph_node_error(tensor):
 
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
-    def test_graph_submission_gpu_spans_join_cpu_submit_timeline(self):
+    def test_graph_submission_only_timeline_avoids_per_op_logging(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with tempfile.TemporaryDirectory(
             prefix="vulkan_graph_submission_span_"
         ) as temp_dir:
             timeline_path = os.path.join(temp_dir, "cpu_timeline.log")
             env = os.environ.copy()
-            env["PYTORCH_VULKAN_CPU_TIMELINE_LOG"] = timeline_path
+            env["PYTORCH_VULKAN_CPU_TIMELINE_LOG"] = (
+                f"graph_submission_only:{timeline_path}"
+            )
             pythonpath = [repo_root]
             if env.get("PYTHONPATH"):
                 pythonpath.append(env["PYTHONPATH"])
@@ -223,24 +225,16 @@ class TestVulkanGraph(TestCase):
             for line in lines
             if "event=graph_submission_gpu_span" in line
         ]
-        submit_lines = [
-            line
-            for line in lines
-            if "event=submit_cmd_to_gpu" in line and "had_cmd=1" in line
-        ]
         self.assertGreaterEqual(len(span_lines), 1)
-        self.assertGreaterEqual(len(submit_lines), len(span_lines))
-        submit_recording_ids = {
-            match.group(1)
-            for line in submit_lines
-            if (match := re.search(r"\brecording_id=(\d+)", line))
-        }
+        self.assertFalse(any("event=submit_compute" in line for line in lines))
+        self.assertFalse(
+            any("event=submit_cmd_to_gpu" in line for line in lines)
+        )
         for line in span_lines:
             recording_match = re.search(r"\brecording_id=(\d+)", line)
             duration_match = re.search(r"\bduration_ns=(\d+)", line)
             self.assertIsNotNone(recording_match)
             self.assertIsNotNone(duration_match)
-            self.assertIn(recording_match.group(1), submit_recording_ids)
             self.assertGreater(int(duration_match.group(1)), 0)
 
     def test_graph_planning_context_is_explicit_and_program_keyed(self):
