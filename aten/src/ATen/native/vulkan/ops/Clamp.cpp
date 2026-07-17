@@ -481,6 +481,51 @@ Tensor activation_buffer(
       convert(v_output), op_name, route_name, {self});
 }
 
+Tensor& activation_buffer_(
+    Tensor& self,
+    const api::ShaderInfo& shader_descriptor,
+    const char* op_name,
+    const char* route_name) {
+  api::Context* const context = api::context();
+  vTensor& v_self = convert(self);
+
+  TORCH_CHECK(
+      v_self.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_elementwise_compute(v_self),
+      "Vulkan in-place buffer activation requires supported buffer metadata");
+
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_self.numel()),
+      1u,
+      1u,
+  };
+  api::UniformParamsBuffer output_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::UniformParamsBuffer input_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+
+  context->submit_compute_job(
+      shader_descriptor,
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_self.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ | api::MemoryAccessType::WRITE),
+      output_meta.buffer(),
+      v_self.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::READ | api::MemoryAccessType::WRITE),
+      input_meta.buffer());
+
+  record_tensor_write(self, op_name, route_name, {self});
+  return self;
+}
+
 Tensor activation_scalar_buffer(
     const Tensor& self_arg,
     const std::vector<Scalar>& scalar_arg,
@@ -1014,6 +1059,23 @@ Tensor relu_buffer_out_vulkan(
           can_run_float_buffer_clamp(convert(input)),
       "Vulkan relu_buffer_out expects float buffer-backed tensors");
   return clamp_buffer_impl(input, 0, std::nullopt, &output);
+}
+
+Tensor& gelu_buffer_inplace_vulkan(
+    Tensor& input,
+    const std::string_view approximate) {
+  TORCH_CHECK(
+      approximate == "none" || approximate == "tanh",
+      "Vulkan: gelu only supported for none or tanh type");
+  TORCH_CHECK(
+      input.is_vulkan() && input.scalar_type() == at::kFloat,
+      "Vulkan gelu_buffer_inplace expects a float Vulkan tensor");
+  utils::log_vulkan_op_hit("aten::gelu.buffer_float");
+  return activation_buffer_(
+      input,
+      VK_KERNEL(buffer_gelu_tanh),
+      "aten::gelu",
+      "buffer_float_inplace");
 }
 
 } // namespace ops

@@ -485,7 +485,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan_report.plan_version, "v9")
         self.assertEqual(
             program.cpp_plan_report.list_projection_instruction_count,
-            1,
+            0,
         )
         plan_attrs = _static_linear_gelu_plan_attrs(program)
         self.assertEqual(len(plan_attrs), 1)
@@ -511,34 +511,20 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_deferred_values_created, 0)
 
     def test_cpp_graph_plan_list_projection_checks_runtime_index(self):
-        class LinearGelu(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = torch.nn.Linear(5, 7)
-
-            def forward(self, tensor):
-                return torch.nn.functional.gelu(
-                    self.linear(tensor), approximate="tanh"
-                )
-
-        model = LinearGelu().eval()
         tensor = torch.randn(2, 3, 5)
-        program = torch.vulkan.export_and_lower(model, tensor)
-        plan_attr = next(iter(_static_linear_gelu_plan_attrs(program)))
-        region_plan = getattr(program.graph_module, plan_attr)
 
         def list_projection_plan(index):
             return torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
-                ["region", "getitem"],
+                ["chunk", "getitem"],
                 [
-                    "vulkan_prepack::run_vulkan_graph_region_plan",
+                    "aten::chunk",
                     "vulkan_graph::list_getitem",
                 ],
                 ["", ""],
-                [[[0], [-1]], [[1], [-2]]],
-                [[1, 0], [0, 0]],
+                [[[0], [-1], [-2]], [[1], [-3]]],
+                [[0, 0, 0], [0, 0]],
                 [[1], [2]],
-                [region_plan, index],
+                [2, 0, index],
                 1,
                 [2],
             )
@@ -550,16 +536,14 @@ class TestVulkanGraph(TestCase):
         )
         torch.testing.assert_close(
             negative_output[0].cpu(),
-            model(tensor),
-            rtol=1e-4,
-            atol=1e-4,
+            tensor[1:2],
         )
-        failing_plan = list_projection_plan(1)
+        failing_plan = list_projection_plan(2)
         for _ in range(2):
             with self.assertRaisesRegex(
                 RuntimeError,
                 "VulkanGraphPlan.v9 node 'getitem'.*"
-                "index 1 is out of range for length 1",
+                "index 2 is out of range for length 2",
             ):
                 torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
                     [vulkan_tensor],
@@ -1221,6 +1205,81 @@ class TestVulkanGraph(TestCase):
         for output in actual:
             torch.testing.assert_close(output, model(tensor))
         self.assertEqual(program.cpp_plan.resource_write_count(), 6)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_cpp_graph_plan_owns_gelu_region_output_storage(self):
+        class LinearGeluSin(torch.nn.Module):
+            def __init__(self, approximate):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 6)
+                self.approximate = approximate
+
+            def forward(self, tensor):
+                return torch.sin(
+                    torch.nn.functional.gelu(
+                        self.linear(tensor), approximate=self.approximate
+                    )
+                )
+
+        for approximate in ("none", "tanh"):
+            with self.subTest(approximate=approximate):
+                torch.manual_seed(40)
+                model = LinearGeluSin(approximate).eval()
+                tensor = torch.randn(2, 3, 4)
+                program = torch.vulkan.export_and_lower(model, tensor)
+                report = program.cpp_plan_report
+
+                self.assertEqual(report.resource_writer_instruction_count, 1)
+                self.assertEqual(report.resource_value_count, 1)
+                self.assertEqual(report.resource_slot_count, 1)
+                with torch.inference_mode():
+                    outputs = [program(tensor) for _ in range(3)]
+                    actual = [output.cpu() for output in outputs]
+
+                for output in actual:
+                    torch.testing.assert_close(
+                        output,
+                        model(tensor),
+                        rtol=(
+                            VULKAN_GELU_NONE_CPU_RTOL
+                            if approximate == "none"
+                            else 1e-4
+                        ),
+                        atol=(
+                            VULKAN_GELU_NONE_CPU_ATOL
+                            if approximate == "none"
+                            else 1e-4
+                        ),
+                    )
+                self.assertEqual(program.cpp_plan.resource_write_count(), 3)
+                self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_cpp_graph_plan_owns_conv_region_output_storage(self):
+        class ConvReluConvSin(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv0 = torch.nn.Conv2d(3, 4, 3, padding=1)
+                self.conv1 = torch.nn.Conv2d(4, 2, 3, padding=1)
+
+            def forward(self, tensor):
+                return torch.sin(self.conv1(torch.relu(self.conv0(tensor))))
+
+        torch.manual_seed(41)
+        model = ConvReluConvSin().eval()
+        tensor = torch.randn(2, 3, 8, 7)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.resource_writer_instruction_count, 1)
+        self.assertEqual(report.resource_value_count, 1)
+        self.assertEqual(report.resource_slot_count, 1)
+        with torch.inference_mode():
+            outputs = [program(tensor) for _ in range(3)]
+            actual = [output.cpu() for output in outputs]
+
+        for output in actual:
+            torch.testing.assert_close(output, model(tensor), rtol=1e-4, atol=1e-4)
+        self.assertEqual(program.cpp_plan.resource_write_count(), 3)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
     def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):
@@ -2709,9 +2768,9 @@ class TestVulkanGraph(TestCase):
             plan = graph.get_attr(plan_attr)
             region = graph.call_function(
                 torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default,
-                args=([tensor], plan),
+                args=(tensor, plan),
             )
-            graph.output(graph.call_function(operator.getitem, (region, 0)))
+            graph.output(region)
             root = torch.nn.Module()
             setattr(
                 root,
@@ -2875,8 +2934,8 @@ class TestVulkanGraph(TestCase):
         torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
         torch.ops.vulkan_prepack.reset_submit_origin_counters()
         output = torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default(
-            [vulkan_tensor], region_plan
-        )[0]
+            vulkan_tensor, region_plan
+        )
         submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
 
         torch.testing.assert_close(
@@ -2908,20 +2967,23 @@ class TestVulkanGraph(TestCase):
         )
         region_plan = getattr(program.graph_module, plan_attr)
 
-        def graph_plan(index):
+        def graph_plan(dtype):
             return torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
-                ["region", "getitem"],
+                ["region", "metadata_check"],
                 [
                     "vulkan_prepack::run_vulkan_graph_region_plan",
-                    "vulkan_graph::list_getitem",
+                    "aten::_assert_tensor_metadata",
                 ],
                 ["", ""],
-                [[[0], [-1]], [[1], [-2]]],
-                [[1, 0], [0, 0]],
-                [[1], [2]],
-                [region_plan, index],
+                [
+                    [[0], [-1]],
+                    [[1], [-2], [-3], [-4], [-5], [-6]],
+                ],
+                [[0, 0], [0, 0, 0, 0, 0, 0]],
+                [[1], []],
+                [region_plan, None, None, dtype, None, None],
                 1,
-                [2],
+                [1],
             )
 
         vulkan_tensor = tensor.to("vulkan")
@@ -2930,11 +2992,10 @@ class TestVulkanGraph(TestCase):
         torch.ops.vulkan_prepack.reset_submit_origin_counters()
         with self.assertRaisesRegex(
             RuntimeError,
-            "VulkanGraphPlan.v9 node 'getitem'.*"
-            "index 1 is out of range for length 1",
+            "VulkanGraphPlan.v9 node 'metadata_check'.*failed",
         ):
             torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
-                [vulkan_tensor], graph_plan(1)
+                [vulkan_tensor], graph_plan(torch.float64)
             )
         abort_submit_origins = list(
             torch.ops.vulkan_prepack.submit_origin_counters()
@@ -2945,7 +3006,7 @@ class TestVulkanGraph(TestCase):
         torch.ops.vulkan_prepack.synchronize()
         torch.ops.vulkan_prepack.reset_submit_origin_counters()
         output = torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
-            [vulkan_tensor], graph_plan(0)
+            [vulkan_tensor], graph_plan(torch.float32)
         )[0]
         submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
 

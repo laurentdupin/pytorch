@@ -11,6 +11,7 @@
 #include <ATen/native/vulkan/ops/BinaryOp.h>
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
+#include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/Copy.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
@@ -920,24 +921,39 @@ utils::create_vulkan_graph_region_plan_conv2d_relu_conv2d(
       });
 }
 
-std::vector<Tensor> utils::run_vulkan_graph_region_plan(
-    const std::vector<Tensor>& inputs,
-    const c10::intrusive_ptr<VulkanGraphRegionPlan>& plan) {
+std::optional<Tensor> run_vulkan_graph_region_plan_impl(
+    const Tensor& input,
+    const c10::intrusive_ptr<utils::VulkanGraphRegionPlan>& plan,
+    Tensor* const output_target) {
   TORCH_CHECK(plan, "VulkanGraphRegionPlan.v1 requires a plan");
   TORCH_CHECK(
-      inputs.size() == 1u,
-      "VulkanGraphRegionPlan.v1 requires exactly one input tensor");
-  const Tensor& input = inputs[0];
-  TORCH_CHECK(
       input.is_vulkan(),
-      "VulkanGraphRegionPlan.v1 requires Vulkan input tensors");
+      "VulkanGraphRegionPlan.v1 requires a Vulkan input tensor");
   TORCH_CHECK(plan->valid(), "VulkanGraphRegionPlan.v1 has an invalid schema");
   VulkanGraphRegionInvocation invocation(*plan);
-  if (plan->schema().family == VulkanGraphRegionFamily::LinearGeluTanh) {
-    return {at::gelu(run_linear_context(input, plan->linear_context(0u)), "tanh")};
+  if (
+      plan->schema().family ==
+      utils::VulkanGraphRegionFamily::LinearGeluTanh) {
+    if (output_target) {
+      Tensor output_view = run_linear_context_out(
+          input, plan->linear_context(0u), *output_target);
+      gelu_buffer_inplace_vulkan(output_view, "tanh");
+      return output_view;
+    }
+    return at::gelu(
+        run_linear_context(input, plan->linear_context(0u)), "tanh");
   }
-  if (plan->schema().family == VulkanGraphRegionFamily::LinearGeluNone) {
-    return {at::gelu(run_linear_context(input, plan->linear_context(0u)), "none")};
+  if (
+      plan->schema().family ==
+      utils::VulkanGraphRegionFamily::LinearGeluNone) {
+    if (output_target) {
+      Tensor output_view = run_linear_context_out(
+          input, plan->linear_context(0u), *output_target);
+      gelu_buffer_inplace_vulkan(output_view, "none");
+      return output_view;
+    }
+    return at::gelu(
+        run_linear_context(input, plan->linear_context(0u)), "none");
   }
   const c10::intrusive_ptr<Conv2dPackedContext>& first_context =
       plan->conv2d_context(0u);
@@ -1012,7 +1028,9 @@ std::vector<Tensor> utils::run_vulkan_graph_region_plan(
     if (!reused_scratch && !created_scratch) {
       intermediate = run_conv2d_context_relu(input, first_context);
     }
-    Tensor output = run_conv2d_context(intermediate, second_context);
+    Tensor output = output_target
+        ? run_conv2d_context_out(intermediate, second_context, *output_target)
+        : run_conv2d_context(intermediate, second_context);
     if (
         !transaction.owns_private_scope() &&
         (reused_scratch || created_scratch)) {
@@ -1059,7 +1077,7 @@ std::vector<Tensor> utils::run_vulkan_graph_region_plan(
       api::vulkan_graph_program_invocation_counters()
           .scratch_captured_count.fetch_add(1u, std::memory_order_relaxed);
     }
-    return {output};
+    return output;
   } catch (...) {
     transaction.abort();
     if (reused_scratch && transaction.submission().timeline != VK_NULL_HANDLE) {
@@ -1068,6 +1086,21 @@ std::vector<Tensor> utils::run_vulkan_graph_region_plan(
     }
     throw;
   }
+}
+
+Tensor utils::run_vulkan_graph_region_plan(
+    const Tensor& input,
+    const c10::intrusive_ptr<VulkanGraphRegionPlan>& plan) {
+  auto output = run_vulkan_graph_region_plan_impl(input, plan, nullptr);
+  TORCH_INTERNAL_ASSERT(output);
+  return std::move(*output);
+}
+
+std::optional<Tensor> utils::try_run_vulkan_graph_region_plan_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<VulkanGraphRegionPlan>& plan,
+    Tensor& output) {
+  return run_vulkan_graph_region_plan_impl(input, plan, &output);
 }
 
 int register_vulkan_layernorm_packed_context() {
@@ -2787,8 +2820,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "__torch__.torch.classes.vulkan.LinearPackedContext context) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphRegionPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::run_vulkan_graph_region_plan(Tensor[] inputs, "
-      "__torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor[]"));
+      "vulkan_prepack::run_vulkan_graph_region_plan(Tensor input, "
+      "__torch__.torch.classes.vulkan.VulkanGraphRegionPlan plan) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::begin_vulkan_planning_request_scope("
       "int model_domain, int execution_phase, "

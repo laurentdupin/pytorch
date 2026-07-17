@@ -353,8 +353,8 @@ def _is_graph_owned_vulkan_graph_region_plan(
 ) -> bool:
     if len(node.args) != 2 or node.kwargs:
         return False
-    inputs, plan_node = node.args
-    if not isinstance(inputs, tuple | list) or not inputs:
+    input_node, plan_node = node.args
+    if not isinstance(input_node, torch.fx.Node):
         return False
     if not isinstance(plan_node, torch.fx.Node) or plan_node.op != "get_attr":
         return False

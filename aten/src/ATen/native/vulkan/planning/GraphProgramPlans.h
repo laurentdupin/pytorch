@@ -169,9 +169,14 @@ create_vulkan_graph_region_plan_conv2d_relu_conv2d(
     const c10::intrusive_ptr<Conv2dPackedContext>& first_conv_context,
     const c10::intrusive_ptr<Conv2dPackedContext>& second_conv_context);
 
-std::vector<Tensor> run_vulkan_graph_region_plan(
-    const std::vector<Tensor>& inputs,
+Tensor run_vulkan_graph_region_plan(
+    const Tensor& input,
     const c10::intrusive_ptr<VulkanGraphRegionPlan>& plan);
+
+std::optional<Tensor> try_run_vulkan_graph_region_plan_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<VulkanGraphRegionPlan>& plan,
+    Tensor& output);
 
 struct StaticAddLayernormPlanSchema final {
   const char* program_name{"StaticAddLayernormRegion"};

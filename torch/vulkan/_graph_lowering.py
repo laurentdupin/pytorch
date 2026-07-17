@@ -2634,12 +2634,12 @@ def lower_static_linear_gelu_regions(
 
         with graph.inserting_before(gelu_node):
             plan_node = graph.create_node("get_attr", plan_attr, (), {})
-            region_node = graph.call_function(
+            lowered_node = graph.call_function(
                 torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default,
-                args=([linear_node.args[0]], plan_node),
+                args=(linear_node.args[0], plan_node),
             )
-            lowered_node = graph.call_function(operator.getitem, (region_node, 0))
         lowered_node.meta = dict(gelu_node.meta)
+        lowered_node.meta["vulkan_graph_region_family"] = region_family
         gelu_node.replace_all_uses_with(lowered_node)
         graph.erase_node(gelu_node)
         graph.erase_node(linear_node)
@@ -4029,12 +4029,12 @@ def lower_static_conv2d_relu_conv2d_regions(
         second_context_node = second_conv2d_node.args[1]
         with graph.inserting_before(second_conv2d_node):
             plan_node = graph.create_node("get_attr", plan_attr, (), {})
-            region_node = graph.call_function(
+            lowered_node = graph.call_function(
                 torch.ops.vulkan_prepack.run_vulkan_graph_region_plan.default,
-                args=([first_conv2d_node.args[0]], plan_node),
+                args=(first_conv2d_node.args[0], plan_node),
             )
-            lowered_node = graph.call_function(operator.getitem, (region_node, 0))
         lowered_node.meta = dict(second_conv2d_node.meta)
+        lowered_node.meta["vulkan_graph_region_family"] = "conv2d_relu_conv2d"
         second_conv2d_node.replace_all_uses_with(lowered_node)
         graph.erase_node(second_conv2d_node)
         graph.erase_node(relu_node)

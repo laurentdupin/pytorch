@@ -1265,7 +1265,8 @@ bool linear_kernel_family_allows_channel_packed_input(
 
 Tensor reshape_linear_output_if_needed(
     const Tensor& output,
-    const Tensor& input_arg) {
+    const Tensor& input_arg,
+    const bool preserve_storage = false) {
   if (input_arg.dim() == 2) {
     return output;
   }
@@ -1277,6 +1278,9 @@ Tensor reshape_linear_output_if_needed(
   }
   shape.emplace_back(output.size(-1));
   Tensor reshaped_output = utils::reshape_inference(output, shape);
+  if (preserve_storage) {
+    return reshaped_output;
+  }
   const bool large_buffer_linear_view =
       output.is_vulkan() && output.numel() >= (1 << 20);
   if ((c10::InferenceMode::is_enabled() || large_buffer_linear_view) &&
@@ -1778,7 +1782,8 @@ Tensor run_float_buffer_linear(
   maybe_synchronize_after_large_linear_checkpoint(
       input_arg_2d, packed_weight_tensor, output);
 
-  return reshape_linear_output_if_needed(output, input_arg);
+  return reshape_linear_output_if_needed(
+      output, input_arg, output_opt != nullptr);
 }
 
 Tensor run_raw_direct_float_buffer_linear(
@@ -2012,7 +2017,8 @@ Tensor run_widened_half_buffer_linear(
   Tensor output_2d = output_dtype == kFloat
       ? float_output_2d
       : float_output_2d.to(output_dtype);
-  Tensor output = reshape_linear_output_if_needed(output_2d, input_arg);
+  Tensor output = reshape_linear_output_if_needed(
+      output_2d, input_arg, output_opt != nullptr);
   if (output_opt &&
       output.unsafeGetTensorImpl() != output_opt->unsafeGetTensorImpl()) {
     *output_opt = output;
@@ -2309,7 +2315,8 @@ Tensor run_addmm_context_channel_packed_input(
     output = rebind_vulkan_output(*output_opt, output);
   }
 
-  return reshape_linear_output_if_needed(output, input_arg);
+  return reshape_linear_output_if_needed(
+      output, input_arg, output_opt != nullptr);
 }
 
 vTensor pack_cpu_float_weight_using_height_packing(const Tensor& weight_arg) {
@@ -3081,7 +3088,8 @@ Tensor run_bfloat16_buffer_linear(
     *output_opt = output;
     output = *output_opt;
   }
-  return reshape_linear_output_if_needed(output, input_arg);
+  return reshape_linear_output_if_needed(
+      output, input_arg, output_opt != nullptr);
 }
 
 Tensor run_quantized_addmm_context(
@@ -3673,7 +3681,8 @@ Tensor run_addmm_context(
   if (output_opt && output.unsafeGetTensorImpl() != output_tensor.unsafeGetTensorImpl()) {
     output = rebind_vulkan_output(*output_opt, output);
   }
-  return reshape_linear_output_if_needed(output, input_arg);
+  return reshape_linear_output_if_needed(
+      output, input_arg, output_opt != nullptr);
 }
 
 Tensor run_baddbmm_context(

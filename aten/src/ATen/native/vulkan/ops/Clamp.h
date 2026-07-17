@@ -13,6 +13,10 @@ Tensor relu_buffer_out_vulkan(
     const Tensor& input,
     Tensor& output);
 
+Tensor& gelu_buffer_inplace_vulkan(
+    Tensor& input,
+    std::string_view approximate);
+
 } // namespace ops
 } // namespace vulkan
 } // namespace native

@@ -61,6 +61,7 @@ enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   None,
   LinearContext,
   AddLayernormPlan,
+  GraphRegionPlan,
 };
 
 struct VulkanGraphPlanArgument final {
@@ -153,6 +154,9 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
   }
   if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
     return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
+  }
+  if (operator_name == "vulkan_prepack::run_vulkan_graph_region_plan") {
+    return VulkanGraphPlanResourceWriterKind::GraphRegionPlan;
   }
   return VulkanGraphPlanResourceWriterKind::None;
 }
@@ -384,6 +388,12 @@ bool same_vulkan_resource(const Tensor& left, const Tensor& right) {
       convert(left).storage_identity() == convert(right).storage_identity();
 }
 
+bool same_vulkan_storage(const Tensor& left, const Tensor& right) {
+  return left.defined() && right.defined() && left.is_vulkan() &&
+      right.is_vulkan() && left.scalar_type() == right.scalar_type() &&
+      convert(left).storage_identity() == convert(right).storage_identity();
+}
+
 enum class VulkanGraphPlanResourceWriteResult : uint8_t {
   NotApplicable,
   Written,
@@ -452,6 +462,26 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       stack.clear();
       stack.emplace_back(std::move(residual_output));
       stack.emplace_back(std::move(normalized_output));
+      return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::GraphRegionPlan: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 2u && stack[0].isTensor(),
+          "VulkanGraphPlan.v9 graph-region resource writer has invalid arguments");
+      const auto region_plan =
+          stack[1].toCustomClass<VulkanGraphRegionPlan>();
+      auto result = try_run_vulkan_graph_region_plan_out(
+          stack[0].toTensor(), region_plan, *targets[0]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      if (!same_vulkan_storage(*result, *targets[0])) {
+        stack.clear();
+        stack.emplace_back(std::move(*result));
+        return VulkanGraphPlanResourceWriteResult::ProducedUnowned;
+      }
+      stack.clear();
+      stack.emplace_back(std::move(*result));
       return VulkanGraphPlanResourceWriteResult::Written;
     }
     case VulkanGraphPlanResourceWriterKind::None:
