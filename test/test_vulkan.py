@@ -1297,7 +1297,6 @@ class TestVulkanGovernance(TestCase):
             "channel_cat_contract.json": "multi_input_rank4_channel_cat",
             "diffusion_sdpa_contract.json": "diffusion_sdpa_sparse_attention_rows",
             "sdpa_execution_policy_contract.json": "sdpa_execution_policy_sparse_rows",
-            "embedding_lookup_contract.json": "embedding_lookup_small_bounded",
             "elementwise_broadcast_contract.json": (
                 "elementwise_float_tensor_tensor_buffer_broadcast"
             ),
@@ -1370,7 +1369,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 24 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 23 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "attention_probability_materialization_"
@@ -1397,10 +1396,6 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "sdpa_execution_policy_contract.json:sdpa_execution_policy_sparse_rows",
-            result.stdout,
-        )
-        self.assertIn(
-            "embedding_lookup_contract.json:embedding_lookup_small_bounded",
             result.stdout,
         )
         self.assertIn(
@@ -1496,10 +1491,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 24 ShapeEnvelope adjacent-negative generators",
+            "validated 23 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=164", result.stdout)
+        self.assertIn("generated_cases=160", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:13",
             result.stdout,
@@ -1512,7 +1507,6 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:7", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:5", result.stdout)
         self.assertIn("sdpa_execution_policy_contract.json:5", result.stdout)
-        self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:3", result.stdout)
         self.assertIn("gqa_repeat_contract.json:2", result.stdout)
         self.assertIn("kv_cache_append_contract.json:5", result.stdout)
@@ -1560,10 +1554,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 24 ShapeEnvelope legal-case generators",
+            "validated 23 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=381", result.stdout)
+        self.assertIn("generated_cases=377", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:16",
             result.stdout,
@@ -1576,7 +1570,6 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("channel_cat_contract.json:5", result.stdout)
         self.assertIn("diffusion_sdpa_contract.json:11", result.stdout)
         self.assertIn("sdpa_execution_policy_contract.json:9", result.stdout)
-        self.assertIn("embedding_lookup_contract.json:4", result.stdout)
         self.assertIn("elementwise_broadcast_contract.json:4", result.stdout)
         self.assertIn("gqa_repeat_contract.json:3", result.stdout)
         self.assertIn("kv_cache_append_contract.json:3", result.stdout)
@@ -1624,11 +1617,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 24 ShapeEnvelope fuzz assignment generators",
+            "validated 23 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=48", result.stdout)
-        self.assertIn("adjacent_negative_assignments=143", result.stdout)
+        self.assertIn("legal_assignments=46", result.stdout)
+        self.assertIn("adjacent_negative_assignments=139", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "adjacent=13",
@@ -1652,10 +1645,6 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "sdpa_execution_policy_contract.json:legal=2:adjacent=5",
-            result.stdout,
-        )
-        self.assertIn(
-            "embedding_lookup_contract.json:legal=2:adjacent=4",
             result.stdout,
         )
         self.assertIn(
@@ -1749,13 +1738,13 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 24 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 23 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=48", result.stdout)
-        self.assertIn("adjacent_negative_axes=142", result.stdout)
-        self.assertIn("runtime_legal_cases=381", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=164", result.stdout)
+        self.assertIn("legal_assignments=46", result.stdout)
+        self.assertIn("adjacent_negative_axes=138", result.stdout)
+        self.assertIn("runtime_legal_cases=377", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=160", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=13",
@@ -1784,11 +1773,6 @@ class TestVulkanGovernance(TestCase):
         self.assertIn(
             "sdpa_execution_policy_contract.json:legal=2:status=covered:"
             "paths=23/23:adjacent_axes=5",
-            result.stdout,
-        )
-        self.assertIn(
-            "embedding_lookup_contract.json:legal=2:status=covered:paths=11/11:"
-            "adjacent_axes=4",
             result.stdout,
         )
         self.assertIn(
@@ -1885,7 +1869,6 @@ class TestVulkanGovernance(TestCase):
             "channel_cat_contract.json": (5, 7),
             "diffusion_sdpa_contract.json": (11, 5),
             "sdpa_execution_policy_contract.json": (9, 5),
-            "embedding_lookup_contract.json": (4, 4),
             "elementwise_broadcast_contract.json": (4, 3),
             "gqa_repeat_contract.json": (3, 2),
             "kv_cache_append_contract.json": (3, 5),
@@ -1968,7 +1951,6 @@ class TestVulkanGovernance(TestCase):
                 "transformer_gqa_sdpa_sparse_attention_rows",
                 "vision_self_attention_sdpa_sparse_attention_rows",
                 "multi_input_rank4_channel_cat",
-                "embedding_lookup_small_bounded",
                 "safe_reshape_alias_dense_buffer_direct",
                 "safe_view_materialized_direct_buffer",
                 "sdpa_score_softmax_diffusion_square_scores",
@@ -2280,7 +2262,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 24)
+        self.assertEqual(len(rows), 23)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
         self.assertGreater(sum(row["entry_point_count"] for row in rows), 0)
         self.assertTrue(
@@ -2310,7 +2292,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 24 generated ShapeEnvelope C++ helper headers",
+            "validated 23 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -5217,87 +5199,6 @@ class TestVulkanGovernance(TestCase):
                 "GQARepeatContract negative case",
             )
             self.assertFalse(case["expected_native_route"])
-
-    def test_vulkan_embedding_lookup_contract_spec_shape(self):
-        spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
-        self.assertEqual(spec["schema_version"], 1)
-        self.assertEqual(spec["contract_name"], "EmbeddingLookupContract")
-        self.assertEqual(spec["family"], "SmallBoundedLookup")
-        self.assertEqual(spec["writer_op"], "aten::embedding")
-        self.assertEqual(spec["route_label"], "buffer_float_long.small_bounded_lookup")
-
-        metadata = spec["metadata"]
-        _require_contract_spec_fields(
-            metadata,
-            (
-                "evidence_id",
-                "guard_id",
-                "fallback_policy",
-                "materialization_policy",
-            ),
-            "EmbeddingLookupContract metadata",
-        )
-        self.assertEqual(metadata["evidence_id"], "embedding_lookup_focused_tests")
-        self.assertEqual(metadata["guard_id"], "embedding_lookup_adjacent_guards")
-        self.assertEqual(metadata["fallback_policy"], "unsupported_shapes_do_not_match")
-        self.assertEqual(
-            metadata["materialization_policy"],
-            "embedding_lookup_buffer_kernel",
-        )
-
-        bounds = spec["bounds"]
-        _require_contract_spec_fields(
-            bounds,
-            (
-                "weight_dtype",
-                "indices_dtype",
-                "weight_rank",
-                "index_ranks",
-                "num_embeddings",
-                "embedding_dim",
-                "num_indices",
-                "padding_idx_has_hint",
-                "scale_grad_by_freq",
-                "sparse",
-            ),
-            "EmbeddingLookupContract bounds",
-        )
-        self.assertEqual(bounds["weight_dtype"], "float32")
-        self.assertEqual(bounds["indices_dtype"], "int64")
-        self.assertEqual(bounds["weight_rank"], 2)
-        self.assertEqual(bounds["index_ranks"], [1, 2])
-        self.assertEqual(bounds["num_embeddings"], {"min": 1, "max": 4096})
-        self.assertEqual(bounds["embedding_dim"], {"min": 1, "max": 256})
-        self.assertEqual(bounds["num_indices"], {"min": 1, "max": 128})
-        self.assertTrue(bounds["padding_idx_has_hint"])
-        self.assertFalse(bounds["scale_grad_by_freq"])
-        self.assertFalse(bounds["sparse"])
-
-        case_fields = (
-            "name",
-            "num_embeddings",
-            "embedding_dim",
-            "indices_shape",
-            "indices_dtype",
-            "padding_idx",
-        )
-        for section in ("positive_cases", "negative_cases"):
-            self.assertGreater(len(spec[section]), 0)
-            for case in spec[section]:
-                _require_contract_spec_fields(
-                    case,
-                    case_fields,
-                    f"EmbeddingLookupContract {section} case",
-                )
-                self.assertIn(len(case["indices_shape"]), bounds["index_ranks"])
-        for case in spec["negative_cases"]:
-            _require_contract_spec_fields(
-                case,
-                ("violates", "expected_native_route", "expected_sync_readback"),
-                "EmbeddingLookupContract negative case",
-            )
-            self.assertFalse(case["expected_native_route"])
-            self.assertTrue(case["expected_sync_readback"])
 
     def test_vulkan_channel_cat_contract_spec_shape(self):
         spec = _load_vulkan_contract_spec("channel_cat_contract.json")
@@ -11321,154 +11222,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         with torch.inference_mode():
             with self.assertRaisesRegex(IndexError, "index out of range"):
                 F.embedding(indices_vulkan, weight_vulkan)
-
-    def test_embedding_lookup_contract_generated_small_bounded_spec(self):
-        spec = _load_vulkan_contract_spec("embedding_lookup_contract.json")
-        case_log_names = [
-            contract_spec_utils.contract_log_name(
-                spec,
-                case,
-                "value_trace.jsonl",
-            )
-            for _, case, _ in (
-                contract_spec_utils.iter_shape_envelope_contract_cases(spec)
-            )
-        ]
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        case_log_paths = [os.path.join(repo_root, name) for name in case_log_names]
-        for path in case_log_paths:
-            if os.path.exists(path):
-                os.remove(path)
-
-        try:
-            script = """
-                import json
-                import os
-                import sys
-                import torch
-                import torch.nn.functional as F
-                sys.path.insert(
-                    0,
-                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
-                )
-                import contract_spec_utils
-
-                spec_path = os.path.join(
-                    os.getcwd(),
-                    "test",
-                    "vulkan_contract_specs",
-                    "embedding_lookup_contract.json",
-                )
-                with open(spec_path, encoding="utf-8") as handle:
-                    spec = json.load(handle)
-
-                route_hit = "route=" + spec["route_label"]
-
-                def product(values):
-                    result = 1
-                    for value in values:
-                        result *= value
-                    return result
-
-                def make_indices(case):
-                    dtype = {
-                        "int64": torch.long,
-                        "int32": torch.int32,
-                    }[case["indices_dtype"]]
-                    numel = product(case["indices_shape"])
-                    values = torch.arange(numel, dtype=dtype)
-                    values = values % case["num_embeddings"]
-                    return values.reshape(case["indices_shape"])
-
-                def read_value_trace(log_path):
-                    if not os.path.exists(log_path):
-                        return []
-                    with open(log_path, encoding="utf-8") as log_file:
-                        return [
-                            json.loads(line)
-                            for line in log_file
-                            if line.strip()
-                        ]
-
-                def run_case(case, expect_native_route):
-                    log_name = contract_spec_utils.contract_log_name(
-                        spec,
-                        case,
-                        "value_trace.jsonl",
-                    )
-                    log_path = os.path.join(os.getcwd(), log_name)
-                    if os.path.exists(log_path):
-                        os.remove(log_path)
-                    os.environ["PYTORCH_VULKAN_VALIDATE_VALUES"] = "1"
-                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_LOG"] = log_path
-                    os.environ["PYTORCH_VULKAN_VALUE_TRACE_SAMPLES"] = "1"
-
-                    torch.manual_seed(1000 + len(case["name"]))
-                    weight_cpu = torch.randn(
-                        case["num_embeddings"],
-                        case["embedding_dim"],
-                        dtype=torch.float32,
-                    )
-                    indices_cpu = make_indices(case)
-                    weight_vulkan = weight_cpu.to("vulkan")
-                    indices_vulkan = indices_cpu.to("vulkan")
-
-                    torch.ops.vulkan_prepack.reset_fallback_counters()
-                    expected = F.embedding(
-                        indices_cpu,
-                        weight_cpu,
-                        padding_idx=case["padding_idx"],
-                        scale_grad_by_freq=case.get("scale_grad_by_freq", False),
-                        sparse=case.get("sparse", False),
-                    )
-                    actual_vulkan = F.embedding(
-                        indices_vulkan,
-                        weight_vulkan,
-                        padding_idx=case["padding_idx"],
-                        scale_grad_by_freq=case.get("scale_grad_by_freq", False),
-                        sparse=case.get("sparse", False),
-                    )
-                    assert actual_vulkan.device.type == "vulkan", case
-                    actual = actual_vulkan.cpu()
-                    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
-
-                    fallback_count = torch.ops.vulkan_prepack.cpu_fallback_count()
-                    readback_count = torch.ops.vulkan_prepack.sync_readback_count()
-                    trace_records = read_value_trace(log_path)
-                    provenance = "\\n".join(
-                        str(record.get("output_provenance", ""))
-                        for record in trace_records
-                    )
-
-                    if expect_native_route:
-                        assert fallback_count == 0, (
-                            case,
-                            fallback_count,
-                            readback_count,
-                            trace_records,
-                        )
-                        assert route_hit in provenance, (case, provenance)
-                    else:
-                        assert route_hit not in provenance, (case, provenance)
-                        if contract_spec_utils.expected_negative_flag(
-                            case,
-                            "expected_sync_readback",
-                        ):
-                            assert readback_count > 0, (case, readback_count)
-
-                for _, case, expect_native_route in (
-                    contract_spec_utils.iter_shape_envelope_contract_cases(spec)
-                ):
-                    run_case(case, expect_native_route)
-            """
-            self._run_repo_python_subprocess(
-                script,
-                error_prefix="Embedding lookup generated contract spec failed.",
-            )
-        finally:
-            for path in case_log_paths:
-                if os.path.exists(path):
-                    os.remove(path)
 
     def test_channel_cat_contract_generated_rank4_dim1_spec(self):
         spec = _load_vulkan_contract_spec("channel_cat_contract.json")

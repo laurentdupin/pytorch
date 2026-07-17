@@ -96,33 +96,23 @@ condition and migration target.
   ownership contract with explicit packed-weight/scratch lifetime handoff,
   timeline-gated retire, and no generation-control CPU fallback hiding.
 
-### Embedding Lookup Exact Tuples
+### Embedding Device Index Bounds
 
-- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and
-  `aten/src/ATen/native/vulkan/ops/Indexing.cpp`
-- Status: partially migrated, contract-named
-- Reason: finite token-batch and small-bounded embedding lookup rows remain
-  evidence/regression fixtures. The dynamic program runtime now owns fp32
-  rank-2 Vulkan weights with CPU-resident Long rank-1/rank-2 indices
-  after host index-bounds checking, so vocab size, embedding dim, and index
-  count are no longer production admission limits for that safe path. It also
-  owns CPU-uploaded Vulkan Long index tensors whose exact descriptor carries
-  integer min/max provenance proving values are within the runtime vocab bound.
-  Truly device-produced Vulkan-resident indices still need a no-readback
-  value-bounds proof or device-side error path before they can be broadly
-  admitted without weakening PyTorch's out-of-range semantics.
-- Generated spec coverage: `test/vulkan_contract_specs/embedding_lookup_contract.json`
-  covers the small-bounded lookup slice with generated positive and adjacent
-  negative runtime tests and generic ShapeEnvelope C++ metadata/helper output,
-  including the derived indices product helper.
-  Other embedding rows still need broader generated coverage before the
-  exception can expire.
+- Location: `aten/src/ATen/native/vulkan/ops/Indexing.cpp` and
+  `aten/src/ATen/native/vulkan/planning/DynamicProgramRuntime.*`
+- Status: dynamic semantic route with one correctness boundary
+- Reason: `EmbeddingLookupDirectBuffer` is the sole native embedding admission
+  path. It owns fp32 rank-2 Vulkan weights with CPU-resident Long or Int
+  rank-1/rank-2 indices after host bounds checking, and Vulkan-resident Long
+  indices carrying integer min/max provenance that proves the runtime vocab
+  bound. Truly device-produced Vulkan indices still need a no-readback
+  value-bounds proof or device-side error path before admission can preserve
+  PyTorch's out-of-range semantics.
 - Expiry: device-produced Vulkan-resident index tensors have a value-bounds or
   error contract that preserves PyTorch out-of-range behavior without
   per-shape allowlists.
-- Migration target: `EmbeddingLookupDirectBuffer` semantic admission plus
-  generated value-bounds and layout tests; finite rows remain only as
-  performance evidence or regression fixtures.
+- Migration target: extend `EmbeddingLookupDirectBuffer` with generated
+  value-bounds and layout proof; do not restore a finite shape contract.
 
 ### Cat Axis And Channel Cat Exact Tuples
 

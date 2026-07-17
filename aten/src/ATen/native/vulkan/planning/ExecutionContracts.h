@@ -337,22 +337,6 @@ struct PatchEmbedFeatureMapToTokensMatch final {
   int64_t token_count{0};
 };
 
-enum class EmbeddingLookupFamily : uint8_t {
-  None = 0u,
-  SmallBoundedLookup,
-  TokenBatch1,
-};
-
-struct EmbeddingLookupMatch final {
-  bool matched{false};
-  EmbeddingLookupFamily family{EmbeddingLookupFamily::None};
-  const char* tuple_id{nullptr};
-  const ExecutionContractMetadata* metadata{nullptr};
-  int64_t num_embeddings{0};
-  int64_t embedding_dim{0};
-  int64_t num_indices{0};
-};
-
 struct LinearGeluBridgeTensorInfo final {
   int64_t input_rank{0};
   int64_t input_batch{0};
@@ -778,32 +762,6 @@ bool matches_patch_embed_feature_map_to_tokens_contract(
     bool is_width_packed,
     bool has_zero_storage_offset,
     bool supports_buffer_compute);
-
-const char* embedding_lookup_family_name(EmbeddingLookupFamily family);
-
-const char* embedding_lookup_write_label(EmbeddingLookupFamily family);
-
-EmbeddingLookupMatch match_embedding_lookup_contract(
-    IntArrayRef weight_sizes,
-    IntArrayRef indices_sizes,
-    ScalarType weight_dtype,
-    ScalarType indices_dtype,
-    bool weight_is_vulkan,
-    bool indices_is_vulkan,
-    bool padding_idx_has_hint,
-    bool scale_grad_by_freq,
-    bool sparse);
-
-bool matches_embedding_lookup_contract(
-    IntArrayRef weight_sizes,
-    IntArrayRef indices_sizes,
-    ScalarType weight_dtype,
-    ScalarType indices_dtype,
-    bool weight_is_vulkan,
-    bool indices_is_vulkan,
-    bool padding_idx_has_hint,
-    bool scale_grad_by_freq,
-    bool sparse);
 
 const char* linear_gelu_bridge_family_name(LinearGeluBridgeFamily family);
 

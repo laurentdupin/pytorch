@@ -436,8 +436,8 @@ batch/head/sequence/head-dim values instead of the old exact `InitialCache`
 sequence/head geometry row.
 `LinearOrMatmulDirectBuffer` now gates generic fp32 rank-2/rank-3 direct-buffer
 linear execution by semantic M/K/N compatibility instead of exact tiled-plan
-evidence. `EmbeddingLookupDirectBuffer` now removes the old small-row bounds
-for fp32 2D Vulkan weights when Long indices are CPU-resident and host-checked
+evidence. `EmbeddingLookupDirectBuffer` is the sole native embedding admission
+path for fp32 2D Vulkan weights when Long or Int indices are CPU-resident and host-checked
 for valid range before dispatch, and for Vulkan-resident Long indices that
 carry CPU-uploaded integer min/max provenance proving the runtime vocab bound.
 Truly device-produced Vulkan indices remain on fallback until a no-readback
@@ -2531,8 +2531,6 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsDiffusionSDPASpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsElementwiseBroadcast.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsElementwiseBroadcastSpec.h`
-- `aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp`
-- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsGQARepeat.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsGQARepeatSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp`
@@ -2569,8 +2567,8 @@ allowed only as guarded contract rows while generated parity/negative coverage
 is built. Every current live contract name has JSON spec, ShapeEnvelope, and
 generated C++ helper coverage; remaining exact-row policy debt is tracked as
 temporary exceptions rather than as untracked live-contract debt.
-`BatchNormInferenceContract`, `ChannelCatContract`,
-`EmbeddingLookupContract`, `GQARepeatContract`, `KVCacheAppendContract`,
+`BatchNormInferenceContract`, `ChannelCatContract`, `GQARepeatContract`,
+`KVCacheAppendContract`,
 `LinearGeluBridgeContract`, `NoOverlapConvTranspose2DContract`, and
 `SafeViewReshapeContract`, `SmallMetadataPaddedConv2DContract`,
 `SmallSpatialPointwiseConvContract`, `MaskedTinySDPAContract`,
@@ -3044,13 +3042,13 @@ These files are diagnostic inputs. Production code must not depend on
   guards with random-shape coverage, not exact input height/width/output-channel
   rows. Batched inputs, other kernels, grouped convs, and direct-output
   ownership remain outside the family.
-- `EmbeddingLookupContract`: finite token-batch and small-bounded embedding
-  lookup contract; the small-bounded lookup slice has a JSON contract spec with
-  generated positive and adjacent negative runtime coverage. The
-  `SmallBoundedLookup` slice now uses the generic ShapeEnvelope C++ generator
-  path for generated metadata, bounds, matcher helper predicates, and the
-  derived indices product helper while the token-batch row remains
-  handwritten. Keep remaining exact rows until broader legality is proven.
+- Embedding lookup: `EmbeddingLookupDirectBuffer` owns the supported native
+  route by runtime dtype, rank, layout, semantic-option, dispatch-limit, and
+  index-bounds checks. The broader route made the finite token-batch and
+  small-bounded matcher unreachable, so that exact contract, generated spec,
+  duplicate dispatch, and mechanism-only tests were deleted. Device-produced
+  indices without a bounds proof still fall back under the temporary
+  correctness exception.
 - `CatAxisContract`: umbrella for last-dim, channel-dim, and rank-3 cat
   patterns. The `ChannelCatContract` rank-4 dim-1 buffer slice has a JSON
   contract spec with generated positive and adjacent negative runtime coverage,
@@ -3146,8 +3144,8 @@ These files are diagnostic inputs. Production code must not depend on
 - Contract spec governance discovers all `test/vulkan_contract_specs/*.json`,
   validates a shared schema, checks `contract_name`/`family`/`tuple_id` against
   live contract sources, validates any `ShapeEnvelope` v1 blocks present, and
-  keeps family-specific shape checks for BatchNormInference, EmbeddingLookup,
-  ChannelCat, KVCacheAppend, LinearGeluBridge, GQARepeat, MaskedTinySDPA,
+  keeps family-specific shape checks for BatchNormInference, ChannelCat,
+  KVCacheAppend, LinearGeluBridge, GQARepeat, MaskedTinySDPA,
   DiffusionSDPA, TransformerGQASDPA, VisionSelfAttentionSDPA,
   SDPAScoreSoftmax,
   NoOverlapConvTranspose2D, SmallMetadataPaddedConv2D, and SafeViewReshape.
@@ -3191,8 +3189,7 @@ These files are diagnostic inputs. Production code must not depend on
   `BackboneMlpHidden384To1536`, and TransformerGQASDPA
   `SparseAttentionRows`, and VisionSelfAttentionSDPA `SparseAttentionRows`
   use generic checked-in case plumbing under the ShapeEnvelope registry.
-  ChannelCat, EmbeddingLookup, and both
-  SafeViewReshape direct-buffer slices have
+  ChannelCat and both SafeViewReshape direct-buffer slices have
   deterministic `ShapeEnvelope` legal-case and adjacent-negative generators
   that must match the checked-in positive and negative cases by semantic key,
   violated axis, adjacent value, and fallback/readback policy. Their runtime
@@ -3207,13 +3204,10 @@ These files are diagnostic inputs. Production code must not depend on
   tensor-list input, aggregate channel bounds, and matcher hints through the
   generic ShapeEnvelope generator path; governance compares the output
   byte-for-byte with the checked-in header.
-- EmbeddingLookup `SmallBoundedLookup` now consumes the generic ShapeEnvelope
-  C++ metadata/helper generator path. `tools/vulkan_contracts/gen_contract_spec_cpp.py`
-  emits `generated/ExecutionContractsEmbeddingLookupSpec.h` from
-  `embedding_lookup_contract.json` for metadata, route label, dtype/rank-list,
-  range, boolean option bounds, the derived indices product helper, and helper
-  predicates; result construction, output-shape handling, and the token-batch
-  family remain handwritten.
+- Embedding lookup no longer has an exact ShapeEnvelope or generated C++
+  helper. Behavioral tests cover the sole dynamic semantic route for both
+  host-validated CPU indices and provenance-validated Vulkan indices, plus
+  invalid-index error and fallback behavior.
 - ElementwiseBroadcast `FloatTensorTensorBufferBroadcast` is the first
   consumer of generic ShapeEnvelope C++ metadata/helper generation v0:
   `tools/vulkan_contracts/gen_contract_spec_cpp.py` emits

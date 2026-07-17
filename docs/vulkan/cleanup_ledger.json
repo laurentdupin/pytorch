@@ -1006,6 +1006,37 @@
         "token_prefix_cat_add_token_rows_row_matches"
       ],
       "consequence": "Eighteen caller-free generated functions were deleted while generated metadata, constants, row tables, all production entry points, and their transitive helpers remain. The generated C++ surface is now explicit and guarded against future reachability drift."
+    },
+    {
+      "id": "retired_exact_embedding_lookup_contract",
+      "decision": "replace_exact_contract_with_semantic_route",
+      "status": "deleted",
+      "basis": [
+        "EmbeddingLookupDirectBuffer admits the same fp32 rank-2 weight and rank-1/rank-2 index semantics across runtime vocab, embedding, and index-count dimensions, subject to dispatch limits and explicit index-bounds proof.",
+        "Every candidate for the finite SmallBoundedLookup or TokenBatch1 matcher either returned through the dynamic Vulkan-index route or fell back for missing bounds/layout proof before the exact matcher result could be consumed.",
+        "CPU-resident indices already use the dynamic host-validated route, and behavioral tests cover CPU indices, provenance-validated Vulkan indices, formerly bounded dimensions, dimensions beyond the old row, and invalid indices."
+      ],
+      "removed_paths": [
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsEmbeddingLookup.cpp",
+        "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsEmbeddingLookupSpec.h",
+        "test/vulkan_contract_specs/embedding_lookup_contract.json"
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "test",
+        "tools"
+      ],
+      "forbidden_code_symbols": [
+        "EmbeddingLookupContract",
+        "SmallBoundedLookup",
+        "EmbeddingLookupFamily",
+        "EmbeddingLookupMatch",
+        "match_embedding_lookup_contract",
+        "buffer_float_long.small_bounded_lookup",
+        "embedding_lookup_small_bounded",
+        "ExecutionContractsEmbeddingLookup"
+      ],
+      "consequence": "The unreachable exact matcher, duplicate Vulkan-index dispatch, generated spec and helper, JSON fixture, generator adapters, accepted-row entry, and mechanism-only tests were deleted. EmbeddingLookupDirectBuffer remains the sole supported native route, while the device-produced index-bounds correctness exception remains explicit."
     }
   ],
   "entries": [

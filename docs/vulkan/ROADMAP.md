@@ -52,8 +52,8 @@ kernel generator or shader generator before the table/test path is proven.
 
 Current MVP status:
 
-- JSON contract spec fixtures exist for `EmbeddingLookupContract`,
-  `ChannelCatContract`, and `KVCacheAppendContract` `SequenceAppend` and
+- JSON contract spec fixtures exist for `ChannelCatContract` and
+  `KVCacheAppendContract` `SequenceAppend` and
   `InitialCache`, plus `NoOverlapConvTranspose2DContract`
   `Kernel2Stride2FloatBuffer` and `SDPAScoreSoftmaxContract`
   `DiffusionSquareScores`, plus `GQARepeatContract`
@@ -88,8 +88,7 @@ Current MVP status:
   runtime cases, and runtime case counts remain unchanged until a later task
   explicitly opts a family into extra checked-in cases.
 - `ShapeEnvelope` v1 now backs the generated C++ source-of-truth fixtures,
-  `ChannelCatContract` `Rank4Dim1BufferView`, `EmbeddingLookupContract`
-  `SmallBoundedLookup`, and `ElementwiseBroadcastContract`
+  `ChannelCatContract` `Rank4Dim1BufferView` and `ElementwiseBroadcastContract`
   `FloatTensorTensorBufferBroadcast`, plus the first layout/materialization
   runtime fixture,
   `SafeViewReshapeContract` `ViewMaterializedDirectBuffer`, and the matching
@@ -117,7 +116,7 @@ Current MVP status:
   capability requirements, policies, positive cases, adjacent negatives, and
   fuzz hints for validation and codegen.
 - Deterministic legal-case and adjacent-negative generation is active for
-  ShapeEnvelope-backed ChannelCat, EmbeddingLookup, and both SafeViewReshape
+  ShapeEnvelope-backed ChannelCat and both SafeViewReshape
   direct-buffer fixtures. The MVP compares generated legal positives and
   negatives against checked-in cases by semantic key, violated axis, adjacent
   value, and expected fallback/readback policy, then the runtime spec tests
@@ -129,16 +128,12 @@ Current MVP status:
   `channel_cat_contract.json` through the generic variadic tensor-list
   generator path, with cross-input iteration and match result construction
   still handwritten.
-- `EmbeddingLookupContract` `SmallBoundedLookup` now uses the generic
-  ShapeEnvelope C++ metadata/helper path: the generator emits
-  `ExecutionContractsEmbeddingLookupSpec.h` from `embedding_lookup_contract.json`
-  for metadata, route label, dtype/rank-list, range, boolean option bounds, the
-  derived indices product helper, and matcher helper predicates. The
-  token-batch row remains handwritten as evidence. Production admission is now
-  dynamic for CPU-resident valid Long indices and for CPU-uploaded
-  Vulkan-resident Long indices carrying integer min/max provenance; remaining
-  device-produced index tensors need a value-proof/error contract rather than
-  another shape row.
+- Embedding lookup now has one production admission model:
+  `EmbeddingLookupDirectBuffer`. The broader semantic route superseded the
+  unreachable finite token-batch and small-bounded matcher, so its JSON spec,
+  generated helper, duplicate dispatch, and exact contract source were
+  deleted. Remaining device-produced index tensors need a value-proof/error
+  contract rather than another shape row.
 - `ElementwiseBroadcastContract` `FloatTensorTensorBufferBroadcast` has the
   first generic ShapeEnvelope C++ metadata/helper artifact:
   `ExecutionContractsElementwiseBroadcastSpec.h` is emitted without adding a
