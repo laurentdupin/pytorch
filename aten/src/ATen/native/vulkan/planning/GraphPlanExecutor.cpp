@@ -4,7 +4,7 @@
 
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/native/vulkan/api/Context.h>
-#include <ATen/native/vulkan/ops/Convolution.h>
+#include <ATen/native/vulkan/api/SyncCounters.h>
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
@@ -22,6 +22,7 @@
 #include <exception>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -59,7 +60,6 @@ enum class VulkanGraphPlanInstructionKind : int64_t {
 enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   None,
   LinearContext,
-  Conv2dContext,
   AddLayernormPlan,
 };
 
@@ -150,9 +150,6 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
     const std::string& operator_name) {
   if (operator_name == "vulkan_prepack::run_linear_context") {
     return VulkanGraphPlanResourceWriterKind::LinearContext;
-  }
-  if (operator_name == "vulkan_prepack::run_conv2d_context") {
-    return VulkanGraphPlanResourceWriterKind::Conv2dContext;
   }
   if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
     return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
@@ -430,23 +427,6 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
           ? VulkanGraphPlanResourceWriteResult::Written
           : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
     }
-    case VulkanGraphPlanResourceWriterKind::Conv2dContext: {
-      TORCH_CHECK(
-          targets.size() == 1u && stack.size() == 2u && stack[0].isTensor(),
-          "VulkanGraphPlan.v9 convolution resource writer has invalid arguments");
-      const auto context = stack[1].toCustomClass<Conv2dPackedContext>();
-      auto result =
-          try_run_conv2d_context_out(stack[0].toTensor(), context, *targets[0]);
-      if (!result) {
-        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
-      }
-      TORCH_CHECK(
-          same_vulkan_resource(*result, *targets[0]),
-          "VulkanGraphPlan.v9 convolution resource writer rebound its stable slot");
-      stack.clear();
-      stack.emplace_back(std::move(*result));
-      return VulkanGraphPlanResourceWriteResult::Written;
-    }
     case VulkanGraphPlanResourceWriterKind::AddLayernormPlan: {
       TORCH_CHECK(
           targets.size() == 2u && stack.size() == 3u && stack[0].isTensor() &&
@@ -549,6 +529,8 @@ VulkanGraphPlan::~VulkanGraphPlan() noexcept {
   if (!state_) {
     return;
   }
+  api::VulkanGraphProgramInvocationCounters& counters =
+      api::vulkan_graph_program_invocation_counters();
   for (VulkanGraphPlanResourceArena& arena : state_->resource_arenas) {
     if (arena.tensors.empty()) {
       continue;
@@ -557,13 +539,15 @@ VulkanGraphPlan::~VulkanGraphPlan() noexcept {
       for (Tensor& tensor : arena.tensors) {
         if (tensor.defined()) {
           (void)tensor.unsafeReleaseTensorImpl();
+          counters.resource_arena_unsafe_slot_leak_count.fetch_add(
+              1u, std::memory_order_relaxed);
         }
       }
       continue;
     }
     api::Context* context = nullptr;
-    auto* retired_buffers = new std::vector<api::VulkanBuffer>();
-    bool release_failed = false;
+    auto retired_buffers =
+        std::make_unique<std::vector<api::VulkanBuffer>>();
     for (Tensor& slot : arena.tensors) {
       if (!slot.defined()) {
         continue;
@@ -584,25 +568,38 @@ VulkanGraphPlan::~VulkanGraphPlan() noexcept {
             std::make_move_iterator(buffers.begin()),
             std::make_move_iterator(buffers.end()));
       } catch (...) {
-        release_failed = true;
         (void)tensor.unsafeReleaseTensorImpl();
+        counters.resource_arena_unsafe_slot_leak_count.fetch_add(
+            1u, std::memory_order_relaxed);
       }
     }
-    if (release_failed || !context) {
-      (void)retired_buffers;
+    if (retired_buffers->empty()) {
       continue;
     }
-    if (
-        arena.submission.timeline_value == 0u ||
-        context->graph_program_submission_complete(arena.submission)) {
-      delete retired_buffers;
+    if (!context) {
+      counters.resource_arena_retirement_failure_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      (void)retired_buffers.release();
       continue;
     }
     try {
+      if (
+          arena.submission.timeline_value == 0u ||
+          context->graph_program_submission_complete(arena.submission)) {
+        retired_buffers.reset();
+        counters.resource_arena_immediate_release_count.fetch_add(
+            1u, std::memory_order_relaxed);
+        continue;
+      }
+      auto* const buffers = retired_buffers.release();
       context->retire_graph_program_resource(
-          arena.submission, [retired_buffers]() { delete retired_buffers; });
+          arena.submission, [buffers]() { delete buffers; });
+      counters.resource_arena_retire_enqueued_count.fetch_add(
+          1u, std::memory_order_relaxed);
     } catch (...) {
-      (void)retired_buffers;
+      counters.resource_arena_retirement_failure_count.fetch_add(
+          1u, std::memory_order_relaxed);
+      (void)retired_buffers.release();
     }
   }
 }
@@ -944,10 +941,8 @@ bool VulkanGraphPlan::valid() const {
       return false;
     }
     if (
-        ((instruction.resource_writer_kind ==
-              VulkanGraphPlanResourceWriterKind::LinearContext ||
-          instruction.resource_writer_kind ==
-              VulkanGraphPlanResourceWriterKind::Conv2dContext) &&
+        (instruction.resource_writer_kind ==
+             VulkanGraphPlanResourceWriterKind::LinearContext &&
          instruction.output_value_ids.size() != 1u) ||
         (instruction.resource_writer_kind ==
              VulkanGraphPlanResourceWriterKind::AddLayernormPlan &&

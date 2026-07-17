@@ -93,6 +93,8 @@ class VulkanGraphPlanReport:
     resource_value_count: int
     resource_writer_instruction_count: int
     resource_arena_flight_depth: int
+    resource_alias_extended_lifetime_count: int
+    resource_alias_escape_rejection_count: int
     value_count: int
     output_count: int
     submission_owned: bool
@@ -119,7 +121,6 @@ _GRAPH_LIST_GETITEM_OPERATOR_NAME = "vulkan_graph::list_getitem"
 _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
     (
         "vulkan_prepack::run_linear_context",
-        "vulkan_prepack::run_conv2d_context",
         "vulkan_prepack::run_graph_add_layernorm_plan",
     )
 )
@@ -165,6 +166,8 @@ def _rejected(
             resource_value_count=0,
             resource_writer_instruction_count=0,
             resource_arena_flight_depth=0,
+            resource_alias_extended_lifetime_count=0,
+            resource_alias_escape_rejection_count=0,
             value_count=0,
             output_count=0,
             submission_owned=False,
@@ -329,6 +332,26 @@ def _resource_output_descriptors(
         if known is not None:
             descriptors = [item if item is not None else known for item in descriptors]
     return tuple(descriptors)
+
+
+def _alias_info_labels(alias_info: Any) -> set[str]:
+    if alias_info is None:
+        return set()
+    return set(alias_info.before_set) | set(alias_info.after_set)
+
+
+def _alias_infos_overlap(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    left_labels = _alias_info_labels(left)
+    right_labels = _alias_info_labels(right)
+    if not left_labels or not right_labels:
+        return True
+    return (
+        "*" in left_labels
+        or "*" in right_labels
+        or not left_labels.isdisjoint(right_labels)
+    )
 
 
 def compile_vulkan_graph_plan(
@@ -630,19 +653,73 @@ def compile_vulkan_graph_plan(
                     use_counts[ref] += 1
                     last_uses[ref] = instruction_index
 
+    alias_parents = list(range(value_count))
+
+    def find_alias_root(value_id: int) -> int:
+        root = value_id
+        while alias_parents[root] != root:
+            root = alias_parents[root]
+        while alias_parents[value_id] != value_id:
+            parent = alias_parents[value_id]
+            alias_parents[value_id] = root
+            value_id = parent
+        return root
+
+    def union_aliases(left: int, right: int) -> None:
+        left_root = find_alias_root(left)
+        right_root = find_alias_root(right)
+        if left_root != right_root:
+            alias_parents[right_root] = left_root
+
+    for node, refs, output_ids in zip(
+        instruction_nodes, argument_refs, instruction_output_value_ids
+    ):
+        if not isinstance(node.target, torch._ops.OpOverload):
+            continue
+        schema = node.target._schema
+        for return_schema, output_id in zip(schema.returns, output_ids):
+            if return_schema.alias_info is None:
+                continue
+            for argument_schema, encoded_refs in zip(schema.arguments, refs):
+                if not _alias_infos_overlap(
+                    return_schema.alias_info, argument_schema.alias_info
+                ):
+                    continue
+                for ref in encoded_refs:
+                    if ref >= 0:
+                        union_aliases(output_id, ref)
+
+    alias_components: dict[int, list[int]] = {}
+    for value_id in range(value_count):
+        alias_components.setdefault(find_alias_root(value_id), []).append(value_id)
+    alias_last_uses = list(last_uses)
+    alias_escapes = [False] * value_count
+    escaping_value_ids = set(output_value_ids)
+    for component in alias_components.values():
+        component_last_use = max(last_uses[value_id] for value_id in component)
+        component_escapes = any(
+            value_id in escaping_value_ids for value_id in component
+        )
+        for value_id in component:
+            alias_last_uses[value_id] = component_last_use
+            alias_escapes[value_id] = component_escapes
+
     value_resource_slot_ids = [-1] * value_count
     resource_descriptors: list[_VulkanGraphResourceDescriptor] = []
     resource_slot_last_uses: list[int] = []
-    escaping_value_ids = set(output_value_ids)
     resource_writer_instruction_count = 0
+    resource_alias_extended_lifetime_count = 0
+    resource_alias_escape_rejection_count = 0
     for instruction_index, (node, operator_name, instruction_output_ids) in enumerate(
         zip(instruction_nodes, operator_names, instruction_output_value_ids)
     ):
         if (
             operator_name not in _RESOURCE_WRITER_OPERATOR_NAMES
             or not instruction_output_ids
-            or any(value_id in escaping_value_ids for value_id in instruction_output_ids)
         ):
+            continue
+        if any(alias_escapes[value_id] for value_id in instruction_output_ids):
+            resource_alias_escape_rejection_count += 1
             continue
         descriptors = _resource_output_descriptors(
             node, len(instruction_output_ids), planning_context
@@ -666,10 +743,12 @@ def compile_vulkan_graph_plan(
             if slot_id < 0:
                 slot_id = len(resource_descriptors)
                 resource_descriptors.append(descriptor)
-                resource_slot_last_uses.append(last_uses[value_id])
+                resource_slot_last_uses.append(alias_last_uses[value_id])
             else:
-                resource_slot_last_uses[slot_id] = last_uses[value_id]
+                resource_slot_last_uses[slot_id] = alias_last_uses[value_id]
             value_resource_slot_ids[value_id] = slot_id
+            if alias_last_uses[value_id] > last_uses[value_id]:
+                resource_alias_extended_lifetime_count += 1
 
     resource_slot_sizes = [
         size for descriptor in resource_descriptors for size in descriptor.sizes
@@ -741,6 +820,12 @@ def compile_vulkan_graph_plan(
         resource_writer_instruction_count=resource_writer_instruction_count,
         resource_arena_flight_depth=(
             _RESOURCE_ARENA_FLIGHT_DEPTH if resource_descriptors else 0
+        ),
+        resource_alias_extended_lifetime_count=(
+            resource_alias_extended_lifetime_count
+        ),
+        resource_alias_escape_rejection_count=(
+            resource_alias_escape_rejection_count
         ),
         value_count=value_count,
         output_count=len(output_value_ids),

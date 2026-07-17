@@ -4397,7 +4397,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4417,22 +4417,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -4486,7 +4486,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4506,22 +4506,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -4575,7 +4575,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4595,22 +4595,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -4664,7 +4664,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4684,22 +4684,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -4753,7 +4753,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4773,22 +4773,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -4842,7 +4842,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4862,22 +4862,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -4931,7 +4931,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -4951,22 +4951,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5020,7 +5020,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5040,22 +5040,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5109,7 +5109,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5129,22 +5129,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5198,7 +5198,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5218,22 +5218,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5287,7 +5287,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5307,22 +5307,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5376,7 +5376,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5396,22 +5396,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5465,7 +5465,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5485,22 +5485,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5554,7 +5554,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5574,22 +5574,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5643,7 +5643,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5663,22 +5663,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5732,7 +5732,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5752,22 +5752,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5821,7 +5821,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5841,22 +5841,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5910,7 +5910,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -5930,22 +5930,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -5999,7 +5999,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6019,22 +6019,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6088,7 +6088,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6108,22 +6108,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6177,7 +6177,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6197,22 +6197,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6266,7 +6266,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6286,22 +6286,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6355,7 +6355,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6375,22 +6375,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6444,7 +6444,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6464,22 +6464,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6533,7 +6533,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6553,22 +6553,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6622,7 +6622,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6642,22 +6642,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -6711,7 +6711,7 @@
       "cardinality_estimate": 1,
       "contract_name": "PatchEmbedFloatBufferConvRoute",
       "dependency_digests": {
-        "entry_dependency_digest": "0c37a9210315b94f2b6d250a29abf6bc642beb444b228d865baf001a195dfc65",
+        "entry_dependency_digest": "6413737d70a2efed8d233d4fa643279a7c6c8d65c348153ce81a288d96c3dcde",
         "expected_counter_policy": {
           "policy": {
             "copy": "float_buffer_conv_route_no_weight_cpu_repack",
@@ -6731,22 +6731,22 @@
           "sha256": "e0ff6d1146a2d02c18c6a52d4b9bceae605355ddf59831016fbec1b4d2d99b5f"
         },
         "matcher_source": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -7908,7 +7908,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -7928,7 +7928,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -7936,18 +7936,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -7995,7 +7995,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8015,7 +8015,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8023,18 +8023,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8082,7 +8082,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8102,7 +8102,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8110,18 +8110,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8169,7 +8169,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8189,7 +8189,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8197,18 +8197,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8256,7 +8256,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8276,7 +8276,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8284,18 +8284,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8343,7 +8343,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8363,7 +8363,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8371,18 +8371,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8430,7 +8430,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8450,7 +8450,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8458,18 +8458,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8517,7 +8517,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8537,7 +8537,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8545,18 +8545,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8604,7 +8604,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8624,7 +8624,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8632,18 +8632,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8691,7 +8691,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8711,7 +8711,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8719,18 +8719,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8778,7 +8778,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8798,7 +8798,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8806,18 +8806,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8865,7 +8865,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8885,7 +8885,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8893,18 +8893,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -8952,7 +8952,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -8972,7 +8972,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -8980,18 +8980,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9039,7 +9039,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9059,7 +9059,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9067,18 +9067,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9126,7 +9126,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9146,7 +9146,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9154,18 +9154,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9213,7 +9213,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9233,7 +9233,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9241,18 +9241,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9300,7 +9300,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9320,7 +9320,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9328,18 +9328,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9387,7 +9387,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9407,7 +9407,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9415,18 +9415,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9474,7 +9474,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9494,7 +9494,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9502,18 +9502,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9561,7 +9561,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9581,7 +9581,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9589,18 +9589,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9648,7 +9648,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9668,7 +9668,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9676,18 +9676,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9735,7 +9735,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9755,7 +9755,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9763,18 +9763,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9822,7 +9822,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9842,7 +9842,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9850,18 +9850,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9909,7 +9909,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -9929,7 +9929,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -9937,18 +9937,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -9996,7 +9996,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10016,7 +10016,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10024,18 +10024,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10083,7 +10083,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10103,7 +10103,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10111,18 +10111,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10170,7 +10170,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10190,7 +10190,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10198,18 +10198,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10257,7 +10257,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10277,7 +10277,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10285,18 +10285,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10344,7 +10344,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10364,7 +10364,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10372,18 +10372,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10431,7 +10431,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10451,7 +10451,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10459,18 +10459,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10518,7 +10518,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10538,7 +10538,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10546,18 +10546,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10605,7 +10605,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10625,7 +10625,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10633,18 +10633,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10692,7 +10692,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10712,7 +10712,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10720,18 +10720,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10779,7 +10779,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10799,7 +10799,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10807,18 +10807,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10866,7 +10866,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10886,7 +10886,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10894,18 +10894,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -10953,7 +10953,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -10973,7 +10973,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -10981,18 +10981,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11040,7 +11040,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11060,7 +11060,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11068,18 +11068,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11127,7 +11127,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11147,7 +11147,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11155,18 +11155,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11214,7 +11214,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11234,7 +11234,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11242,18 +11242,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11301,7 +11301,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11321,7 +11321,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11329,18 +11329,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11388,7 +11388,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11408,7 +11408,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11416,18 +11416,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11475,7 +11475,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11495,7 +11495,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11503,18 +11503,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11562,7 +11562,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11582,7 +11582,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11590,18 +11590,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11649,7 +11649,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11669,7 +11669,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11677,18 +11677,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11736,7 +11736,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11756,7 +11756,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11764,18 +11764,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11823,7 +11823,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11843,7 +11843,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11851,18 +11851,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11910,7 +11910,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -11930,7 +11930,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -11938,18 +11938,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -11997,7 +11997,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12017,7 +12017,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12025,18 +12025,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12084,7 +12084,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12104,7 +12104,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12112,18 +12112,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12171,7 +12171,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12191,7 +12191,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12199,18 +12199,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12258,7 +12258,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12278,7 +12278,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12286,18 +12286,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12345,7 +12345,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12365,7 +12365,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12373,18 +12373,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12432,7 +12432,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12452,7 +12452,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12460,18 +12460,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12519,7 +12519,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12539,7 +12539,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12547,18 +12547,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12606,7 +12606,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12626,7 +12626,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12634,18 +12634,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12693,7 +12693,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12713,7 +12713,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12721,18 +12721,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12780,7 +12780,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12800,7 +12800,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12808,18 +12808,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12867,7 +12867,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12887,7 +12887,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12895,18 +12895,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -12954,7 +12954,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -12974,7 +12974,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -12982,18 +12982,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13041,7 +13041,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13061,7 +13061,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13069,18 +13069,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13128,7 +13128,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13148,7 +13148,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13156,18 +13156,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13215,7 +13215,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13235,7 +13235,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13243,18 +13243,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13302,7 +13302,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13322,7 +13322,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13330,18 +13330,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13389,7 +13389,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13409,7 +13409,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13417,18 +13417,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13476,7 +13476,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13496,7 +13496,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13504,18 +13504,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13563,7 +13563,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13583,7 +13583,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13591,18 +13591,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13650,7 +13650,7 @@
       "cardinality_estimate": 1,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13670,7 +13670,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13678,18 +13678,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -13737,7 +13737,7 @@
       "cardinality_estimate": 144,
       "contract_name": "SmallSpatialPointwiseConvContract",
       "dependency_digests": {
-        "entry_dependency_digest": "5f23daa1c0cac0fd7d154191404cb96bf494b7b7baf1b6a1b5f2d33026f185ad",
+        "entry_dependency_digest": "7e54d0e50d85ee526b4516317ca5677174076891eb2bf13cf1ac70c110a306aa",
         "expected_counter_policy": {
           "policy": {
             "copy": "native_buffer_kernel",
@@ -13757,7 +13757,7 @@
           "sha256": "fb31ac6a40ed92ba3e023df368bc5b1c1e6536a1d35dd207b644e09abf211e7a"
         },
         "matcher_source": {
-          "combined_sha256": "fe3ccc0c8ddf2de0238d37aa77a7db25d843307359e34aaae7912aed3ca48481",
+          "combined_sha256": "30b592832a69b309c924623a6252fcd742a0033216f599ae178efef7cfc5884c",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp",
@@ -13765,18 +13765,18 @@
             },
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "c8b1d0715eddc4f0408b6d8fe3933d96c111dc62568341a62f75d3185a8c747c",
+          "combined_sha256": "7584dccdc7fce91a951b5356af70acdc4e0a402c516fbcbcf26d9ad2b1df7050",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
-              "sha256": "bbab385fcf95ce6e2c4b9078a1f25076414d8a933b3802f7f1e2a179e104cbeb"
+              "sha256": "1128d82208961c0719ffbb1b8050bede46e1c42f4860b268a630a08e212aaf8f"
             }
           ],
           "known": true,
@@ -14713,7 +14713,7 @@
   "entry_count": 162,
   "generator": "tools/vulkan_contract_codegen/compare_contract_admission.py",
   "git_ref": "WORKTREE",
-  "manifest_digest": "64d9ea6fd1b7a033aad7f04b5b795aff3eb60d45b9a8cf6ef74e75b708521420",
+  "manifest_digest": "b8a1483c1c818589aef58cc2d72174189e1a4f22924c9d1ccfbc7211d31e7f15",
   "schema_version": 1,
   "summaries": {
     "AttentionProbabilityMaterializationContract": {
@@ -14890,7 +14890,7 @@
       "admission_digest": "fc11dc8cd800dd54a75d3eebd30df8512f84ad14df56774e812c169276a262b5",
       "bounded_envelope_count": 0,
       "cardinality_estimate": 27,
-      "dependency_digest": "c0c1f47cc6a260d7262dcb5bb566e665cfe11c2e91f776edf3c5b3ce22da4063",
+      "dependency_digest": "17e70a1bb5d97dd5ebdd183f266a9d85f45fde547579aa24d239d1d117c6a188",
       "entry_count": 27,
       "exact_sparse_row_count": 27,
       "factorized_group_count": 0,
@@ -14960,7 +14960,7 @@
       "admission_digest": "c643220829e479a4720e7db7c155dd8c4ebb9a94f54a1d7fec084f78ce23421e",
       "bounded_envelope_count": 0,
       "cardinality_estimate": 211,
-      "dependency_digest": "e29820495eed8b59fd3a409d27170caa7e666497d8a2f60ecf9703c71d78a17b",
+      "dependency_digest": "cfffa52593d3a49aec1b6957fb060bf00bc9033eb50a49cb4cdee322b88e69ea",
       "entry_count": 68,
       "exact_sparse_row_count": 67,
       "factorized_group_count": 1,

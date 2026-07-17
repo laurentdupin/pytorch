@@ -43,6 +43,10 @@ _GRAPH_PROGRAM_INVOCATION_COUNTER_NAMES = (
     "scratch_transient_overflow",
     "scratch_retire_enqueued",
     "scratch_immediate_release",
+    "resource_arena_immediate_release",
+    "resource_arena_retire_enqueued",
+    "resource_arena_unsafe_slot_leak",
+    "resource_arena_retirement_failure",
 )
 _SUBMIT_ORIGIN_COUNTER_NAMES = (
     "total_queue_submits",
@@ -382,6 +386,12 @@ def _execution_plan_summary(
             report.resource_writer_instruction_count
         ),
         "resource_arena_flight_depth": report.resource_arena_flight_depth,
+        "resource_alias_extended_lifetime_count": (
+            report.resource_alias_extended_lifetime_count
+        ),
+        "resource_alias_escape_rejection_count": (
+            report.resource_alias_escape_rejection_count
+        ),
         "value_count": report.value_count,
         "output_count": report.output_count,
         "submission_owned": report.submission_owned,

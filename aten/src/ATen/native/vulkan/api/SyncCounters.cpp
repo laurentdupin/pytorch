@@ -106,6 +106,14 @@ void reset_vulkan_graph_program_invocation_counters() {
       0u, std::memory_order_relaxed);
   counters.scratch_immediate_release_count.store(
       0u, std::memory_order_relaxed);
+  counters.resource_arena_immediate_release_count.store(
+      0u, std::memory_order_relaxed);
+  counters.resource_arena_retire_enqueued_count.store(
+      0u, std::memory_order_relaxed);
+  counters.resource_arena_unsafe_slot_leak_count.store(
+      0u, std::memory_order_relaxed);
+  counters.resource_arena_retirement_failure_count.store(
+      0u, std::memory_order_relaxed);
 }
 
 std::vector<int64_t> graph_program_invocation_counters_snapshot() {
@@ -132,6 +140,18 @@ std::vector<int64_t> graph_program_invocation_counters_snapshot() {
           std::memory_order_relaxed)),
       static_cast<int64_t>(counters.scratch_immediate_release_count.load(
           std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.resource_arena_immediate_release_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.resource_arena_retire_enqueued_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.resource_arena_unsafe_slot_leak_count.load(
+              std::memory_order_relaxed)),
+      static_cast<int64_t>(
+          counters.resource_arena_retirement_failure_count.load(
+              std::memory_order_relaxed)),
   };
 }
 

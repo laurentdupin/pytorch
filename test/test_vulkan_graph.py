@@ -802,7 +802,7 @@ class TestVulkanGraph(TestCase):
         self.assertTrue(program.cpp_plan.last_submission_complete())
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_cpp_graph_plan_preserves_outputs_before_last_instruction(self):
@@ -849,7 +849,7 @@ class TestVulkanGraph(TestCase):
         self.assertTrue(program.cpp_plan.last_submission_complete())
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
         self.assertEqual(output.cpu(), model(tensor))
 
@@ -872,7 +872,7 @@ class TestVulkanGraph(TestCase):
         self.assertGreater(program.cpp_plan.last_submission_value(), 0)
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
         self.assertEqual(output.cpu(), model(tensor))
         self.assertTrue(program.cpp_plan.last_submission_complete())
@@ -985,7 +985,7 @@ class TestVulkanGraph(TestCase):
         )
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_cpp_graph_plan_rejects_mutable_dispatch(self):
@@ -1116,6 +1116,54 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.resource_arena_spill_count(), 0)
         self.assertEqual(program.cpp_plan.resource_write_count(), 4)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):
+        class LinearViewOutput(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 4)
+
+            def forward(self, tensor):
+                return self.linear(tensor).view(4, 2)
+
+        torch.manual_seed(0)
+        model = LinearViewOutput().eval()
+        tensor = torch.randn(2, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.resource_writer_instruction_count, 0)
+        self.assertEqual(report.resource_value_count, 0)
+        self.assertEqual(report.resource_slot_count, 0)
+        self.assertEqual(report.resource_alias_extended_lifetime_count, 0)
+        self.assertEqual(report.resource_alias_escape_rejection_count, 1)
+        torch.testing.assert_close(program(tensor).cpu(), model(tensor))
+
+    def test_cpp_graph_plan_extends_resource_lifetime_through_aliases(self):
+        class TwoLinearLiveView(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.first = torch.nn.Linear(4, 4)
+                self.second = torch.nn.Linear(4, 4)
+
+            def forward(self, tensor):
+                first = self.first(tensor)
+                alias = first.view(4, 2).view(2, 4)
+                second = self.second(tensor)
+                return torch.sin(alias + second)
+
+        torch.manual_seed(0)
+        model = TwoLinearLiveView().eval()
+        tensor = torch.randn(2, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.resource_writer_instruction_count, 2)
+        self.assertEqual(report.resource_value_count, 2)
+        self.assertEqual(report.resource_slot_count, 2)
+        self.assertEqual(report.resource_alias_extended_lifetime_count, 1)
+        self.assertEqual(report.resource_alias_escape_rejection_count, 0)
+        torch.testing.assert_close(program(tensor).cpu(), model(tensor))
 
     def test_cpp_graph_plan_reuses_resource_arena_after_partial_failure(self):
         context = torch.ops.vulkan_prepack.create_linear_context(
@@ -1258,6 +1306,45 @@ class TestVulkanGraph(TestCase):
                 [3],
                 2,
             )
+
+    def test_cpp_graph_plan_releases_resource_arena_when_plan_dies(self):
+        gc.collect()
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        weight = torch.randn(4, 4)
+        bias = torch.randn(4)
+        context = torch.ops.vulkan_prepack.create_linear_context(weight, bias)
+        plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+            ["linear", "sin"],
+            ["vulkan_prepack::run_linear_context", "aten::sin"],
+            ["", ""],
+            [[[0], [-1]], [[1]]],
+            [[0, 0], [0]],
+            [[1], [2]],
+            [context],
+            1,
+            [2],
+            0,
+            0,
+            False,
+            None,
+            [-1, 0, -1],
+            [2, 4],
+            [2],
+            2,
+        )
+        tensor = torch.randn(2, 4, device="vulkan")
+        output = torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
+            [tensor], plan
+        )[0]
+        self.assertEqual(output.cpu().shape, (2, 4))
+        del output
+        torch.ops.vulkan_prepack.synchronize()
+        del plan
+        gc.collect()
+
+        counters = _graph_program_invocation_counters()
+        self.assertGreaterEqual(counters[10], 1)
+        self.assertEqual(counters[11:], [0, 0, 0])
 
     def test_cpp_graph_plan_attributes_effect_failure_before_later_op(self):
         plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
@@ -1577,7 +1664,7 @@ class TestVulkanGraph(TestCase):
         self.assertTrue(program.cpp_plan.last_submission_complete())
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_fresh_detach_functionalization_rejects_input_alias(self):
@@ -2650,12 +2737,13 @@ class TestVulkanGraph(TestCase):
             self.assertEqual(program.last_sync_readback_count, 0)
             self.assertEqual(program.last_deferred_values_created, 0)
             counters = _graph_program_invocation_counters()
-            self.assertEqual(len(counters), 10)
+            self.assertEqual(len(counters), 14)
             self.assertEqual(counters[0], 1)
             self.assertEqual(counters[1], 1)
             self.assertEqual(counters[2:5], [0, 0, 0])
             self.assertGreaterEqual(counters[5], 1)
-            self.assertEqual(counters[6:], [0, 0, 0, 0])
+            self.assertEqual(counters[6:10], [0, 0, 0, 0])
+            self.assertEqual(counters[10:], [0, 0, 0, 0])
 
     def test_direct_conv2d_relu_conv2d_region_keeps_private_scope(self):
         class ConvReluConv(torch.nn.Module):
@@ -2692,7 +2780,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(submit_origins[0], 1)
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [1, 1, 0, 0, 0, 1, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_conv2d_region_scratch_inherits_abort_submission(self):
@@ -2762,7 +2850,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(submit_origins[0], 1)
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [2, 1, 1, 0, 0, 1, 1, 0, 0, 0],
+            [2, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_static_conv2d_relu_conv2d_region_rejects_host_sync_requirement(
@@ -2801,7 +2889,7 @@ class TestVulkanGraph(TestCase):
 
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
@@ -2859,7 +2947,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_deferred_values_created, 0)
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [3, 3, 0, 0, 0, 2, 1, 0, 0, 0],
+            [3, 3, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_static_conv2d_relu_conv2d_region_allows_two_unread_outputs(self):
@@ -3630,7 +3718,7 @@ class TestVulkanGraph(TestCase):
         self.assertTrue(program.cpp_plan.last_submission_complete())
         self.assertEqual(
             _graph_program_invocation_counters(),
-            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+            [2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
 
     def test_static_causal_mask_and_runtime_attention_mask_stay_on_device(self):

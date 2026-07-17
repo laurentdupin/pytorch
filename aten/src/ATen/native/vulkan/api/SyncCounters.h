@@ -62,6 +62,10 @@ struct VulkanGraphProgramInvocationCounters final {
   std::atomic<uint64_t> scratch_transient_overflow_count{0u};
   std::atomic<uint64_t> scratch_retire_enqueued_count{0u};
   std::atomic<uint64_t> scratch_immediate_release_count{0u};
+  std::atomic<uint64_t> resource_arena_immediate_release_count{0u};
+  std::atomic<uint64_t> resource_arena_retire_enqueued_count{0u};
+  std::atomic<uint64_t> resource_arena_unsafe_slot_leak_count{0u};
+  std::atomic<uint64_t> resource_arena_retirement_failure_count{0u};
 };
 
 enum class VulkanSubmitOrigin : uint8_t {
