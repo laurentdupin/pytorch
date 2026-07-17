@@ -3923,6 +3923,132 @@
         "If concurrent invocation is admitted, replace the current plan-level rejection with an explicit bounded flight and generation protocol.",
         "When recorded partitions bind stable slots and descriptors, rerun both DAv2 guards plus the ten-minute replacement soak against this exact artifact."
       ]
+    },
+    {
+      "id": "graph_recorded_partition_experiment_preregistered_2026_07_17",
+      "status": "proposed_unstarted",
+      "head": "8c81025953a7e0c4c46d3203385932b5441b2ea2",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Preregister attribution, topology, correctness, latency, and memory thresholds for the first recorded-partition experiment before implementing or timing replay."
+      },
+      "device_notes": "The empty-command attribution covers RX 9070, GTX 1080, and RX 6700 XT on the current Windows host. Replay A/B starts on RX 9070 and cannot become a default on another adapter without that adapter's own correctness, distribution, capability, and memory evidence.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9 baseline",
+        "per-program graph checkpoint topology",
+        "two GPU timestamps per graph submission",
+        "CPU command-record and submit attribution",
+        "10/5/2/1 observed-submission sweep",
+        "bounded reusable command partitions",
+        "flight-depth-times-arena memory accounting"
+      ],
+      "candidate": "First measure per-submission GPU busy spans and host recording/submit gaps while sweeping topologies nearest 10, 5, 2, and 1 submissions. Only then record and replay bounded Vulkan-only partitions whose resources and descriptors have stable program ownership.",
+      "correctness": {
+        "status": "preregistered_not_run",
+        "required_tests": [
+          "normal and alternate exact graph-versus-eager parity",
+          "normal and alternate graph-versus-CPU tolerance",
+          "zero graph fallback, unexpected readback, deferred value, unsafe-slot leak, and retirement failure",
+          "prior output remains live across a repeated invocation",
+          "partial failure leaves every arena and recorded partition reusable or explicitly poisoned",
+          "full Vulkan graph, evidence, cleanup, and governance suites",
+          "qualified 600-second RX 9070 soak after any replay promotion candidate"
+        ]
+      },
+      "counters": {
+        "baseline_pending_command_flush_per_inference": 10,
+        "target_observed_submissions": [
+          10,
+          5,
+          2,
+          1
+        ],
+        "baseline_resource_arena_flight_depth": 2,
+        "candidate_cpu_fallback_required": 0,
+        "candidate_unexpected_sync_readback_required": 0,
+        "candidate_deferred_value_required": 0,
+        "candidate_unsafe_slot_leak_required": 0,
+        "candidate_retirement_failure_required": 0,
+        "candidate_observed": false
+      },
+      "null_submit_attribution": {
+        "schema": "VulkanNullSubmitBenchmark.v0",
+        "warmups": 100,
+        "iterations": 1000,
+        "rx9070_timeline_submit_call_median_us": 16.5,
+        "rx9070_timeline_submit_wait_median_us": 43.6,
+        "gtx1080_timeline_submit_call_median_us": 12.7,
+        "gtx1080_timeline_submit_wait_median_us": 43.1,
+        "rx6700xt_timeline_submit_call_median_us": 11.2,
+        "rx6700xt_timeline_submit_wait_median_us": 62.8,
+        "interpretation": "Ten empty timeline submissions expose less than one millisecond of direct submit-and-wait floor on every adapter. Fewer submits alone cannot explain or recover the approximately 15 ms DAv2 wall-versus-GPU-work gap."
+      },
+      "measurement_protocol": {
+        "baseline_head": "e00b4f0aa8bd7f0ae2a0885cc5eed7c4cd170353",
+        "baseline_artifact": "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_parity.json",
+        "supported_surfaces": [
+          "plain concrete eager Vulkan",
+          "VulkanGraphProgram"
+        ],
+        "warmups_per_surface": 3,
+        "alternating_samples_per_surface": 30,
+        "instrumented_samples_are_latency_baselines": false,
+        "gpu_timestamp_policy": "exactly one top-of-submission and one bottom-of-submission timestamp per graph submission; no per-dispatch timestamp instrumentation in the topology attribution run",
+        "submission_sweep": [
+          10,
+          5,
+          2,
+          1
+        ],
+        "sweep_interpretation": "Counts are observed queue submissions per inference. If maintenance constraints make an exact target impossible, record the nearest higher bounded count and the forcing reason rather than hiding a submit.",
+        "memory_axis": "planned arena bytes per generation multiplied by bounded flight depth, plus non-arena live bytes; submission count is not the memory proxy"
+      },
+      "acceptance_thresholds": {
+        "normal_and_alternate_graph_eager_exact": true,
+        "gpu_work_delta_absolute_percent_max": 5.0,
+        "command_record_median_reduction_percent_min": 50.0,
+        "command_record_median_reduction_ms_min": 1.5,
+        "gpu_idle_and_host_gap_reduction_ms_min": 5.0,
+        "graph_wall_median_reduction_percent_min": 10.0,
+        "graph_p95_regression_percent_max": 5.0,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "planned_flight_depth_times_arena_must_fit_repeat_live_gate": true,
+        "fallback_readback_deferred_unsafe_retirement_counts": 0,
+        "rx9070_qualified_soak_required": true,
+        "other_adapter_default_requires_own_gate": true
+      },
+      "timing_ms": {
+        "baseline_normal_supported_eager_median": 145.484,
+        "baseline_normal_graph_median": 46.021,
+        "baseline_normal_graph_p95": 62.282,
+        "baseline_alternate_supported_eager_median": 146.751,
+        "baseline_alternate_graph_median": 54.091,
+        "baseline_alternate_graph_p95": 66.323,
+        "measurement_repeats": 30,
+        "performance_claim": "none until a candidate satisfies every preregistered threshold on both guards"
+      },
+      "artifacts": [
+        "agent_space/vulkan_null_submit_rx9070_host_2026_07_17.json",
+        "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_census.json",
+        "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_parity.json"
+      ],
+      "artifact_identity": {
+        "null_submit_sha256": "7fca43a3b1c3b8b3184582595f8c62b8856a14a8c9a75fac1f9bd5cbf3341129",
+        "baseline_census_sha256": "8651317727e37fad51c76cc17681e2e6a899b729005021625baac6b083ca3e48",
+        "baseline_parity_sha256": "8bb1c4b857c73a934f3b2d346e42481785e0f41002e955ccd4d12d1940ce7f0c"
+      },
+      "decision": "Unstarted. Implement attribution before replay. Promote no topology merely because it has fewer submissions; a candidate must clear correctness, command-record, queue-gap, wall-distribution, flight-depth-times-arena, and long-session gates together.",
+      "revisit_conditions": [
+        "If two-timestamp attribution shows less than 5 ms of recoverable idle/gap time on either guard, reject recorded replay as the next DAv2 optimization and return to measured GPU-work or descriptor costs.",
+        "If 5/2/1 submission topologies lose CPU/GPU overlap or exceed memory, preserve the lowest accepted bounded topology rather than forcing one submission.",
+        "If stable descriptor/resource ownership cannot cover a useful bounded partition without widening unsafe writer families, stop before replay and extend generic ownership proofs first."
+      ]
     }
   ]
 }
