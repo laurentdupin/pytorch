@@ -668,7 +668,6 @@ class TestVulkanGraphEvidence(TestCase):
             resource_slot_count=2,
             resource_value_count=3,
             resource_writer_instruction_count=2,
-            recorded_partition_candidate_instruction_count=1,
             resource_arena_flight_depth=2,
             resource_alias_extended_lifetime_count=1,
             resource_alias_escape_rejection_count=4,
@@ -690,9 +689,6 @@ class TestVulkanGraphEvidence(TestCase):
                 resource_arena_spill_count=lambda: 1,
                 resource_write_count=lambda: 9,
                 resource_writer_bypass_count=lambda: 0,
-                recorded_partition_capture_count=lambda: 1,
-                recorded_partition_replay_count=lambda: 3,
-                recorded_partition_failure_count=lambda: 0,
             ),
             cpp_plan_report=report,
         )
@@ -722,7 +718,6 @@ class TestVulkanGraphEvidence(TestCase):
                 "resource_slot_count": 2,
                 "resource_value_count": 3,
                 "resource_writer_instruction_count": 2,
-                "recorded_partition_candidate_instruction_count": 1,
                 "resource_arena_flight_depth": 2,
                 "resource_alias_extended_lifetime_count": 1,
                 "resource_alias_escape_rejection_count": 4,
@@ -739,9 +734,6 @@ class TestVulkanGraphEvidence(TestCase):
                 "resource_arena_spill_count": 1,
                 "resource_write_count": 9,
                 "resource_writer_bypass_count": 0,
-                "recorded_partition_capture_count": 1,
-                "recorded_partition_replay_count": 3,
-                "recorded_partition_failure_count": 0,
             },
         )
         self.assertEqual(

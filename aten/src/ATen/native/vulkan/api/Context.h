@@ -107,33 +107,6 @@ enum class PendingCommandFlushReason : uint8_t {
 
 const char* pending_command_flush_reason_name(PendingCommandFlushReason reason);
 
-class Context;
-
-class TORCH_API GraphProgramRecordingResources final {
-  friend class Context;
-
- private:
-  CommandPool command_pool_;
-  DescriptorPool descriptor_pool_;
-
-  GraphProgramRecordingResources(
-      VkDevice,
-      uint32_t queue_family_index,
-      const ContextConfig&);
-
- public:
-  GraphProgramRecordingResources(const GraphProgramRecordingResources&) = delete;
-  GraphProgramRecordingResources& operator=(
-      const GraphProgramRecordingResources&) = delete;
-  GraphProgramRecordingResources(GraphProgramRecordingResources&&) = delete;
-  GraphProgramRecordingResources& operator=(
-      GraphProgramRecordingResources&&) = delete;
-  ~GraphProgramRecordingResources() = default;
-
-  CommandBuffer acquire_command_buffer();
-  DescriptorPool& recording_descriptor_pool();
-};
-
 //
 // Vulkan Context holds onto all relevant Vulkan state as it pertains to our
 // use of Vulkan in PyTorch.  A Context is associated with one, and only one,
@@ -148,11 +121,6 @@ class TORCH_API Context final {
   class TORCH_API ScopedExternalCommandRecording final {
    public:
     ScopedExternalCommandRecording(Context&, CommandBuffer&);
-    ScopedExternalCommandRecording(
-        Context&,
-        CommandBuffer&,
-        DescriptorPool&,
-        bool graph_program_partition);
 
     ScopedExternalCommandRecording(const ScopedExternalCommandRecording&) =
         delete;
@@ -164,8 +132,6 @@ class TORCH_API Context final {
         ScopedExternalCommandRecording&&) = delete;
 
     ~ScopedExternalCommandRecording();
-
-    uint64_t recorded_dispatch_count() const;
 
    private:
     Context* context_{nullptr};
@@ -194,9 +160,6 @@ class TORCH_API Context final {
     bool checkpoint_requested() const;
     VulkanSubmission checkpoint();
     VulkanSubmission submit();
-    void enqueue_recorded_partition(
-        CommandBuffer&,
-        uint64_t recorded_dispatch_count);
     void abort();
     bool active() const;
     State state() const;
@@ -260,8 +223,6 @@ class TORCH_API Context final {
   std::vector<std::function<void()>> graph_program_completion_cleanups_;
   std::vector<std::function<void(const VulkanSubmission&)>>
       graph_program_submission_observers_;
-  std::vector<VkCommandBuffer> graph_program_command_batch_;
-  uint64_t graph_program_command_batch_recording_id_{0u};
   CommandBuffer cmd_;
   CommandBuffer stack_region_owned_cmd_;
   uint32_t submit_count_;
@@ -467,14 +428,8 @@ class TORCH_API Context final {
       uint64_t command_buffer_recording_id,
       uint64_t submit_epoch_before,
       uint64_t pending_dispatch_count);
-  void begin_external_command_recording(
-      CommandBuffer&,
-      DescriptorPool* = nullptr,
-      bool graph_program_partition = false);
+  void begin_external_command_recording(CommandBuffer&);
   void end_external_command_recording();
-  bool graph_program_partition_recording() const;
-  uint64_t external_recording_dispatch_count() const;
-  void note_external_recording_dispatch();
   uint32_t gpu_profile_begin(
       CommandBuffer&,
       const std::string&,
@@ -491,15 +446,6 @@ class TORCH_API Context final {
       VulkanSubmitOrigin origin,
       VkFence fence_handle = VK_NULL_HANDLE,
       const bool final_use = false);
-  VulkanSubmission submit_cmd_handles_to_gpu(
-      VulkanStreamState&,
-      const std::vector<VkCommandBuffer>&,
-      VulkanSubmitOrigin origin,
-      VkFence fence_handle = VK_NULL_HANDLE,
-      const bool final_use = false);
-  void finalize_graph_program_normal_command();
-  VulkanSubmission submit_graph_program_command_batch(
-      VulkanSubmitOrigin origin);
   VulkanSubmission close_submit_stack_planned_region_exit();
   std::string format_submit_failure_diagnostics(
       const VulkanStreamState&,
@@ -863,8 +809,6 @@ class TORCH_API Context final {
       uint64_t segment_end_block,
       uint64_t segment_planned_dispatch_count);
   CommandBuffer acquire_persistent_command_buffer();
-  std::unique_ptr<GraphProgramRecordingResources>
-  create_graph_program_recording_resources();
   void submit_prepared_command_buffer(
       CommandBuffer&,
       VkFence fence_handle = VK_NULL_HANDLE,
@@ -1255,11 +1199,10 @@ inline bool Context::submit_copy(
       "Vulkan stack planned recording used from the wrong thread");
   VK_CHECK_COND(
       !graph_program_invocation ||
-          ((!external_recording || graph_program_partition_recording()) &&
-           !stack_planned_recording &&
+          (!external_recording && !stack_planned_recording &&
            fence_handle == VK_NULL_HANDLE),
       "Vulkan graph program invocation requires normal unfenced Context "
-      "recording or an explicit graph partition recording");
+      "recording");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -1324,7 +1267,6 @@ inline bool Context::submit_copy(
   }
 
   if (external_recording) {
-    note_external_recording_dispatch();
     if (stack_planned_recording_active_.load(std::memory_order_acquire) &&
         stack_region_owned_command_buffer_active_.load(
             std::memory_order_acquire)) {
@@ -1407,11 +1349,10 @@ inline bool Context::submit_compute_job(
       "Vulkan stack planned recording used from the wrong thread");
   VK_CHECK_COND(
       !graph_program_invocation ||
-          ((!external_recording || graph_program_partition_recording()) &&
-           !stack_planned_recording &&
+          (!external_recording && !stack_planned_recording &&
            fence_handle == VK_NULL_HANDLE),
       "Vulkan graph program invocation requires normal unfenced Context "
-      "recording or an explicit graph partition recording");
+      "recording");
   const bool cpu_timeline = cpu_timeline_logging_enabled();
   const uint64_t cpu_start_us =
       cpu_timeline ? cpu_timeline_now_us() : 0u;
@@ -1468,7 +1409,7 @@ inline bool Context::submit_compute_job(
   CommandBuffer& cmd = active_cmd();
 
   uint32_t log_idx = UINT32_MAX;
-  if (enable_op_profiling_ && !graph_program_partition_recording()) {
+  if (enable_op_profiling_) {
     log_idx = gpu_profile_begin(
         cmd,
         shader.kernel_name,
@@ -1517,9 +1458,6 @@ inline bool Context::submit_compute_job(
       1u,
       std::memory_order_relaxed);
   note_vulkan_stack_dispatch(shader.kernel_name.c_str());
-  if (external_recording) {
-    note_external_recording_dispatch();
-  }
   if (external_recording && stack_planned_recording_active_.load(
                                 std::memory_order_acquire) &&
       stack_region_owned_command_buffer_active_.load(
@@ -1538,7 +1476,7 @@ inline bool Context::submit_compute_job(
     }
   }
 
-  if (enable_op_profiling_ && !graph_program_partition_recording()) {
+  if (enable_op_profiling_) {
     gpu_profile_end(cmd, log_idx);
   }
 

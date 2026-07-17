@@ -92,7 +92,6 @@ class VulkanGraphPlanReport:
     resource_slot_count: int
     resource_value_count: int
     resource_writer_instruction_count: int
-    recorded_partition_candidate_instruction_count: int
     resource_arena_flight_depth: int
     resource_alias_extended_lifetime_count: int
     resource_alias_escape_rejection_count: int
@@ -166,7 +165,6 @@ def _rejected(
             resource_slot_count=0,
             resource_value_count=0,
             resource_writer_instruction_count=0,
-            recorded_partition_candidate_instruction_count=0,
             resource_arena_flight_depth=0,
             resource_alias_extended_lifetime_count=0,
             resource_alias_escape_rejection_count=0,
@@ -820,9 +818,6 @@ def compile_vulkan_graph_plan(
         resource_slot_count=len(resource_descriptors),
         resource_value_count=resource_value_count,
         resource_writer_instruction_count=resource_writer_instruction_count,
-        recorded_partition_candidate_instruction_count=(
-            plan.recorded_partition_candidate_instruction_count()
-        ),
         resource_arena_flight_depth=(
             _RESOURCE_ARENA_FLIGHT_DEPTH if resource_descriptors else 0
         ),
@@ -863,8 +858,6 @@ def compile_vulkan_graph_plan(
         or plan.resource_value_count() != report.resource_value_count
         or plan.resource_writer_instruction_count()
         != report.resource_writer_instruction_count
-        or plan.recorded_partition_candidate_instruction_count()
-        != report.recorded_partition_candidate_instruction_count
         or plan.resource_arena_flight_depth()
         != report.resource_arena_flight_depth
         or plan.value_count() != report.value_count

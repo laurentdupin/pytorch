@@ -775,56 +775,10 @@ void Adapter::submit_cmd_timeline(
     VkSemaphore signal_semaphore,
     uint64_t signal_value,
     VkFence fence) {
-  submit_command_buffer_batch_timeline_impl(
-      device_queue,
-      &cmd,
-      1u,
-      wait_semaphores,
-      wait_values,
-      wait_stages,
-      signal_semaphore,
-      signal_value,
-      fence);
-}
-
-void Adapter::submit_command_buffer_batch_timeline(
-    const Adapter::Queue& device_queue,
-    const std::vector<VkCommandBuffer>& cmds,
-    const std::vector<VkSemaphore>& wait_semaphores,
-    const std::vector<uint64_t>& wait_values,
-    const std::vector<VkPipelineStageFlags>& wait_stages,
-    VkSemaphore signal_semaphore,
-    uint64_t signal_value,
-    VkFence fence) {
-  submit_command_buffer_batch_timeline_impl(
-      device_queue,
-      cmds.data(),
-      utils::safe_downcast<uint32_t>(cmds.size()),
-      wait_semaphores,
-      wait_values,
-      wait_stages,
-      signal_semaphore,
-      signal_value,
-      fence);
-}
-
-void Adapter::submit_command_buffer_batch_timeline_impl(
-    const Adapter::Queue& device_queue,
-    const VkCommandBuffer* const cmds,
-    const uint32_t command_buffer_count,
-    const std::vector<VkSemaphore>& wait_semaphores,
-    const std::vector<uint64_t>& wait_values,
-    const std::vector<VkPipelineStageFlags>& wait_stages,
-    VkSemaphore signal_semaphore,
-    uint64_t signal_value,
-    VkFence fence) {
   VK_CHECK_COND(
       wait_semaphores.size() == wait_values.size() &&
           wait_semaphores.size() == wait_stages.size(),
       "Vulkan timeline submit wait arrays must have matching sizes.");
-  VK_CHECK_COND(
-      cmds != nullptr && command_buffer_count > 0u,
-      "Vulkan timeline submit requires at least one command buffer.");
   VK_CHECK_COND(
       signal_semaphore != VK_NULL_HANDLE,
       "Vulkan timeline submit requires a signal semaphore.");
@@ -844,8 +798,8 @@ void Adapter::submit_command_buffer_batch_timeline_impl(
       utils::safe_downcast<uint32_t>(wait_semaphores.size()),
       wait_semaphores.empty() ? nullptr : wait_semaphores.data(),
       wait_stages.empty() ? nullptr : wait_stages.data(),
-      command_buffer_count,
-      cmds,
+      1u,
+      &cmd,
       1u,
       &signal_semaphore,
   };
@@ -862,8 +816,6 @@ void Adapter::submit_command_buffer_batch_timeline_impl(
         device_queue.family_index,
         " queue_index=",
         device_queue.queue_index,
-        " command_buffer_count=",
-        command_buffer_count,
         " wait_count=",
         wait_values.size(),
         " signal_value=",
