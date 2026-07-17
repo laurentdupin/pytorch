@@ -1069,6 +1069,39 @@
         "ExecutionContractsPatchEmbedFeatureMapToTokens"
       ],
       "consequence": "The preempted exact matcher branch, family and match wrappers, generated row helper, JSON spec, generator adapters, proof-ledger entries, and mechanism-only adjacent-row test were deleted. FeatureMapToTokensDirectBuffer is the sole admission contract; the private benchmark operator, corpus-shape parity, dynamic-shape coverage, and hard-fail semantic negatives remain."
+    },
+    {
+      "id": "retired_exact_token_prefix_cat_add_contract",
+      "decision": "replace_exact_contract_with_semantic_route",
+      "status": "deleted",
+      "basis": [
+        "TokenPrefixCatAddDirectBuffer admits the same fp32 rank-3 Vulkan-buffer operation across runtime batch, token-count, and feature dimensions under the true prefix-length, concat-dimension, matching-shape, and output-sequence guards.",
+        "The former unsupported token-count and feature-dimension adjacent cases are valid semantic-family inputs and are covered by the dynamic-shape behavioral test.",
+        "Behavioral tests retain all 30 corpus-shape combinations plus dtype, rank, prefix-length, sequence, batch, and feature mismatch negatives without consuming an exact spec."
+      ],
+      "removed_paths": [
+        "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTokenPrefixCatAddSpec.h",
+        "test/vulkan_contract_specs/token_prefix_cat_add_contract.json"
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "test",
+        "tools",
+        "scripts"
+      ],
+      "forbidden_code_symbols": [
+        "TokenPrefixCatAddContract",
+        "Prefix1TokenCountSetFeatureSetAdd",
+        "GenericPrefix1Dim1BufferAdd",
+        "TokenPrefixCatAddFamily",
+        "TokenPrefixCatAddMatch",
+        "match_token_prefix_cat_add_contract",
+        "matches_token_prefix_cat_add_contract",
+        "token_prefix_cat_add_token_rows_find",
+        "token_prefix_cat_add_prefix1_observed_token_set",
+        "ExecutionContractsTokenPrefixCatAddSpec"
+      ],
+      "consequence": "The preempted exact matcher branch, family and match wrappers, generated row helper, JSON spec, generator adapters, proof-ledger entries, and mechanism-only adjacent-row test were deleted. TokenPrefixCatAddDirectBuffer is the sole admission contract; the private operator, corpus-shape parity, dynamic-shape coverage, and semantic negatives remain."
     }
   ],
   "entries": [

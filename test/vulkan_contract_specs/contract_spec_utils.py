@@ -4480,111 +4480,6 @@ def _validate_attention_probability_materialization_shape_envelope(
             )
 
 
-def _validate_token_prefix_cat_add_shape_envelope(file_name, spec, envelope):
-    context = f"{file_name} TokenPrefixCatAdd ShapeEnvelope"
-    _require_equal(
-        spec["contract_name"],
-        "TokenPrefixCatAddContract",
-        f"{context} contract",
-    )
-    _require_equal(
-        spec["family"],
-        "Prefix1TokenCountSetFeatureSetAdd",
-        f"{context} family",
-    )
-    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
-
-    bounds = envelope["bounds"]
-    inputs = envelope["inputs"]
-    require_fields(inputs, ("prefix", "tokens", "pos"), f"{context} inputs")
-    results = envelope.get("results", {})
-    require_fields(results, ("output",), f"{context} results")
-
-    for input_name in ("prefix", "tokens", "pos"):
-        tensor = inputs[input_name]
-        _require_equal(
-            _single_value(tensor["dtype"], f"{context} {input_name} dtype"),
-            bounds["dtype"],
-            f"{context} {input_name} dtype",
-        )
-        _require_equal(
-            _single_value(tensor["rank"], f"{context} {input_name} rank"),
-            bounds["rank"],
-            f"{context} {input_name} rank",
-        )
-    output = results["output"]
-    _require_equal(
-        _single_value(output["dtype"], f"{context} output dtype"),
-        bounds["dtype"],
-        f"{context} output dtype",
-    )
-    _require_equal(
-        _single_value(output["rank"], f"{context} output rank"),
-        bounds["rank"],
-        f"{context} output rank",
-    )
-
-    prefix_dims = _dims_by_symbol(inputs["prefix"], context)
-    token_dims = _dims_by_symbol(inputs["tokens"], context)
-    pos_dims = _dims_by_symbol(inputs["pos"], context)
-    output_dims = _dims_by_symbol(output, context)
-    _require_equal(prefix_dims["B"]["values"], [bounds["batch"]], context)
-    _require_equal(prefix_dims["P"]["values"], [bounds["prefix_length"]], context)
-    _require_equal(prefix_dims["C"]["values"], bounds["feature_dims"], context)
-    _require_equal(token_dims["B"]["values"], [bounds["batch"]], context)
-    _require_equal(token_dims["N"]["values"], bounds["token_counts"], context)
-    _require_equal(token_dims["C"]["values"], bounds["feature_dims"], context)
-    expected_total_tokens = [value + bounds["prefix_length"] for value in bounds["token_counts"]]
-    _require_equal(pos_dims["B"]["values"], [bounds["batch"]], context)
-    _require_equal(pos_dims["T"]["values"], expected_total_tokens, context)
-    _require_equal(pos_dims["C"]["values"], bounds["feature_dims"], context)
-    _require_equal(output_dims["B"]["values"], [bounds["batch"]], context)
-    _require_equal(output_dims["T"]["values"], expected_total_tokens, context)
-    _require_equal(output_dims["C"]["values"], bounds["feature_dims"], context)
-
-    rowsets = envelope["sparse_rowsets"]
-    _require_equal(len(rowsets), 1, f"{context} rowset count")
-    rowset = rowsets[0]
-    _require_equal(rowset["name"], "token_rows", f"{context} rowset")
-    rows_by_tuple = {row["tuple_id"]: row for row in rowset["rows"]}
-    _require_equal(
-        len(rows_by_tuple),
-        len(spec["positive_cases"]),
-        f"{context} row count",
-    )
-    for row in rowset["rows"]:
-        _require_equal(row["family"], spec["family"], f"{context} row family")
-        if row["tokens"] not in bounds["token_counts"]:
-            raise AssertionError(f"{context} row tokens outside bounds")
-        if row["feature_dim"] not in bounds["feature_dims"]:
-            raise AssertionError(f"{context} row feature dim outside bounds")
-        _require_equal(
-            row["total_tokens"],
-            row["tokens"] + bounds["prefix_length"],
-            f"{context} row total tokens",
-        )
-
-    for case in spec["positive_cases"]:
-        case_context = f"{context} positive {case['name']}"
-        tuple_id = case["name"]
-        if tuple_id not in rows_by_tuple:
-            raise AssertionError(f"{case_context} missing row")
-        row = rows_by_tuple[tuple_id]
-        _require_equal(case["prefix_shape"], [1, 1, row["feature_dim"]], case_context)
-        _require_equal(
-            case["tokens_shape"],
-            [1, row["tokens"], row["feature_dim"]],
-            case_context,
-        )
-        _require_equal(
-            case["pos_shape"],
-            [1, row["total_tokens"], row["feature_dim"]],
-            case_context,
-        )
-        _require_equal(case["output_shape"], case["pos_shape"], case_context)
-        _require_equal(case["expected_route_label"], spec["route_label"], case_context)
-
-
 def _validate_patch_embed_float_buffer_conv_route_shape_envelope(
     file_name, spec, envelope
 ):
@@ -5755,49 +5650,6 @@ _VISION_SELF_ATTENTION_SDPA_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.scale_policy",
 )
 
-_TOKEN_PREFIX_CAT_ADD_LEGAL_KEY_FIELDS = (
-    "prefix_shape",
-    "tokens_shape",
-    "pos_shape",
-    "dtype",
-    "expected_route_label",
-)
-
-_TOKEN_PREFIX_CAT_ADD_ADJACENT_NEGATIVE_KEY_FIELDS = (
-    "violates",
-    "prefix_shape",
-    "tokens_shape",
-    "pos_shape",
-    ("dtype", "float32"),
-    "expected_native_route",
-)
-
-_TOKEN_PREFIX_CAT_ADD_ASSIGNMENT_COVERAGE_FIELDS = (
-    "inputs.prefix.dtype",
-    "inputs.prefix.rank",
-    "inputs.prefix.dims.B",
-    "inputs.prefix.dims.P",
-    "inputs.prefix.dims.C",
-    "inputs.tokens.dtype",
-    "inputs.tokens.rank",
-    "inputs.tokens.dims.B",
-    "inputs.tokens.dims.N",
-    "inputs.tokens.dims.C",
-    "inputs.pos.dtype",
-    "inputs.pos.rank",
-    "inputs.pos.dims.B",
-    "inputs.pos.dims.T",
-    "inputs.pos.dims.C",
-    "results.output.dtype",
-    "results.output.rank",
-    "results.output.dims.B",
-    "results.output.dims.T",
-    "results.output.dims.C",
-    "attributes.concat_dim",
-    "attributes.inplace",
-    "attributes.alias_output",
-)
-
 _PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_LEGAL_KEY_FIELDS = (
     "input_shape",
     "weight_shape",
@@ -6268,21 +6120,6 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _VISION_SELF_ATTENTION_SDPA_ADJACENT_NEGATIVE_KEY_FIELDS
-        ),
-    },
-    "token_prefix_cat_add_prefix1_observed_token_set": {
-        "validate": _validate_token_prefix_cat_add_shape_envelope,
-        "assignment_cases": _generated_shape_envelope_assignment_cases,
-        "legal_cases": _checked_in_shape_envelope_legal_cases,
-        "adjacent_negative_cases": (
-            _checked_in_shape_envelope_adjacent_negative_cases
-        ),
-        "legal_key_fields": _TOKEN_PREFIX_CAT_ADD_LEGAL_KEY_FIELDS,
-        "assignment_coverage_fields": (
-            _TOKEN_PREFIX_CAT_ADD_ASSIGNMENT_COVERAGE_FIELDS
-        ),
-        "adjacent_negative_key_fields": (
-            _TOKEN_PREFIX_CAT_ADD_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "patch_embed_float_buffer_conv_route_observed_inputs": {

@@ -69,9 +69,9 @@ Current MVP status:
   the first float tensor/tensor buffer-broadcast envelope and has a production
   metadata/provenance canary that runs after the existing buffer route is
   selected.
-  `TokenPrefixCatAddContract` records rank-3 prefix-token concat plus
-  position-add evidence; `TokenPrefixCatAddDirectBuffer` now owns runtime-shape
-  admission for the legal fp32 direct-buffer family.
+  `TokenPrefixCatAddDirectBuffer` owns runtime-shape admission for legal fp32
+  rank-3 prefix-token concat plus position-add; corpus tests preserve the old
+  observed envelope without an exact-row contract.
 - `test/vulkan_contract_specs/contract_spec_utils.py` owns shared spec loading,
   case iteration, log naming, and expected-negative helpers.
 - `TestVulkanGovernance` discovers all spec fixtures, validates shared schema,

@@ -268,8 +268,9 @@ only these semantic guards.
 concat plus positional add when `dim == 1`, prefix length is `1`, batch and
 feature dimensions match, token count is positive, and the output sequence is
 `1 + token_count`. Batch, token count, and feature dimension are runtime
-descriptor values. The finite `TokenPrefixCatAddContract` rows remain evidence
-for DAv2 token preparation, not production token-count or feature-dim bounds.
+descriptor values. Corpus-shape tests retain the former DAv2 envelope and its
+promoted token-count and feature-dimension boundaries without a production or
+test-only exact-row admission table.
 
 `CatAxisDirectBuffer` admits fp32 buffer-backed rank-4 channel-axis cats when
 all inputs share batch/height/width, the cat dimension is 1, every channel

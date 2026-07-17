@@ -22,7 +22,6 @@ COVERED_PROOF_CONTRACTS = (
     "AttentionProbabilityMaterializationContract",
     "PatchEmbedFloatBufferConvRoute",
     "SmallSpatialPointwiseConvContract",
-    "TokenPrefixCatAddContract",
 )
 
 SOURCE_HINTS: dict[str, dict[str, list[str]]] = {
@@ -59,17 +58,6 @@ SOURCE_HINTS: dict[str, dict[str, list[str]]] = {
             "aten/src/ATen/native/vulkan/ops/Convolution.cpp",
         ],
         "transition_contract_sources": [],
-    },
-    "TokenPrefixCatAddContract": {
-        "matcher_sources": [
-            "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
-        ],
-        "route_policy_sources": [
-            "scripts/benchmarks/benchmark_depth_anything.py",
-        ],
-        "transition_contract_sources": [
-            "aten/src/ATen/native/vulkan/planning/TransitionContracts.cpp",
-        ],
     },
 }
 
@@ -132,24 +120,6 @@ PROOF_TEMPLATES: dict[str, dict[str, Any]] = {
         },
         "expiry": "broader pointwise layout/channel/spatial proof replaces exact sparse rows",
         "migration_target": "generated pointwise KernelFamilyContract with row-level proof ledger",
-    },
-    "TokenPrefixCatAddContract": {
-        "proof_status": "validated_bounded_fused_route_rows",
-        "positive_runtime_or_proof_cases": [
-            "token_prefix_cat_add_contract.json positive_cases",
-            "agent_space/token_prefix_cat_add_observed_envelope_parity.json",
-        ],
-        "adjacent_negative_coverage": [
-            "token_prefix_cat_add_contract.json negative_cases",
-            "ShapeEnvelope adjacent-negative generator",
-        ],
-        "fallback_readback_copy_budget": {
-            "cpu_fallback": 0,
-            "sync_readback": 0,
-            "host_transfer": 0,
-        },
-        "expiry": "broader token prefix/position-add region proof replaces finite rows",
-        "migration_target": "TokenPrefixCatAddContract or token-preparation RegionContract",
     },
 }
 

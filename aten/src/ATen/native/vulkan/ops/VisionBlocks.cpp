@@ -12735,8 +12735,8 @@ Tensor token_prefix_cat_add(
     const Tensor& prefix_arg,
     const Tensor& tokens_arg,
     const Tensor& pos_arg) {
-  const utils::TokenPrefixCatAddMatch match =
-      utils::match_token_prefix_cat_add_contract(
+  const utils::ExecutionContractMetadata* const contract_metadata =
+      utils::match_token_prefix_cat_add_direct_buffer(
           prefix_arg.sizes(),
           tokens_arg.sizes(),
           pos_arg.sizes(),
@@ -12750,9 +12750,9 @@ Tensor token_prefix_cat_add(
           false,
           false);
   TORCH_CHECK(
-      match.matched,
+      contract_metadata != nullptr,
       "vulkan_prepack::token_prefix_cat_add inputs are outside "
-      "TokenPrefixCatAddContract");
+      "TokenPrefixCatAddDirectBuffer");
 
   Tensor prefix =
       prepare_token_prefix_cat_add_input(prefix_arg, "prefix tensor");
@@ -12775,7 +12775,7 @@ Tensor token_prefix_cat_add(
 
   utils::log_vulkan_op_hit("vulkan_prepack::token_prefix_cat_add");
   const TensorContractProvenance provenance =
-      tensor_contract_provenance_from_metadata(match.metadata);
+      tensor_contract_provenance_from_metadata(contract_metadata);
   return record_tensor_write_and_return(
       output,
       "vulkan_prepack::token_prefix_cat_add",

@@ -15,7 +15,7 @@ CONTRACT_SPEC_DIR = REPO_ROOT / "test" / "vulkan_contract_specs"
 GENERATED_CPP_MANIFEST_FILE = "generated_cpp_manifest.json"
 
 ROUTE_CONTRACTS = {
-    "token_prefix_cat_add": "TokenPrefixCatAddContract",
+    "token_prefix_cat_add": "TokenPrefixCatAddDirectBuffer",
     "vision_self_attention_sdpa_calls": "VisionSelfAttentionSDPAContract",
     "vision_self_attention_sdpa_buffer_math_ops": "VisionSelfAttentionSDPAContract",
     "pointwise_depth_vision_projection": "SmallSpatialPointwiseConvContract",

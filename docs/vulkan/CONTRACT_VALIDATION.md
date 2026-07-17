@@ -57,7 +57,6 @@ and groups to proof status. The initial high-risk coverage includes:
 - `AttentionProbabilityMaterializationContract`
 - `PatchEmbedFloatBufferConvRoute`
 - `SmallSpatialPointwiseConvContract`
-- `TokenPrefixCatAddContract`
 
 For covered contracts, every admitted entry must have a proof-manifest entry.
 The entry records positive proof/runtime cases when known, adjacent negative

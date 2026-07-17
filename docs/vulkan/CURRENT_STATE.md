@@ -455,8 +455,9 @@ generated rows are retired; corpus-shape and former-boundary behavior remains
 covered directly against the semantic family.
 `TokenPrefixCatAddDirectBuffer` now admits legal fp32 rank-3 prefix-token
 concat plus positional add by prefix length, batch, token-count, and feature
-semantics instead of the old DAv2 token-count/feature rowset. The finite
-`TokenPrefixCatAddContract` rows remain evidence and regression fixtures.
+semantics instead of the old DAv2 token-count/feature rowset. The exact matcher,
+generated rows, and JSON fixture are retired; corpus shapes, promoted former
+boundaries, and semantic negatives remain direct behavioral tests.
 `CatAxisDirectBuffer` now admits legal fp32 buffer-backed rank-4 dim-1 cats
 by batch/height/width equality, positive channel extents, and the current
 channel multiple-of-4 layout constraint instead of the old input-count,
@@ -2555,7 +2556,6 @@ API; implementation is now split across:
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsSmallSpatialPointwiseConv.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsSmallSpatialPointwiseConvSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTokenPrefixCatAdd.cpp`
-- `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTokenPrefixCatAddSpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsTransformerGQASDPA.cpp`
 - `aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsTransformerGQASDPASpec.h`
 - `aten/src/ATen/native/vulkan/planning/ExecutionContractsVisionSelfAttentionSDPA.cpp`
@@ -2576,8 +2576,8 @@ temporary exceptions rather than as untracked live-contract debt.
 `ElementwiseBroadcastContract`, and `TransformerGQASDPAContract`,
 `VisionSelfAttentionSDPAContract`, `DiffusionSDPAContract`,
 `DiffusionCrossAttentionContract`, `SDPAExecutionPolicyContract`, and
-`SDPAScoreSoftmaxContract`, and `TokenPrefixCatAddContract` are split into
-family-specific sources. The former
+`SDPAScoreSoftmaxContract` are split into family-specific sources. The semantic
+`TokenPrefixCatAddDirectBuffer` family also has its own source. The former
 score-softmax allowlist is now a named, metadata-backed finite contract for
 float rank-3 square score tensors with heads `{1, 5}` and sequence
 `{504, 640}`. `ExecutionContracts.cpp` now owns the shared metadata
@@ -2591,20 +2591,18 @@ C++ helpers, and known high-risk matcher/route/transition sources. The proof
 ledger `test/vulkan_contract_proofs/contract_proof_manifest.json` currently
 covers the highest-risk bounded contracts:
 `SmallSpatialPointwiseConvContract`, `PatchEmbedFloatBufferConvRoute`,
-`TokenPrefixCatAddContract`, and `AttentionProbabilityMaterializationContract`.
+and `AttentionProbabilityMaterializationContract`.
 The comparison tool
 `tools/vulkan_contract_codegen/compare_contract_admission.py` reports admitted
 row deltas, cardinality increases, exact-row debt changes, and stale dependency
 digests; it is governance-only and does not change runtime route behavior.
 
-`TokenPrefixCatAddContract` covers the bounded rank-3 prefix-token concat plus
-position-add envelope observed in DAv2 token preparation:
-`prefix=[1,1,C]`, `tokens=[1,N,C]`, `pos/out=[1,N+1,C]`,
-`C in {384,768,1024}`, and
-`N in {150,260,600,620,1350,1380,2400,2440,3750,3850}`. The generic
-`vulkan_prepack::token_prefix_cat_add` route writes a real contiguous Vulkan
-output; the benchmark owner path may call it only when this exact bounded
-pattern is present.
+`TokenPrefixCatAddDirectBuffer` covers rank-3 prefix-token concat plus
+position-add by semantic runtime guards: fp32 Vulkan buffers, prefix length
+`1`, dim `1`, positive token count, matching batch and feature dimensions, and
+output sequence `1 + token_count`. The route writes a real contiguous Vulkan
+output. Corpus tests retain the former DAv2 token-count and feature-dimension
+combinations without using them as an admission boundary.
 
 `AttentionProbabilityMaterializationContract` is now the first formal
 transition-contract spec and log-attribution target, but not a production

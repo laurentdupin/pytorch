@@ -146,31 +146,6 @@ condition and migration target.
 - Migration target: `CatAxisDirectBuffer` plus generated `CatAxisContract` and
   `ChannelCatContract` evidence tables with positive and negative tests.
 
-### Token Prefix Cat/Add Exact Rowset
-
-- Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*`,
-  `aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp`, and
-  `scripts/benchmarks/benchmark_depth_anything.py`
-- Status: migrated to semantic dynamic admission, contract-named evidence kept
-- Reason: the fused prefix-token concat plus position-add route is now semantic
-  for fp32 rank-3 direct-buffer inputs with prefix length `1`, dim `1`, matching
-  batch/feature dimensions, positive token count, and output sequence
-  `1 + token_count`. Arbitrary cat+add fusion and split-token consumer regions
-  are not proven.
-- Generated spec coverage:
-  `test/vulkan_contract_specs/token_prefix_cat_add_contract.json` covers
-  `prefix=[1,1,C]`, `tokens=[1,N,C]`, `pos/out=[1,N+1,C]`,
-  `C in {384,768,1024}`, and
-  `N in {150,260,600,620,1350,1380,2400,2440,3750,3850}` with generated C++
-  sparse-rowset helper output in
-  `generated/ExecutionContractsTokenPrefixCatAddSpec.h`.
-- Expiry: the finite rowset can be removed from production admission once
-  `TokenPrefixCatAddDirectBuffer` random-shape parity and adjacent negatives
-  remain stable as the only token-prefix admission path.
-- Migration target: keep generated rows as regression fixtures while
-  `TokenPrefixCatAddDirectBuffer` owns runtime-shape admission; broader
-  token-preparation region fusion needs a separate `RegionContract`.
-
 ### GQA Repeat Rectangular Score Budget
 
 - Location: `aten/src/ATen/native/vulkan/planning/ExecutionContracts.*` and

@@ -303,22 +303,6 @@ struct ChannelCatMatch final {
   int64_t total_channels{0};
 };
 
-enum class TokenPrefixCatAddFamily : uint8_t {
-  None = 0u,
-  Prefix1TokenCountSetFeatureSetAdd,
-  GenericPrefix1Dim1BufferAdd,
-};
-
-struct TokenPrefixCatAddMatch final {
-  bool matched{false};
-  TokenPrefixCatAddFamily family{TokenPrefixCatAddFamily::None};
-  const char* tuple_id{nullptr};
-  const ExecutionContractMetadata* metadata{nullptr};
-  int64_t token_count{0};
-  int64_t feature_dim{0};
-  int64_t total_tokens{0};
-};
-
 struct LinearGeluBridgeTensorInfo final {
   int64_t input_rank{0};
   int64_t input_batch{0};
@@ -694,23 +678,7 @@ bool matches_channel_cat_contract(
     ArrayRef<ChannelCatTensorInfo> tensors,
     int64_t dim);
 
-const char* token_prefix_cat_add_family_name(TokenPrefixCatAddFamily family);
-
-TokenPrefixCatAddMatch match_token_prefix_cat_add_contract(
-    IntArrayRef prefix_sizes,
-    IntArrayRef token_sizes,
-    IntArrayRef pos_sizes,
-    ScalarType prefix_dtype,
-    ScalarType token_dtype,
-    ScalarType pos_dtype,
-    bool prefix_is_vulkan,
-    bool tokens_is_vulkan,
-    bool pos_is_vulkan,
-    int64_t dim,
-    bool inplace,
-    bool alias_output);
-
-bool matches_token_prefix_cat_add_contract(
+const ExecutionContractMetadata* match_token_prefix_cat_add_direct_buffer(
     IntArrayRef prefix_sizes,
     IntArrayRef token_sizes,
     IntArrayRef pos_sizes,
