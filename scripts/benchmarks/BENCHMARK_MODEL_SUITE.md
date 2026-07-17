@@ -169,16 +169,13 @@ Task179/Task181 telemetry uses this shim boundary as an import aid, not as a
 distributed runtime. HY-MT now reaches a 99-token prompt plus 16 generated
 tokens on RX 9070, but still reports high fallback/readback attribution. Gemma
 reaches model construction and then fails while moving the large embedding
-weights to Vulkan with `VK_ERROR_OUT_OF_DEVICE_MEMORY`. Lotus clears the
-benchmark-local `_c10d_functional.wait_tensor` import blocker, but still fails
-before useful Vulkan execution because the source-tree environment lacks the
-compiled DTensor C API `_DTensor_OpSchema_post_init` in `torch._C`. The harness
-preflights that symbol and emits a stable `missing_compiled_dtensor_c_api` skip
-before importing Lotus/Diffusers, so this should not appear as a recurring raw
-Diffusers `ImportError`. Do not add benchmark-local fakes for compiled
-`torch._C` DTensor APIs; useful Lotus telemetry now requires a real
-distributed/DTensor-capable source-tree build or a compatible runtime
-environment.
+weights to Vulkan with `VK_ERROR_OUT_OF_DEVICE_MEMORY`. The Task181 source-tree
+build lacked `_DTensor_OpSchema_post_init`, so the harness added a stable
+`missing_compiled_dtensor_c_api` preflight instead of surfacing a raw Diffusers
+`ImportError`. The current 2026-07-17 Visual Studio runtime exports that API and
+passes the preflight. This removes the historical environment blocker; a fresh
+end-to-end Lotus run is still required before claiming backend coverage. Do not
+add benchmark-local fakes for compiled `torch._C` DTensor APIs.
 
 PaddleOCR initializes through PaddleX's accepted CPU control path, then the
 harness patches PaddleX's Transformers predictor device hook so loaded
@@ -218,16 +215,13 @@ Debug tracebacks are omitted by default to keep JSON compact. Add
 
 ## Current Environment Notes
 
-The current source-tree PyTorch imports successfully, but Diffusers and
-Transformers package checks expect installed wheel metadata and distributed
-extension metadata. The harness applies local availability and import shims only
-for single-process benchmark imports. The remaining Lotus blocker is
-`missing_compiled_dtensor_c_api`: `torch._C` does not export
-`_DTensor_OpSchema_post_init` in this source-tree environment. That is a
-benchmark/runtime environment blocker, not a Vulkan backend result. Use a real
-distributed/DTensor-capable source-tree build, an installed local PyTorch wheel,
-or a compatible benchmark virtual environment before treating the Lotus row as
-backend coverage.
+The current source-tree PyTorch imports successfully and the 2026-07-17 Visual
+Studio runtime passes the compiled DTensor preflight. Diffusers and Transformers
+package checks still expect installed wheel and distributed extension metadata,
+so the harness applies local availability and import shims only for
+single-process benchmark imports. A passing preflight proves the build exposes
+the required DTensor API; it does not prove Lotus completes or provide Vulkan
+backend evidence. Re-run the model row before changing its gate.
 
 Validate the guard without running Lotus:
 

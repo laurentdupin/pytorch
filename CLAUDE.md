@@ -1,273 +1,289 @@
-# Scratch Space
+# Repository Operating Contract
 
-Use `agent_space/` (git-ignored, at repo root) for temporary scripts, scratch files, and throwaway experiments. Do not commit files from this directory.
+This is a private PyTorch fork whose active product work is the Windows Vulkan
+backend used by DeepDesktop. Preserve upstream PyTorch conventions, but make
+decisions from this fork's graph-first Vulkan architecture, supported runtime,
+and checked evidence.
 
-# PR Review
+## Work From Current Evidence
 
-When asked to review a PR, always use the /pr-review skill.
+- Inspect the worktree, loaded runtime, CMake cache, and relevant artifacts
+  before relying on conversation memory or historical documentation.
+- `docs/vulkan/CURRENT_STATE.md` contains both current decisions and historical
+  evidence. A historical blocker is not a current blocker until it reproduces
+  with the loaded binaries.
+- Distinguish these claims explicitly: imports, runs end to end, runs without
+  fallback/readback, passes graph parity, meets the performance gate, and is
+  production-ready. Evidence for one does not prove the next.
+- When reporting a model blocked, record the command, current commit, loaded
+  DLL hashes, configuration, and current error. Never repeat an old blocker
+  merely because it remains in a document.
 
-# Environment
+## Workspace And Tools
 
-If any tool you're trying to use (pip, python, spin, etc) is missing, check for
-a `.venv` directory in the project root or its parent directory. If found,
-activate it and retry. If no `.venv` is found, stop and ask the user if an
-environment is needed. Do NOT try to find alternatives or install these tools.
+- Preserve user changes in a dirty worktree. Do not reset, discard, or rewrite
+  unrelated files.
+- Use `agent_space/` for logs, generated evidence, temporary scripts, model
+  downloads, and throwaway experiments. It is git-ignored; never commit it.
+- Search with `rg`/`rg --files`. Do not recursively scan venvs, model caches, or
+  large downloaded corpora unless the task specifically requires it.
+- Prefer the repository `.venv`. If a tool or package is missing, inspect the
+  repository root, parent, and purpose-specific venvs under `agent_space/`
+  before asking for an environment. Do not silently install packages or switch
+  the build to a different Python ABI.
+- Do not run more than one heavy build, benchmark, or model process at a time on
+  this Windows machine. Inspect existing `cmake`, MSBuild, compiler, and linker
+  processes before building; stop only duplicates confirmed to belong to the
+  current task.
 
-# CI Docker Images
+## Vulkan Source Of Truth
 
-The `.ci/docker/` directory is content-hashed to determine whether Docker images
-need rebuilding. Any file change inside `.ci/docker/` (including the README)
-changes the hash and triggers a full Docker image rebuild. Do not make changes
-in this directory unless you intend to rebuild Docker images. When Docker builds
-are broken (e.g., due to an upstream Ubuntu outage), avoid touching this
-directory so you don't force a rebuild against the broken state.
+Before changing Vulkan production code, read:
 
-# Build
+- `docs/vulkan/PROJECT_CHARTER.md`
+- `docs/vulkan/CURRENT_STATE.md`
+- `docs/vulkan/ROADMAP.md`
+- `docs/vulkan/GRAPH_RUNTIME.md`
+- `docs/vulkan/REVIEW_CHECKLIST.md`
+- `docs/vulkan/TEMPORARY_EXCEPTIONS.md`
+- `docs/vulkan/CLEANUP_POLICY.md`
+- `docs/vulkan/cleanup_ledger.json`
 
-Always check local memory for build configuration (env vars, incremental-build shortcuts, etc.) before running the build, and apply what you find. If nothing applicable is in memory, ask the user.
-On this Windows machine, prefer the existing Visual Studio CMake build tree over
-`pip install -e . -v --no-build-isolation`; Ninja does not work reliably under
-the sandbox here. Use the generator/configuration already recorded in
-`build/CMakeCache.txt` unless the user asks to reconfigure.
+Read the sections relevant to the change again after long-running work or a
+context handoff. Update the current-state documents when evidence or a blocker
+changes; do not leave a superseded blocker presented as current.
 
-# Vulkan Contract Planning
+## Architecture
 
-For Vulkan backend work, read `docs/vulkan/PROJECT_CHARTER.md`,
-`docs/vulkan/CURRENT_STATE.md`, `docs/vulkan/ROADMAP.md`,
-`docs/vulkan/REVIEW_CHECKLIST.md`, and
-`docs/vulkan/TEMPORARY_EXCEPTIONS.md` before changing production code.
+- The performance architecture is graph-first: CPU `torch.export`, semantic
+  contract lowering, immutable `VulkanGraphProgram` plans, program-owned
+  resources, and eventually recorded command partitions.
+- Eager Vulkan is the simple correctness substrate. Do not add speculative
+  deferred placeholders, replay bridges, per-consumer materialization
+  protocols, or model orchestration to make eager faster.
+- DAv2, Lotus, HY-MT, PaddleOCR, and Gemma E2B are a coverage corpus. Model
+  names may appear in harnesses, tests, evidence, and docs, but not in generic
+  production dispatch.
+- Prefer `KernelFamilyContract`, `RegionContract`, and
+  `LayoutTransitionContract`. Admit legal runtime shapes semantically. Exact
+  rows are evidence or temporary bounded policy, not the default answer to a
+  new shape.
+- Do not hide CPU fallback/readback, fake storage or `data_ptr`, or introduce
+  permanent flags for incomplete behavior.
+- Legacy stack, replay, compiled-session, and eager inference-graph code may be
+  changed only for correctness, a migration hook, or an evidence-gated
+  deletion. Do not expand those systems.
+- Runtime-generated shader work belongs to graph codegen. Production execution
+  must not shell out to a manually configured shader compiler.
 
-DAv2, Lotus, HY-MT, PaddleOCR, and Gemma E2B are a coverage corpus. Use them to
-find reusable backend contracts and diagnostics; do not treat them as a license
-to add model-name production routes or grow exact-shape allowlists.
+## Windows Build Contract
 
-Prefer explicit `KernelFamilyContract`, `RegionContract`, and
-`LayoutTransitionContract` style work over bespoke shaders or one-off model
-paths. Any temporary exception must have an expiry condition and a migration
-target recorded in `docs/vulkan/TEMPORARY_EXCEPTIONS.md`.
+The existing Visual Studio build tree is an incremental starting point, not an
+authority. Never infer runtime capability solely from `build/CMakeCache.txt`.
 
-Do not hide CPU fallback/readback, fake storage or `data_ptr` behavior, or add
-permanent feature flags. CUDA and DirectML comparisons are milestone checks, not
-daily drivers for selecting the next exact Vulkan kernel shape.
+Before building Vulkan work, inspect the cache and require:
 
-# Testing
-
-Use our test class and test runner:
-
+```text
+BUILD_PYTHON=ON
+USE_VULKAN=ON
+USE_DISTRIBUTED=ON
+USE_GLOO=ON
+USE_C10D_GLOO=ON
+USE_LIBUV=ON
 ```
+
+Require MPI, NCCL, and TensorPipe to remain disabled when those options are
+present in the Windows configuration. Also verify that `Python_EXECUTABLE` is
+the intended repository venv and that the configured `libuv_ROOT` exists. C10
+is part of the core build; do not treat it as an optional component.
+
+- Prefer the existing Visual Studio 17 2022 generator. Ninja and editable pip
+  builds are not reliable substitutes on this machine.
+- If a required option, dependency root, Python path, or generated source is
+  missing or stale, reconfigure the same Visual Studio tree. Use
+  `scripts/deepdesktop/windows/configure-vulkan-msvc.ps1` as the canonical
+  local configuration and change CMake/configuration code when the product
+  contract requires it. Do not preserve a bad cache to avoid reconfiguration.
+- Build with one MSBuild worker unless the user explicitly requests otherwise:
+
+```powershell
+cmake --build build --config Release --target <target> -- /m:1 /nodeReuse:false
+```
+
+- Build `torch_cpu` for ordinary Vulkan C++ implementation changes.
+- Build `torch_python` whenever Python bindings, `torch/csrc`, build options,
+  generated bindings, distributed support, or configuration changed. A
+  `torch_cpu`-only build cannot prove that a Python/DTensor binding exists.
+- After a successful build, deploy the matching Release DLLs into `torch/lib`
+  and compare SHA-256 hashes. Deploy `torch_cpu.dll` for backend changes and
+  `torch_python.dll` whenever that target was rebuilt. Do not run source-tree
+  tests against older deployed DLLs.
+- Validate the imported runtime, not just files on disk:
+
+```powershell
+python -c "import torch; print(torch.__file__); print(torch._C.__file__)"
+python -c "import torch; assert torch._C._has_vulkan"
+```
+
+For distributed/DTensor model coverage, also require:
+
+```powershell
+python -c "import torch; assert hasattr(torch._C, '_distributed_c10d'); assert hasattr(torch._C, '_DTensor_OpSchema_post_init')"
+python scripts/benchmarks/benchmark_model_suite.py --validate-lotus-dtensor-preflight
+```
+
+If the cache flags pass but the runtime checks fail, the build or deployment is
+stale. Rebuild/deploy `torch_python`; do not add benchmark shims for compiled
+APIs and do not label Lotus blocked on DTensor until the preflight fails in the
+current runtime.
+
+## Testing And Evidence
+
+Use PyTorch's test utilities:
+
+```python
 from torch.testing._internal.common_utils import run_tests, TestCase
-
-class TestFeature(TestCase):
-    ...
-
-if __name__ == "__main__":
-    run_tests()
 ```
 
-To test Tensor equality, use assertEqual.
-For tests over multiple inputs, use the `@parametrize` decorator.
-For any test that checks numerics of the on-device implementation, use `instantiate_device_type_tests` to write device-generic tests.
+- Use `assertEqual` for tensor equality, `@parametrize` for input families, and
+  `instantiate_device_type_tests` for on-device numerical implementations when
+  feasible.
+- Dynamic semantic families need randomized legal-shape parity with a printed
+  reproduction seed plus real dtype/layout/semantic negatives.
+- Preserve behavioral regression tests for bug classes even when the mechanism
+  that originally caused the bug is deleted.
+- Match verification to risk. Documentation-only changes do not require a
+  model matrix. Production C++ changes require a successful target build,
+  matching deployed hash, and focused runtime tests.
+- Run tests against the just-built source runtime. Report the exact build and
+  test commands, failures, skips, and unavailable tooling honestly.
 
-# Linting
+Before promoting a graph performance/default change, record against supported
+plain eager and `VulkanGraphProgram` in the same process:
 
-Only use commands provided via `spin` for linting.
-Use `spin help` to list available commands.
-Generally, use `spin lint` to run lint and `spin fixlint` to apply automatic
-fixes. Do not invoke `lintrunner` directly; that workflow is obsolete.
+- correctness and graph/eager parity;
+- unsupported-node, fallback, readback, and deferred-value counts;
+- repeated execution while prior outputs remain live;
+- submit-origin/checkpoint counts and GPU timestamp attribution where relevant;
+- first and repeat peak memory, with the current 5% no-regression gate; and
+- three warmups plus 30 alternating samples per surface, including median and
+  p95.
 
-# Commit messages
+Opt-in canaries, replay lanes, compiled sessions, and benchmark-only bridges
+are historical evidence, not supported baselines.
 
-Don't commit unless the user explicitly asks you to.
+Keep raw model/performance artifacts in `agent_space/` and identify them with
+the exact source commit, adapter, driver, input, route, and deployed DLL hash.
 
-When writing a commit message, don't make a bullet list of the individual
-changes. Instead, if the PR is large, explain the order to review changes
-(e.g., the logical progression), or if it's short just omit the bullet list
-entirely.
+## Performance Work
 
-Disclose that the PR was authored with an AI assistant. Do this informally in
-the commit body (e.g., "Authored by Claude." or a similar attribution for
-whichever assistant was used). NEVER add a `Co-authored-by:` trailer
-attributing the AI assistant, as it interferes with the Linux Foundation CLA
-bot.
+- Attribute wall time before changing kernels. The current DAv2 evidence shows
+  a substantial fixed submission/driver/queue floor, so prioritize generic
+  submission cadence, dispatch, allocation, lifetime, and recording costs when
+  larger inputs have similar wall time.
+- Prefer generic improvements that help multiple corpus models. Do not add
+  shape-specific routes merely because a benchmark shape is visible.
+- Test one policy change at a time. Accept it only after correctness, memory,
+  and latency gates. Record rejected candidates and their revisit condition,
+  then remove experimental environment toggles and dead branches.
+- Consult and update
+  `test/vulkan_contract_proofs/performance_plan_evidence_manifest.json` for an
+  accepted, rejected, canary, or correctness-blocked performance plan.
 
-When the user asks you to amend a commit, check whether the commit message
-still accurately describes the changes. If it doesn't and the commit is not a
-ghstack commit, update the message. For ghstack commits, amending the message
-is a no-op, so just remind the user to update the PR description if needed.
+## Cleanup Policy
 
-If a commit message contains `ghstack-source-id` or `Pull-Request` trailers,
-you MUST preserve them when rewriting or splitting commit messages. ghstack
-will update the source id automatically when needed.
+Cleanup is a background track, not a sprint that blocks graph executor or
+corpus work. Forward progress creates deletion eligibility.
 
-# ghstack Workflow
+- Git is the archive. Preserve the supported result, evidence, and concise
+  rejection/replacement reason, not inactive implementations.
+- Every discovered schema, custom class, `PYTORCH_VULKAN_*` read, and public
+  Python entry point belongs to exactly one ledger state: Active, Migration,
+  Compatibility, or Delete-ready. There is no quarantine/default state.
+- Migration code is deleted only after its named graph replacement satisfies
+  the ledger gate against supported defaults. Do not use old canary timings as
+  a deletion bar.
+- Mechanism-only tests die with the mechanism; bug-class behavioral tests
+  survive.
+- Delete subsystem-specific docs in the same unit as the subsystem.
+- Commit cleanup in coherent verified waves, with a ledger tombstone that
+  prevents retired paths or dedicated symbols from silently returning.
 
-ghstack commits follow a different workflow than the conventional GitHub branch
-and PR workflow. First identify whether you're on a ghstack commit:
+For any cleanup surface change, run:
 
-- If HEAD is a detached commit, you are almost certainly in a ghstack flow.
-- If the commit message contains a `ghstack-source-id` trailer, it is an
-  existing ghstack commit.
-- If the commit is associated with a remote branch like `origin/gh/USERNAME/N`,
-  it is likely a ghstack commit (imperfect signal: local amends without a push
-  can desync this).
-
-Rules for working with ghstack:
-
-- **Don't amend unless asked.** If the user asks you to work on a ghstack
-  commit, leave changes uncommitted so the user can review with `git diff`.
-  Only amend into the commit if the user explicitly asks you to amend or to
-  submit it directly.
-- **Submitting.** Run `ghstack` to submit. When only working on a single
-  commit, use `ghstack --no-stack` to avoid updating the rest of the stack and
-  burning unnecessary CI. Use a full `ghstack` when you're intentionally
-  updating CI for the whole stack.
-- **Preserve metadata trailers.** When editing a commit message, never delete
-  `Pull-Request:` or `ghstack-source-id:` trailers. If you modified the commit
-  message, run `ghstack -u` afterwards to push the updated PR description.
-- **Never push directly.** Do not `git push` to branches, and never directly
-  modify the `gh/USERNAME/N` branches — ghstack manages those.
-- **Finding the PR.** If the user asks to pull CI results or code review for a
-  ghstack commit, get the PR URL from the `Pull-Request` trailer in the commit
-  message. Use `gh` CLI to fetch status/comments from there.
-- **Editing earlier commits / splitting.** Treat it like a normal stack of
-  commits (use `git rebase`, etc.). Commits that keep their metadata trailers
-  stay associated with their existing PRs; commits without trailers will get a
-  fresh PR on submit. A full `ghstack` run is usually appropriate here.
-
-# Coding Style Guidelines
-
-Follow these rules for all code changes in this repository:
-
-- Minimize comments; be concise; code should be self-explanatory and self-documenting.
-- Comments should be useful, for example, comments that remind the reader about
-  some global context that is non-obvious and can't be inferred locally.
-- Don't make trivial (1-2 LOC) helper functions that are only used once unless
-  it significantly improves code readability.
-- Prefer clear abstractions. State management should be explicit.
-  For example, if managing state in a Python class: there should be a clear
-  class definition that has all of the members: don't dynamically `setattr`
-  a field on an object and then dynamically `getattr` the field on the object.
-- Match existing code style and architectural patterns.
-- Assume the reader has familiarity with PyTorch. They may not be the expert
-  on the code that is being read, but they should have some experience in the
-  area.
-- ASCII only in newly added code comments. Do not introduce Unicode characters
-  (e.g., smart quotes, em dashes, arrows, non-ASCII letters) in new comments.
-  Leave preexisting Unicode in untouched comments alone; only enforce this for
-  comments you are adding or rewriting.
-
-If uncertain, choose the simpler, more concise implementation.
-
-# cuda.bindings Error Checking
-
-Use `torch.cuda._utils._check_cuda_bindings` to error-check `cuda.bindings`
-runtime calls. Do not write inline error-checking helpers.
-
-# Dynamo Config
-
-Use `torch._dynamo.config.patch` for temporarily changing config. It can be used as a decorator on test methods or as a context manager:
-
-```python
-# Good - use patch as decorator on test method
-@torch._dynamo.config.patch(force_compile_during_fx_trace=True)
-def test_my_feature(self):
-    # test code here
-    pass
-
-# Good - use patch as context manager
-with torch._dynamo.config.patch(force_compile_during_fx_trace=True):
-    # test code here
-    pass
-
-# Bad - manual save/restore
-orig = torch._dynamo.config.force_compile_during_fx_trace
-try:
-    torch._dynamo.config.force_compile_during_fx_trace = True
-    # test code here
-finally:
-    torch._dynamo.config.force_compile_during_fx_trace = orig
+```powershell
+.\.venv\Scripts\python.exe tools/vulkan_cleanup/generate_surface_inventory.py --write
+.\.venv\Scripts\python.exe tools/vulkan_cleanup/generate_surface_inventory.py
+$env:PYTHONPATH=(Resolve-Path .).Path
+.\.venv\Scripts\python.exe test/test_vulkan_cleanup.py
+.\.venv\Scripts\python.exe test/test_vulkan.py TestVulkanGovernance
 ```
 
-# Fixing B950 line too long in multi-line string blocks
+Regenerate and validate contract accepted/proof manifests when deleting or
+changing generated contract admission. Do not manually edit generated output
+when its generator owns the change.
 
-If B950 line too long triggers on a multi-line string block, you cannot fix it by
-putting # noqa: B950 on that line directly, as that would change the meaning of the
-string, nor can you fix it by line breaking the string (since you need the string
-to stay the same).  Instead, put # noqa: B950 on the same line as the terminating
-triple quote.
+## Device And Release Contract
 
-Example:
+- Never persist a Vulkan device index as physical identity. Expose physical
+  UUID, Windows LUID, normalized PCI address, and pipeline-cache UUID. Worker
+  selection accepts physical UUID or valid Windows LUID before global Vulkan
+  context/device creation, and the selected worker sees exactly that physical
+  device as `vulkan:0`.
+- Graph, compiled, tuning, and pipeline caches are disposable derived data.
+  Invalidate them on backend commit/schema, shader digest, physical UUID,
+  pipeline-cache UUID, driver/capability profile, graph/state/input signature,
+  or planning-context mismatch as applicable.
+- Production wheels come from a clean exact-commit release build. Torch and
+  torchvision are co-built and tested for each supported Python ABI and
+  platform; do not combine this fork with an arbitrary PyPI torchvision wheel.
+- A release manifest records full source commits, wheel SHA-256 values,
+  platform/ABI, compiler/runtime identity, Vulkan/SPIR-V build flags, backend
+  schema/shader identity, and signatures. Verify the installed
+  `torch.version.git_version` equals the pinned full commit.
 
-```
-    self.assertExpectedInline(
-        foo(),
-        """
-this line is too long...
-""",  # noqa: B950
-    )
-```
+## Documentation
 
-# Logging and Structured Tracing
+- Keep architectural decisions concise and current. Clearly label historical
+  measurements and rejected experiments.
+- When fresh evidence changes a blocker or model gate, update the relevant
+  current-state section in the same coherent change.
+- Do not claim five-model, platform, or production readiness from a narrow
+  operator test or import preflight.
 
-When adding debug logging for errors or diagnostic info, consider two user personas:
+## Linting
 
-1. **Local development**: Users run locally and can access files on disk
-2. **Production jobs**: Users can only access logs via `tlparse` from structured traces
+- Use only `spin` commands: start with `spin help`, normally run
+  `spin quicklint` for changed files, and use `spin quickfix` only when wanted.
+- Do not invoke `lintrunner` directly. That repository workflow is obsolete.
+- If `spin` itself depends on unavailable external tooling, report the exact
+  failure; do not silently substitute another linter or install tools without
+  authorization.
 
-For production debugging, use `trace_structured` to log artifacts:
+## Git And Commits
 
-```python
-from torch._logging import trace_structured
+- Do not commit unless the user or active goal explicitly authorizes commits.
+  A persistent instruction to commit coherent chunks remains authorization.
+- Review `git status`, `git diff`, and `git diff --check` before committing.
+- Keep commits coherent and verified. Do not mix unrelated worktree changes.
+- Commit messages should explain the logical change, not enumerate files.
+- Disclose AI authorship informally in the commit body, for example
+  `Authored by Codex.` Never add an AI `Co-authored-by:` trailer.
+- Preserve `Pull-Request:` and `ghstack-source-id:` trailers. For ghstack, do
+  not amend or push directly unless asked; submit through `ghstack`, using
+  `--no-stack` for an intentional single-commit update.
 
-# Log an artifact (graph, edge list, etc.)
-trace_structured(
-    "artifact",
-    metadata_fn=lambda: {
-        "name": "my_debug_artifact",
-        "encoding": "string",
-    },
-    payload_fn=lambda: my_content_string,
-)
-```
+## Repository Safety
 
-To check if structured tracing is enabled (for conditional messaging):
-
-```python
-from torch._logging._internal import trace_log
-
-if trace_log.handlers:
-    # Structured tracing is enabled, suggest tlparse in error messages
-    msg += "[Use tlparse to extract debug artifacts]"
-```
-
-**Best practices for error diagnostics:**
-
-- Always log to `trace_structured` for production (no runtime cost if disabled)
-- If you're dumping debug info in the event of a true internal compiler exception,
-  you can also consider writing to local files for local debugging convenience
-- In error messages, tell users about both options:
-  - Local files: "FX graph dump: min_cut_failed_graph.txt"
-  - Production: "Use tlparse to extract artifacts" (only if tracing enabled)
-- Use `_get_unique_path()` pattern to avoid overwriting existing debug files
-
-# cuda::ptx
-
-When using `<cuda/ptx>` typed wrappers for PTX instructions:
-
-- **Namespace**: Inside `namespace at::native`, unqualified `cuda::ptx` resolves
-  to the sibling `at::cuda` namespace. Always use `::cuda::ptx` or alias it:
-  `namespace ptx = ::cuda::ptx;`
-- **Include conflicts**: The monolithic `<cuda/ptx>` header can fail when included
-  alongside heavy PyTorch headers (e.g. `Loops.cuh`) due to CCCL bugs in
-  transitive headers like `cp_async_bulk_tensor.h`. Workaround: put kernels using
-  `<cuda/ptx>` in a separate `.cu` file with minimal includes.
-- **mbarrier_try_wait_parity is non-blocking**: `ptx::mbarrier_try_wait_parity()`
-  returns `bool` (tries once). You must wrap it in a spin loop:
-  `while (!ptx::mbarrier_try_wait_parity(mbar, parity)) {}`
-- **Half/BFloat16 types**: `cuda::ptx` overloads use CUDA native types (`__half`,
-  `__nv_bfloat16`), not PyTorch wrappers (`c10::Half`, `c10::BFloat16`).
-  Use `reinterpret_cast` at the call site.
-- **cp_async_bulk_wait_group**: Takes a compile-time constant via
-  `ptx::n32_t<N>{}`, not a runtime integer.
-- **Mbarrier smem**: Mbarrier memory must never alias with data targeted by TMA
-  operations. Place mbarriers in a separate smem region from data buffers.
+- `.ci/docker/` is content-hashed. Do not touch it unless a Docker image rebuild
+  is intentional.
+- Avoid destructive git and filesystem operations. Verify absolute targets
+  before recursive delete/move operations.
+- Match existing PyTorch style. Prefer clear explicit state, concise comments,
+  simple abstractions, and ASCII in new code comments.
+- Use `torch._dynamo.config.patch` for temporary Dynamo configuration changes.
+- Use `torch.cuda._utils._check_cuda_bindings` for `cuda.bindings` error checks.
+- For B950 in an expected multi-line string, put `# noqa: B950` on the closing
+  triple-quote line rather than changing the expected string.
+- Use structured tracing for diagnostics that must survive production jobs;
+  local scratch logs may supplement it but must not be the only signal.

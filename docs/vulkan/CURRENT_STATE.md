@@ -2842,21 +2842,21 @@ model gate and they do not imply model-specific production routes.
 - Gemma E2B: still blocked before useful route coverage by model-weight Vulkan
   OOM while moving
   `gemma4forconditionalgeneration.model.language_model.embed_tokens_per_layer.weight`.
-- Lotus: Task181 cleared the benchmark-local `_c10d_functional.wait_tensor`
-  import blocker, but Lotus still fails before useful Vulkan execution because
-  the source-tree environment lacks the compiled DTensor C API
-  `_DTensor_OpSchema_post_init` in `torch._C`. The model-suite harness now
-  preflights that symbol and reports a stable `missing_compiled_dtensor_c_api`
-  skip before importing Lotus/Diffusers, so agents should not rediscover this
-  as a raw Diffusers `ImportError`. The Lotus counters remain zero and the row
-  must not contribute backend regression budgets.
+- Lotus: Task181 encountered a source-tree build without the compiled DTensor C
+  API `_DTensor_OpSchema_post_init`. The current 2026-07-17 Visual Studio build
+  has `BUILD_PYTHON`, distributed, Gloo, C10D-Gloo, and libuv enabled; the
+  loaded runtime exports both `_distributed_c10d` and
+  `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
+  This clears the recorded environment blocker but does not establish a fresh
+  end-to-end Lotus result. Lotus remains excluded from backend regression
+  budgets until that model run is recollected.
 
 Benchmark-local distributed shims must stay import-only and single-process.
 `_c10d_functional.wait_tensor` may be an identity shim for telemetry imports;
 collective and DTensor op schema stubs must raise if executed. Do not add
-benchmark-local fakes for compiled `torch._C` DTensor APIs. Restoring Lotus
-telemetry now requires a real source-tree distributed/DTensor-capable build or
-a compatible runtime environment, not a Vulkan backend change.
+benchmark-local fakes for compiled `torch._C` DTensor APIs. If the Lotus
+preflight regresses, repair and deploy the real `torch_python` build rather than
+changing the Vulkan backend or faking the missing API.
 Use
 `python scripts\benchmarks\benchmark_model_suite.py --validate-lotus-dtensor-preflight`
 to check the benchmark guard without running Lotus.
@@ -2877,8 +2877,8 @@ to check the benchmark guard without running Lotus.
   projection evidence for `SmallSpatialPointwiseConvContract`.
 - `agent_space/task179_real_workload_status_telemetry.md`: telemetry checkpoint
   for DAv2, Lotus, HY-MT, PaddleOCR, and Gemma on the current local corpus.
-- `agent_space/task181_lotus_shim_validation.md`: benchmark-local Lotus shim
-  validation and current `missing_compiled_dtensor_c_api` blocker.
+- `agent_space/task181_lotus_shim_validation.md`: historical benchmark-local
+  Lotus shim validation and the now-cleared DTensor C API blocker.
 
 These files are diagnostic inputs. Production code must not depend on
 `agent_space`.
@@ -3394,10 +3394,11 @@ These files are diagnostic inputs. Production code must not depend on
   not replace the RX 9070/RX 6700 XT/GTX 1080 real-hardware rows.
 - Gemma E2B is a memory/dtype milestone, not a reason to add exact route
   exceptions.
-- Lotus is telemetry-unavailable in the current source-tree environment. Do
-  not fake compiled `torch._C` DTensor APIs in the benchmark harness to make it
-  run; use a compatible distributed/DTensor-capable build or runtime before
-  treating Lotus as backend evidence.
+- The current source-tree runtime passes the Lotus compiled-DTensor preflight,
+  but no fresh end-to-end Lotus telemetry has been collected from that build.
+  Do not fake compiled `torch._C` DTensor APIs if the preflight regresses; fix
+  and deploy the real `torch_python` runtime before treating Lotus as backend
+  evidence.
 - PaddleOCR completed the Task179 RX 9070 screenshot row with one known CPU
   fallback and one sync readback, but that is still telemetry-only and not
   cross-adapter gate-ready. Rerun the real-model matrix after the next backend
