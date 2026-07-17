@@ -1963,21 +1963,6 @@ void Context::observe_next_graph_program_submission(
   graph_program_submission_observers_.push_back(std::move(observer));
 }
 
-uint32_t Context::set_graph_program_checkpoint_frequency_for_testing(
-    const uint32_t frequency) {
-  std::unique_lock<std::mutex> context_lock(dispatch_lock());
-  TORCH_CHECK(
-      !graph_program_invocation_active() && !is_inside_owned_program_recording() &&
-          !is_stack_planned_recording_active() && !cmd_ && submit_count_ == 0u &&
-          !graph_program_checkpoint_requested_ &&
-          !graph_program_checkpoint_requires_wait_ &&
-          graph_submission_profile_log_idx_ == UINT32_MAX,
-      "Graph checkpoint frequency can only change on an idle Vulkan Context");
-  const uint32_t previous = config_.graphProgramCheckpointFrequency;
-  config_.graphProgramCheckpointFrequency = frequency;
-  return previous;
-}
-
 std::function<void()> Context::take_graph_program_completion_cleanup() {
   if (graph_program_completion_cleanups_.empty()) {
     return {};

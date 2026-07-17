@@ -486,7 +486,6 @@ class TORCH_API Context final {
       bool wait_for_completion = false);
   void observe_next_graph_program_submission(
       std::function<void(const VulkanSubmission&)> observer);
-  uint32_t set_graph_program_checkpoint_frequency_for_testing(uint32_t);
 
   inline void enable_op_profiling() {
     enable_op_profiling_ = true;

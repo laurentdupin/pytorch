@@ -635,9 +635,16 @@ Current attribution status: exact-SHA `28d8f7b3133` measured the existing
 ten-submit graph topology and exact unrecorded candidates at five, two, and one
 submission. GPU work is stable at 23-25 ms, but five is latency-neutral and
 fails the 5% repeat-live memory gate, while two and one are materially slower
-and fail memory. Ten remains the supported unrecorded baseline. The next
-candidate must pre-record useful bounded work against stable resources and
-descriptors; merely widening checkpoint cadence is explicitly rejected.
+and fail memory. Ten remains the supported unrecorded baseline. The first
+recorded candidate at `f80ad5960893` proved stable rank-N linear output storage
+and replayed nine primed writers, but one primary command buffer per writer
+raised GPU work by more than 5% and increased inter-submit gaps by 9-12 ms. It
+was rejected and its recording machinery deleted by `e13bdc8d517`; only the
+generic rank-N storage correction and bug-class regression remain. The next
+candidate must pre-record useful contiguous multi-instruction work against
+stable resources and descriptors without increasing primary command-buffer
+count per submission. Merely widening checkpoint cadence or replaying isolated
+writers is explicitly rejected.
 
 - record bounded Vulkan-only partitions against program-owned slots;
 - cache by graph, guard, device/driver, capability, layout, and weight version;
@@ -652,6 +659,8 @@ Exit criteria:
 - recorded partitions pass repeated-process correctness and lifetime tests;
 - program execution materially reduces control-plane submits and descriptor
   rebuilds;
+- recorded execution does not increase primary command-buffer count enough to
+  erase the host-recording savings;
 - a rejected plan cannot become a global default on another adapter.
 
 ## Phase 7: Replacement Cleanup

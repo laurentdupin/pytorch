@@ -1235,18 +1235,6 @@ void dump_cpu_timeline_summary_runtime() {
   api::dump_cpu_timeline_summary_log();
 }
 
-int64_t set_graph_program_checkpoint_frequency_for_testing_runtime(
-    const int64_t frequency) {
-  TORCH_CHECK(
-      frequency >= 0 &&
-          static_cast<uint64_t>(frequency) <=
-              static_cast<uint64_t>(UINT32_MAX),
-      "Graph checkpoint frequency must fit in uint32 and be nonnegative");
-  return static_cast<int64_t>(
-      api::context()->set_graph_program_checkpoint_frequency_for_testing(
-          static_cast<uint32_t>(frequency)));
-}
-
 bool check_tensor_finite_runtime(const Tensor& tensor, std::string label) {
   return check_tensor_finite(
       tensor,
@@ -2607,9 +2595,6 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::set_graph_program_conv_host_sync_for_testing("
       "bool enabled) -> ()"));
   m.def(TORCH_SELECTIVE_SCHEMA(
-      "vulkan_prepack::set_graph_program_checkpoint_frequency_for_testing("
-      "int frequency) -> int"));
-  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::submit_origin_counters() -> int[]"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::reset_submit_origin_counters() -> ()"));
@@ -2983,10 +2968,6 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, CatchAll, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::set_graph_program_conv_host_sync_for_testing"),
       TORCH_FN(set_graph_program_conv_host_sync_for_testing));
-  m.impl(
-      TORCH_SELECTIVE_NAME(
-          "vulkan_prepack::set_graph_program_checkpoint_frequency_for_testing"),
-      TORCH_FN(set_graph_program_checkpoint_frequency_for_testing_runtime));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::submit_origin_counters"),
       TORCH_FN(submit_origin_counters_runtime));

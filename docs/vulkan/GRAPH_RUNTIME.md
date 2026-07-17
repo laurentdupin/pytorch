@@ -462,6 +462,16 @@ preflight high-water was 662,898,080 against a 696,042,984-byte limit. The
 preceding `5d9001ebcc7` convolution-inclusive candidate failed both memory
 bounds and is retained only as rejection evidence.
 
+The first recorded-command candidate (`f80ad5960893`) did not reach this soak
+gate because it failed the preregistered performance gates first. Although nine
+arena-stable writers captured and replayed exactly with bounded memory, placing
+each writer in a separate primary command buffer increased GPU work and queue
+gaps. Commit `e13bdc8d517` deletes that recording control plane. This rejects
+fine-grained primary-buffer replay, not recorded execution in general: a future
+candidate must form a useful contiguous multi-instruction partition or prove a
+secondary-command design whose command-buffer overhead does not erase the
+recording savings before it qualifies for the soak.
+
 ## Migration And Deletion
 
 The replacement order is:

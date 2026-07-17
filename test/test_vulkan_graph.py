@@ -179,25 +179,11 @@ class TestVulkanGraph(TestCase):
                 sample = torch.randn(2, 8)
                 program = torch.vulkan.export_and_lower(model, sample)
                 torch.ops.vulkan_prepack.synchronize()
-                previous = (
-                    torch.ops.vulkan_prepack
-                    .set_graph_program_checkpoint_frequency_for_testing(1)
+                output = program(sample)
+                torch.testing.assert_close(
+                    output.cpu(), model(sample), rtol=1e-4, atol=1e-4
                 )
-                try:
-                    output = program(sample)
-                    torch.testing.assert_close(
-                        output.cpu(), model(sample), rtol=1e-4, atol=1e-4
-                    )
-                    torch.ops.vulkan_prepack.synchronize()
-                finally:
-                    torch.ops.vulkan_prepack.synchronize()
-                    observed = (
-                        torch.ops.vulkan_prepack
-                        .set_graph_program_checkpoint_frequency_for_testing(
-                            previous
-                        )
-                    )
-                    assert observed == 1, observed
+                torch.ops.vulkan_prepack.synchronize()
                 """
             )
             result = subprocess.run(

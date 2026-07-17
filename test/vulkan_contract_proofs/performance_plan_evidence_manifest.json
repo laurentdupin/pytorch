@@ -4207,6 +4207,132 @@
         "Compare the first recorded-partition candidate against the accepted ten-submit topology in the same process with the preregistered thresholds.",
         "Require flight-depth-times-arena accounting and the 600-second replacement soak before replay promotion."
       ]
+    },
+    {
+      "id": "dav2_graph_single_writer_primary_recording_rejected_2026_07_17",
+      "status": "rejected_slower",
+      "head": "f80ad5960893cb9c3da59805feb7299b58cabf63",
+      "removed_by": "e13bdc8d5177717f42f2ef0b3bd8ed531c3b9593",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Evaluate the first preregistered recorded-partition candidate by replaying successfully primed arena-stable linear writers inside the accepted ten-submit graph topology."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. The candidate runtime used torch_cpu.dll SHA-256 471d495849289ce293169cffaf273fd979207c12ccd3d409b9d8dea22fba6e9a. The restored supported runtime at exact source e13bdc8d517 used torch_cpu.dll SHA-256 dee1cb67b8cc736243d124345279bb32bc1229c7e2e1aabae29e5049ff2a2cc9. The rejected code, counters, bindings, pools, and mechanism tests were deleted rather than retained behind a flag.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "nine successfully primed arena-stable linear writer instructions",
+        "one reusable primary command buffer per recorded writer",
+        "existing 10/5/2/1 graph submission topology",
+        "exactly two GPU timestamps per queue submission",
+        "two-generation resource arena"
+      ],
+      "candidate": "After one successful priming execution per arena generation, capture each eligible linear writer into its own plan-owned primary command buffer and enqueue those reusable buffers alongside normally recorded commands in the existing graph queue-submit batch.",
+      "correctness": {
+        "status": "exact_and_memory_safe_but_performance_rejected_before_soak",
+        "tests": [
+          "normal and alternate exact graph-versus-eager parity",
+          "normal graph-versus-CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph-versus-CPU max_abs 0.0024883747 under 0.004",
+          "zero graph CPU fallback, unexpected readback, deferred values, capture failures, unsafe-slot leaks, and retirement failures",
+          "prior outputs remain live across repeated invocation",
+          "partial-failure recovery and failed-priming rejection",
+          "137 Vulkan graph tests, 23 graph evidence tests, 10 cleanup tests, and 69 governance tests"
+        ],
+        "soak_status": "not_run_candidate_failed_preregistered_performance_gates"
+      },
+      "counters": {
+        "candidate_instruction_count": 9,
+        "capture_count_per_program": 9,
+        "capture_failure_count": 0,
+        "normal_replays_after_30_samples_at_10_submits": 279,
+        "alternate_replays_after_30_samples_at_10_submits": 279,
+        "observed_submissions_per_inference": 10,
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 4,
+        "resource_value_count": 80,
+        "resource_writer_instruction_count": 58,
+        "resource_writes_over_two_evidence_invocations": 116,
+        "resource_writer_bypass_count": 0,
+        "normal_repeat_live_peak_over_eager_percent": 0.963,
+        "alternate_repeat_live_peak_over_eager_percent": 1.634,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0,
+        "unsafe_slot_leak": 0,
+        "retirement_failure": 0
+      },
+      "timing_ms": {
+        "baseline_normal_instrumented_wall_median": 43.741,
+        "candidate_normal_instrumented_wall_median": 54.072,
+        "baseline_alternate_instrumented_wall_median": 47.140,
+        "candidate_alternate_instrumented_wall_median": 61.538,
+        "baseline_normal_gpu_busy_median": 23.313,
+        "candidate_normal_gpu_busy_median": 24.589,
+        "normal_gpu_work_delta_percent": 5.473,
+        "baseline_alternate_gpu_busy_median": 24.707,
+        "candidate_alternate_gpu_busy_median": 26.250,
+        "alternate_gpu_work_delta_percent": 6.247,
+        "baseline_normal_inter_submit_gap_median": 12.534,
+        "candidate_normal_inter_submit_gap_median": 21.579,
+        "baseline_alternate_inter_submit_gap_median": 13.602,
+        "candidate_alternate_inter_submit_gap_median": 25.563,
+        "preregistered_normal_graph_median": 46.021,
+        "candidate_normal_graph_median": 52.756,
+        "preregistered_normal_graph_p95": 62.282,
+        "candidate_normal_graph_p95": 67.303,
+        "preregistered_alternate_graph_median": 54.091,
+        "candidate_alternate_graph_median": 51.572,
+        "preregistered_alternate_graph_p95": 66.323,
+        "candidate_alternate_graph_p95": 58.034,
+        "measurement_repeats": 30,
+        "performance_claim": "Reject. Separate primary command buffers for nine individual writers increase GPU work by 5.47%/6.25% and inter-submit gaps by 9.04/11.96 ms. The normal uninstrumented median regresses 14.64% and p95 regresses 8.06%; the alternate median improves only 4.66%, below the preregistered 10% promotion threshold."
+      },
+      "restored_supported_default": {
+        "head": "e13bdc8d5177717f42f2ef0b3bd8ed531c3b9593",
+        "observed_submissions_per_inference": 10,
+        "normal_graph_median_ms": 52.589,
+        "normal_graph_p95_ms": 67.677,
+        "alternate_graph_median_ms": 63.524,
+        "alternate_graph_p95_ms": 70.062,
+        "normal_supported_eager_median_ms": 144.037,
+        "alternate_supported_eager_median_ms": 179.360,
+        "normal_repeat_live_peak_over_eager_percent": 0.963,
+        "alternate_repeat_live_peak_over_eager_percent": 1.634,
+        "interpretation": "This exact-source post-deletion run verifies the supported ten-submit topology, parity, counters, and memory. Host variance prevents treating its wall distribution as a new latency baseline."
+      },
+      "artifacts": [
+        "agent_space/graph_recorded_partition_candidate_f80ad596089/topology_sweep_normal_30.json",
+        "agent_space/graph_recorded_partition_candidate_f80ad596089/topology_gpu_spans_normal_30.log",
+        "agent_space/graph_recorded_partition_candidate_f80ad596089/topology_sweep_alternate_30.json",
+        "agent_space/graph_recorded_partition_candidate_f80ad596089/topology_gpu_spans_alternate_30.log",
+        "agent_space/graph_recorded_partition_candidate_f80ad596089/dav2_vits_recorded_candidate_export_census.json",
+        "agent_space/graph_recorded_partition_candidate_f80ad596089/dav2_vits_recorded_candidate_export_parity.json",
+        "agent_space/graph_recorded_partition_rejected_e13bdc8d517/dav2_vits_rankn_resource_final_export_census.json",
+        "agent_space/graph_recorded_partition_rejected_e13bdc8d517/dav2_vits_rankn_resource_final_export_parity.json"
+      ],
+      "artifact_identity": {
+        "candidate_normal_topology_sha256": "883e7f50eb25d2cae6b7f1293ce11b873d1e5c036495f276e0dded1bc0cbad81",
+        "candidate_normal_gpu_spans_sha256": "568c44cab7b79d8e840fb80c386a987edf745a2c7ed737ea01347ee97b9441b3",
+        "candidate_alternate_topology_sha256": "810b6d4168d88081ac682c3c8a621a20cc7aed99efacd76480491d355e3b5f90",
+        "candidate_alternate_gpu_spans_sha256": "10f48d0c90e922b03bfa049fee73a2a63d139f38454bd14c8f4c9efaddd48769",
+        "candidate_census_sha256": "2ecc8a25e25120f2e32fd6a2c557b7e82af3c5ed25827ed550d1abebc36c9ed2",
+        "candidate_parity_sha256": "18fa955b40521846c8a6dd26163d7f68ecb291952ca0f2fbe21ca160d39ad91e",
+        "restored_census_sha256": "7114f7a98b4ea928d2980f5565dc2ea6c86a19c27e2bdeb944be564bf5454bca",
+        "restored_parity_sha256": "a85953f85448aa6ecf8e7fd47f89d725b037e3c0c48a61efd849900b716c2290"
+      },
+      "decision": "Reject and delete the first fine-grained recorded-writer implementation. Nine separate primary command buffers cost more GPU and queue time than their avoided host recording saves. Preserve only the generic rank-N linear output-storage correction, which removes DAv2 resource-writer bypass without retaining any recording API or control plane.",
+      "revisit_conditions": [
+        "A future candidate records a contiguous multi-instruction partition into one reusable command buffer, or proves a secondary-command design that does not increase primary command-buffer count per submission.",
+        "Stable program ownership covers enough dispatch, descriptor, and barrier work to meet both preregistered command-record reduction thresholds before a model soak.",
+        "The next candidate is preregistered and reruns the same isolated two-timestamp attribution, alternating supported-default distributions, flight-depth-times-arena memory gate, and qualified soak."
+      ]
     }
   ]
 }

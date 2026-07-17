@@ -1102,6 +1102,26 @@
         "ExecutionContractsTokenPrefixCatAddSpec"
       ],
       "consequence": "The preempted exact matcher branch, family and match wrappers, generated row helper, JSON spec, generator adapters, proof-ledger entries, and mechanism-only adjacent-row test were deleted. TokenPrefixCatAddDirectBuffer is the sole admission contract; the private operator, corpus-shape parity, dynamic-shape coverage, and semantic negatives remain."
+    },
+    {
+      "id": "retired_graph_checkpoint_frequency_test_control",
+      "decision": "retire_completed_experiment_control",
+      "status": "deleted",
+      "basis": [
+        "The setter existed only to sweep the graph checkpoint topology nearest ten, five, two, and one submissions for the preregistered Phase 6 experiment.",
+        "The sweep rejected lower unrecorded submission counts, and the first recorded-writer candidate has now also been rejected and deleted.",
+        "The isolated two-timestamp behavioral test runs on the supported default topology and does not require mutating global Context configuration."
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "torch",
+        "test",
+        "scripts"
+      ],
+      "forbidden_code_symbols": [
+        "set_graph_program_checkpoint_frequency_for_testing"
+      ],
+      "consequence": "The testing-only operator schema, runtime wrapper, Context setter, and topology-mutation test plumbing were deleted after the registered experiment decision. The fixed 32-job graph checkpoint policy, two-timestamp attribution, and supported ten-submit behavior remain."
     }
   ],
   "entries": [
@@ -1267,7 +1287,6 @@
         "operator_schema:vulkan_prepack::run_vulkan_graph_region_plan",
         "operator_schema:vulkan_prepack::set_benchmark_timed_region",
         "operator_schema:vulkan_prepack::set_fallback_phase",
-        "operator_schema:vulkan_prepack::set_graph_program_checkpoint_frequency_for_testing",
         "operator_schema:vulkan_prepack::set_graph_program_conv_host_sync_for_testing",
         "operator_schema:vulkan_prepack::set_submit_phase",
         "operator_schema:vulkan_prepack::slice_hidden_states_for_logits",

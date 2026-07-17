@@ -147,13 +147,33 @@ also exceed the memory gate. All candidates remain numerically exact with zero
 fallback, unexpected readback, deferred values, unsafe-slot leaks, or
 retirement failures. Fewer checkpoints hold transient resources longer and
 delay GPU start until more host recording is complete. The supported
-unrecorded default therefore remains ten submissions; Phase 6 next implements
-recorded partitions that eliminate recording rather than merely delaying
-submission. The loaded `torch_cpu.dll` SHA-256 was
+unrecorded default therefore remains ten submissions. The loaded
+`torch_cpu.dll` SHA-256 was
 `9ff5ca5ddcae0fa32ceb9a8e478cdfe519cad7bdeabe7e8d8538ccb6b2e4207f`.
 Raw artifacts are under
 `agent_space/graph_recorded_partition_sweep_28d8f7b3133/` and
 `agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/`.
+
+The first recorded candidate at exact source `f80ad5960893` is rejected and
+deleted by `e13bdc8d517`. It successfully primed, captured, and replayed nine
+arena-stable linear writers with zero capture failures, but represented each
+writer as a separate primary command buffer inside the existing ten-submit
+batch. At ten submissions the normal/alternate instrumented wall medians rose
+from 43.74/47.14 ms to 54.07/61.54 ms, GPU work rose from 23.31/24.71 ms to
+24.59/26.25 ms, and inter-submit gaps rose by 9.04/11.96 ms. The normal
+uninstrumented median regressed from the preregistered 46.02 ms baseline to
+52.76 ms and p95 exceeded its 5% cap; the alternate median improved only 4.66%,
+short of the required 10%. Correctness stayed exact, fallback/readback stayed
+zero, and repeat-live memory stayed within 0.96%/1.63% of eager, so the result
+isolates a performance rejection rather than an ownership failure. The command
+pools, batch API, replay counters and bindings, reports, and mechanism tests
+were removed instead of retained behind a flag. The generic rank-N linear
+output-storage correction remains: the exact-source post-deletion run reports
+116 resource writes and zero writer bypass while preserving the accepted
+ten-submit topology. A successor must record useful contiguous multi-op work
+without increasing primary command-buffer count per submission. Raw artifacts
+are under `agent_space/graph_recorded_partition_candidate_f80ad596089/` and
+`agent_space/graph_recorded_partition_rejected_e13bdc8d517/`.
 
 The same cases measure supported-default latency from preuploaded Vulkan inputs
 to completed Vulkan outputs, alternating plain eager and `VulkanGraphProgram`
