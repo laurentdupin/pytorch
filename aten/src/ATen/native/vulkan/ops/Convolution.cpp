@@ -5234,10 +5234,13 @@ void set_graph_program_conv_host_sync_for_testing(const bool enabled) {
   graph_program_conv_host_sync_for_testing = enabled;
 }
 
-std::optional<Tensor> try_run_conv2d_context_relu_out(
+namespace {
+
+std::optional<Tensor> try_run_conv2d_context_buffer_out(
     const Tensor& input_arg,
     const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
-    Tensor& output) {
+    Tensor& output,
+    const bool fuse_relu) {
   if (
       !conv_context || conv_context->quantized() || conv_context->transposed() ||
       conv_context->packed_weight().execution_layout() !=
@@ -5280,8 +5283,10 @@ std::optional<Tensor> try_run_conv2d_context_relu_out(
   }
   float output_min = conv_context->output_min();
   float output_max = conv_context->output_max();
-  output_min = output_min > 0.0f ? output_min : 0.0f;
-  output_max = output_max > 0.0f ? output_max : 0.0f;
+  if (fuse_relu) {
+    output_min = output_min > 0.0f ? output_min : 0.0f;
+    output_max = output_max > 0.0f ? output_max : 0.0f;
+  }
   return run_float_buffer_conv2d_impl(
       input,
       packed_weight,
@@ -5292,6 +5297,24 @@ std::optional<Tensor> try_run_conv2d_context_relu_out(
       output_min,
       output_max,
       &output);
+}
+
+} // namespace
+
+std::optional<Tensor> try_run_conv2d_context_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    Tensor& output) {
+  return try_run_conv2d_context_buffer_out(
+      input_arg, conv_context, output, /*fuse_relu=*/false);
+}
+
+std::optional<Tensor> try_run_conv2d_context_relu_out(
+    const Tensor& input_arg,
+    const c10::intrusive_ptr<Conv2dPackedContext>& conv_context,
+    Tensor& output) {
+  return try_run_conv2d_context_buffer_out(
+      input_arg, conv_context, output, /*fuse_relu=*/true);
 }
 
 std::optional<Tensor> try_run_conv2d_context_add_out(

@@ -163,6 +163,36 @@ int register_vulkan_graph_plan() {
           .def(
               "dead_input_reuse_count",
               &utils::VulkanGraphPlan::dead_input_reuse_count)
+          .def(
+              "resource_slot_count",
+              &utils::VulkanGraphPlan::resource_slot_count)
+          .def(
+              "resource_value_count",
+              &utils::VulkanGraphPlan::resource_value_count)
+          .def(
+              "resource_writer_instruction_count",
+              &utils::VulkanGraphPlan::resource_writer_instruction_count)
+          .def(
+              "resource_arena_flight_depth",
+              &utils::VulkanGraphPlan::resource_arena_flight_depth)
+          .def(
+              "resource_arena_generation_count",
+              &utils::VulkanGraphPlan::resource_arena_generation_count)
+          .def(
+              "resource_arena_capture_count",
+              &utils::VulkanGraphPlan::resource_arena_capture_count)
+          .def(
+              "resource_arena_reuse_count",
+              &utils::VulkanGraphPlan::resource_arena_reuse_count)
+          .def(
+              "resource_arena_spill_count",
+              &utils::VulkanGraphPlan::resource_arena_spill_count)
+          .def(
+              "resource_write_count",
+              &utils::VulkanGraphPlan::resource_write_count)
+          .def(
+              "resource_writer_bypass_count",
+              &utils::VulkanGraphPlan::resource_writer_bypass_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)
           .def("output_count", &utils::VulkanGraphPlan::output_count)
           .def("submission_owned", &utils::VulkanGraphPlan::submission_owned)
@@ -611,6 +641,44 @@ std::tuple<Tensor, Tensor> utils::run_graph_add_layernorm_plan(
   Tensor composed_normalized = run_layernorm_context(
       composed_residual, plan->normalized_shape(), plan->layernorm_context());
   return std::make_tuple(composed_residual, composed_normalized);
+}
+
+std::optional<std::tuple<Tensor, Tensor>>
+utils::try_run_graph_add_layernorm_plan_out(
+    const Tensor& residual,
+    const Tensor& addend,
+    const c10::intrusive_ptr<GraphAddLayernormPlan>& plan,
+    Tensor& residual_output,
+    Tensor& normalized_output) {
+  if (
+      !plan || !residual.is_vulkan() || !addend.is_vulkan() ||
+      plan->schema().instruction_count != 1u ||
+      plan->schema().residual_input_ssa != 0u ||
+      plan->schema().addend_input_ssa != 1u ||
+      plan->schema().residual_output_ssa != 2u ||
+      plan->schema().normalized_output_ssa != 3u ||
+      plan->schema().residual_input_use_count != 1u ||
+      plan->schema().residual_input_last_use != 0u ||
+      plan->schema().addend_input_use_count != 1u ||
+      plan->schema().addend_input_last_use != 0u ||
+      plan->schema().static_context_slot != 0u ||
+      !plan->schema().direct_transition_only ||
+      !plan->schema().replay_state_empty ||
+      plan->schema().persistent_output_state) {
+    return std::nullopt;
+  }
+  GraphAddLayernormInvocation invocation(*plan);
+  const auto outputs = try_run_add_layernorm_context_out(
+      residual,
+      addend,
+      plan->normalized_shape(),
+      plan->layernorm_context(),
+      residual_output,
+      normalized_output);
+  if (!outputs) {
+    return std::nullopt;
+  }
+  return std::make_tuple(outputs->first, outputs->second);
 }
 
 utils::GraphConv2dReluPlan::GraphConv2dReluPlan(
@@ -2737,7 +2805,11 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "int[] output_value_ids, int planning_model_domain=0, "
       "int planning_execution_phase=0, "
       "bool planning_prefer_packed_layout_propagation=False, "
-      "int[]? planning_fixed_shape_graph_input_sizes=None) "
+      "int[]? planning_fixed_shape_graph_input_sizes=None, "
+      "int[] value_resource_slot_ids=[], "
+      "int[] resource_slot_sizes=[], "
+      "int[] resource_slot_ranks=[], "
+      "int resource_arena_flight_depth=2) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vulkan_graph_plan(Tensor[] inputs, "

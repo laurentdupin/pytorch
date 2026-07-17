@@ -33,6 +33,7 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
 
  public:
   explicit VulkanGraphPlan(std::shared_ptr<State> state);
+  ~VulkanGraphPlan() noexcept override;
 
   int64_t input_count() const;
   int64_t instruction_count() const;
@@ -45,6 +46,16 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t invocation_stack_capacity() const;
   int64_t dead_input_reuse_instruction_count() const;
   int64_t dead_input_reuse_count() const;
+  int64_t resource_slot_count() const;
+  int64_t resource_value_count() const;
+  int64_t resource_writer_instruction_count() const;
+  int64_t resource_arena_flight_depth() const;
+  int64_t resource_arena_generation_count() const;
+  int64_t resource_arena_capture_count() const;
+  int64_t resource_arena_reuse_count() const;
+  int64_t resource_arena_spill_count() const;
+  int64_t resource_write_count() const;
+  int64_t resource_writer_bypass_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
   bool submission_owned() const;
@@ -64,6 +75,12 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   void record_submission(
       c10::DeviceIndex device_index,
       const api::VulkanSubmission& submission);
+  int64_t acquire_resource_arena(c10::DeviceIndex device_index);
+  Tensor& resource_tensor(int64_t arena_index, int64_t resource_slot_id);
+  void record_resource_arena_submission(
+      int64_t arena_index,
+      const api::VulkanSubmission& submission);
+  void poison_resource_arena(int64_t arena_index) noexcept;
 
   const State& state() const;
 };
@@ -82,7 +99,11 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     int64_t planning_execution_phase,
     bool planning_prefer_packed_layout_propagation,
     std::optional<std::vector<int64_t>>
-        planning_fixed_shape_graph_input_sizes);
+        planning_fixed_shape_graph_input_sizes,
+    std::vector<int64_t> value_resource_slot_ids,
+    std::vector<int64_t> resource_slot_sizes,
+    std::vector<int64_t> resource_slot_ranks,
+    int64_t resource_arena_flight_depth);
 
 std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,

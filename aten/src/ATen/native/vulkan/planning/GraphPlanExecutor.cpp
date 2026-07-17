@@ -4,8 +4,12 @@
 
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <ATen/native/vulkan/api/Context.h>
+#include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
+#include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/GraphProgramPlans.h>
 #include <ATen/native/vulkan/planning/Request.h>
 
 #include <c10/core/DispatchKey.h>
@@ -16,6 +20,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <iterator>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -31,8 +36,10 @@ namespace {
 
 struct VulkanGraphPlanValue final {
   int64_t use_count{0};
+  int64_t definition{-1};
   int64_t last_use{-1};
   bool escapes{false};
+  int64_t resource_slot_id{-1};
 };
 
 enum class VulkanGraphPlanArgumentKind : int64_t {
@@ -49,6 +56,13 @@ enum class VulkanGraphPlanInstructionKind : int64_t {
   ListGetItem = 5,
 };
 
+enum class VulkanGraphPlanResourceWriterKind : uint8_t {
+  None,
+  LinearContext,
+  Conv2dContext,
+  AddLayernormPlan,
+};
+
 struct VulkanGraphPlanArgument final {
   VulkanGraphPlanArgumentKind kind{VulkanGraphPlanArgumentKind::Value};
   std::vector<int64_t> refs;
@@ -62,10 +76,24 @@ struct VulkanGraphPlanInstruction final {
       VulkanGraphPlanInstructionKind::Dispatcher};
   std::optional<c10::OperatorHandle> operator_handle;
   std::optional<c10::OperatorHandle> dead_input_reuse_operator_handle;
+  VulkanGraphPlanResourceWriterKind resource_writer_kind{
+      VulkanGraphPlanResourceWriterKind::None};
   bool reusable_list_arguments{false};
   std::vector<VulkanGraphPlanArgument> arguments;
   std::vector<int64_t> output_value_ids;
   std::vector<int64_t> release_value_ids;
+};
+
+struct VulkanGraphPlanResourceSlot final {
+  std::vector<int64_t> sizes;
+  ScalarType dtype{kFloat};
+};
+
+struct VulkanGraphPlanResourceArena final {
+  std::vector<Tensor> tensors;
+  c10::DeviceIndex device_index{-1};
+  api::VulkanSubmission submission{};
+  bool poisoned{false};
 };
 
 struct VulkanGraphPlanInvocationWorkspace final {
@@ -118,6 +146,20 @@ std::optional<VulkanGraphPlanInstructionKind> graph_instruction_kind(
   return graph_scalar_instruction_kind(operator_name);
 }
 
+VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
+    const std::string& operator_name) {
+  if (operator_name == "vulkan_prepack::run_linear_context") {
+    return VulkanGraphPlanResourceWriterKind::LinearContext;
+  }
+  if (operator_name == "vulkan_prepack::run_conv2d_context") {
+    return VulkanGraphPlanResourceWriterKind::Conv2dContext;
+  }
+  if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
+    return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
+  }
+  return VulkanGraphPlanResourceWriterKind::None;
+}
+
 bool is_graph_scalar_instruction_kind(
     const VulkanGraphPlanInstructionKind kind) {
   return kind == VulkanGraphPlanInstructionKind::IntAdd ||
@@ -144,7 +186,7 @@ void execute_graph_scalar_instruction(
     std::vector<c10::IValue>& stack) {
   TORCH_CHECK(
       stack.size() == 2u && stack[0].isInt() && stack[1].isInt(),
-      "VulkanGraphPlan.v8 graph scalar node '",
+      "VulkanGraphPlan.v9 graph scalar node '",
       instruction.node_name,
       "' requires two integer operands");
   const int64_t left = stack[0].toInt();
@@ -164,12 +206,12 @@ void execute_graph_scalar_instruction(
     case VulkanGraphPlanInstructionKind::IntFloorDivide: {
       TORCH_CHECK(
           right != 0,
-          "VulkanGraphPlan.v8 graph scalar node '",
+          "VulkanGraphPlan.v9 graph scalar node '",
           instruction.node_name,
           "' divides by zero");
       TORCH_CHECK(
           left != std::numeric_limits<int64_t>::min() || right != -1,
-          "VulkanGraphPlan.v8 graph scalar node '",
+          "VulkanGraphPlan.v9 graph scalar node '",
           instruction.node_name,
           "' overflows integer floor division");
       result = left / right;
@@ -185,7 +227,7 @@ void execute_graph_scalar_instruction(
   }
   TORCH_CHECK(
       !overflowed,
-      "VulkanGraphPlan.v8 graph scalar node '",
+      "VulkanGraphPlan.v9 graph scalar node '",
       instruction.node_name,
       "' overflows int64");
   stack.clear();
@@ -197,7 +239,7 @@ void execute_list_getitem_instruction(
     std::vector<c10::IValue>& stack) {
   TORCH_CHECK(
       stack.size() == 2u && stack[0].isList() && stack[1].isInt(),
-      "VulkanGraphPlan.v8 list projection node '",
+      "VulkanGraphPlan.v9 list projection node '",
       instruction.node_name,
       "' requires a list and integer index");
   const c10::List<c10::IValue> list = stack[0].toList();
@@ -208,7 +250,7 @@ void execute_list_getitem_instruction(
   }
   TORCH_CHECK(
       index >= 0 && index < list_size,
-      "VulkanGraphPlan.v8 list projection node '",
+      "VulkanGraphPlan.v9 list projection node '",
       instruction.node_name,
       "' index ",
       stack[1].toInt(),
@@ -246,7 +288,7 @@ int64_t constant_index(const int64_t argument_ref) {
   TORCH_INTERNAL_ASSERT(argument_ref < 0);
   TORCH_CHECK(
       argument_ref != std::numeric_limits<int64_t>::min(),
-      "VulkanGraphPlan.v8 constant reference underflow");
+      "VulkanGraphPlan.v9 constant reference underflow");
   return -argument_ref - 1;
 }
 
@@ -338,12 +380,112 @@ bool can_reuse_dead_input(
   return true;
 }
 
+bool same_vulkan_resource(const Tensor& left, const Tensor& right) {
+  return left.defined() && right.defined() && left.is_vulkan() &&
+      right.is_vulkan() && left.sizes().equals(right.sizes()) &&
+      left.scalar_type() == right.scalar_type() &&
+      convert(left).storage_identity() == convert(right).storage_identity();
+}
+
+enum class VulkanGraphPlanResourceWriteResult : uint8_t {
+  NotApplicable,
+  Written,
+  ProducedUnowned,
+  NeedsDispatcher,
+};
+
+VulkanGraphPlanResourceWriteResult execute_resource_writer(
+    VulkanGraphPlan& plan,
+    const VulkanGraphPlanInstruction& instruction,
+    const std::vector<VulkanGraphPlanValue>& value_plan,
+    const int64_t arena_index,
+    std::vector<c10::IValue>& stack) {
+  if (
+      arena_index < 0 ||
+      instruction.resource_writer_kind ==
+          VulkanGraphPlanResourceWriterKind::None) {
+    return VulkanGraphPlanResourceWriteResult::NotApplicable;
+  }
+  std::vector<Tensor*> targets;
+  targets.reserve(instruction.output_value_ids.size());
+  for (const int64_t output_value_id : instruction.output_value_ids) {
+    const int64_t slot_id =
+        value_plan.at(static_cast<size_t>(output_value_id)).resource_slot_id;
+    TORCH_INTERNAL_ASSERT(slot_id >= 0);
+    targets.push_back(&plan.resource_tensor(arena_index, slot_id));
+  }
+
+  switch (instruction.resource_writer_kind) {
+    case VulkanGraphPlanResourceWriterKind::LinearContext: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 2u && stack[0].isTensor(),
+          "VulkanGraphPlan.v9 linear resource writer has invalid arguments");
+      const auto context = stack[1].toCustomClass<LinearPackedContext>();
+      Tensor output_candidate = *targets[0];
+      Tensor result = run_linear_context_out(
+          stack[0].toTensor(), context, output_candidate);
+      stack.clear();
+      stack.emplace_back(std::move(result));
+      return same_vulkan_resource(stack[0].toTensor(), *targets[0])
+          ? VulkanGraphPlanResourceWriteResult::Written
+          : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
+    }
+    case VulkanGraphPlanResourceWriterKind::Conv2dContext: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 2u && stack[0].isTensor(),
+          "VulkanGraphPlan.v9 convolution resource writer has invalid arguments");
+      const auto context = stack[1].toCustomClass<Conv2dPackedContext>();
+      auto result =
+          try_run_conv2d_context_out(stack[0].toTensor(), context, *targets[0]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      TORCH_CHECK(
+          same_vulkan_resource(*result, *targets[0]),
+          "VulkanGraphPlan.v9 convolution resource writer rebound its stable slot");
+      stack.clear();
+      stack.emplace_back(std::move(*result));
+      return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::AddLayernormPlan: {
+      TORCH_CHECK(
+          targets.size() == 2u && stack.size() == 3u && stack[0].isTensor() &&
+              stack[1].isTensor(),
+          "VulkanGraphPlan.v9 add-layernorm resource writer has invalid arguments");
+      const auto region_plan =
+          stack[2].toCustomClass<GraphAddLayernormPlan>();
+      auto result = try_run_graph_add_layernorm_plan_out(
+          stack[0].toTensor(),
+          stack[1].toTensor(),
+          region_plan,
+          *targets[0],
+          *targets[1]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      Tensor residual_output = std::get<0>(*result);
+      Tensor normalized_output = std::get<1>(*result);
+      TORCH_CHECK(
+          same_vulkan_resource(residual_output, *targets[0]) &&
+              same_vulkan_resource(normalized_output, *targets[1]),
+          "VulkanGraphPlan.v9 add-layernorm resource writer rebound a stable slot");
+      stack.clear();
+      stack.emplace_back(std::move(residual_output));
+      stack.emplace_back(std::move(normalized_output));
+      return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::None:
+      break;
+  }
+  return VulkanGraphPlanResourceWriteResult::NotApplicable;
+}
+
 void check_implicit_boundary(
     const VulkanGraphPlanInstruction& instruction,
     const VulkanGraphExecutionScopeCounts& counters) {
   TORCH_CHECK(
       !any_implicit_boundary(counters),
-      "VulkanGraphPlan.v8 node '",
+      "VulkanGraphPlan.v9 node '",
       instruction.node_name,
       "' (",
       instruction.operator_name,
@@ -363,7 +505,7 @@ class VulkanGraphPlanInvocation final {
   explicit VulkanGraphPlanInvocation(VulkanGraphPlan& plan) : plan_(plan) {
     TORCH_CHECK(
         plan_.try_begin_invocation(),
-        "VulkanGraphPlan.v8 rejects concurrent invocation");
+        "VulkanGraphPlan.v9 rejects concurrent invocation");
   }
 
   ~VulkanGraphPlanInvocation() {
@@ -378,6 +520,9 @@ struct VulkanGraphPlan::State final {
   std::vector<VulkanGraphPlanInstruction> instructions;
   std::vector<c10::IValue> constants;
   std::vector<int64_t> output_value_ids;
+  std::vector<VulkanGraphPlanResourceSlot> resource_slots;
+  std::vector<VulkanGraphPlanResourceArena> resource_arenas;
+  int64_t resource_arena_flight_depth{0};
   int64_t input_count{0};
   bool submission_owned{true};
   VulkanPlanningRequest planning_request;
@@ -387,11 +532,79 @@ struct VulkanGraphPlan::State final {
   api::VulkanSubmission last_submission{};
   uint64_t invocation_generation{0u};
   mutable std::atomic<uint64_t> dead_input_reuse_count{0u};
+  mutable std::atomic<uint64_t> resource_arena_generation_count{0u};
+  mutable std::atomic<uint64_t> resource_arena_capture_count{0u};
+  mutable std::atomic<uint64_t> resource_arena_reuse_count{0u};
+  mutable std::atomic<uint64_t> resource_arena_spill_count{0u};
+  mutable std::atomic<uint64_t> resource_write_count{0u};
+  mutable std::atomic<uint64_t> resource_writer_bypass_count{0u};
 };
 
 VulkanGraphPlan::VulkanGraphPlan(std::shared_ptr<State> state)
     : state_(std::move(state)) {
-  TORCH_CHECK(valid(), "VulkanGraphPlan.v8 has an invalid schema");
+  TORCH_CHECK(valid(), "VulkanGraphPlan.v9 has an invalid schema");
+}
+
+VulkanGraphPlan::~VulkanGraphPlan() noexcept {
+  if (!state_) {
+    return;
+  }
+  for (VulkanGraphPlanResourceArena& arena : state_->resource_arenas) {
+    if (arena.tensors.empty()) {
+      continue;
+    }
+    if (arena.poisoned) {
+      for (Tensor& tensor : arena.tensors) {
+        if (tensor.defined()) {
+          (void)tensor.unsafeReleaseTensorImpl();
+        }
+      }
+      continue;
+    }
+    api::Context* context = nullptr;
+    auto* retired_buffers = new std::vector<api::VulkanBuffer>();
+    bool release_failed = false;
+    for (Tensor& slot : arena.tensors) {
+      if (!slot.defined()) {
+        continue;
+      }
+      Tensor tensor = std::move(slot);
+      try {
+        TORCH_CHECK(
+            tensor.use_count() == 1u,
+            "VulkanGraphPlan.v9 resource slot escaped its program arena");
+        vTensor& v_tensor = convert(tensor);
+        if (!context) {
+          context = v_tensor.context();
+        }
+        std::vector<api::VulkanBuffer> buffers =
+            v_tensor.release_graph_program_owned_buffers();
+        retired_buffers->insert(
+            retired_buffers->end(),
+            std::make_move_iterator(buffers.begin()),
+            std::make_move_iterator(buffers.end()));
+      } catch (...) {
+        release_failed = true;
+        (void)tensor.unsafeReleaseTensorImpl();
+      }
+    }
+    if (release_failed || !context) {
+      (void)retired_buffers;
+      continue;
+    }
+    if (
+        arena.submission.timeline_value == 0u ||
+        context->graph_program_submission_complete(arena.submission)) {
+      delete retired_buffers;
+      continue;
+    }
+    try {
+      context->retire_graph_program_resource(
+          arena.submission, [retired_buffers]() { delete retired_buffers; });
+    } catch (...) {
+      (void)retired_buffers;
+    }
+  }
 }
 
 int64_t VulkanGraphPlan::input_count() const {
@@ -501,8 +714,83 @@ int64_t VulkanGraphPlan::dead_input_reuse_count() const {
       state_->dead_input_reuse_count.load(std::memory_order_relaxed);
   TORCH_CHECK(
       count <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
-      "VulkanGraphPlan.v8 dead-input reuse count overflow");
+      "VulkanGraphPlan.v9 dead-input reuse count overflow");
   return static_cast<int64_t>(count);
+}
+
+int64_t VulkanGraphPlan::resource_slot_count() const {
+  return state_ ? static_cast<int64_t>(state_->resource_slots.size()) : 0;
+}
+
+int64_t VulkanGraphPlan::resource_value_count() const {
+  if (!state_) {
+    return 0;
+  }
+  return static_cast<int64_t>(std::count_if(
+      state_->values.begin(),
+      state_->values.end(),
+      [](const VulkanGraphPlanValue& value) {
+        return value.resource_slot_id >= 0;
+      }));
+}
+
+int64_t VulkanGraphPlan::resource_writer_instruction_count() const {
+  if (!state_) {
+    return 0;
+  }
+  return static_cast<int64_t>(std::count_if(
+      state_->instructions.begin(),
+      state_->instructions.end(),
+      [](const VulkanGraphPlanInstruction& instruction) {
+        return instruction.resource_writer_kind !=
+            VulkanGraphPlanResourceWriterKind::None;
+      }));
+}
+
+int64_t VulkanGraphPlan::resource_arena_flight_depth() const {
+  return state_ ? state_->resource_arena_flight_depth : 0;
+}
+
+int64_t VulkanGraphPlan::resource_arena_generation_count() const {
+  return state_
+      ? static_cast<int64_t>(state_->resource_arena_generation_count.load(
+            std::memory_order_relaxed))
+      : 0;
+}
+
+int64_t VulkanGraphPlan::resource_arena_capture_count() const {
+  return state_
+      ? static_cast<int64_t>(state_->resource_arena_capture_count.load(
+            std::memory_order_relaxed))
+      : 0;
+}
+
+int64_t VulkanGraphPlan::resource_arena_reuse_count() const {
+  return state_
+      ? static_cast<int64_t>(state_->resource_arena_reuse_count.load(
+            std::memory_order_relaxed))
+      : 0;
+}
+
+int64_t VulkanGraphPlan::resource_arena_spill_count() const {
+  return state_
+      ? static_cast<int64_t>(state_->resource_arena_spill_count.load(
+            std::memory_order_relaxed))
+      : 0;
+}
+
+int64_t VulkanGraphPlan::resource_write_count() const {
+  return state_
+      ? static_cast<int64_t>(
+            state_->resource_write_count.load(std::memory_order_relaxed))
+      : 0;
+}
+
+int64_t VulkanGraphPlan::resource_writer_bypass_count() const {
+  return state_
+      ? static_cast<int64_t>(state_->resource_writer_bypass_count.load(
+            std::memory_order_relaxed))
+      : 0;
 }
 
 int64_t VulkanGraphPlan::value_count() const {
@@ -564,7 +852,7 @@ bool VulkanGraphPlan::last_submission_complete() const {
   }
   TORCH_CHECK(
       state_->submission_device_index >= 0,
-      "VulkanGraphPlan.v8 submission has no device");
+      "VulkanGraphPlan.v9 submission has no device");
   return api::context(state_->submission_device_index)
       ->graph_program_submission_complete(state_->last_submission);
 }
@@ -601,7 +889,9 @@ bool VulkanGraphPlan::valid() const {
       state_->invocation_workspace.values.size() != state_->values.size() ||
       state_->invocation_workspace.value_live.size() != state_->values.size() ||
       state_->invocation_workspace.list_arguments.size() !=
-          state_->instructions.size()) {
+          state_->instructions.size() ||
+      (state_->resource_slots.empty() !=
+       (state_->resource_arena_flight_depth == 0))) {
     return false;
   }
   int64_t next_value_id = state_->input_count;
@@ -629,6 +919,39 @@ bool VulkanGraphPlan::valid() const {
          instruction.arguments.front().kind !=
              VulkanGraphPlanArgumentKind::Value ||
          instruction.output_value_ids.size() != 1u)) {
+      return false;
+    }
+    const bool any_resource_output = std::any_of(
+        instruction.output_value_ids.begin(),
+        instruction.output_value_ids.end(),
+        [this](const int64_t value_id) {
+          return state_->values[static_cast<size_t>(value_id)].resource_slot_id >=
+              0;
+        });
+    const bool all_resource_outputs = !instruction.output_value_ids.empty() &&
+        std::all_of(
+            instruction.output_value_ids.begin(),
+            instruction.output_value_ids.end(),
+            [this](const int64_t value_id) {
+              return state_->values[static_cast<size_t>(value_id)]
+                         .resource_slot_id >= 0;
+            });
+    if (
+        any_resource_output != all_resource_outputs ||
+        (any_resource_output !=
+         (instruction.resource_writer_kind !=
+          VulkanGraphPlanResourceWriterKind::None))) {
+      return false;
+    }
+    if (
+        ((instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::LinearContext ||
+          instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::Conv2dContext) &&
+         instruction.output_value_ids.size() != 1u) ||
+        (instruction.resource_writer_kind ==
+             VulkanGraphPlanResourceWriterKind::AddLayernormPlan &&
+         instruction.output_value_ids.size() != 2u)) {
       return false;
     }
     if (
@@ -688,6 +1011,24 @@ bool VulkanGraphPlan::valid() const {
     if (static_cast<bool>(release_scheduled[value_index]) != should_release) {
       return false;
     }
+    if (
+        value.resource_slot_id < -1 ||
+        value.resource_slot_id >=
+            static_cast<int64_t>(state_->resource_slots.size()) ||
+        (value.resource_slot_id >= 0 &&
+         (value.escapes || value.definition < 0 ||
+          value.last_use < value.definition))) {
+      return false;
+    }
+  }
+  for (const VulkanGraphPlanResourceSlot& slot : state_->resource_slots) {
+    if (
+        slot.dtype != kFloat || slot.sizes.empty() ||
+        !std::all_of(slot.sizes.begin(), slot.sizes.end(), [](const int64_t size) {
+          return size > 0;
+        })) {
+      return false;
+    }
   }
   return std::all_of(
       state_->output_value_ids.begin(),
@@ -714,10 +1055,95 @@ void VulkanGraphPlan::record_submission(
   TORCH_CHECK(
       state_->invocation_generation <
           static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
-      "VulkanGraphPlan.v8 invocation generation overflow");
+      "VulkanGraphPlan.v9 invocation generation overflow");
   state_->submission_device_index = device_index;
   state_->last_submission = submission;
   ++state_->invocation_generation;
+}
+
+int64_t VulkanGraphPlan::acquire_resource_arena(
+    const c10::DeviceIndex device_index) {
+  TORCH_INTERNAL_ASSERT(state_);
+  if (state_->resource_slots.empty()) {
+    return -1;
+  }
+  api::Context* const context = api::context(device_index);
+  for (const auto arena_index : c10::irange(state_->resource_arenas.size())) {
+    VulkanGraphPlanResourceArena& arena =
+        state_->resource_arenas[arena_index];
+    if (
+        arena.poisoned || arena.device_index != device_index ||
+        !context->graph_program_submission_complete(arena.submission)) {
+      continue;
+    }
+    const bool exclusively_owned = std::all_of(
+        arena.tensors.begin(), arena.tensors.end(), [](const Tensor& tensor) {
+          return tensor.defined() && tensor.use_count() == 1u &&
+              convert(tensor).owns_unique_storage();
+        });
+    if (!exclusively_owned) {
+      continue;
+    }
+    state_->resource_arena_reuse_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    return static_cast<int64_t>(arena_index);
+  }
+  if (
+      state_->resource_arenas.size() >=
+      static_cast<size_t>(state_->resource_arena_flight_depth)) {
+    state_->resource_arena_spill_count.fetch_add(
+        1u, std::memory_order_relaxed);
+    return -1;
+  }
+
+  api::set_current_device(device_index);
+  VulkanGraphPlanResourceArena arena;
+  arena.device_index = device_index;
+  arena.tensors.reserve(state_->resource_slots.size());
+  for (const VulkanGraphPlanResourceSlot& slot : state_->resource_slots) {
+    arena.tensors.push_back(
+        create_buffer_tensor(slot.sizes, slot.dtype, /*persistent=*/true));
+  }
+  state_->resource_arenas.push_back(std::move(arena));
+  state_->resource_arena_generation_count.fetch_add(
+      1u, std::memory_order_relaxed);
+  state_->resource_arena_capture_count.fetch_add(
+      1u, std::memory_order_relaxed);
+  return static_cast<int64_t>(state_->resource_arenas.size() - 1u);
+}
+
+Tensor& VulkanGraphPlan::resource_tensor(
+    const int64_t arena_index,
+    const int64_t resource_slot_id) {
+  TORCH_CHECK(
+      state_ && arena_index >= 0 && resource_slot_id >= 0 &&
+          arena_index < static_cast<int64_t>(state_->resource_arenas.size()) &&
+          resource_slot_id <
+              static_cast<int64_t>(state_->resource_slots.size()),
+      "VulkanGraphPlan.v9 resource slot is out of range");
+  return state_->resource_arenas[static_cast<size_t>(arena_index)]
+      .tensors[static_cast<size_t>(resource_slot_id)];
+}
+
+void VulkanGraphPlan::record_resource_arena_submission(
+    const int64_t arena_index,
+    const api::VulkanSubmission& submission) {
+  if (arena_index < 0) {
+    return;
+  }
+  TORCH_CHECK(
+      state_ && arena_index < static_cast<int64_t>(state_->resource_arenas.size()),
+      "VulkanGraphPlan.v9 resource arena is out of range");
+  state_->resource_arenas[static_cast<size_t>(arena_index)].submission =
+      submission;
+}
+
+void VulkanGraphPlan::poison_resource_arena(const int64_t arena_index) noexcept {
+  if (
+      state_ && arena_index >= 0 &&
+      arena_index < static_cast<int64_t>(state_->resource_arenas.size())) {
+    state_->resource_arenas[static_cast<size_t>(arena_index)].poisoned = true;
+  }
 }
 
 const VulkanGraphPlan::State& VulkanGraphPlan::state() const {
@@ -739,10 +1165,14 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     const int64_t planning_execution_phase,
     const bool planning_prefer_packed_layout_propagation,
     std::optional<std::vector<int64_t>>
-        planning_fixed_shape_graph_input_sizes) {
+        planning_fixed_shape_graph_input_sizes,
+    std::vector<int64_t> value_resource_slot_ids,
+    std::vector<int64_t> resource_slot_sizes,
+    std::vector<int64_t> resource_slot_ranks,
+    const int64_t resource_arena_flight_depth) {
   TORCH_CHECK(
       input_count > 0,
-      "VulkanGraphPlan.v8 requires at least one tensor input");
+      "VulkanGraphPlan.v9 requires at least one tensor input");
   const size_t instruction_count = node_names.size();
   TORCH_CHECK(
       instruction_count > 0 && operator_names.size() == instruction_count &&
@@ -750,28 +1180,28 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           argument_refs.size() == instruction_count &&
           argument_kinds.size() == instruction_count &&
           instruction_output_value_ids.size() == instruction_count,
-      "VulkanGraphPlan.v8 requires aligned non-empty instruction fields");
+      "VulkanGraphPlan.v9 requires aligned non-empty instruction fields");
   TORCH_CHECK(
       !output_value_ids.empty(),
-      "VulkanGraphPlan.v8 requires at least one output value");
+      "VulkanGraphPlan.v9 requires at least one output value");
   TORCH_CHECK(
       planning_model_domain >=
               static_cast<int64_t>(VulkanModelDomain::Generic) &&
           planning_model_domain <= static_cast<int64_t>(VulkanModelDomain::LLM),
-      "VulkanGraphPlan.v8 has an invalid planning model domain");
+      "VulkanGraphPlan.v9 has an invalid planning model domain");
   TORCH_CHECK(
       planning_execution_phase >=
               static_cast<int64_t>(VulkanExecutionPhase::None) &&
           planning_execution_phase <=
               static_cast<int64_t>(VulkanExecutionPhase::Decoder),
-      "VulkanGraphPlan.v8 has an invalid planning execution phase");
+      "VulkanGraphPlan.v9 has an invalid planning execution phase");
   const auto model_domain =
       static_cast<VulkanModelDomain>(planning_model_domain);
   const auto execution_phase =
       static_cast<VulkanExecutionPhase>(planning_execution_phase);
   TORCH_CHECK(
       is_valid_vulkan_planning_context(model_domain, execution_phase),
-      "VulkanGraphPlan.v8 has incompatible planning semantics");
+      "VulkanGraphPlan.v9 has incompatible planning semantics");
   TORCH_CHECK(
       !planning_fixed_shape_graph_input_sizes.has_value() ||
           (!planning_fixed_shape_graph_input_sizes->empty() &&
@@ -779,17 +1209,41 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
                planning_fixed_shape_graph_input_sizes->begin(),
                planning_fixed_shape_graph_input_sizes->end(),
                [](const int64_t size) { return size > 0; })),
-      "VulkanGraphPlan.v8 fixed graph input sizes must be positive");
+      "VulkanGraphPlan.v9 fixed graph input sizes must be positive");
 
   int64_t next_value_id = input_count;
   for (const auto& instruction_output_ids : instruction_output_value_ids) {
     for (const int64_t output_value_id : instruction_output_ids) {
       TORCH_CHECK(
           output_value_id == next_value_id,
-          "VulkanGraphPlan.v8 instruction output IDs must follow IValue SSA order");
+          "VulkanGraphPlan.v9 instruction output IDs must follow IValue SSA order");
       ++next_value_id;
     }
   }
+
+  if (value_resource_slot_ids.empty()) {
+    value_resource_slot_ids.resize(static_cast<size_t>(next_value_id), -1);
+  }
+  TORCH_CHECK(
+      value_resource_slot_ids.size() == static_cast<size_t>(next_value_id),
+      "VulkanGraphPlan.v9 resource value map must cover every SSA value");
+  TORCH_CHECK(
+      resource_slot_ranks.empty() ||
+          (resource_arena_flight_depth >= 1 &&
+           resource_arena_flight_depth <= 4),
+      "VulkanGraphPlan.v9 resource arena flight depth must be in [1, 4]");
+  size_t flattened_rank_sum = 0u;
+  for (const int64_t rank : resource_slot_ranks) {
+    TORCH_CHECK(
+        rank > 0 &&
+            static_cast<uint64_t>(rank) <=
+                resource_slot_sizes.size() - flattened_rank_sum,
+        "VulkanGraphPlan.v9 resource slot ranks must partition the flat sizes");
+    flattened_rank_sum += static_cast<size_t>(rank);
+  }
+  TORCH_CHECK(
+      flattened_rank_sum == resource_slot_sizes.size(),
+      "VulkanGraphPlan.v9 resource slot ranks must partition the flat sizes");
 
   auto state = std::make_shared<VulkanGraphPlan::State>();
   state->input_count = input_count;
@@ -805,13 +1259,40 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
   state->constants.assign(constants.begin(), constants.end());
   state->output_value_ids = std::move(output_value_ids);
   state->values.resize(static_cast<size_t>(next_value_id));
+  state->resource_arena_flight_depth =
+      resource_slot_ranks.empty() ? 0 : resource_arena_flight_depth;
+  state->resource_slots.reserve(resource_slot_ranks.size());
+  size_t resource_size_offset = 0u;
+  for (const int64_t rank : resource_slot_ranks) {
+    std::vector<int64_t> slot_sizes(
+        resource_slot_sizes.begin() + resource_size_offset,
+        resource_slot_sizes.begin() + resource_size_offset + rank);
+    TORCH_CHECK(
+        std::all_of(
+            slot_sizes.begin(),
+            slot_sizes.end(),
+            [](const int64_t size) { return size > 0; }),
+        "VulkanGraphPlan.v9 resource slots require positive fp32 buffer shapes");
+    state->resource_slots.push_back(
+        VulkanGraphPlanResourceSlot{std::move(slot_sizes), kFloat});
+    resource_size_offset += static_cast<size_t>(rank);
+  }
+  for (const auto value_index : c10::irange(state->values.size())) {
+    const int64_t slot_id = value_resource_slot_ids[value_index];
+    TORCH_CHECK(
+        slot_id >= -1 &&
+            slot_id < static_cast<int64_t>(state->resource_slots.size()) &&
+            (value_index >= static_cast<size_t>(input_count) || slot_id == -1),
+        "VulkanGraphPlan.v9 has an invalid resource value map");
+    state->values[value_index].resource_slot_id = slot_id;
+  }
   state->instructions.reserve(instruction_count);
   int64_t defined_value_count = input_count;
   for (const auto instruction_index : c10::irange(instruction_count)) {
     TORCH_CHECK(
         !node_names[instruction_index].empty() &&
             !operator_names[instruction_index].empty(),
-        "VulkanGraphPlan.v8 instruction names must be non-empty");
+        "VulkanGraphPlan.v9 instruction names must be non-empty");
     const auto internal_instruction_kind =
         graph_instruction_kind(operator_names[instruction_index]);
     const VulkanGraphPlanInstructionKind instruction_kind =
@@ -819,11 +1300,13 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
             VulkanGraphPlanInstructionKind::Dispatcher);
     std::optional<c10::OperatorHandle> operator_handle;
     std::optional<c10::OperatorHandle> dead_input_reuse_operator_handle;
+    VulkanGraphPlanResourceWriterKind resource_writer_kind =
+        VulkanGraphPlanResourceWriterKind::None;
     const c10::FunctionSchema* schema = nullptr;
     if (internal_instruction_kind) {
       TORCH_CHECK(
           overload_names[instruction_index].empty(),
-          "VulkanGraphPlan.v8 internal instruction '",
+          "VulkanGraphPlan.v9 internal instruction '",
           node_names[instruction_index],
           "' must not declare an overload");
     } else {
@@ -834,11 +1317,11 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       schema = &operator_handle->schema();
       TORCH_CHECK(
           !schema->is_mutable(),
-          "VulkanGraphPlan.v8 rejects mutable operator ",
+          "VulkanGraphPlan.v9 rejects mutable operator ",
           schema->operator_name());
       TORCH_CHECK(
           has_plan_dispatch(*operator_handle),
-          "VulkanGraphPlan.v8 requires a Vulkan or composite kernel for ",
+          "VulkanGraphPlan.v9 requires a Vulkan or composite kernel for ",
           schema->operator_name());
       if (
           operator_names[instruction_index] == "aten::relu" &&
@@ -847,7 +1330,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
             c10::Dispatcher::singleton().findSchemaOrThrow("aten::relu_", ""));
         TORCH_CHECK(
             has_plan_dispatch(*dead_input_reuse_operator_handle),
-            "VulkanGraphPlan.v8 requires a Vulkan in-place reuse kernel for ",
+            "VulkanGraphPlan.v9 requires a Vulkan in-place reuse kernel for ",
             schema->operator_name());
       }
     }
@@ -857,21 +1340,44 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       TORCH_CHECK(
           schema->returns().size() ==
               output_value_ids_for_instruction.size(),
-          "VulkanGraphPlan.v8 output schema does not match ",
+          "VulkanGraphPlan.v9 output schema does not match ",
           schema->operator_name());
     } else {
       TORCH_CHECK(
           output_value_ids_for_instruction.size() == 1u,
-          "VulkanGraphPlan.v8 internal instruction '",
+          "VulkanGraphPlan.v9 internal instruction '",
           node_names[instruction_index],
           "' must define one value");
+    }
+    const bool any_resource_output = std::any_of(
+        output_value_ids_for_instruction.begin(),
+        output_value_ids_for_instruction.end(),
+        [&state](const int64_t value_id) {
+          return state->values[static_cast<size_t>(value_id)].resource_slot_id >=
+              0;
+        });
+    const bool all_resource_outputs = !output_value_ids_for_instruction.empty() &&
+        std::all_of(
+            output_value_ids_for_instruction.begin(),
+            output_value_ids_for_instruction.end(),
+            [&state](const int64_t value_id) {
+              return state->values[static_cast<size_t>(value_id)]
+                         .resource_slot_id >= 0;
+            });
+    if (any_resource_output) {
+      resource_writer_kind = graph_resource_writer_kind(
+          operator_names[instruction_index]);
+      TORCH_CHECK(
+          all_resource_outputs &&
+              resource_writer_kind != VulkanGraphPlanResourceWriterKind::None,
+          "VulkanGraphPlan.v9 resource outputs require a supported complete writer");
     }
     const size_t expected_argument_count =
         schema ? schema->arguments().size() : 2u;
     TORCH_CHECK(
         argument_refs[instruction_index].size() == expected_argument_count &&
             argument_kinds[instruction_index].size() == expected_argument_count,
-        "VulkanGraphPlan.v8 argument count does not match ",
+        "VulkanGraphPlan.v9 argument count does not match ",
         operator_names[instruction_index]);
 
     std::vector<VulkanGraphPlanArgument> arguments;
@@ -884,7 +1390,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
                   static_cast<int64_t>(VulkanGraphPlanArgumentKind::Value) ||
               kind_value ==
                   static_cast<int64_t>(VulkanGraphPlanArgumentKind::List),
-          "VulkanGraphPlan.v8 instruction '",
+          "VulkanGraphPlan.v9 instruction '",
           node_names[instruction_index],
           "' has an invalid argument kind");
       const auto kind = static_cast<VulkanGraphPlanArgumentKind>(kind_value);
@@ -892,7 +1398,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           argument_refs[instruction_index][argument_index];
       TORCH_CHECK(
           kind == VulkanGraphPlanArgumentKind::List || refs.size() == 1u,
-          "VulkanGraphPlan.v8 instruction '",
+          "VulkanGraphPlan.v9 instruction '",
           node_names[instruction_index],
           "' has an invalid argument recipe");
 
@@ -900,7 +1406,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       if (kind == VulkanGraphPlanArgumentKind::List) {
         TORCH_CHECK(
             schema,
-            "VulkanGraphPlan.v8 internal instruction '",
+            "VulkanGraphPlan.v9 internal instruction '",
             node_names[instruction_index],
             "' requires value arguments");
         c10::TypePtr argument_type =
@@ -911,7 +1417,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         const auto list_type = argument_type->cast<c10::ListType>();
         TORCH_CHECK(
             list_type,
-            "VulkanGraphPlan.v8 instruction '",
+            "VulkanGraphPlan.v9 instruction '",
             node_names[instruction_index],
             "' declares a list recipe for non-list argument '",
             schema->arguments()[argument_index].name(),
@@ -923,7 +1429,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         if (argument_ref >= 0) {
           TORCH_CHECK(
               argument_ref < defined_value_count,
-              "VulkanGraphPlan.v8 instruction '",
+              "VulkanGraphPlan.v9 instruction '",
               node_names[instruction_index],
               "' references a value before it is defined");
           VulkanGraphPlanValue& value =
@@ -934,7 +1440,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           const int64_t index = constant_index(argument_ref);
           TORCH_CHECK(
               index < static_cast<int64_t>(state->constants.size()),
-              "VulkanGraphPlan.v8 instruction '",
+              "VulkanGraphPlan.v9 instruction '",
               node_names[instruction_index],
               "' has an invalid constant reference");
         }
@@ -943,8 +1449,10 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           kind, std::move(refs), std::move(list_element_type)});
     }
     for (const int64_t output_value_id : output_value_ids_for_instruction) {
-      state->values[static_cast<size_t>(output_value_id)].last_use =
-          static_cast<int64_t>(instruction_index);
+      VulkanGraphPlanValue& output_value =
+          state->values[static_cast<size_t>(output_value_id)];
+      output_value.definition = static_cast<int64_t>(instruction_index);
+      output_value.last_use = static_cast<int64_t>(instruction_index);
     }
     std::string diagnostic_operator_name = operator_names[instruction_index];
     if (!overload_names[instruction_index].empty()) {
@@ -957,6 +1465,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         instruction_kind,
         std::move(operator_handle),
         std::move(dead_input_reuse_operator_handle),
+        resource_writer_kind,
         schema == nullptr || !schema_has_list_return(*schema),
         std::move(arguments),
         std::move(output_value_ids_for_instruction),
@@ -969,8 +1478,34 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     TORCH_CHECK(
         output_value_id >= 0 &&
             output_value_id < static_cast<int64_t>(state->values.size()),
-        "VulkanGraphPlan.v8 output value is out of range");
-    state->values[static_cast<size_t>(output_value_id)].escapes = true;
+        "VulkanGraphPlan.v9 output value is out of range");
+    VulkanGraphPlanValue& output_value =
+        state->values[static_cast<size_t>(output_value_id)];
+    TORCH_CHECK(
+        output_value.resource_slot_id < 0,
+        "VulkanGraphPlan.v9 escaping outputs cannot use an internal resource slot");
+    output_value.escapes = true;
+  }
+  std::vector<std::vector<size_t>> resource_slot_values(
+      state->resource_slots.size());
+  for (const auto value_index : c10::irange(state->values.size())) {
+    const VulkanGraphPlanValue& value = state->values[value_index];
+    if (value.resource_slot_id < 0) {
+      continue;
+    }
+    TORCH_CHECK(
+        value.definition >= 0 && value.last_use >= value.definition &&
+            !value.escapes,
+        "VulkanGraphPlan.v9 resource slots require non-escaping defined values");
+    auto& assigned =
+        resource_slot_values[static_cast<size_t>(value.resource_slot_id)];
+    for (const size_t prior_index : assigned) {
+      const VulkanGraphPlanValue& prior = state->values[prior_index];
+      TORCH_CHECK(
+          prior.last_use < value.definition || value.last_use < prior.definition,
+          "VulkanGraphPlan.v9 resource slot lifetimes overlap");
+    }
+    assigned.push_back(value_index);
   }
   for (const auto value_index : c10::irange(state->values.size())) {
     const VulkanGraphPlanValue& value = state->values[value_index];
@@ -1011,16 +1546,16 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
 std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,
     const c10::intrusive_ptr<VulkanGraphPlan>& plan) {
-  TORCH_CHECK(plan, "VulkanGraphPlan.v8 requires a plan");
+  TORCH_CHECK(plan, "VulkanGraphPlan.v9 requires a plan");
   const VulkanGraphPlan::State& state = plan->state();
   TORCH_CHECK(
       inputs.size() == static_cast<size_t>(state.input_count),
-      "VulkanGraphPlan.v8 input count mismatch");
+      "VulkanGraphPlan.v9 input count mismatch");
   TORCH_CHECK(
       std::all_of(inputs.begin(), inputs.end(), [](const Tensor& input) {
         return input.is_vulkan();
       }),
-      "VulkanGraphPlan.v8 requires Vulkan tensor inputs");
+      "VulkanGraphPlan.v9 requires Vulkan tensor inputs");
   const c10::DeviceIndex device_index = inputs.front().device().index();
   TORCH_CHECK(
       std::all_of(
@@ -1029,13 +1564,36 @@ std::vector<Tensor> run_vulkan_graph_plan(
           [device_index](const Tensor& input) {
             return input.device().index() == device_index;
           }),
-      "VulkanGraphPlan.v8 requires inputs on one Vulkan device");
+      "VulkanGraphPlan.v9 requires inputs on one Vulkan device");
   VulkanGraphPlanInvocation invocation(*plan);
   VulkanPlanningRequestScope planning_scope(state.planning_request);
+  const int64_t resource_arena_index =
+      plan->acquire_resource_arena(device_index);
   std::optional<api::Context::GraphProgramInvocationScope> submission_scope;
   if (state.submission_owned) {
     submission_scope.emplace(*api::context(device_index));
   }
+  bool resource_arena_finalized = false;
+  auto finalize_resource_arena = c10::make_scope_exit(
+      [&plan,
+       &submission_scope,
+       resource_arena_index,
+       &resource_arena_finalized]() {
+        if (resource_arena_index < 0 || resource_arena_finalized) {
+          return;
+        }
+        try {
+          if (submission_scope && submission_scope->active()) {
+            submission_scope->abort();
+          }
+          if (submission_scope) {
+            plan->record_resource_arena_submission(
+                resource_arena_index, submission_scope->submission());
+          }
+        } catch (...) {
+          plan->poison_resource_arena(resource_arena_index);
+        }
+      });
 
   VulkanGraphPlanInvocationWorkspace& workspace = state.invocation_workspace;
   auto reset_workspace = c10::make_scope_exit([&workspace]() {
@@ -1058,7 +1616,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       if (argument_ref >= 0) {
         TORCH_CHECK(
             value_live[static_cast<size_t>(argument_ref)],
-            "VulkanGraphPlan.v8 node '",
+            "VulkanGraphPlan.v9 node '",
             instruction.node_name,
             "' references a released value");
         return values[static_cast<size_t>(argument_ref)];
@@ -1100,7 +1658,28 @@ std::vector<Tensor> run_vulkan_graph_plan(
         state.constants);
     const int64_t scope_token = begin_vulkan_graph_execution_scope();
     try {
-      if (instruction.kind == VulkanGraphPlanInstructionKind::Dispatcher) {
+      const VulkanGraphPlanResourceWriteResult resource_write =
+          execute_resource_writer(
+              *plan,
+              instruction,
+              state.values,
+              resource_arena_index,
+              stack);
+      if (resource_write == VulkanGraphPlanResourceWriteResult::Written) {
+        state.resource_write_count.fetch_add(1u, std::memory_order_relaxed);
+      } else if (
+          resource_write ==
+          VulkanGraphPlanResourceWriteResult::ProducedUnowned) {
+        state.resource_writer_bypass_count.fetch_add(
+            1u, std::memory_order_relaxed);
+      } else if (
+          instruction.kind == VulkanGraphPlanInstructionKind::Dispatcher) {
+        if (
+            resource_write ==
+            VulkanGraphPlanResourceWriteResult::NeedsDispatcher) {
+          state.resource_writer_bypass_count.fetch_add(
+              1u, std::memory_order_relaxed);
+        }
         TORCH_INTERNAL_ASSERT(instruction.operator_handle);
         c10::Dispatcher::singleton().callBoxed(
             reuse_dead_input ? *instruction.dead_input_reuse_operator_handle
@@ -1118,7 +1697,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
-          "VulkanGraphPlan.v8 node '",
+          "VulkanGraphPlan.v9 node '",
           instruction.node_name,
           "' (",
           instruction.operator_name,
@@ -1130,7 +1709,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
-          "VulkanGraphPlan.v8 node '",
+          "VulkanGraphPlan.v9 node '",
           instruction.node_name,
           "' (",
           instruction.operator_name,
@@ -1142,7 +1721,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
       check_implicit_boundary(instruction, counters);
       TORCH_CHECK(
           false,
-          "VulkanGraphPlan.v8 node '",
+          "VulkanGraphPlan.v9 node '",
           instruction.node_name,
           "' (",
           instruction.operator_name,
@@ -1162,13 +1741,13 @@ std::vector<Tensor> run_vulkan_graph_plan(
     if (instruction.output_value_ids.empty()) {
       TORCH_CHECK(
           stack.empty(),
-          "VulkanGraphPlan.v8 effect node '",
+          "VulkanGraphPlan.v9 effect node '",
           instruction.node_name,
           "' produced an undeclared value");
     } else {
       TORCH_CHECK(
           stack.size() == instruction.output_value_ids.size(),
-          "VulkanGraphPlan.v8 node '",
+          "VulkanGraphPlan.v9 node '",
           instruction.node_name,
           "' did not produce its declared values");
       for (const auto output_index :
@@ -1176,7 +1755,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
         c10::IValue output = std::move(stack[output_index]);
         TORCH_CHECK(
             !output.isTensor() || output.toTensor().is_vulkan(),
-            "VulkanGraphPlan.v8 node '",
+            "VulkanGraphPlan.v9 node '",
             instruction.node_name,
             "' produced a non-Vulkan tensor");
         const int64_t output_value_id =
@@ -1203,12 +1782,15 @@ std::vector<Tensor> run_vulkan_graph_plan(
     c10::IValue& output = values[static_cast<size_t>(output_value_id)];
     TORCH_CHECK(
         value_live[static_cast<size_t>(output_value_id)] && output.isTensor(),
-        "VulkanGraphPlan.v8 output references a released or non-Tensor value");
+        "VulkanGraphPlan.v9 output references a released or non-Tensor value");
     outputs.push_back(output.toTensor());
   }
   if (submission_scope) {
-    plan->record_submission(device_index, submission_scope->submit());
+    const api::VulkanSubmission submission = submission_scope->submit();
+    plan->record_resource_arena_submission(resource_arena_index, submission);
+    plan->record_submission(device_index, submission);
   }
+  resource_arena_finalized = true;
   return outputs;
 }
 

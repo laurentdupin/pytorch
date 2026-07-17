@@ -376,6 +376,12 @@ def _execution_plan_summary(
         "dead_input_reuse_instruction_count": (
             report.dead_input_reuse_instruction_count
         ),
+        "resource_slot_count": report.resource_slot_count,
+        "resource_value_count": report.resource_value_count,
+        "resource_writer_instruction_count": (
+            report.resource_writer_instruction_count
+        ),
+        "resource_arena_flight_depth": report.resource_arena_flight_depth,
         "value_count": report.value_count,
         "output_count": report.output_count,
         "submission_owned": report.submission_owned,
@@ -388,6 +394,18 @@ def _execution_plan_summary(
                 "last_submission_value": plan.last_submission_value(),
                 "last_submission_complete": plan.last_submission_complete(),
                 "dead_input_reuse_count": plan.dead_input_reuse_count(),
+                "resource_arena_generation_count": (
+                    plan.resource_arena_generation_count()
+                ),
+                "resource_arena_capture_count": (
+                    plan.resource_arena_capture_count()
+                ),
+                "resource_arena_reuse_count": plan.resource_arena_reuse_count(),
+                "resource_arena_spill_count": plan.resource_arena_spill_count(),
+                "resource_write_count": plan.resource_write_count(),
+                "resource_writer_bypass_count": (
+                    plan.resource_writer_bypass_count()
+                ),
             }
         )
     return summary

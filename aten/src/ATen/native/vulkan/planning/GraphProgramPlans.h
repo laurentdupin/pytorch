@@ -220,6 +220,14 @@ std::tuple<Tensor, Tensor> run_graph_add_layernorm_plan(
     const Tensor& addend,
     const c10::intrusive_ptr<GraphAddLayernormPlan>& plan);
 
+std::optional<std::tuple<Tensor, Tensor>>
+try_run_graph_add_layernorm_plan_out(
+    const Tensor& residual,
+    const Tensor& addend,
+    const c10::intrusive_ptr<GraphAddLayernormPlan>& plan,
+    Tensor& residual_output,
+    Tensor& normalized_output);
+
 struct StaticConv2dReluPlanSchema final {
   const char* program_name{"StaticConv2dReluRegion"};
   const char* version{"v1"};

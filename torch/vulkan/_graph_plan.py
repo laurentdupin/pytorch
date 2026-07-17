@@ -89,6 +89,10 @@ class VulkanGraphPlanReport:
     invocation_list_slot_count: int
     invocation_stack_capacity: int
     dead_input_reuse_instruction_count: int
+    resource_slot_count: int
+    resource_value_count: int
+    resource_writer_instruction_count: int
+    resource_arena_flight_depth: int
     value_count: int
     output_count: int
     submission_owned: bool
@@ -112,6 +116,20 @@ _GRAPH_INT_OPERATOR_NAMES = {
     operator.floordiv: "vulkan_graph::int_floor_divide",
 }
 _GRAPH_LIST_GETITEM_OPERATOR_NAME = "vulkan_graph::list_getitem"
+_RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
+    (
+        "vulkan_prepack::run_linear_context",
+        "vulkan_prepack::run_conv2d_context",
+        "vulkan_prepack::run_graph_add_layernorm_plan",
+    )
+)
+_RESOURCE_ARENA_FLIGHT_DEPTH = 2
+
+
+@dataclass(frozen=True)
+class _VulkanGraphResourceDescriptor:
+    sizes: tuple[int, ...]
+    dtype: torch.dtype
 
 
 def _rejected(
@@ -124,7 +142,7 @@ def _rejected(
             status="python_correctness_executor",
             reason=reason,
             plan_class="VulkanGraphPlan",
-            plan_version="v8",
+            plan_version="v9",
             planning_model_domain=planning_context.model_domain,
             planning_execution_phase=planning_context.execution_phase,
             planning_prefer_packed_layout_propagation=(
@@ -143,6 +161,10 @@ def _rejected(
             invocation_list_slot_count=0,
             invocation_stack_capacity=0,
             dead_input_reuse_instruction_count=0,
+            resource_slot_count=0,
+            resource_value_count=0,
+            resource_writer_instruction_count=0,
+            resource_arena_flight_depth=0,
             value_count=0,
             output_count=0,
             submission_owned=False,
@@ -247,6 +269,68 @@ def _canonicalize_argument(value: Any, expected_type: Any) -> Any:
     return value
 
 
+def _resource_descriptor(
+    value: Any,
+    planning_context: VulkanGraphPlanningContext,
+) -> _VulkanGraphResourceDescriptor | None:
+    if not isinstance(value, torch.Tensor) or value.dtype != torch.float32:
+        return None
+    sizes: list[int] = []
+    for size in value.shape:
+        if type(size) is int:
+            concrete_size = size
+        elif planning_context.fixed_shape_graph_input_sizes is not None:
+            try:
+                concrete_size = int(size)
+            except (TypeError, ValueError, RuntimeError):
+                return None
+        else:
+            return None
+        if concrete_size <= 0:
+            return None
+        sizes.append(concrete_size)
+    return _VulkanGraphResourceDescriptor(tuple(sizes), value.dtype)
+
+
+def _resource_output_descriptors(
+    node: torch.fx.Node,
+    output_count: int,
+    planning_context: VulkanGraphPlanningContext,
+) -> tuple[_VulkanGraphResourceDescriptor | None, ...]:
+    if output_count == 1:
+        return (_resource_descriptor(node.meta.get("val"), planning_context),)
+
+    descriptors: list[_VulkanGraphResourceDescriptor | None] = [
+        None
+    ] * output_count
+    node_value = node.meta.get("val")
+    if isinstance(node_value, (tuple, list)) and len(node_value) == output_count:
+        descriptors = [
+            _resource_descriptor(value, planning_context) for value in node_value
+        ]
+    for user in node.users:
+        if (
+            user.op != "call_function"
+            or user.target is not operator.getitem
+            or len(user.args) != 2
+            or user.args[0] is not node
+            or type(user.args[1]) is not int
+        ):
+            continue
+        index = user.args[1]
+        if index < 0:
+            index += output_count
+        if 0 <= index < output_count:
+            descriptors[index] = _resource_descriptor(
+                user.meta.get("val"), planning_context
+            )
+    if node.target._schema.name == "vulkan_prepack::run_graph_add_layernorm_plan":
+        known = next((item for item in descriptors if item is not None), None)
+        if known is not None:
+            descriptors = [item if item is not None else known for item in descriptors]
+    return tuple(descriptors)
+
+
 def compile_vulkan_graph_plan(
     graph_module: torch.fx.GraphModule,
     classifications: Mapping[str, str],
@@ -262,7 +346,7 @@ def compile_vulkan_graph_plan(
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
     if not placeholders:
-        return rejected("v8_requires_tensor_inputs")
+        return rejected("v9_requires_tensor_inputs")
     for node in placeholders:
         if not isinstance(node.meta.get("val"), torch.Tensor):
             return rejected(f"non_tensor_input:{node.name}")
@@ -281,6 +365,7 @@ def compile_vulkan_graph_plan(
     argument_refs: list[list[list[int]]] = []
     argument_kinds: list[list[int]] = []
     instruction_output_value_ids: list[list[int]] = []
+    instruction_nodes: list[torch.fx.Node] = []
     next_value_id = len(placeholders)
 
     def encode_leaf(value: Any, consumer: torch.fx.Node) -> int | str:
@@ -400,6 +485,7 @@ def compile_vulkan_graph_plan(
             argument_refs.append(refs)
             argument_kinds.append([_VALUE_ARGUMENT, _VALUE_ARGUMENT])
             instruction_output_value_ids.append([output_value_id])
+            instruction_nodes.append(node)
             continue
         if (
             node.op == "call_function"
@@ -456,6 +542,7 @@ def compile_vulkan_graph_plan(
             argument_refs.append([[value_ids[producer]], [-len(constants)]])
             argument_kinds.append([_VALUE_ARGUMENT, _VALUE_ARGUMENT])
             instruction_output_value_ids.append([output_value_id])
+            instruction_nodes.append(node)
             continue
         if node.op != "call_function" or not isinstance(
             node.target, torch._ops.OpOverload
@@ -510,9 +597,10 @@ def compile_vulkan_graph_plan(
         argument_refs.append(refs)
         argument_kinds.append(kinds)
         instruction_output_value_ids.append(output_value_ids)
+        instruction_nodes.append(node)
 
     if not node_names:
-        return rejected("v8_requires_at_least_one_instruction")
+        return rejected("v9_requires_at_least_one_instruction")
     output_node = next(
         node for node in graph_module.graph.nodes if node.op == "output"
     )
@@ -520,12 +608,12 @@ def compile_vulkan_graph_plan(
     output_value_ids: list[int] = []
     for leaf in output_leaves:
         if not isinstance(leaf, torch.fx.Node) or leaf not in value_ids:
-            return rejected("v8_requires_tensor_value_outputs")
+            return rejected("v9_requires_tensor_value_outputs")
         if not value_types[leaf].isSubtypeOf(torch._C.TensorType.get()):
-            return rejected("v8_requires_tensor_value_outputs")
+            return rejected("v9_requires_tensor_value_outputs")
         output_value_ids.append(value_ids[leaf])
     if not output_value_ids:
-        return rejected("v8_requires_tensor_value_outputs")
+        return rejected("v9_requires_tensor_value_outputs")
 
     input_count = len(placeholders)
     value_count = next_value_id
@@ -542,6 +630,55 @@ def compile_vulkan_graph_plan(
                     use_counts[ref] += 1
                     last_uses[ref] = instruction_index
 
+    value_resource_slot_ids = [-1] * value_count
+    resource_descriptors: list[_VulkanGraphResourceDescriptor] = []
+    resource_slot_last_uses: list[int] = []
+    escaping_value_ids = set(output_value_ids)
+    resource_writer_instruction_count = 0
+    for instruction_index, (node, operator_name, instruction_output_ids) in enumerate(
+        zip(instruction_nodes, operator_names, instruction_output_value_ids)
+    ):
+        if (
+            operator_name not in _RESOURCE_WRITER_OPERATOR_NAMES
+            or not instruction_output_ids
+            or any(value_id in escaping_value_ids for value_id in instruction_output_ids)
+        ):
+            continue
+        descriptors = _resource_output_descriptors(
+            node, len(instruction_output_ids), planning_context
+        )
+        if any(descriptor is None for descriptor in descriptors):
+            continue
+        resource_writer_instruction_count += 1
+        for value_id, descriptor in zip(instruction_output_ids, descriptors):
+            assert descriptor is not None
+            slot_id = next(
+                (
+                    index
+                    for index, (slot_descriptor, slot_last_use) in enumerate(
+                        zip(resource_descriptors, resource_slot_last_uses)
+                    )
+                    if slot_descriptor == descriptor
+                    and slot_last_use < instruction_index
+                ),
+                -1,
+            )
+            if slot_id < 0:
+                slot_id = len(resource_descriptors)
+                resource_descriptors.append(descriptor)
+                resource_slot_last_uses.append(last_uses[value_id])
+            else:
+                resource_slot_last_uses[slot_id] = last_uses[value_id]
+            value_resource_slot_ids[value_id] = slot_id
+
+    resource_slot_sizes = [
+        size for descriptor in resource_descriptors for size in descriptor.sizes
+    ]
+    resource_slot_ranks = [
+        len(descriptor.sizes) for descriptor in resource_descriptors
+    ]
+    resource_value_count = sum(slot_id >= 0 for slot_id in value_resource_slot_ids)
+
     plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
         node_names,
         operator_names,
@@ -556,12 +693,16 @@ def compile_vulkan_graph_plan(
         planning_context.execution_phase_value,
         planning_context.prefer_packed_layout_propagation,
         planning_context.fixed_shape_graph_input_sizes,
+        value_resource_slot_ids,
+        resource_slot_sizes,
+        resource_slot_ranks,
+        _RESOURCE_ARENA_FLIGHT_DEPTH,
     )
     report = VulkanGraphPlanReport(
         status="compiled",
-        reason="immutable_ivalue_ssa_plan",
+        reason="immutable_ivalue_ssa_resource_plan",
         plan_class="VulkanGraphPlan",
-        plan_version="v8",
+        plan_version="v9",
         planning_model_domain=planning_context.model_domain,
         planning_execution_phase=planning_context.execution_phase,
         planning_prefer_packed_layout_propagation=(
@@ -595,6 +736,12 @@ def compile_vulkan_graph_plan(
         dead_input_reuse_instruction_count=(
             plan.dead_input_reuse_instruction_count()
         ),
+        resource_slot_count=len(resource_descriptors),
+        resource_value_count=resource_value_count,
+        resource_writer_instruction_count=resource_writer_instruction_count,
+        resource_arena_flight_depth=(
+            _RESOURCE_ARENA_FLIGHT_DEPTH if resource_descriptors else 0
+        ),
         value_count=value_count,
         output_count=len(output_value_ids),
         submission_owned=plan.submission_owned(),
@@ -622,6 +769,12 @@ def compile_vulkan_graph_plan(
         or report.invocation_list_slot_count > report.list_argument_count
         or plan.dead_input_reuse_instruction_count()
         != report.dead_input_reuse_instruction_count
+        or plan.resource_slot_count() != report.resource_slot_count
+        or plan.resource_value_count() != report.resource_value_count
+        or plan.resource_writer_instruction_count()
+        != report.resource_writer_instruction_count
+        or plan.resource_arena_flight_depth()
+        != report.resource_arena_flight_depth
         or plan.value_count() != report.value_count
         or plan.output_count() != report.output_count
         or plan.submission_owned() != report.submission_owned
@@ -640,7 +793,7 @@ def compile_vulkan_graph_plan(
         or tuple(plan.value_use_counts()) != report.value_use_counts
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
-        raise RuntimeError("VulkanGraphPlan.v8 C++ schema disagrees with lowering")
+        raise RuntimeError("VulkanGraphPlan.v9 C++ schema disagrees with lowering")
     return _VulkanGraphPlanCompilation(plan, report)
 
 
