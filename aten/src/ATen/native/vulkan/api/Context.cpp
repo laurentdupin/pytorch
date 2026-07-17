@@ -1522,6 +1522,7 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       stack_planned_recording_descriptor_pool_lease_(nullptr),
       fences_(device_),
       querypool_(config_.queryPoolConfig, adapter_p_),
+      graph_submission_profile_log_idx_(UINT32_MAX),
       // Command buffer submission
       cmd_mutex_{},
       cmd_(VK_NULL_HANDLE, 0u, nullptr),
@@ -1931,6 +1932,21 @@ void Context::observe_next_graph_program_submission(
       "Graph submission observer requires an active graph invocation");
   TORCH_CHECK(observer, "Graph submission observer cannot be empty");
   graph_program_submission_observers_.push_back(std::move(observer));
+}
+
+uint32_t Context::set_graph_program_checkpoint_frequency_for_testing(
+    const uint32_t frequency) {
+  std::unique_lock<std::mutex> context_lock(dispatch_lock());
+  TORCH_CHECK(
+      !graph_program_invocation_active() && !is_inside_owned_program_recording() &&
+          !is_stack_planned_recording_active() && !cmd_ && submit_count_ == 0u &&
+          !graph_program_checkpoint_requested_ &&
+          !graph_program_checkpoint_requires_wait_ &&
+          graph_submission_profile_log_idx_ == UINT32_MAX,
+      "Graph checkpoint frequency can only change on an idle Vulkan Context");
+  const uint32_t previous = config_.graphProgramCheckpointFrequency;
+  config_.graphProgramCheckpointFrequency = frequency;
+  return previous;
 }
 
 std::function<void()> Context::take_graph_program_completion_cleanup() {
@@ -3200,6 +3216,32 @@ void Context::gpu_profile_end(CommandBuffer& cmd, const uint32_t log_idx) {
   querypool_.shader_profile_end(cmd, log_idx);
 }
 
+void Context::begin_graph_submission_profile(CommandBuffer& cmd) {
+  if (!cpu_timeline_line_logging_enabled() ||
+      !graph_program_invocation_active_for_current_thread() ||
+      !querypool_.is_enabled()) {
+    return;
+  }
+  TORCH_INTERNAL_ASSERT(graph_submission_profile_log_idx_ == UINT32_MAX);
+  std::ostringstream label;
+  label << "graph_submission." << command_buffer_recording_id_;
+  graph_submission_profile_log_idx_ = querypool_.shader_profile_begin(
+      cmd,
+      label.str(),
+      create_extent3d({0, 0, 0}),
+      create_extent3d({0, 0, 0}),
+      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+      /*reserve_and_reset_end_query=*/true);
+}
+
+void Context::end_graph_submission_profile(CommandBuffer& cmd) {
+  if (graph_submission_profile_log_idx_ == UINT32_MAX) {
+    return;
+  }
+  querypool_.shader_profile_end(cmd, graph_submission_profile_log_idx_);
+  graph_submission_profile_log_idx_ = UINT32_MAX;
+}
+
 uint32_t Context::begin_external_gpu_profile(
     const std::string& label,
     const VkExtent3D global_workgroup_size,
@@ -3228,8 +3270,7 @@ void Context::end_external_gpu_profile(const uint32_t log_idx) {
 }
 
 void Context::reset_gpu_profile_queries() {
-  if (!enable_op_profiling_ || !querypool_.is_enabled() ||
-      !querypool_.has_entries()) {
+  if (!querypool_.is_enabled() || !querypool_.has_entries()) {
     return;
   }
   CommandBuffer reset_cmd = command_pool_.get_new_cmd(/*reusable=*/false);
@@ -3244,30 +3285,58 @@ void Context::reset_gpu_profile_queries() {
 }
 
 void Context::dump_gpu_profile_log(const char* reason) {
-  if (!enable_op_profiling_ || !gpu_timestamp_logging_enabled() ||
+  const bool write_op_profile =
+      enable_op_profiling_ && gpu_timestamp_logging_enabled();
+  const bool write_graph_submission_profile =
+      cpu_timeline_line_logging_enabled();
+  if ((!write_op_profile && !write_graph_submission_profile) ||
       !querypool_.is_enabled() || !querypool_.has_pending_results()) {
     return;
   }
 
   querypool_.extract_results();
-  querypool_.shader_log_for_each([reason](const ShaderDuration& entry) {
+  querypool_.shader_log_for_each([reason, write_op_profile](
+                                    const ShaderDuration& entry) {
     if (entry.end_query_idx == UINT32_MAX) {
       return;
     }
-    std::ostringstream stream;
-    stream << "gpu_timestamp reason=" << (reason ? reason : "unspecified")
-           << " name=" << entry.kernel_name
-           << " runtime=" << entry.runtime_label
-           << " recent_op=" << entry.recent_op_label
-           << " submit_phase=" << entry.submit_phase
-           << " stack_phase=" << entry.stack_phase
-           << " stack_block=" << entry.stack_block
-           << " start_ns=" << entry.start_time_ns
-           << " end_ns=" << entry.end_time_ns
-           << " duration_ns=" << entry.execution_duration_ns
-           << " global=" << format_gpu_profile_extent(entry.global_workgroup_size)
-           << " local=" << format_gpu_profile_extent(entry.local_workgroup_size);
-    append_gpu_timestamp_log_line(stream.str());
+    constexpr char kGraphSubmissionPrefix[] = "graph_submission.";
+    constexpr size_t kGraphSubmissionPrefixSize =
+        sizeof(kGraphSubmissionPrefix) - 1u;
+    if (entry.kernel_name.compare(
+            0u,
+            kGraphSubmissionPrefixSize,
+            kGraphSubmissionPrefix,
+            kGraphSubmissionPrefixSize) == 0) {
+      std::ostringstream stream;
+      stream << "event=graph_submission_gpu_span"
+             << " reason=" << (reason ? reason : "unspecified")
+             << " recording_id="
+             << entry.kernel_name.substr(kGraphSubmissionPrefixSize)
+             << " start_ns=" << entry.start_time_ns
+             << " end_ns=" << entry.end_time_ns
+             << " duration_ns=" << entry.execution_duration_ns;
+      append_cpu_timeline_log_line(stream.str());
+    }
+    if (write_op_profile) {
+      std::ostringstream stream;
+      stream << "gpu_timestamp reason="
+             << (reason ? reason : "unspecified")
+             << " name=" << entry.kernel_name
+             << " runtime=" << entry.runtime_label
+             << " recent_op=" << entry.recent_op_label
+             << " submit_phase=" << entry.submit_phase
+             << " stack_phase=" << entry.stack_phase
+             << " stack_block=" << entry.stack_block
+             << " start_ns=" << entry.start_time_ns
+             << " end_ns=" << entry.end_time_ns
+             << " duration_ns=" << entry.execution_duration_ns
+             << " global="
+             << format_gpu_profile_extent(entry.global_workgroup_size)
+             << " local="
+             << format_gpu_profile_extent(entry.local_workgroup_size);
+      append_gpu_timestamp_log_line(stream.str());
+    }
   });
   reset_gpu_profile_queries();
 }
@@ -4752,7 +4821,10 @@ VulkanSubmission Context::submit_cmd_to_gpu(
         stream << "event=submit_cmd_to_gpu had_cmd=1"
                << " coalesced_phase_boundary_sync=1"
                << " duration_us=" << (cpu_timeline_now_us() - cpu_start_us)
-               << " fence=0 final_use=0";
+               << " fence=0 final_use=0"
+               << " origin=" << submit_origin_name(origin)
+               << " recording_id=" << command_buffer_recording_id
+               << " pending_dispatch_count=" << pending_dispatch_count;
         append_cpu_timeline_log_line(stream.str());
       }
       return submission;
@@ -4760,6 +4832,7 @@ VulkanSubmission Context::submit_cmd_to_gpu(
   }
   VulkanSubmission submission{};
   if (cmd_) {
+    end_graph_submission_profile(cmd_);
     cmd_.end();
     submission = submit_cmd_handle_to_gpu(
         current_stream(),
@@ -4779,7 +4852,10 @@ VulkanSubmission Context::submit_cmd_to_gpu(
     stream << "event=submit_cmd_to_gpu had_cmd=" << (had_cmd ? 1 : 0)
            << " duration_us=" << (cpu_timeline_now_us() - cpu_start_us)
            << " fence=" << (fence_handle != VK_NULL_HANDLE ? 1 : 0)
-           << " final_use=" << (final_use ? 1 : 0);
+           << " final_use=" << (final_use ? 1 : 0)
+           << " origin=" << submit_origin_name(origin)
+           << " recording_id=" << command_buffer_recording_id
+           << " pending_dispatch_count=" << pending_dispatch_count;
     append_cpu_timeline_log_line(stream.str());
   }
   return submission;

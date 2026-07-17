@@ -2,7 +2,11 @@ import copy
 import gc
 import os
 import operator
+import re
+import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -144,6 +148,101 @@ def _raise_graph_node_error(tensor):
 
 @unittest.skipUnless(torch.vulkan.is_available(), "Vulkan is not available")
 class TestVulkanGraph(TestCase):
+    def test_graph_submission_gpu_spans_join_cpu_submit_timeline(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with tempfile.TemporaryDirectory(
+            prefix="vulkan_graph_submission_span_"
+        ) as temp_dir:
+            timeline_path = os.path.join(temp_dir, "cpu_timeline.log")
+            env = os.environ.copy()
+            env["PYTORCH_VULKAN_CPU_TIMELINE_LOG"] = timeline_path
+            pythonpath = [repo_root]
+            if env.get("PYTHONPATH"):
+                pythonpath.append(env["PYTHONPATH"])
+            env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+            script = textwrap.dedent(
+                """
+                import torch
+
+                class Linear(torch.nn.Module):
+                    def __init__(self):
+                        super().__init__()
+                        self.linear = torch.nn.Linear(8, 8)
+
+                    def forward(self, tensor):
+                        return self.linear(tensor).relu()
+
+                torch.manual_seed(17)
+                model = Linear().eval()
+                sample = torch.randn(2, 8)
+                program = torch.vulkan.export_and_lower(model, sample)
+                torch.ops.vulkan_prepack.synchronize()
+                previous = (
+                    torch.ops.vulkan_prepack
+                    .set_graph_program_checkpoint_frequency_for_testing(1)
+                )
+                try:
+                    output = program(sample)
+                    torch.testing.assert_close(
+                        output.cpu(), model(sample), rtol=1e-4, atol=1e-4
+                    )
+                    torch.ops.vulkan_prepack.synchronize()
+                finally:
+                    torch.ops.vulkan_prepack.synchronize()
+                    observed = (
+                        torch.ops.vulkan_prepack
+                        .set_graph_program_checkpoint_frequency_for_testing(
+                            previous
+                        )
+                    )
+                    assert observed == 1, observed
+                """
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=(
+                    "Graph submission span subprocess failed.\n"
+                    f"stdout:\n{result.stdout}\n"
+                    f"stderr:\n{result.stderr}"
+                ),
+            )
+            with open(timeline_path, encoding="utf-8") as timeline_file:
+                lines = timeline_file.read().splitlines()
+
+        span_lines = [
+            line
+            for line in lines
+            if "event=graph_submission_gpu_span" in line
+        ]
+        submit_lines = [
+            line
+            for line in lines
+            if "event=submit_cmd_to_gpu" in line and "had_cmd=1" in line
+        ]
+        self.assertGreaterEqual(len(span_lines), 1)
+        self.assertGreaterEqual(len(submit_lines), len(span_lines))
+        submit_recording_ids = {
+            match.group(1)
+            for line in submit_lines
+            if (match := re.search(r"\brecording_id=(\d+)", line))
+        }
+        for line in span_lines:
+            recording_match = re.search(r"\brecording_id=(\d+)", line)
+            duration_match = re.search(r"\bduration_ns=(\d+)", line)
+            self.assertIsNotNone(recording_match)
+            self.assertIsNotNone(duration_match)
+            self.assertIn(recording_match.group(1), submit_recording_ids)
+            self.assertGreater(int(duration_match.group(1)), 0)
+
     def test_graph_planning_context_is_explicit_and_program_keyed(self):
         class Linear(torch.nn.Module):
             def __init__(self):

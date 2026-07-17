@@ -214,6 +214,7 @@ class TORCH_API Context final {
   // Diagnostics
   bool enable_op_profiling_{false};
   QueryPool querypool_;
+  uint32_t graph_submission_profile_log_idx_{UINT32_MAX};
   // Command buffers submission
   std::mutex cmd_mutex_;
   std::atomic<bool> graph_program_invocation_active_{false};
@@ -435,6 +436,8 @@ class TORCH_API Context final {
       const VkExtent3D,
       const VkExtent3D);
   void gpu_profile_end(CommandBuffer&, uint32_t);
+  void begin_graph_submission_profile(CommandBuffer&);
+  void end_graph_submission_profile(CommandBuffer&);
   void dump_gpu_profile_log(const char* reason);
   void reset_gpu_profile_queries();
   VulkanSubmission submit_cmd_handle_to_gpu(
@@ -483,6 +486,7 @@ class TORCH_API Context final {
       bool wait_for_completion = false);
   void observe_next_graph_program_submission(
       std::function<void(const VulkanSubmission&)> observer);
+  uint32_t set_graph_program_checkpoint_frequency_for_testing(uint32_t);
 
   inline void enable_op_profiling() {
     enable_op_profiling_ = true;
@@ -730,6 +734,7 @@ class TORCH_API Context final {
       cmd_ = command_pool_.get_new_cmd(reusable);
       cmd_.begin();
       command_buffer_recording_id_ = next_command_buffer_recording_id_++;
+      begin_graph_submission_profile(cmd_);
     }
   }
 

@@ -81,7 +81,9 @@ class QueryPool final {
   bool results_pending_;
 
  private:
-  size_t write_timestamp(const CommandBuffer&);
+  size_t write_timestamp(
+      const CommandBuffer&,
+      VkPipelineStageFlagBits = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
   std::string generate_string_report();
 
@@ -104,7 +106,9 @@ class QueryPool final {
       const CommandBuffer&,
       const std::string&,
       const VkExtent3D,
-      const VkExtent3D);
+      const VkExtent3D,
+      VkPipelineStageFlagBits = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+      bool reserve_and_reset_end_query = false);
   void shader_profile_end(const CommandBuffer&, const uint32_t);
 
   void extract_results();

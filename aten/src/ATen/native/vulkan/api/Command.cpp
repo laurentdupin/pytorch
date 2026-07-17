@@ -427,15 +427,16 @@ void CommandBuffer::copy_buffer_to_texture(
   state_ = CommandBuffer::State::RECORDING;
 }
 
-void CommandBuffer::write_timestamp(VkQueryPool querypool, const uint32_t idx)
-    const {
+void CommandBuffer::write_timestamp(
+    VkQueryPool querypool,
+    const uint32_t idx,
+    const VkPipelineStageFlagBits stage) const {
   VK_CHECK_COND(
       state_ == CommandBuffer::State::RECORDING,
       "Vulkan CommandBuffer: called write_timestamp() on a command buffer whose state "
       "is not RECORDING.");
 
-  vkCmdWriteTimestamp(
-      handle_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, querypool, idx);
+  vkCmdWriteTimestamp(handle_, stage, querypool, idx);
 }
 
 void CommandBuffer::reset_querypool(

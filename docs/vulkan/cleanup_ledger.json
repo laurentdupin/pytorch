@@ -1267,6 +1267,7 @@
         "operator_schema:vulkan_prepack::run_vulkan_graph_region_plan",
         "operator_schema:vulkan_prepack::set_benchmark_timed_region",
         "operator_schema:vulkan_prepack::set_fallback_phase",
+        "operator_schema:vulkan_prepack::set_graph_program_checkpoint_frequency_for_testing",
         "operator_schema:vulkan_prepack::set_graph_program_conv_host_sync_for_testing",
         "operator_schema:vulkan_prepack::set_submit_phase",
         "operator_schema:vulkan_prepack::slice_hidden_states_for_logits",

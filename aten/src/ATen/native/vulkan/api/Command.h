@@ -119,7 +119,10 @@ class CommandBuffer final {
       const api::utils::uvec3&,
       const api::utils::uvec3&);
 
-  void write_timestamp(VkQueryPool, const uint32_t) const;
+  void write_timestamp(
+      VkQueryPool,
+      const uint32_t,
+      VkPipelineStageFlagBits = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT) const;
   void reset_querypool(VkQueryPool, const uint32_t, const uint32_t) const;
 
   VkCommandBuffer get_submit_handle(const bool final_use = false);

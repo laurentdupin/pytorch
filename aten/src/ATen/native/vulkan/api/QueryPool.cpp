@@ -87,7 +87,9 @@ void QueryPool::reset(const CommandBuffer& cmd) {
   results_pending_ = false;
 }
 
-size_t QueryPool::write_timestamp(const CommandBuffer& cmd) {
+size_t QueryPool::write_timestamp(
+    const CommandBuffer& cmd,
+    const VkPipelineStageFlagBits stage) {
   if (!is_enabled()) {
     return UINT32_MAX;
   }
@@ -99,7 +101,7 @@ size_t QueryPool::write_timestamp(const CommandBuffer& cmd) {
       config_.maxQueryCount,
       ")!");
 
-  cmd.write_timestamp(querypool_, in_use_);
+  cmd.write_timestamp(querypool_, in_use_, stage);
 
   return in_use_++;
 }
@@ -108,13 +110,29 @@ uint32_t QueryPool::shader_profile_begin(
     const CommandBuffer& cmd,
     const std::string& kernel_name,
     const VkExtent3D global_workgroup_size,
-    const VkExtent3D local_workgroup_size) {
+    const VkExtent3D local_workgroup_size,
+    const VkPipelineStageFlagBits start_stage,
+    const bool reserve_and_reset_end_query) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!is_enabled()) {
     return UINT32_MAX;
   }
 
-  uint32_t query_idx = write_timestamp(cmd);
+  uint32_t end_query_idx = UINT32_MAX;
+  if (reserve_and_reset_end_query) {
+    VK_CHECK_COND(
+        in_use_ + 2u <= config_.maxQueryCount,
+        "Vulkan QueryPool: Exceeded the maximum number of queries allowed "
+        "by the queryPool (",
+        config_.maxQueryCount,
+        ")!");
+    cmd.reset_querypool(querypool_, in_use_, 2u);
+    end_query_idx = static_cast<uint32_t>(in_use_ + 1u);
+  }
+  uint32_t query_idx = write_timestamp(cmd, start_stage);
+  if (reserve_and_reset_end_query) {
+    ++in_use_;
+  }
 
   uint32_t log_idx = shader_log().size();
   ShaderDuration log_entry{
@@ -130,7 +148,7 @@ uint32_t QueryPool::shader_profile_begin(
       local_workgroup_size,
       // Query indexes
       query_idx, // start query idx
-      UINT32_MAX, // end query idx
+      end_query_idx,
       // Timings
       0u, // start time
       0u, // end time
@@ -159,9 +177,15 @@ void QueryPool::shader_profile_end(
     return;
   }
 
-  size_t query_idx = write_timestamp(cmd);
-
-  shader_log()[log_idx].end_query_idx = query_idx;
+  ShaderDuration& entry = shader_log()[log_idx];
+  if (entry.end_query_idx == UINT32_MAX) {
+    entry.end_query_idx = write_timestamp(cmd);
+  } else {
+    cmd.write_timestamp(
+        querypool_,
+        entry.end_query_idx,
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+  }
 }
 
 void QueryPool::extract_results() {
