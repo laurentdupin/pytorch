@@ -1299,6 +1299,42 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 1)
         self.assertEqual(program.cpp_plan.recorded_partition_failure_count(), 0)
 
+    def test_cpp_graph_plan_does_not_record_resource_writer_bypass(self):
+        class BatchedChainedLinear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.first = torch.nn.Linear(4, 4)
+                self.second = torch.nn.Linear(4, 4)
+                self.output = torch.nn.Linear(4, 4)
+
+            def forward(self, tensor):
+                tensor = self.first(tensor)
+                tensor = self.second(tensor)
+                return self.output(tensor)
+
+        torch.manual_seed(0)
+        model = BatchedChainedLinear().eval()
+        tensor = torch.randn(1, 2, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(
+            program.cpp_plan.recorded_partition_candidate_instruction_count(),
+            1,
+        )
+        with torch.inference_mode():
+            outputs = []
+            for _ in range(3):
+                outputs.append(program(tensor).cpu())
+                torch.ops.vulkan_prepack.synchronize()
+
+        for output in outputs:
+            torch.testing.assert_close(output, model(tensor))
+        self.assertEqual(program.cpp_plan.resource_write_count(), 0)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 6)
+        self.assertEqual(program.cpp_plan.recorded_partition_capture_count(), 0)
+        self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 0)
+        self.assertEqual(program.cpp_plan.recorded_partition_failure_count(), 0)
+
     def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):
         class LinearViewOutput(torch.nn.Module):
             def __init__(self):

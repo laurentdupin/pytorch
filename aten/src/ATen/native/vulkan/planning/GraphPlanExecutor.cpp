@@ -101,6 +101,7 @@ struct VulkanGraphPlanResourceArena final {
   std::vector<Tensor> tensors;
   std::unique_ptr<api::GraphProgramRecordingResources> recording_resources;
   std::vector<VulkanGraphPlanRecordedInstruction> recorded_instructions;
+  std::vector<uint8_t> primed_resource_writers;
   c10::DeviceIndex device_index{-1};
   api::VulkanSubmission submission{};
   bool recording_primed{false};
@@ -1297,6 +1298,8 @@ int64_t VulkanGraphPlan::acquire_resource_arena(
   arena.device_index = device_index;
   arena.tensors.reserve(state_->resource_slots.size());
   arena.recorded_instructions.resize(state_->instructions.size());
+  arena.primed_resource_writers.resize(
+      state_->instructions.size(), uint8_t{0u});
   for (const VulkanGraphPlanResourceSlot& slot : state_->resource_slots) {
     arena.tensors.push_back(
         create_buffer_tensor(slot.sizes, slot.dtype, /*persistent=*/true));
@@ -1781,6 +1784,12 @@ std::vector<Tensor> run_vulkan_graph_plan(
       resource_arena_index >= 0
       ? &state.resource_arenas[static_cast<size_t>(resource_arena_index)]
       : nullptr;
+  if (resource_arena && !resource_arena->recording_primed) {
+    std::fill(
+        resource_arena->primed_resource_writers.begin(),
+        resource_arena->primed_resource_writers.end(),
+        uint8_t{0u});
+  }
   std::optional<api::Context::GraphProgramInvocationScope> submission_scope;
   if (state.submission_owned) {
     submission_scope.emplace(*api::context(device_index));
@@ -1874,7 +1883,9 @@ std::vector<Tensor> run_vulkan_graph_plan(
           VulkanGraphPlanResourceWriteResult::NotApplicable;
       if (
           resource_arena && resource_arena->recording_primed &&
-          instruction.recorded_partition_candidate && submission_scope) {
+          instruction.recorded_partition_candidate &&
+          resource_arena->primed_resource_writers[instruction_index] &&
+          submission_scope) {
         try {
           const VulkanGraphPlanRecordedPartitionResult recorded_result =
               execute_recorded_partition(
@@ -1912,6 +1923,11 @@ std::vector<Tensor> run_vulkan_graph_plan(
       }
       if (resource_write == VulkanGraphPlanResourceWriteResult::Written) {
         state.resource_write_count.fetch_add(1u, std::memory_order_relaxed);
+        if (
+            resource_arena && !resource_arena->recording_primed &&
+            instruction.recorded_partition_candidate) {
+          resource_arena->primed_resource_writers[instruction_index] = 1u;
+        }
       } else if (
           resource_write ==
           VulkanGraphPlanResourceWriteResult::ProducedUnowned) {
