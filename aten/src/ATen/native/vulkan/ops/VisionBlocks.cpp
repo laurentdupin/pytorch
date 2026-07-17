@@ -12691,8 +12691,8 @@ Tensor patch_embed_feature_map_to_tokens(const Tensor& input_arg) {
       "float Vulkan tensor");
 
   const vTensor& v_input = convert(input_arg);
-  const utils::PatchEmbedFeatureMapToTokensMatch match =
-      utils::match_patch_embed_feature_map_to_tokens_contract(
+  const utils::ExecutionContractMetadata* const contract_metadata =
+      utils::match_feature_map_to_tokens_direct_buffer(
           input_arg.sizes(),
           input_arg.scalar_type(),
           input_arg.is_vulkan(),
@@ -12702,10 +12702,9 @@ Tensor patch_embed_feature_map_to_tokens(const Tensor& input_arg) {
           v_input.storage_offset() == 0,
           utils::supports_buffer_elementwise_compute(v_input));
   TORCH_CHECK(
-      match.matched,
+      contract_metadata != nullptr,
       "vulkan_prepack::patch_embed_feature_map_to_tokens input is outside "
-      "PatchEmbedFeatureMapToTokensContract and "
-      "PatchEmbedFeatureMapToTokensContract");
+      "FeatureMapToTokensDirectBuffer");
 
   Tensor output = utils::create_buffer_tensor(
       {
@@ -12723,7 +12722,7 @@ Tensor patch_embed_feature_map_to_tokens(const Tensor& input_arg) {
   utils::log_vulkan_op_hit(
       "vulkan_prepack::patch_embed_feature_map_to_tokens");
   const TensorContractProvenance provenance =
-      tensor_contract_provenance_from_metadata(match.metadata);
+      tensor_contract_provenance_from_metadata(contract_metadata);
   return record_tensor_write_and_return(
       output,
       "vulkan_prepack::patch_embed_feature_map_to_tokens",

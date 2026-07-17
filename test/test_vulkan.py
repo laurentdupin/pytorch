@@ -1314,9 +1314,6 @@ class TestVulkanGovernance(TestCase):
             "no_overlap_conv_transpose2d_contract.json": (
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer"
             ),
-            "patch_embed_feature_map_to_tokens_contract.json": (
-                "patch_embed_feature_map_to_tokens_observed_feature_maps"
-            ),
             "patch_embed_float_buffer_conv_route_contract.json": (
                 "patch_embed_float_buffer_conv_route_observed_inputs"
             ),
@@ -1369,7 +1366,7 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 23 ShapeEnvelope v1 specs", result.stdout)
+        self.assertIn("validated 22 ShapeEnvelope v1 specs", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "attention_probability_materialization_"
@@ -1491,10 +1488,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope adjacent-negative generators",
+            "validated 22 ShapeEnvelope adjacent-negative generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=160", result.stdout)
+        self.assertIn("generated_cases=153", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:13",
             result.stdout,
@@ -1515,10 +1512,6 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("masked_tiny_sdpa_contract.json:4", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:5",
-            result.stdout,
-        )
-        self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:7",
             result.stdout,
         )
         self.assertIn(
@@ -1554,10 +1547,10 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope legal-case generators",
+            "validated 22 ShapeEnvelope legal-case generators",
             result.stdout,
         )
-        self.assertIn("generated_cases=377", result.stdout)
+        self.assertIn("generated_cases=353", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:16",
             result.stdout,
@@ -1578,10 +1571,6 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("masked_tiny_sdpa_contract.json:2", result.stdout)
         self.assertIn(
             "no_overlap_conv_transpose2d_contract.json:3",
-            result.stdout,
-        )
-        self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:24",
             result.stdout,
         )
         self.assertIn(
@@ -1617,11 +1606,11 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope fuzz assignment generators",
+            "validated 22 ShapeEnvelope fuzz assignment generators",
             result.stdout,
         )
-        self.assertIn("legal_assignments=46", result.stdout)
-        self.assertIn("adjacent_negative_assignments=139", result.stdout)
+        self.assertIn("legal_assignments=44", result.stdout)
+        self.assertIn("adjacent_negative_assignments=132", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "adjacent=13",
@@ -1700,11 +1689,6 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:"
-            "legal=2:adjacent=7",
-            result.stdout,
-        )
-        self.assertIn(
             "patch_embed_float_buffer_conv_route_contract.json:"
             "legal=2:adjacent=9",
             result.stdout,
@@ -1738,13 +1722,13 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 ShapeEnvelope fuzz assignment coverage bridges",
+            "validated 22 ShapeEnvelope fuzz assignment coverage bridges",
             result.stdout,
         )
-        self.assertIn("legal_assignments=46", result.stdout)
-        self.assertIn("adjacent_negative_axes=138", result.stdout)
-        self.assertIn("runtime_legal_cases=377", result.stdout)
-        self.assertIn("runtime_adjacent_negative_cases=160", result.stdout)
+        self.assertIn("legal_assignments=44", result.stdout)
+        self.assertIn("adjacent_negative_axes=131", result.stdout)
+        self.assertIn("runtime_legal_cases=353", result.stdout)
+        self.assertIn("runtime_adjacent_negative_cases=153", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:legal=2:"
             "status=covered:paths=17/17:adjacent_axes=13",
@@ -1841,11 +1825,6 @@ class TestVulkanGovernance(TestCase):
             result.stdout,
         )
         self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:legal=2:"
-            "status=covered:paths=15/15:adjacent_axes=7",
-            result.stdout,
-        )
-        self.assertIn(
             "patch_embed_float_buffer_conv_route_contract.json:legal=2:"
             "status=covered:paths=32/32:adjacent_axes=9",
             result.stdout,
@@ -1876,7 +1855,6 @@ class TestVulkanGovernance(TestCase):
             "linear_gelu_bridge_contract.json": (2, 11),
             "masked_tiny_sdpa_contract.json": (2, 4),
             "no_overlap_conv_transpose2d_contract.json": (3, 5),
-            "patch_embed_feature_map_to_tokens_contract.json": (24, 7),
             "patch_embed_float_buffer_conv_route_contract.json": (27, 9),
             "safe_view_reshape_alias_contract.json": (2, 4),
             "safe_view_reshape_contract.json": (2, 3),
@@ -1943,7 +1921,6 @@ class TestVulkanGovernance(TestCase):
                 "linear_gelu_bridge_backbone_mlp_hidden384_to1536",
                 "masked_tiny_sdpa_additive_float_mask",
                 "no_overlap_conv_transpose2d_kernel2_stride2_float_buffer",
-                "patch_embed_feature_map_to_tokens_observed_feature_maps",
                 "patch_embed_float_buffer_conv_route_observed_inputs",
                 "small_metadata_padded_conv2d_materialized_buffer_input_2x2",
                 "small_spatial_pointwise_conv_sparse_projection_rows",
@@ -2144,9 +2121,9 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated 9 ShapeEnvelope sparse rowsets", result.stdout)
-        self.assertIn("rows=192", result.stdout)
-        self.assertIn("sparse_gap=1194875", result.stdout)
+        self.assertIn("validated 8 ShapeEnvelope sparse rowsets", result.stdout)
+        self.assertIn("rows=168", result.stdout)
+        self.assertIn("sparse_gap=1193939", result.stdout)
         self.assertIn(
             "attention_probability_materialization_contract.json:"
             "probability_rows:rows=16",
@@ -2166,11 +2143,6 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "token_prefix_cat_add_contract.json:token_rows:rows=30",
-            result.stdout,
-        )
-        self.assertIn(
-            "patch_embed_feature_map_to_tokens_contract.json:"
-            "feature_map_rows:rows=24",
             result.stdout,
         )
         self.assertIn(
@@ -2262,7 +2234,7 @@ class TestVulkanGovernance(TestCase):
             {row["spec_file"] for row in rows},
             shape_envelope_specs,
         )
-        self.assertEqual(len(rows), 23)
+        self.assertEqual(len(rows), 22)
         self.assertTrue(all(row["marker_count"] > 0 for row in rows))
         self.assertGreater(sum(row["entry_point_count"] for row in rows), 0)
         self.assertTrue(
@@ -2292,7 +2264,7 @@ class TestVulkanGovernance(TestCase):
             text=True,
         )
         self.assertIn(
-            "validated 23 generated ShapeEnvelope C++ helper headers",
+            "validated 22 generated ShapeEnvelope C++ helper headers",
             result.stdout,
         )
         self.assertIn("markers=", result.stdout)
@@ -2322,10 +2294,6 @@ class TestVulkanGovernance(TestCase):
         self.assertIn("ExecutionContractsMaskedTinySDPASpec.h", result.stdout)
         self.assertIn("ExecutionContractsSDPAScoreSoftmaxSpec.h", result.stdout)
         self.assertIn("ExecutionContractsTokenPrefixCatAddSpec.h", result.stdout)
-        self.assertIn(
-            "ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h",
-            result.stdout,
-        )
         self.assertIn(
             "ExecutionContractsPatchEmbedFloatBufferConvRouteSpec.h",
             result.stdout,
@@ -3521,8 +3489,8 @@ class TestVulkanGovernance(TestCase):
 
     def test_vulkan_contract_coverage_census_cli(self):
         summary = contract_spec_utils.contract_coverage_census_summary(REPO_ROOT)
-        self.assertEqual(summary["specs"], 33)
-        self.assertEqual(summary["generated_shape_envelope"], 24)
+        self.assertEqual(summary["specs"], 31)
+        self.assertEqual(summary["generated_shape_envelope"], 22)
         self.assertEqual(summary["json_spec_without_shape_envelope"], 0)
         self.assertEqual(summary["shape_envelope_without_generated_header"], 0)
         self.assertEqual(summary["schema_only_spec"], 9)
@@ -3635,8 +3603,8 @@ class TestVulkanGovernance(TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.assertIn("validated contract coverage census specs=33", result.stdout)
-        self.assertIn("generated_shape_envelope=24", result.stdout)
+        self.assertIn("validated contract coverage census specs=31", result.stdout)
+        self.assertIn("generated_shape_envelope=22", result.stdout)
         self.assertIn("schema_only_spec=9", result.stdout)
         self.assertIn("json_spec_without_shape_envelope=0", result.stdout)
         self.assertIn("live_contract_without_json_spec=0", result.stdout)
@@ -3660,7 +3628,7 @@ class TestVulkanGovernance(TestCase):
         self.assertEqual(summary["wired_contracts"], 3)
         self.assertEqual(summary["wired_spec_rows"], 5)
         self.assertEqual(summary["wired_sources"], 3)
-        self.assertEqual(summary["unwired_contracts"], 17)
+        self.assertEqual(summary["unwired_contracts"], 15)
         self.assertEqual(summary["payload_fields"], 9)
 
         census = contract_spec_utils.admission_diagnostics_census(REPO_ROOT)
@@ -3720,7 +3688,7 @@ class TestVulkanGovernance(TestCase):
         )
         self.assertIn(
             "validated admission diagnostics census wired_contracts=3 "
-            "wired_spec_rows=5 wired_sources=3 unwired_contracts=17 "
+            "wired_spec_rows=5 wired_sources=3 unwired_contracts=15 "
             "payload_fields=9",
             result.stdout,
         )
@@ -40493,7 +40461,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             if os.path.exists(log_path):
                 os.remove(log_path)
 
-    def test_patch_embed_feature_map_to_tokens_contract_matches_reference(self):
+    def test_patch_embed_feature_map_to_tokens_corpus_shapes_match_reference(self):
         log_name = "patch_embed_feature_map_to_tokens_op_hit_test.log"
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(repo_root, log_name)
@@ -40504,7 +40472,6 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             script = """
                 import json
                 import os
-                import sys
                 import torch
                 import torch.nn.functional as F
 
@@ -40516,25 +40483,26 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         torch.ops.vulkan_prepack.submit_origin_counters(),
                     ))
 
-                sys.path.insert(
-                    0,
-                    os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
-                )
-                import contract_spec_utils
-
-                spec = contract_spec_utils.load_contract_spec(
-                    os.getcwd(),
-                    "patch_embed_feature_map_to_tokens_contract.json",
-                )
                 max_abs = 0.0
                 cases = 0
                 max_tensor_readback = 0
+                feature_shapes = (
+                    (10, 15),
+                    (13, 20),
+                    (20, 30),
+                    (20, 31),
+                    (30, 45),
+                    (30, 46),
+                    (40, 60),
+                    (40, 61),
+                )
                 with torch.inference_mode():
-                    for index, case in enumerate(spec["positive_cases"]):
+                    for index, (out_channels, feature_shape) in enumerate(
+                            (channels, shape)
+                            for channels in (384, 768, 1024)
+                            for shape in feature_shapes):
                         torch.manual_seed(2200 + index)
-                        out_channels = case["input_shape"][1]
-                        feature_h = case["input_shape"][2]
-                        feature_w = case["input_shape"][3]
+                        feature_h, feature_w = feature_shape
                         image_h = feature_h * 14
                         image_w = feature_w * 14
                         image = torch.randn(1, 3, image_h, image_w)
@@ -40577,7 +40545,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                         )
                         if fallback != 0 or sync_readback != 0:
                             raise AssertionError({
-                                "case": case["name"],
+                                "shape": [out_channels, feature_h, feature_w],
                                 "cpu_fallback": int(fallback),
                                 "sync_readback": int(sync_readback),
                             })
@@ -40643,6 +40611,10 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             (2, 7, 4, 11),
             (1, 385, 8, 13),
             (3, 33, 5, 6),
+            (1, 512, 10, 15),
+            (1, 384, 11, 15),
+            (1, 384, 10, 14),
+            (1, 384, 40, 62),
         ]
         for _ in range(5):
             cases.append((
@@ -40715,124 +40687,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             offset_feature = base[:, :, :, 1:]
             with self.assertRaisesRegex(
                     RuntimeError,
-                    "PatchEmbedFeatureMapToTokensContract"):
+                    "FeatureMapToTokensDirectBuffer"):
                 torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
                     offset_feature)
-
-    def test_patch_embed_feature_map_to_tokens_adjacent_negatives_reject(self):
-        script = """
-            import json
-            import os
-            import sys
-            import torch
-
-            sys.path.insert(
-                0,
-                os.path.join(os.getcwd(), "test", "vulkan_contract_specs"),
-            )
-            import contract_spec_utils
-
-            spec = contract_spec_utils.load_contract_spec(
-                os.getcwd(),
-                "patch_embed_feature_map_to_tokens_contract.json",
-            )
-
-            def make_feature(case):
-                shape = case["input_shape"]
-                dtype = (
-                    torch.float16
-                    if case.get("dtype") == "float16"
-                    else torch.float32
-                )
-                if len(shape) == 4 and dtype == torch.float32:
-                    batch, channels, height, width = shape
-                    if case.get("storage_offset", 0) != 0:
-                        base_tokens = torch.randn(
-                            batch,
-                            height * (width + 1),
-                            channels,
-                            dtype=dtype,
-                        )
-                        base = torch.ops.vulkan_prepack.tokens_to_feature_map(
-                            base_tokens.to("vulkan"),
-                            height,
-                            width + 1,
-                        )
-                        return base[:, :, :, 1:]
-                    tokens = torch.randn(
-                        batch,
-                        height * width,
-                        channels,
-                        dtype=dtype,
-                    )
-                    return torch.ops.vulkan_prepack.tokens_to_feature_map(
-                        tokens.to("vulkan"),
-                        height,
-                        width,
-                    )
-                return torch.randn(shape, dtype=dtype).to("vulkan")
-
-            rejected = []
-            dynamic_matched = []
-            for case in spec["negative_cases"]:
-                torch.manual_seed(2300 + len(rejected) + len(dynamic_matched))
-                try:
-                    feature = make_feature(case)
-                    actual = torch.ops.vulkan_prepack.patch_embed_feature_map_to_tokens(
-                        feature,
-                    )
-                except Exception as exc:
-                    rejected.append({
-                        "name": case["name"],
-                        "error": str(exc).splitlines()[0],
-                    })
-                else:
-                    if case["violates"] in (
-                            "feature_map.rank",
-                            "feature_map.dtype",
-                            "source_storage_offset"):
-                        raise AssertionError(
-                            f"semantic negative case matched: {case['name']}"
-                        )
-                    expected_shape = [
-                        feature.size(0),
-                        feature.size(2) * feature.size(3),
-                        feature.size(1),
-                    ]
-                    if list(actual.shape) != expected_shape:
-                        raise AssertionError({
-                            "name": case["name"],
-                            "actual_shape": list(actual.shape),
-                            "expected_shape": expected_shape,
-                        })
-                    dynamic_matched.append(case["name"])
-            print(json.dumps({
-                "dynamic_matched": dynamic_matched,
-                "rejected": rejected,
-            }, sort_keys=True))
-        """
-
-        _, result = self._run_repo_python_subprocess(
-            script,
-            timeout=180,
-            error_prefix=(
-                "patch_embed_feature_map_to_tokens negative subprocess failed."
-            ),
-        )
-        result_json = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(
-            sorted(row["name"] for row in result_json["rejected"]),
-            ["nonzero_storage_offset", "wrong_dtype", "wrong_rank"],
-        )
-        self.assertEqual(
-            sorted(result_json["dynamic_matched"]),
-            [
-                "unsupported_channels",
-                "unsupported_height",
-                "unsupported_observed_40x62_tokenprefix_gap",
-                "unsupported_width",
-            ],
-        )
 
     def test_token_prefix_cat_add_observed_envelope_matches_reference(self):
         log_name = "token_prefix_cat_add_observed_envelope_op_hit_test.log"

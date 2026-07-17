@@ -563,24 +563,17 @@ condition and migration target.
   The proven descriptor-view input
   leg requires zero storage offset, width-packed buffer storage, and metadata
   strides compatible with `conv2d_buffer_float`. Semantic negatives remain on
-  the legacy path. The downstream `PatchEmbedFeatureMapToTokensContract`
-  layout-transition slice has generated spec coverage in
-  `test/vulkan_contract_specs/patch_embed_feature_map_to_tokens_contract.json`
-  and generated sparse-rowset helper output in
-  `generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h`; those
-  finite rows now serve as evidence/regression fixtures. Production admission
-  for fp32 direct-buffer rank-4 feature maps is handled by
+  the legacy path. Downstream fp32 direct-buffer rank-4 feature maps use
   `FeatureMapToTokensDirectBuffer`, which validates `[N,C,H,W] -> [N,H*W,C]`
-  semantics from runtime batch/channel/H/W metadata without exact H/W row
-  matching. The current implementation still requires width-packed buffer
-  storage and zero storage offset.
-- Expiry: the patch-embed conv leg also has a semantic dynamic execution-plan
-  family, and finite feature-map-to-token rows are no longer needed as
-  migration guardrails.
+  semantics from runtime batch/channel/H/W metadata without exact H/W rows.
+  The implementation still requires width-packed buffer storage and zero
+  storage offset.
+- Expiry: generated semantic execution-plan metadata replaces the remaining
+  observed-row optimized-plan lookup, or the observed rows are retired as
+  redundant after the generic plan has equivalent performance evidence.
 - Migration target: generated `PatchEmbedFloatBufferConvRoute` execution-plan
   metadata or a `ConvWeightDeviceRepackTransitionContract` if the legacy packed
-  layout is migrated to device-side repack; feature-map-to-token conversion is
-  covered by `FeatureMapToTokensDirectBuffer`.
+  layout is migrated to device-side repack.
 
 ### No-Overlap ConvTranspose2D Exact Envelope
 

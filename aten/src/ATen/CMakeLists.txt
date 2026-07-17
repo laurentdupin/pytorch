@@ -125,7 +125,7 @@ list(APPEND native_vulkan_cpp
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsKVCacheAppend.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsMaskedTinySDPA.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsNoOverlapConvTranspose2D.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsPatchEmbedFeatureMapToTokens.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsFeatureMapToTokens.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSafeViewReshape.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/native/vulkan/planning/ExecutionContractsSDPAScoreSoftmax.cpp"

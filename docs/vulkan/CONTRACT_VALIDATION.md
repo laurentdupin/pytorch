@@ -55,7 +55,6 @@ proof ledger is reviewed and regenerated.
 and groups to proof status. The initial high-risk coverage includes:
 
 - `AttentionProbabilityMaterializationContract`
-- `PatchEmbedFeatureMapToTokensContract`
 - `PatchEmbedFloatBufferConvRoute`
 - `SmallSpatialPointwiseConvContract`
 - `TokenPrefixCatAddContract`

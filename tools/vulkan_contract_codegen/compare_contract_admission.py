@@ -20,7 +20,6 @@ DEFAULT_PROOF_MANIFEST = PROOF_DIR / "contract_proof_manifest.json"
 
 COVERED_PROOF_CONTRACTS = (
     "AttentionProbabilityMaterializationContract",
-    "PatchEmbedFeatureMapToTokensContract",
     "PatchEmbedFloatBufferConvRoute",
     "SmallSpatialPointwiseConvContract",
     "TokenPrefixCatAddContract",
@@ -38,17 +37,6 @@ SOURCE_HINTS: dict[str, dict[str, list[str]]] = {
         "transition_contract_sources": [
             "aten/src/ATen/native/vulkan/planning/TransitionContracts.cpp",
             "aten/src/ATen/native/vulkan/planning/TransitionPlanner.cpp",
-        ],
-    },
-    "PatchEmbedFeatureMapToTokensContract": {
-        "matcher_sources": [
-            "aten/src/ATen/native/vulkan/ops/VisionBlocks.cpp",
-        ],
-        "route_policy_sources": [
-            "scripts/benchmarks/benchmark_depth_anything.py",
-        ],
-        "transition_contract_sources": [
-            "aten/src/ATen/native/vulkan/planning/TransitionContracts.cpp",
         ],
     },
     "PatchEmbedFloatBufferConvRoute": {
@@ -104,24 +92,6 @@ PROOF_TEMPLATES: dict[str, dict[str, Any]] = {
         },
         "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
         "migration_target": "generated LayoutTransitionContract or attention RegionContract policy",
-    },
-    "PatchEmbedFeatureMapToTokensContract": {
-        "proof_status": "validated_bounded_layout_transition_rows",
-        "positive_runtime_or_proof_cases": [
-            "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-            "test_patch_embed_feature_map_to_tokens_contract_matches_reference",
-        ],
-        "adjacent_negative_coverage": [
-            "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-            "ShapeEnvelope adjacent-negative generator",
-        ],
-        "fallback_readback_copy_budget": {
-            "cpu_fallback": 0,
-            "sync_readback": 0,
-            "host_transfer": 0,
-        },
-        "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-        "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
     },
     "PatchEmbedFloatBufferConvRoute": {
         "proof_status": "validated_bounded_execution_plan_rows",

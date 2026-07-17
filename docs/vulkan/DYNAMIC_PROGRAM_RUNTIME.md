@@ -260,9 +260,9 @@ that preserves PyTorch's out-of-range exception.
 when the storage is buffer-backed and supports buffer-compute metadata. The
 family is semantic for batch, channel, height, and width, but the current
 implementation still requires width-packed buffer layout and zero storage
-offset. The output shape is `[N, H * W, C]`. The finite
-`PatchEmbedFeatureMapToTokensContract` rows remain evidence and regression
-fixtures, not default H/W admission.
+offset. The output shape is `[N, H * W, C]`. Corpus-shape behavioral tests
+exercise the former exact-row envelope, but production and test admission use
+only these semantic guards.
 
 `TokenPrefixCatAddDirectBuffer` admits fp32 rank-3 direct-buffer prefix-token
 concat plus positional add when `dim == 1`, prefix length is `1`, batch and

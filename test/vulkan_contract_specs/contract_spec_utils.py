@@ -4585,103 +4585,6 @@ def _validate_token_prefix_cat_add_shape_envelope(file_name, spec, envelope):
         _require_equal(case["expected_route_label"], spec["route_label"], case_context)
 
 
-def _validate_patch_embed_feature_map_to_tokens_shape_envelope(
-    file_name, spec, envelope
-):
-    context = f"{file_name} PatchEmbedFeatureMapToTokens ShapeEnvelope"
-    _require_equal(
-        spec["contract_name"],
-        "PatchEmbedFeatureMapToTokensContract",
-        f"{context} contract",
-    )
-    _require_equal(
-        spec["family"],
-        "Kernel14Stride14ObservedFeatureMap",
-        f"{context} family",
-    )
-    _require_equal(envelope["bounds"], spec["bounds"], f"{context} bounds")
-
-    bounds = envelope["bounds"]
-    inputs = envelope["inputs"]
-    require_fields(inputs, ("feature_map",), f"{context} inputs")
-    results = envelope.get("results", {})
-    require_fields(results, ("tokens",), f"{context} results")
-    feature_map = inputs["feature_map"]
-    tokens = results["tokens"]
-    _require_equal(
-        _single_value(feature_map["dtype"], f"{context} feature_map dtype"),
-        bounds["dtype"],
-        f"{context} feature_map dtype",
-    )
-    _require_equal(
-        _single_value(feature_map["rank"], f"{context} feature_map rank"),
-        bounds["input_rank"],
-        f"{context} feature_map rank",
-    )
-    _require_equal(
-        _single_value(tokens["dtype"], f"{context} tokens dtype"),
-        bounds["dtype"],
-        f"{context} tokens dtype",
-    )
-    _require_equal(
-        _single_value(tokens["rank"], f"{context} tokens rank"),
-        bounds["output_rank"],
-        f"{context} tokens rank",
-    )
-
-    feature_dims = _dims_by_symbol(feature_map, context)
-    token_dims = _dims_by_symbol(tokens, context)
-    _require_equal(feature_dims["B"]["values"], [bounds["batch"]], context)
-    _require_equal(feature_dims["C"]["values"], bounds["channels"], context)
-    _require_equal(feature_dims["H"]["values"], bounds["feature_heights"], context)
-    _require_equal(feature_dims["W"]["values"], bounds["feature_widths"], context)
-    _require_equal(token_dims["B"]["values"], [bounds["batch"]], context)
-    _require_equal(token_dims["T"]["values"], bounds["token_counts"], context)
-    _require_equal(token_dims["C"]["values"], bounds["channels"], context)
-
-    rowsets = envelope["sparse_rowsets"]
-    _require_equal(len(rowsets), 1, f"{context} rowset count")
-    rowset = rowsets[0]
-    _require_equal(rowset["name"], "feature_map_rows", f"{context} rowset")
-    rows_by_tuple = {row["tuple_id"]: row for row in rowset["rows"]}
-    _require_equal(
-        len(rows_by_tuple),
-        len(spec["positive_cases"]),
-        f"{context} row count",
-    )
-    for row in rowset["rows"]:
-        _require_equal(row["family"], spec["family"], f"{context} row family")
-        if row["channels"] not in bounds["channels"]:
-            raise AssertionError(f"{context} row channels outside bounds")
-        if row["feature_h"] not in bounds["feature_heights"]:
-            raise AssertionError(f"{context} row feature_h outside bounds")
-        if row["feature_w"] not in bounds["feature_widths"]:
-            raise AssertionError(f"{context} row feature_w outside bounds")
-        _require_equal(
-            row["tokens"],
-            row["feature_h"] * row["feature_w"],
-            f"{context} row token product",
-        )
-
-    for case in spec["positive_cases"]:
-        case_context = f"{context} positive {case['name']}"
-        tuple_id = case["expected_contract_tuple_id"]
-        if tuple_id not in rows_by_tuple:
-            raise AssertionError(f"{case_context} missing row")
-        row = rows_by_tuple[tuple_id]
-        _require_equal(
-            case["input_shape"],
-            [1, row["channels"], row["feature_h"], row["feature_w"]],
-            case_context,
-        )
-        _require_equal(
-            case["output_shape"],
-            [1, row["tokens"], row["channels"]],
-            case_context,
-        )
-        _require_equal(case["expected_route_label"], spec["route_label"], case_context)
-
-
 def _validate_patch_embed_float_buffer_conv_route_shape_envelope(
     file_name, spec, envelope
 ):
@@ -5895,39 +5798,6 @@ _TOKEN_PREFIX_CAT_ADD_ASSIGNMENT_COVERAGE_FIELDS = (
     "attributes.alias_output",
 )
 
-_PATCH_EMBED_FEATURE_MAP_TO_TOKENS_LEGAL_KEY_FIELDS = (
-    "input_shape",
-    "output_shape",
-    "dtype",
-    "expected_route_label",
-    "expected_contract_tuple_id",
-)
-
-_PATCH_EMBED_FEATURE_MAP_TO_TOKENS_ADJACENT_NEGATIVE_KEY_FIELDS = (
-    "violates",
-    "input_shape",
-    "dtype",
-    "expected_native_route",
-)
-
-_PATCH_EMBED_FEATURE_MAP_TO_TOKENS_ASSIGNMENT_COVERAGE_FIELDS = (
-    "inputs.feature_map.dtype",
-    "inputs.feature_map.rank",
-    "inputs.feature_map.dims.B",
-    "inputs.feature_map.dims.C",
-    "inputs.feature_map.dims.H",
-    "inputs.feature_map.dims.W",
-    "results.tokens.dtype",
-    "results.tokens.rank",
-    "results.tokens.dims.B",
-    "results.tokens.dims.T",
-    "results.tokens.dims.C",
-    "attributes.source_storage",
-    "attributes.source_memory_layout",
-    "attributes.storage_offset",
-    "attributes.output_storage",
-)
-
 _PATCH_EMBED_FLOAT_BUFFER_CONV_ROUTE_LEGAL_KEY_FIELDS = (
     "input_shape",
     "weight_shape",
@@ -6413,21 +6283,6 @@ SHAPE_ENVELOPE_ROLE_REGISTRY = {
         ),
         "adjacent_negative_key_fields": (
             _TOKEN_PREFIX_CAT_ADD_ADJACENT_NEGATIVE_KEY_FIELDS
-        ),
-    },
-    "patch_embed_feature_map_to_tokens_observed_feature_maps": {
-        "validate": _validate_patch_embed_feature_map_to_tokens_shape_envelope,
-        "assignment_cases": _generated_shape_envelope_assignment_cases,
-        "legal_cases": _checked_in_shape_envelope_legal_cases,
-        "adjacent_negative_cases": (
-            _checked_in_shape_envelope_adjacent_negative_cases
-        ),
-        "legal_key_fields": _PATCH_EMBED_FEATURE_MAP_TO_TOKENS_LEGAL_KEY_FIELDS,
-        "assignment_coverage_fields": (
-            _PATCH_EMBED_FEATURE_MAP_TO_TOKENS_ASSIGNMENT_COVERAGE_FIELDS
-        ),
-        "adjacent_negative_key_fields": (
-            _PATCH_EMBED_FEATURE_MAP_TO_TOKENS_ADJACENT_NEGATIVE_KEY_FIELDS
         ),
     },
     "patch_embed_float_buffer_conv_route_observed_inputs": {

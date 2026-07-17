@@ -1037,6 +1037,38 @@
         "ExecutionContractsEmbeddingLookup"
       ],
       "consequence": "The unreachable exact matcher, duplicate Vulkan-index dispatch, generated spec and helper, JSON fixture, generator adapters, accepted-row entry, and mechanism-only tests were deleted. EmbeddingLookupDirectBuffer remains the sole supported native route, while the device-produced index-bounds correctness exception remains explicit."
+    },
+    {
+      "id": "retired_exact_patch_embed_feature_map_to_tokens_contract",
+      "decision": "replace_exact_contract_with_semantic_route",
+      "status": "deleted",
+      "basis": [
+        "FeatureMapToTokensDirectBuffer admits fp32 rank-4 Vulkan buffers by runtime batch, channel, height, and width semantics while retaining the required width-packed, zero-offset buffer layout guards.",
+        "The former adjacent channel and spatial negatives are valid dynamic-family inputs, so the finite row matcher no longer owns an execution or correctness boundary.",
+        "Behavioral tests retain all 24 corpus-shape combinations, the promoted former adjacent shapes, and the real dtype, rank, and storage-offset negatives without consuming the exact spec."
+      ],
+      "removed_paths": [
+        "aten/src/ATen/native/vulkan/planning/ExecutionContractsPatchEmbedFeatureMapToTokens.cpp",
+        "aten/src/ATen/native/vulkan/planning/generated/ExecutionContractsPatchEmbedFeatureMapToTokensSpec.h",
+        "test/vulkan_contract_specs/patch_embed_feature_map_to_tokens_contract.json"
+      ],
+      "scan_roots": [
+        "aten/src/ATen/native/vulkan",
+        "test",
+        "tools"
+      ],
+      "forbidden_code_symbols": [
+        "PatchEmbedFeatureMapToTokensContract",
+        "Kernel14Stride14ObservedFeatureMap",
+        "PatchEmbedFeatureMapToTokensFamily",
+        "PatchEmbedFeatureMapToTokensMatch",
+        "match_patch_embed_feature_map_to_tokens_contract",
+        "matches_patch_embed_feature_map_to_tokens_contract",
+        "patch_embed_feature_map_to_tokens_feature_map_rows_find",
+        "patch_embed_feature_map_to_tokens_observed_feature_maps",
+        "ExecutionContractsPatchEmbedFeatureMapToTokens"
+      ],
+      "consequence": "The preempted exact matcher branch, family and match wrappers, generated row helper, JSON spec, generator adapters, proof-ledger entries, and mechanism-only adjacent-row test were deleted. FeatureMapToTokensDirectBuffer is the sole admission contract; the private benchmark operator, corpus-shape parity, dynamic-shape coverage, and hard-fail semantic negatives remain."
     }
   ],
   "entries": [

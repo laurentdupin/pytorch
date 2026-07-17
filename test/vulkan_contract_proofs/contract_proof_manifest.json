@@ -10,15 +10,6 @@
       "factorized_group_count": 0,
       "proof_entry_count": 16
     },
-    "PatchEmbedFeatureMapToTokensContract": {
-      "accepted_entry_count": 24,
-      "admission_digest": "f33fecf80155569f334a7ab6a24f092a9cf1187f6aba239600f1e703720a4692",
-      "cardinality_estimate": 24,
-      "dependency_digest": "0ae26f971e02cfacfeaae2ab0af07491017a1545c7ce1d8fa557a67e7ee19269",
-      "exact_sparse_row_count": 24,
-      "factorized_group_count": 0,
-      "proof_entry_count": 24
-    },
     "PatchEmbedFloatBufferConvRoute": {
       "accepted_entry_count": 27,
       "admission_digest": "fc11dc8cd800dd54a75d3eebd30df8512f84ad14df56774e812c169276a262b5",
@@ -41,7 +32,7 @@
       "accepted_entry_count": 30,
       "admission_digest": "22427b1785cf7a8583edafe1cfdebf328de8388819317295883358587811bee6",
       "cardinality_estimate": 30,
-      "dependency_digest": "e92fe71be81039956be493f4a8daa1f2b1636dca36c59a0ef292ba6f8b750e76",
+      "dependency_digest": "6ce417d462d9ce235f2ecf90b206f986976a4664c043ccc4a1bf4055cce9c19d",
       "exact_sparse_row_count": 30,
       "factorized_group_count": 0,
       "proof_entry_count": 30
@@ -503,654 +494,6 @@
       ],
       "proof_status": "validated_bounded_transition_rows",
       "tuple_id": "materialize_bh10_t126_s126_d64"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "a585a8d62e492ed44625a835107db1705f52f1962ff213e5d5a61e027d62ff41",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_10x15_tokens150",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_10x15_tokens150"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "2776d8814efd4e86f0faa6d3cc3d033dffa43b2b9ded91f60853026b60b7914f",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_13x20_tokens260",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_13x20_tokens260"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "9a37365b052461646d8279b31f000336847a2297706b2ecbe184bdac887d69ce",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_20x30_tokens600",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_20x30_tokens600"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "7b6ba38a3b0e22368b336b2adde5bbf7a84e57fc8a2d89ad0c1a2f82d763da8d",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_20x31_tokens620",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_20x31_tokens620"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "494ab5b0ce7b355333168c1305c6b9193970766176e9acbdbc6d9ef8b261d671",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_30x45_tokens1350",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_30x45_tokens1350"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "3f3550484911b3f5ad3da93ad7907d7e7ca759c4694a7e73ee49ea85da205f11",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_30x46_tokens1380",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_30x46_tokens1380"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "7888c97ae08650cbd7b6e89f203dcac6a65e1e87ca680f7959d135feb16cd803",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_40x60_tokens2400",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_40x60_tokens2400"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "600486fc7255a0b49df848c00a75d0506ead82a2c0d72ac71d561e7fc41f8595",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c1024_40x61_tokens2440",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c1024_40x61_tokens2440"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "8c7f18d3b90edc6e8c7e6e1f6c349335e0638c06182c5a3058755177e6d11864",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_10x15_tokens150",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_10x15_tokens150"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "873c5b4f4066fd92ee3e1019691aaed11e8ffd80ff53293f20ac6e835966e7d9",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_13x20_tokens260",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_13x20_tokens260"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "254f0adb138d5dc45f543e7949a1ce74bf058e36c2087bac246d55554d1216d5",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_20x30_tokens600",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_20x30_tokens600"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "3d403394c4cde9104d7239b8308b477d188992c228bb35703d69534c52e07d88",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_20x31_tokens620",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_20x31_tokens620"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "aa63fec1bd1eadaf309f458ac706b0f7f07b93302d2a221e287926d132fdbd55",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_30x45_tokens1350",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_30x45_tokens1350"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "519fac856accd5ff9a5a98bb985f4a49619e1578523b664a112d88d44a11cd2b",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_30x46_tokens1380",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_30x46_tokens1380"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "8112da1e7345b554857057521f7683471e0262463bf681f98f8cfb639cd63663",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_40x60_tokens2400",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_40x60_tokens2400"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "8daf958ea88686891d829edb9186c2d0484ed3f72c5d1aa42973e767c2eacf17",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c384_40x61_tokens2440",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c384_40x61_tokens2440"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "4e0d5c883d005e102bd8e16ff7cd8e852d24386078e4eefa5741b6b81bb348f9",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_10x15_tokens150",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_10x15_tokens150"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "05d021acbf07381e9aaf4220c9b58ad913da24ede87b0f2e1d09666925ce6952",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_13x20_tokens260",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_13x20_tokens260"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "35e526342c105b40c699c968fab6fcb4703e7c10709834a003840ca182d523be",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_20x30_tokens600",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_20x30_tokens600"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "777bfd309d14a18e82037d84c1f54acaf7bb16aee6380370c3007f97e7d1b155",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_20x31_tokens620",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_20x31_tokens620"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "f9904388df4d439a2f87aca4d06d8a93b76b3905f3046a1d88f8ccc87f36b785",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_30x45_tokens1350",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_30x45_tokens1350"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "ddb03e8457ee0f8cecf0fab825beeda7b1d47d091f172fff84c53f3717f6796b",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_30x46_tokens1380",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_30x46_tokens1380"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "dcb70fc0267a2408df5d8d6b81fc8e758422dbf1f001a9c8da83efbfccbbe7ae",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_40x60_tokens2400",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_40x60_tokens2400"
-    },
-    {
-      "adjacent_negative_coverage": [
-        "patch_embed_feature_map_to_tokens_contract.json negative_cases",
-        "ShapeEnvelope adjacent-negative generator"
-      ],
-      "admission_digest": "d6303dfbfdab88cfc2284a67a54772e4eb72f5a757c9fc7d87f331b8a3cea08a",
-      "admission_key": "PatchEmbedFeatureMapToTokensContract|Kernel14Stride14ObservedFeatureMap|exact_sparse_row|feature_map_rows|feature_c768_40x61_tokens2440",
-      "admission_kind": "exact_sparse_row",
-      "cardinality_estimate": 1,
-      "contract_name": "PatchEmbedFeatureMapToTokensContract",
-      "dependency_digest": "cc5bf771a1137f681f0ffb1aba7c409dff004da79ec99c887397ea34dc4a7e1b",
-      "exact_row_debt": true,
-      "expiry": "broader patch-token layout transition proof covers adjacent feature-map pairs",
-      "fallback_readback_copy_budget": {
-        "cpu_fallback": 0,
-        "host_transfer": 0,
-        "sync_readback": 0
-      },
-      "family": "Kernel14Stride14ObservedFeatureMap",
-      "migration_target": "PatchEmbedFeatureMapToTokensContract parameterized layout-transition table",
-      "positive_runtime_or_proof_cases": [
-        "patch_embed_feature_map_to_tokens_contract.json positive_cases",
-        "test_patch_embed_feature_map_to_tokens_contract_matches_reference"
-      ],
-      "proof_status": "validated_bounded_layout_transition_rows",
-      "tuple_id": "feature_c768_40x61_tokens2440"
     },
     {
       "adjacent_negative_coverage": [
@@ -3999,7 +3342,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4026,7 +3369,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4053,7 +3396,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4080,7 +3423,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4107,7 +3450,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4134,7 +3477,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4161,7 +3504,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4188,7 +3531,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4215,7 +3558,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4242,7 +3585,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4269,7 +3612,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4296,7 +3639,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4323,7 +3666,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4350,7 +3693,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4377,7 +3720,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4404,7 +3747,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4431,7 +3774,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4458,7 +3801,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4485,7 +3828,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4512,7 +3855,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4539,7 +3882,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4566,7 +3909,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4593,7 +3936,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4620,7 +3963,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4647,7 +3990,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4674,7 +4017,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4701,7 +4044,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4728,7 +4071,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4755,7 +4098,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4782,7 +4125,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "TokenPrefixCatAddContract",
-      "dependency_digest": "19906de985be5c797d1ecdf71abf6090b2d40f00b0d39a17a4fa4e526276cad1",
+      "dependency_digest": "4a9508c667f8c1e4d06ff2d8f5ecef961bf66441832817f62dd89800dd26a5bc",
       "exact_row_debt": true,
       "expiry": "broader token prefix/position-add region proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -4800,7 +4143,7 @@
       "tuple_id": "prefix1_tokens620_c768"
     }
   ],
-  "proof_manifest_digest": "479874283d5c37d9317c467f3e0d6c1e5f87084a37020011b627f2356d2c210a",
+  "proof_manifest_digest": "806db766df0dc7eefffd8f6c1581327094ed5b80971fee744f5b063730798f43",
   "schema_version": 1,
-  "source_accepted_manifest_digest": "501aa6dd18f8992371c9652e8cd4f05736452bba45cc97d4875e5acef6d5460c"
+  "source_accepted_manifest_digest": "789a4495344ef43fc531948e0c021917397b94bfa7895bde91f2b161751beffd"
 }

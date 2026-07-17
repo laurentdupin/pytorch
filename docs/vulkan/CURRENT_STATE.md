@@ -450,8 +450,9 @@ patch-embed conv rows remain evidence and regression fixtures around the
 dynamic family. `FeatureMapToTokensDirectBuffer` now admits legal fp32
 direct-buffer rank-4 feature maps by `[N,C,H,W] -> [N,H*W,C]` semantics
 instead of exact patch-embed H/W rows while still requiring the current
-width-packed zero-offset buffer layout. The old patch-embed feature-map rows
-remain evidence and regression fixtures around the dynamic family.
+width-packed zero-offset buffer layout. The exact feature-map matcher and
+generated rows are retired; corpus-shape and former-boundary behavior remains
+covered directly against the semantic family.
 `TokenPrefixCatAddDirectBuffer` now admits legal fp32 rank-3 prefix-token
 concat plus positional add by prefix length, batch, token-count, and feature
 semantics instead of the old DAv2 token-count/feature rowset. The finite
@@ -2590,8 +2591,8 @@ C++ helpers, and known high-risk matcher/route/transition sources. The proof
 ledger `test/vulkan_contract_proofs/contract_proof_manifest.json` currently
 covers the highest-risk bounded contracts:
 `SmallSpatialPointwiseConvContract`, `PatchEmbedFloatBufferConvRoute`,
-`PatchEmbedFeatureMapToTokensContract`, `TokenPrefixCatAddContract`, and
-`AttentionProbabilityMaterializationContract`. The comparison tool
+`TokenPrefixCatAddContract`, and `AttentionProbabilityMaterializationContract`.
+The comparison tool
 `tools/vulkan_contract_codegen/compare_contract_admission.py` reports admitted
 row deltas, cardinality increases, exact-row debt changes, and stale dependency
 digests; it is governance-only and does not change runtime route behavior.
@@ -2701,19 +2702,14 @@ float-buffer conv metadata UBO instead of first materializing it to a direct
 buffer. This removes the route-local patch-embed input copy without adding
 host staging or a new shader.
 
-`PatchEmbedFeatureMapToTokensContract` is the bounded layout-transition
-contract for the Vulkan-resident patch-embed feature map produced by that
-route. It covers rank-4 float width-packed buffer feature maps
-`[1,C,H,W] -> [1,H*W,C]` for `C in {384,768,1024}` and feature spatial pairs
-`(H,W) in {(10,15),(13,20),(20,30),(20,31),(30,45),(30,46),(40,60)}`. The
-benchmark token-preparation path may call the generic
-`vulkan_prepack::patch_embed_feature_map_to_tokens` wrapper only for that exact
-contract and only when patch-embed normalization is identity. The wrapper uses
-the existing buffer feature-map-to-tokens kernel and keeps unsupported ranks,
-dtypes, storage offsets, layout classes, channels, and spatial pairs guarded
-rather than falling back through CPU. The observed `(40,62)` feature-map case
-remains guarded because the downstream `TokenPrefixCatAddContract` does not
-yet cover token count `2480`.
+`FeatureMapToTokensDirectBuffer` replaced the bounded patch-embed
+feature-map-to-token row contract. The private benchmark wrapper now admits
+fp32 rank-4 Vulkan buffers by `[N,C,H,W] -> [N,H*W,C]` semantics and hard-fails
+unsupported dtype, rank, storage class, width packing, storage offset, or
+buffer-compute capability. Corpus-shape parity coverage retains all 24 former
+row combinations, and dynamic tests cover the former adjacent shape bounds,
+including `(40,62)`, without keeping a production exact-row matcher or
+generated fixture.
 
 `PointwiseConvInputLayoutTransitionContract` is a schema-only proof contract
 for pointwise-conv input descriptor-view legality. It records that

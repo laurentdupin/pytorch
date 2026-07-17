@@ -319,24 +319,6 @@ struct TokenPrefixCatAddMatch final {
   int64_t total_tokens{0};
 };
 
-enum class PatchEmbedFeatureMapToTokensFamily : uint8_t {
-  None = 0u,
-  Kernel14Stride14ObservedFeatureMap,
-  GenericDirectBuffer,
-};
-
-struct PatchEmbedFeatureMapToTokensMatch final {
-  bool matched{false};
-  PatchEmbedFeatureMapToTokensFamily family{
-      PatchEmbedFeatureMapToTokensFamily::None};
-  const char* tuple_id{nullptr};
-  const ExecutionContractMetadata* metadata{nullptr};
-  int64_t channels{0};
-  int64_t feature_h{0};
-  int64_t feature_w{0};
-  int64_t token_count{0};
-};
-
 struct LinearGeluBridgeTensorInfo final {
   int64_t input_rank{0};
   int64_t input_batch{0};
@@ -742,19 +724,7 @@ bool matches_token_prefix_cat_add_contract(
     bool inplace,
     bool alias_output);
 
-const char* patch_embed_feature_map_to_tokens_family_name(
-    PatchEmbedFeatureMapToTokensFamily family);
-
-PatchEmbedFeatureMapToTokensMatch match_patch_embed_feature_map_to_tokens_contract(
-    IntArrayRef feature_map_sizes,
-    ScalarType dtype,
-    bool is_vulkan,
-    bool has_buffer_storage,
-    bool is_width_packed,
-    bool has_zero_storage_offset,
-    bool supports_buffer_compute);
-
-bool matches_patch_embed_feature_map_to_tokens_contract(
+const ExecutionContractMetadata* match_feature_map_to_tokens_direct_buffer(
     IntArrayRef feature_map_sizes,
     ScalarType dtype,
     bool is_vulkan,
