@@ -152,7 +152,7 @@ The C++ executor consumes an immutable lowered plan. It allocates program
 slots, builds descriptors, emits barriers and dispatches, and owns completion
 and retirement. No Python callback runs per node.
 
-`VulkanGraphPlan.v8` is the current bounded implementation slice. It consumes
+`VulkanGraphPlan.v9` is the current bounded implementation slice. It consumes
 tensor inputs and a graph-owned immutable instruction/constant table, dispatches
 non-mutating Vulkan or composite operators in C++, and tracks IValue SSA
 use-count, last-use, liveness, and Tensor output escape. Instructions may have
@@ -189,7 +189,7 @@ Graph-classified integer `add`, `sub`, `mul`, and `floordiv` instructions use
 checked C++ arithmetic with Python floor semantics and no dispatcher or Python
 callback. Non-integer operands, overflow, and division by zero fail closed.
 
-When every instruction uses the normal Context ownership path, v8 executes the
+When every instruction uses the normal Context ownership path, v9 executes the
 invocation inside one `GraphProgramInvocationScope`. The scope rejects
 unowned flush, sync, fenced recording, or cross-thread use. Frequency and
 large-linear maintenance boundaries request owner-serviced checkpoints, which
@@ -226,16 +226,28 @@ argument containers whose operator cannot return an aliasing list. Instructions
 with list-valued returns retain transient list containers. A scope-exit reset
 releases every live boxed value and clears all owned containers after either
 success or failure. Concurrent invocation remains rejected, so one workspace
-per immutable plan is sufficient. This removes host control-plane allocation;
-it is not a Vulkan tensor-resource arena, descriptor plan, or recorded command
-partition.
+per immutable plan is sufficient.
 
-The v8 plan does not yet implement deeper or non-list dynamic containers,
-projection from nested, tuple, or dictionary values, program-owned Vulkan
-tensor-resource slots, descriptor/barrier construction, or generation-gated
-output reuse.
-Those remain Stage 2 requirements rather than being inferred from the boxed
-eager dispatch used by this slice.
+The v9 plan also owns a bounded Vulkan tensor-resource arena for non-escaping
+exact-shape fp32 results written by linear and add-layernorm plan instructions.
+The compiler unions SSA values through operator-schema alias annotations,
+extends each candidate's last use across its alias component, and rejects the
+candidate if any alias escapes. Exact descriptor matches share a stable slot.
+Two arena generations bound flight: reuse requires the preceding submission to
+be complete plus exclusive TensorImpl and Vulkan storage ownership for every
+slot. A failed exclusivity check spills to ordinary dispatch rather than
+overwriting storage. Success associates the arena with the real final timeline
+token; partial failure poisons it. Plan destruction releases completed safe
+buffers immediately or retires them against the recorded token, and separately
+counts unsafe slots and retirement failures.
+
+The v9 plan does not yet implement deeper or non-list dynamic containers,
+projection from nested, tuple, or dictionary values, general dtype/rank/dynamic
+resource descriptors, descriptor/barrier construction, recorded commands, or
+concurrent/multi-invocation flight. Convolution is deliberately not a stable
+resource writer: its first candidate exposed internal physical-view aliases at
+plan destruction and was removed. These remain Stage 2/3 requirements rather
+than being inferred from boxed eager dispatch.
 
 The corpus harness measures allocator high-water behavior separately from
 arena ownership. It resets the existing residency high-water counter to current
@@ -325,7 +337,7 @@ and stack capacity eight. Its 30-sample graph medians are 44.21 ms and 42.09 ms
 versus eager medians of 133.32 ms and 122.63 ms; the same 20 owner checkpoints
 and 24 total submits remain visible across each two-run shape. This is structural
 fixed-cost removal without a separate latency claim and does not change the
-remaining Vulkan resource-arena or recorded-partition work.
+resource-arena or recorded-partition work that remained at that exact SHA.
 
 The graph preparation path now also removes static inference identities before
 placement and C++ plan construction. `aten::dropout` is replaced by its source
@@ -335,6 +347,16 @@ or skipped candidate and participates in the program key. Exact-SHA
 `46ece5d7dc9` removes 48 DAv2 instructions and value slots while preserving the
 same submissions, memory phases, and numerical results. This avoids fixed boxed
 dispatch; it does not replace resource-slot or recorded-command ownership.
+
+Exact-SHA `e00b4f0aa8b` validates the v9 resource arena on both DAv2 guards.
+Each reports four stable slot descriptors covering 80 planned resource values,
+58 eligible writer instructions, and 13 alias-extended lifetimes. Graph output
+is bit-exact with eager Vulkan, and 30-sample graph medians are 46.02/54.09 ms
+against eager at 145.48/146.75 ms. The ten-minute gate below completes 8,372
+checked invocations and 33 guard recaptures with 33 immediate arena releases,
+zero unsafe-slot leaks or retirement failures, and bounded live/high-water
+memory. This is the supported linear/add-layernorm resource arena; it is not a
+claim about convolution, descriptor reuse, or recorded command partitions.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
@@ -416,6 +438,17 @@ shorter than ten minutes or collected on another adapter are diagnostic-only
 and cannot satisfy the gate. This exercises long-session drift, allocator
 fragmentation, recapture lifetime, and per-frame observation without requiring
 DeepDesktop packaging or changing the application repository.
+
+The current accepted result is exact-SHA `e00b4f0aa8b` with
+`VulkanGraphPlan.v9` on RX 9070. It ran 600.540 seconds, checked 8,372
+invocations, performed 33 alternating recaptures, and recorded one final
+readback per frame with zero fallback or unexpected readback. All 33 retired
+resource arenas released immediately; unsafe-slot and retirement-failure
+counters remained zero. Final live bytes were 555,343,312 against a
+673,545,566-byte limit, soak high-water was 666,539,792, and the replacement
+preflight high-water was 662,898,080 against a 696,042,984-byte limit. The
+preceding `5d9001ebcc7` convolution-inclusive candidate failed both memory
+bounds and is retained only as rejection evidence.
 
 ## Migration And Deletion
 

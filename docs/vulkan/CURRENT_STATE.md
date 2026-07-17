@@ -77,6 +77,57 @@ The adapter was `AMD Radeon RX 9070`, Vulkan API 1.4.349, driver version
 the gate must be rerun after that batch rather than treating this result as its
 completion evidence.
 
+The first exact resource-arena candidate at source commit
+`5d9001ebcc78c84841cfbf3fc1974aee3e9c66fe` assigned exact-shape fp32
+linear, convolution, and add-layernorm outputs to stable plan-owned slots. Its
+600.527-second RX 9070 soak completed 6,922 checked invocations and 27 periodic
+recaptures, but failed both registered memory bounds: final live bytes reached
+775,041,616 against a 700,080,427-byte limit and high-water reached
+885,930,896 against a 724,772,319-byte replacement limit. Follow-up per-slot
+retirement counters and writer-family isolation found that convolution's
+internal physical views left eight unsafe slots for the normal guard and two
+for the alternate guard when a plan died. The convolution stable-output writer
+was rejected and removed; it may return only after those physical-view aliases
+have explicit ownership and repeated plan destruction records zero unsafe
+slots. The failed exact artifacts are under
+`agent_space/graph_resource_slots_exact_5d9001ebcc7/`; the census and parity
+SHA-256 values are
+`17ce5a424cd04fc3b62711d5f597ba25cd5bebc14e4fddf4f683c705d7495199`
+and `309b754e28e3208463305b04402cde88c4ae4c0b3eaac540a1e5514ed9fbb81c`.
+
+The accepted follow-up at source commit
+`e00b4f0aa8bd7f0ae2a0885cc5eed7c4cd170353` is
+`VulkanGraphPlan.v9`. It assigns only non-escaping exact-shape fp32 linear and
+add-layernorm outputs to a two-generation stable resource arena. Schema alias
+components extend last use and reject an otherwise eligible writer if any
+alias escapes. Runtime reuse additionally requires the preceding submission
+to be complete and every slot TensorImpl/storage to be exclusive; otherwise
+the invocation spills instead of overwriting live storage. Success records the
+real final submission, partial failure poisons the generation, and plan
+destruction independently releases or retires every safe slot while counting
+unsafe or failed retirement.
+
+Both DAv2 guards report four stable slot descriptors covering 80 planned
+resource values, 58 eligible writer instructions, and 13 alias-extended
+lifetimes. Their graph outputs remain bit-exact with eager Vulkan. Thirty-sample
+graph medians are 46.02/54.09 ms versus supported eager at 145.48/146.75 ms;
+graph p95 is 62.28/66.32 ms versus eager at 169.99/176.55 ms. The qualifying
+RX 9070 soak ran for 600.540 seconds, checked all 8,372 invocations, compiled
+33 alternating replacement variants, and recorded 33 immediate arena releases
+with zero unsafe-slot leaks, retirement failures, fallback, or unexpected
+readback. Final live bytes were 555,343,312 against a 673,545,566-byte limit;
+soak high-water was 666,539,792 bytes, and replacement-preflight high-water was
+662,898,080 against a 696,042,984-byte limit. All registered checks passed.
+The exact census and parity artifacts are under
+`agent_space/graph_resource_slots_exact_e00b4f0aa8b/`; their SHA-256 values are
+`8651317727e37fad51c76cc17681e2e6a899b729005021625baac6b083ca3e48`
+and `8bb1c4b857c73a934f3b2d346e42481785e0f41002e955ccd4d12d1940ce7f0c`.
+The loaded `torch_cpu.dll` SHA-256 was
+`257a0147bdd919a1ed54a336efb279c48d210af6f4b5a04fb783c2041bc911e5`.
+This promotes the bounded linear/add-layernorm arena, not convolution,
+descriptors, explicit barriers, recorded commands, arbitrary dtype/rank, or
+concurrent/multi-invocation flight.
+
 The same cases measure supported-default latency from preuploaded Vulkan inputs
 to completed Vulkan outputs, alternating plain eager and `VulkanGraphProgram`
 for three warmups and 30 samples per surface. DAv2 graph medians are 40.1 ms
@@ -266,7 +317,8 @@ distribution deletion gate.
 The checked 30-sample follow-up above supersedes the single-sample timing
 conclusion while preserving the same open lane and latency gates.
 
-Phase 5 now has its first top-level C++ executor slice. `VulkanGraphPlan.v8`
+Phase 5 now has a top-level C++ executor and bounded resource-ownership slice.
+`VulkanGraphPlan.v9`
 stores a fully bound immutable list of non-mutating Vulkan/composite operator
 handles, graph-owned constants and contexts, IValue SSA values, ordered
 zero-return effects, schema-ordered multi-return values, schema-typed
@@ -287,7 +339,7 @@ metadata-checked, and Tensor-list concat graphs run through this path while the
 Python interpreter is disabled, and earlier live outputs remain valid after
 later invocations.
 
-The v8 plan can also own a bounded sequence of normal Context recording
+The v9 plan can also own a bounded sequence of normal Context recording
 transactions for the whole invocation. The outer scope converts frequency and
 large-linear maintenance boundaries into graph-owner checkpoints serviced only
 after a complete instruction and its last-use releases. Every partition keeps
@@ -306,7 +358,7 @@ Pool and reduction-dimension softmax retain their eager pending-retirement
 checkpoints but defer those
 checkpoints while this outer transaction is active.
 
-Plan selection is fail-closed. The v8 schema accepts tensor inputs, any
+Plan selection is fail-closed. The v9 schema accepts tensor inputs, any
 schema-declared dispatcher return count, direct SSA references, flat
 homogeneous dynamic list arguments, and literal or graph-owned constants. An
 empty schema-list constant is represented as a typed zero-leaf list recipe
@@ -341,10 +393,14 @@ mutable and fail closed. The four-token HY-MT probe proves this condition for
 all 64 exported detach mutations and now compiles the entire graph as a
 2,732-instruction `VulkanGraphPlan.v8`; it contains no graph-scalar or list
 projection instructions, so the probe is also a strict executor regression
-check. The current v8 executor still does not preallocate a memory arena, own
-descriptors, support deeper or non-list containers, or provide checked-in HY-MT
-parity/performance evidence. The submission transaction is a real ownership
-slice, but does not by itself satisfy a Migration deletion gate.
+check. The current v9 executor preallocates a bounded resource arena only for
+non-escaping exact-shape fp32 linear and add-layernorm outputs with schema-alias
+proof and two-generation reuse. It still does not own descriptors or explicit
+barrier plans, support general dtype/rank/dynamic resource descriptors, support
+deeper or non-list containers, or provide checked-in HY-MT resource-arena
+parity/performance evidence. The submission and scoped resource transactions
+are real ownership slices, but do not by themselves satisfy a Migration
+deletion gate.
 
 Fresh-ReLU functionalization is independently fail-closed: the producer must
 be a non-mutating operator with exactly one non-aliasing Tensor return, and the

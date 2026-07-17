@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-07-16",
+  "last_updated": "2026-07-17",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -3756,6 +3756,172 @@
         "After program-owned Vulkan resources or recorded partitions reduce decode fixed cost, rerun both guard distributions and the chained replay counters.",
         "After supported eager callers receive explicit semantic planning fields, rerun lane and host-boundary parity on the same 8 GB adapter.",
         "Before replacing the explicit functional cache protocol with mutable slots, require generation-safe in-place state ownership and failure recovery."
+      ]
+    },
+    {
+      "id": "dav2_graph_resource_arena_convolution_rejected_2026_07_17",
+      "status": "unsafe_blocked",
+      "head": "5d9001ebcc78c84841cfbf3fc1974aee3e9c66fe",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Test the first exact-shape fp32 program-owned resource arena, including convolution outputs, under repeated guard replacement and the standing ten-minute memory gate."
+      },
+      "device_notes": "RX 9070 supported-default eager/graph evidence. The candidate was generic instruction-family ownership, not a DAv2 production route.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "two-generation exact-shape fp32 resource arena",
+        "linear stable-output writer",
+        "convolution stable-output writer",
+        "add-layernorm stable-output writer",
+        "RX 9070 long-session soak gate"
+      ],
+      "candidate": "Assign non-escaping exact-shape fp32 linear, convolution, and add-layernorm results to stable plan-owned slots and reuse a bounded two-generation arena after submission completion and storage exclusivity.",
+      "correctness": {
+        "status": "exact_parity_passed_but_lifetime_and_memory_rejected",
+        "tests": [
+          "cmake --build build --config Release --target torch_cpu -- /m:1 /nodeReuse:false",
+          "python test/test_vulkan_graph.py (131 passed)",
+          "python test/test_vulkan_graph_evidence.py (23 passed)",
+          "python test/test_vulkan_cleanup.py (10 passed)",
+          "python test/test_vulkan.py TestVulkanGovernance (69 passed)",
+          "DAv2 normal and alternate exact graph-versus-eager parity",
+          "600-second RX 9070 soak with per-frame output checking and periodic guard replacement",
+          "follow-up writer-family isolation with per-slot retirement counters"
+        ],
+        "observed_result": "Both DAv2 guards were bit-exact, but live memory grew at guard replacement. Family isolation showed that convolution's internal physical views prevented safe slot teardown; linear and add-layernorm remained teardown-clean."
+      },
+      "counters": {
+        "resource_slot_count": 18,
+        "resource_value_count": 95,
+        "resource_writer_instruction_count": 73,
+        "soak_elapsed_seconds": 600.527,
+        "soak_invocations": 6922,
+        "soak_recaptures": 27,
+        "soak_final_live_bytes": 775041616,
+        "soak_final_live_limit_bytes": 700080427,
+        "soak_high_water_bytes": 885930896,
+        "replacement_peak_limit_bytes": 724772319,
+        "normal_convolution_unsafe_slots_per_destroyed_plan": 8,
+        "alternate_convolution_unsafe_slots_per_destroyed_plan": 2,
+        "graph_eager_max_abs": 0.0
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 196.813,
+        "normal_graph_median": 69.606,
+        "alternate_supported_eager_median": 197.955,
+        "alternate_graph_median": 67.022,
+        "measurement_repeats": 30,
+        "performance_claim": "none; exact parity did not override the lifetime and memory rejection"
+      },
+      "artifacts": [
+        "agent_space/graph_resource_slots_exact_5d9001ebcc7/dav2_vits_resource_slots_export_census.json",
+        "agent_space/graph_resource_slots_exact_5d9001ebcc7/dav2_vits_resource_slots_export_parity.json"
+      ],
+      "decision": "Reject and remove convolution as a stable resource writer. Preserve the linear/add-layernorm arena work, add per-slot retirement accounting and schema-alias lifetime proof, and rerun the exact ten-minute gate. Do not keep the convolution writer behind an environment flag.",
+      "revisit_conditions": [
+        "Only reconsider convolution after every internal physical-view alias has explicit ownership and last-use semantics.",
+        "Require repeated normal/alternate plan destruction to record zero unsafe-slot leaks and retirement failures.",
+        "Require the same RX 9070 replacement-overlap and final-live memory gates before promotion."
+      ]
+    },
+    {
+      "id": "dav2_graph_resource_arena_linear_add_layernorm_2026_07_17",
+      "status": "accepted_default_fix",
+      "head": "e00b4f0aa8bd7f0ae2a0885cc5eed7c4cd170353",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Promote the first bounded program-owned Vulkan tensor-resource arena only after exact supported-default parity, distribution, prior-output-live memory, exception recovery, and long-session replacement gates."
+      },
+      "device_notes": "RX 9070 supported-default eager/graph evidence, Vulkan driver 8389003. The arena is keyed by generic instruction output descriptors and schema aliasing, not by model or input name.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "schema-alias component lifetime and escape proof",
+        "exact-shape fp32 linear stable-output writer",
+        "exact-shape fp32 add-layernorm stable-output writer",
+        "two-generation completion-guarded resource arena",
+        "per-slot immediate release and timeline retirement accounting",
+        "RX 9070 long-session soak gate"
+      ],
+      "candidate": "Own non-escaping exact-shape fp32 linear and add-layernorm results in stable plan slots. Extend last use through schema aliases, spill on incomplete or non-exclusive generations, poison partial failures, and release or retire each safe slot independently when the plan dies.",
+      "correctness": {
+        "status": "passed_full_graph_exact_model_and_qualified_soak",
+        "tests": [
+          "cmake --build build --config Release --target torch_cpu -- /m:1 /nodeReuse:false",
+          "python test/test_vulkan_graph.py (134 passed)",
+          "python test/test_vulkan_graph_evidence.py (23 passed)",
+          "python test/test_vulkan_cleanup.py (10 passed)",
+          "python test/test_vulkan.py TestVulkanGovernance (69 passed)",
+          "accepted and proof contract manifest validation",
+          "focused alias escape, alias lifetime extension, partial failure reuse, and plan destruction regressions",
+          "DAv2 normal and alternate exact graph-versus-eager parity",
+          "600-second RX 9070 soak with per-frame parity and periodic guard replacement"
+        ]
+      },
+      "counters": {
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 4,
+        "resource_value_count": 80,
+        "resource_writer_instruction_count": 58,
+        "resource_alias_extended_lifetime_count": 13,
+        "resource_alias_escape_rejection_count": 0,
+        "soak_elapsed_seconds": 600.540,
+        "soak_invocations": 8372,
+        "soak_parity_checks": 8372,
+        "soak_recaptures": 33,
+        "resource_arena_immediate_release": 33,
+        "resource_arena_retire_enqueued": 0,
+        "resource_arena_unsafe_slot_leak": 0,
+        "resource_arena_retirement_failure": 0,
+        "soak_final_live_bytes": 555343312,
+        "soak_final_live_limit_bytes": 673545566,
+        "soak_high_water_bytes": 666539792,
+        "replacement_preflight_high_water_bytes": 662898080,
+        "replacement_peak_limit_bytes": 696042984,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "tensor_cpu_readback": 8372
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 145.484,
+        "normal_supported_eager_p95": 169.993,
+        "normal_graph_median": 46.021,
+        "normal_graph_p95": 62.282,
+        "normal_graph_over_eager_ratio": 0.316332,
+        "alternate_supported_eager_median": 146.751,
+        "alternate_supported_eager_p95": 176.552,
+        "alternate_graph_median": 54.091,
+        "alternate_graph_p95": 66.323,
+        "alternate_graph_over_eager_ratio": 0.368594,
+        "measurement_repeats": 30,
+        "performance_claim": "supported-default latency no-regression plus bounded structural resource ownership; not an isolated speedup claim"
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "257a0147bdd919a1ed54a336efb279c48d210af6f4b5a04fb783c2041bc911e5",
+        "torch_python_sha256": "5118f781e75321947647467738a6bac8a04bfcb932da9a3869c1d35bf2f29f9a",
+        "artifact_census_sha256": "8651317727e37fad51c76cc17681e2e6a899b729005021625baac6b083ca3e48",
+        "artifact_parity_sha256": "8bb1c4b857c73a934f3b2d346e42481785e0f41002e955ccd4d12d1940ce7f0c"
+      },
+      "artifacts": [
+        "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_census.json",
+        "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_parity.json"
+      ],
+      "decision": "Accept the bounded exact-shape fp32 linear/add-layernorm resource arena as the supported v9 path. Keep convolution excluded, retain per-slot retirement diagnostics, and move next to the preregistered recorded-partition experiment rather than widening the writer set without ownership evidence.",
+      "revisit_conditions": [
+        "Before adding another writer family, prove schema and internal physical-view aliases, plan-destruction cleanup, exception recovery, and the same long-session memory gate.",
+        "If concurrent invocation is admitted, replace the current plan-level rejection with an explicit bounded flight and generation protocol.",
+        "When recorded partitions bind stable slots and descriptors, rerun both DAv2 guards plus the ten-minute replacement soak against this exact artifact."
       ]
     }
   ]

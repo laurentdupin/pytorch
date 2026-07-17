@@ -500,7 +500,7 @@ structural.
 - keep public outputs generation-safe across repeated invocations;
 - give stateful inputs an explicit update or invalidation protocol.
 
-Current status: `VulkanGraphPlan.v8` is an immutable C++ IValue-SSA plan for
+Current status: `VulkanGraphPlan.v9` is an immutable C++ IValue-SSA plan for
 fully bound, non-mutating Vulkan/composite operators with any schema-declared
 return count. It owns operator handles and constants, preserves ordered
 effects, represents multi-schema returns and typed flat lists, validates
@@ -561,13 +561,13 @@ inside correctness and memory gates. Its 30-sample graph medians remain
 41%-65% slower than eager and plain eager retains the legacy lane, so this
 closes the explicit state-protocol item without clearing latency or lane gates.
 Exact-SHA `8b60bf3ba4a` preallocates the host boxed-SSA invocation workspace,
-liveness bytes, dispatcher stack, and alias-safe typed list recipes. Program-owned
-Vulkan tensor-resource slots, descriptor and barrier plans, recorded command
-partitions, generation-gated resource-slot reuse, deeper operator-schema
-containers, and mutable/in-place state protocols remain Phase 5/6 work. The
-next performance work should reduce these per-inference graph costs while
-preserving the proven 32-job boundaries; exact-op kernel tuning is secondary
-until attribution shows GPU work is dominant.
+liveness bytes, dispatcher stack, and alias-safe typed list recipes. Descriptor
+and barrier plans, recorded command partitions, general dtype/rank/dynamic
+resource slots, deeper operator-schema containers, and mutable/in-place state
+protocols remain Phase 5/6 work. The next performance work should reduce these
+per-inference graph costs while preserving the proven 32-job boundaries;
+exact-op kernel tuning is secondary until attribution shows GPU work is
+dominant.
 
 Exact-SHA `46ece5d7dc9` removes 48 statically proven inference-dropout identities
 from DAv2 before plan construction, reducing the plan from 404 to 356
@@ -593,6 +593,29 @@ its exact parity, 10-submission cadence, and memory envelope. This is a direct
 step toward program-owned resource slots, but it does not yet preallocate Vulkan
 tensor storage, descriptors, barriers, or recorded partitions and therefore
 does not make a migration subsystem delete-ready.
+
+Exact-SHA `e00b4f0aa8b` upgrades the current plan to v9 and completes the first
+bounded Vulkan tensor-resource arena. Nonescaping exact-shape fp32 linear and
+add-layernorm results receive stable descriptors, with schema-alias components
+extending last use or rejecting an escaping writer. Two arena generations are
+reused only after submission completion and TensorImpl/storage exclusivity;
+otherwise execution spills. Partial failure poisons the generation, and plan
+destruction releases or timeline-retires every safe slot independently. Both
+DAv2 guards report four slots over 80 planned resource values and 13
+alias-extended lifetimes with exact graph/eager parity. The qualifying RX 9070
+run completed 8,372 checked invocations and 33 recaptures in 600.540 seconds,
+with 33 immediate releases, zero unsafe-slot leaks or retirement failures, and
+all registered memory/fallback/readback gates passing.
+
+The preceding exact candidate `5d9001ebcc7` also treated convolution as a
+stable-output writer. Its ten-minute soak failed the final-live and replacement
+peak limits, and writer-family isolation found convolution physical-view
+aliases unsafe at plan destruction. That writer was removed rather than kept
+behind a flag. It may be reconsidered only after physical-view ownership is
+explicit and repeated plan destruction records zero unsafe slots. This first
+arena does not claim descriptor reuse, explicit barrier planning, recorded
+commands, arbitrary dtype/rank, or concurrent/multi-invocation flight, and it
+does not by itself close a legacy-subsystem deletion gate.
 
 Exit criteria:
 
