@@ -249,6 +249,18 @@ resource writer: its first candidate exposed internal physical-view aliases at
 plan destruction and was removed. These remain Stage 2/3 requirements rather
 than being inferred from boxed eager dispatch.
 
+Exact-SHA Phase 6 attribution establishes that checkpoint widening is not a
+substitute for recording. With unchanged v9 instructions and kernels, exact
+10/5/2/1 unrecorded submission topologies retain the same 23-25 ms of summed
+GPU work. Five submissions provide no wall-time win and fail the repeat-live
+memory gate; two and one submissions are slower and fail it by a wider margin.
+The existing ten-submit topology pipelines host command recording with GPU
+execution, while wider intervals extend transient lifetimes and postpone the
+first GPU work. Recorded partitions must therefore preserve bounded flight and
+stable program ownership while removing repeat command recording. A one-submit
+topology is an eligible *result* of successful recording, not a policy applied
+to the boxed executor.
+
 The corpus harness measures allocator high-water behavior separately from
 arena ownership. It resets the existing residency high-water counter to current
 live bytes before supported eager, first graph, and repeated graph phases. The

@@ -3926,8 +3926,8 @@
     },
     {
       "id": "graph_recorded_partition_experiment_preregistered_2026_07_17",
-      "status": "proposed_unstarted",
-      "head": "8c81025953a7e0c4c46d3203385932b5441b2ea2",
+      "status": "accepted_reporting_infrastructure",
+      "head": "28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657",
       "model_provenance": {
         "models": [
           "DAv2 ViT-S"
@@ -3950,16 +3950,20 @@
       ],
       "candidate": "First measure per-submission GPU busy spans and host recording/submit gaps while sweeping topologies nearest 10, 5, 2, and 1 submissions. Only then record and replay bounded Vulkan-only partitions whose resources and descriptors have stable program ownership.",
       "correctness": {
-        "status": "preregistered_not_run",
-        "required_tests": [
+        "status": "attribution_and_topology_sweep_passed_recorded_replay_not_implemented",
+        "tests": [
           "normal and alternate exact graph-versus-eager parity",
           "normal and alternate graph-versus-CPU tolerance",
           "zero graph fallback, unexpected readback, deferred value, unsafe-slot leak, and retirement failure",
           "prior output remains live across a repeated invocation",
-          "partial failure leaves every arena and recorded partition reusable or explicitly poisoned",
-          "full Vulkan graph, evidence, cleanup, and governance suites",
-          "qualified 600-second RX 9070 soak after any replay promotion candidate"
-        ]
+          "135 Vulkan graph tests",
+          "23 Vulkan graph evidence tests",
+          "10 Vulkan cleanup tests",
+          "69 Vulkan governance tests",
+          "accepted and proof contract manifest validation",
+          "isolated graph-submission timestamp subprocess regression"
+        ],
+        "remaining_replay_gate": "A recorded replay implementation must still prove partial-failure recovery and complete the qualified 600-second RX 9070 soak before promotion."
       },
       "counters": {
         "baseline_pending_command_flush_per_inference": 10,
@@ -3975,7 +3979,8 @@
         "candidate_deferred_value_required": 0,
         "candidate_unsafe_slot_leak_required": 0,
         "candidate_retirement_failure_required": 0,
-        "candidate_observed": false
+        "topology_candidates_observed": true,
+        "recorded_replay_candidate_observed": false
       },
       "null_submit_attribution": {
         "schema": "VulkanNullSubmitBenchmark.v0",
@@ -4031,23 +4036,176 @@
         "baseline_alternate_graph_median": 54.091,
         "baseline_alternate_graph_p95": 66.323,
         "measurement_repeats": 30,
-        "performance_claim": "none until a candidate satisfies every preregistered threshold on both guards"
+        "rx9070_normal_10_submit_gpu_busy_median": 23.313,
+        "rx9070_normal_10_submit_inter_submit_gap_median": 12.534,
+        "rx9070_alternate_10_submit_gpu_busy_median": 24.707,
+        "rx9070_alternate_10_submit_inter_submit_gap_median": 13.602,
+        "rx9070_normal_1_submit_gpu_busy_median": 23.571,
+        "rx9070_alternate_1_submit_gpu_busy_median": 24.548,
+        "performance_claim": "The isolated two-timestamp path attributes a stable 23-25 ms GPU-work floor and exposes recoverable inter-submit gaps without perturbing per-dispatch recording. It does not prove recorded replay."
       },
       "artifacts": [
         "agent_space/vulkan_null_submit_rx9070_host_2026_07_17.json",
-        "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_census.json",
-        "agent_space/graph_resource_slots_exact_e00b4f0aa8b/dav2_vits_resource_slots_export_parity.json"
+        "agent_space/graph_recorded_partition_sweep_28d8f7b3133/topology_sweep_normal_30.json",
+        "agent_space/graph_recorded_partition_sweep_28d8f7b3133/topology_gpu_spans_normal_30.log",
+        "agent_space/graph_recorded_partition_sweep_28d8f7b3133/topology_sweep_alternate_30.json",
+        "agent_space/graph_recorded_partition_sweep_28d8f7b3133/topology_gpu_spans_alternate_30.log"
       ],
       "artifact_identity": {
         "null_submit_sha256": "7fca43a3b1c3b8b3184582595f8c62b8856a14a8c9a75fac1f9bd5cbf3341129",
-        "baseline_census_sha256": "8651317727e37fad51c76cc17681e2e6a899b729005021625baac6b083ca3e48",
-        "baseline_parity_sha256": "8bb1c4b857c73a934f3b2d346e42481785e0f41002e955ccd4d12d1940ce7f0c"
+        "normal_topology_sha256": "c425011135c34a056599c2c7608c60bf902f3ceb373707d0e69c95397bb4ad2e",
+        "normal_gpu_spans_sha256": "38bab250051a78ba433b1bb2afecba0ae283d81930d50c44a263c9a41557ac58",
+        "alternate_topology_sha256": "f71ce45af2b43de1977c9dcfc10f7b1d71011452af123cdb6dda2a6c30599c64",
+        "alternate_gpu_spans_sha256": "9125dfe002772480e644bdf9ed54400eacb468e86c079613b90264ab534dcb34",
+        "torch_cpu_sha256": "9ff5ca5ddcae0fa32ceb9a8e478cdfe519cad7bdeabe7e8d8538ccb6b2e4207f"
       },
-      "decision": "Unstarted. Implement attribution before replay. Promote no topology merely because it has fewer submissions; a candidate must clear correctness, command-record, queue-gap, wall-distribution, flight-depth-times-arena, and long-session gates together.",
+      "decision": "Accept the isolated two-timestamp graph-submission attribution and exact 10/5/2/1 topology control as reporting infrastructure. The measurements show a stable 23-25 ms GPU-work floor and enough inter-submit gap to justify implementing recorded partitions, but they do not accept replay or a lower unrecorded submission count.",
       "revisit_conditions": [
-        "If two-timestamp attribution shows less than 5 ms of recoverable idle/gap time on either guard, reject recorded replay as the next DAv2 optimization and return to measured GPU-work or descriptor costs.",
-        "If 5/2/1 submission topologies lose CPU/GPU overlap or exceed memory, preserve the lowest accepted bounded topology rather than forcing one submission.",
+        "After a recorded partition candidate eliminates command recording, rerun the same isolated GPU-span and uninstrumented alternating distributions.",
+        "Remove the testing-only 10/5/2/1 topology control after the recorded candidate is accepted or rejected.",
         "If stable descriptor/resource ownership cannot cover a useful bounded partition without widening unsafe writer families, stop before replay and extend generic ownership proofs first."
+      ]
+    },
+    {
+      "id": "dav2_graph_unrecorded_submission_topology_rejected_2026_07_17",
+      "status": "rejected_mixed",
+      "head": "28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Determine whether reducing the existing unrecorded graph checkpoint topology from ten submissions toward one can recover the measured queue gaps without implementing recorded command replay."
+      },
+      "device_notes": "RX 9070 supported-default eager/graph evidence, Vulkan driver 8389003. Every candidate used the same immutable v9 plan and kernels; only the generic graph checkpoint frequency changed in a fresh process.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "unrecorded graph-owner checkpoint cadence",
+        "exact 10/5/2/1 observed submissions",
+        "isolated two-timestamp GPU submission spans",
+        "same-process supported eager memory baseline"
+      ],
+      "candidate": "Reduce unrecorded graph submissions from ten to five, two, or one while retaining the existing resource arena, instruction execution, and per-invocation command recording.",
+      "correctness": {
+        "status": "all_candidates_exact_but_performance_and_memory_rejected",
+        "tests": [
+          "three warmups plus 30 alternating supported eager and VulkanGraphProgram samples per guard and topology",
+          "normal and alternate exact graph-versus-eager parity",
+          "normal graph-versus-CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph-versus-CPU max_abs 0.0024883747 under 0.004",
+          "zero graph CPU fallback, unexpected readback, deferred value, unsafe-slot leak, and retirement failure",
+          "repeat execution while the prior output remained live"
+        ]
+      },
+      "counters": {
+        "baseline_observed_submissions": 10,
+        "candidate_observed_submissions": [
+          5,
+          2,
+          1
+        ],
+        "normal_repeat_live_peak_over_eager_percent": {
+          "10": 1.401,
+          "5": 5.335,
+          "2": 16.585,
+          "1": 16.585
+        },
+        "alternate_repeat_live_peak_over_eager_percent": {
+          "10": 2.880,
+          "5": 8.954,
+          "2": 26.326,
+          "1": 26.326
+        },
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0,
+        "unsafe_slot_leak": 0,
+        "retirement_failure": 0
+      },
+      "timing_ms": {
+        "normal_graph_median_by_submit_count": {
+          "10": 41.004,
+          "5": 41.809,
+          "2": 58.815,
+          "1": 66.279
+        },
+        "normal_graph_p95_by_submit_count": {
+          "10": 44.671,
+          "5": 43.451,
+          "2": 62.065,
+          "1": 82.293
+        },
+        "alternate_graph_median_by_submit_count": {
+          "10": 44.332,
+          "5": 44.406,
+          "2": 53.479,
+          "1": 67.996
+        },
+        "alternate_graph_p95_by_submit_count": {
+          "10": 47.884,
+          "5": 47.826,
+          "2": 65.590,
+          "1": 73.581
+        },
+        "normal_gpu_busy_median_by_submit_count": {
+          "10": 23.313,
+          "5": 23.366,
+          "2": 23.719,
+          "1": 23.571
+        },
+        "normal_inter_submit_gap_median_by_submit_count": {
+          "10": 12.534,
+          "5": 10.658,
+          "2": 4.956,
+          "1": 0.0
+        },
+        "alternate_gpu_busy_median_by_submit_count": {
+          "10": 24.707,
+          "5": 24.632,
+          "2": 24.931,
+          "1": 24.548
+        },
+        "alternate_inter_submit_gap_median_by_submit_count": {
+          "10": 13.602,
+          "5": 8.868,
+          "2": 3.235,
+          "1": 0.0
+        },
+        "measurement_repeats": 30,
+        "performance_claim": "Ten remains the accepted unrecorded baseline. Five is latency-neutral and fails the memory gate; two and one are materially slower and also fail memory."
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "9ff5ca5ddcae0fa32ceb9a8e478cdfe519cad7bdeabe7e8d8538ccb6b2e4207f",
+        "normal_topology_sha256": "c425011135c34a056599c2c7608c60bf902f3ceb373707d0e69c95397bb4ad2e",
+        "alternate_topology_sha256": "f71ce45af2b43de1977c9dcfc10f7b1d71011452af123cdb6dda2a6c30599c64",
+        "target_10_census_sha256": "4791073415b242d8e82402a694eafbd5965d339f2b537921388927f656707d97",
+        "target_10_parity_sha256": "a9cf23ded4aeb900e19bb0ccbf46b9e8345b7bc57b6568ad9b41a30f7a21b98e",
+        "target_5_census_sha256": "c444d9cb6ef8606087358e2a079b3baa568756c46e6e869265196785ecf65dc0",
+        "target_5_parity_sha256": "00e6dbcc992cf0553e7f95fcf4e9fc0942f8fdfee56f6520d12359aafe66d312",
+        "target_2_census_sha256": "db2eaaa42f9614545e73d33b315630d62c67db6736ae9d45ffcc91b6ae3f6294",
+        "target_2_parity_sha256": "df3ffae5c2d691c49011044461eace2343edb83644eb477bdd23576f13cdc12c",
+        "target_1_census_sha256": "310e3d84c1f152334c0d1a096ab4ab3d348d202e109f044455344bae0d85f017",
+        "target_1_parity_sha256": "6e1120165acf9893eab4b0af0a752e873f64973da26257acdc6b46122d14d8ea"
+      },
+      "artifacts": [
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_10/dav2_vits_target_10_export_census.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_10/dav2_vits_target_10_export_parity.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_5/dav2_vits_target_5_export_census.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_5/dav2_vits_target_5_export_parity.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_2/dav2_vits_target_2_export_census.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_2/dav2_vits_target_2_export_parity.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_1/dav2_vits_target_1_export_census.json",
+        "agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/target_1/dav2_vits_target_1_export_parity.json"
+      ],
+      "decision": "Keep the 32-job checkpoint frequency and its observed ten submissions as the supported unrecorded default. Reject 5/2/1: fewer unrecorded submits retain the same GPU work but hold more transient resources and delay GPU start, so they exceed memory or lose useful host/GPU overlap. Proceed only with recorded partitions that eliminate recording and bind bounded program-owned resources.",
+      "revisit_conditions": [
+        "Do not revisit a lower unrecorded submit count without a new ownership mechanism that passes the same repeat-live memory gate.",
+        "Compare the first recorded-partition candidate against the accepted ten-submit topology in the same process with the preregistered thresholds.",
+        "Require flight-depth-times-arena accounting and the 600-second replacement soak before replay promotion."
       ]
     }
   ]

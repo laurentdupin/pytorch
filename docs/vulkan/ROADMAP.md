@@ -631,6 +631,14 @@ Exit criteria:
 
 Goal: approach kernel-bound latency through stable program ownership.
 
+Current attribution status: exact-SHA `28d8f7b3133` measured the existing
+ten-submit graph topology and exact unrecorded candidates at five, two, and one
+submission. GPU work is stable at 23-25 ms, but five is latency-neutral and
+fails the 5% repeat-live memory gate, while two and one are materially slower
+and fail memory. Ten remains the supported unrecorded baseline. The next
+candidate must pre-record useful bounded work against stable resources and
+descriptors; merely widening checkpoint cadence is explicitly rejected.
+
 - record bounded Vulkan-only partitions against program-owned slots;
 - cache by graph, guard, device/driver, capability, layout, and weight version;
 - reuse descriptors and pipelines;

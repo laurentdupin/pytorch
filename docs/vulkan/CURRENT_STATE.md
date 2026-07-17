@@ -128,6 +128,33 @@ This promotes the bounded linear/add-layernorm arena, not convolution,
 descriptors, explicit barriers, recorded commands, arbitrary dtype/rank, or
 concurrent/multi-invocation flight.
 
+Phase 6 attribution at exact source commit
+`28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657` keeps the existing 32-job
+checkpoint frequency and sweeps exact observed topologies of 10, 5, 2, and 1
+submissions. An isolated graph-submission timeline mode writes exactly two GPU
+timestamps per submission without per-dispatch file logging. Across 30 samples,
+summed GPU work remains 23.31-23.72 ms for the normal guard and 24.55-24.93 ms
+for the alternate guard at every topology. The accepted ten-submit baseline
+contains 12.53/13.60 ms median inter-submit gaps, so recorded execution has a
+measured opportunity; direct empty-submit latency alone remains below one
+millisecond for ten submissions on RX 9070, GTX 1080, and RX 6700 XT.
+
+Reducing *unrecorded* submissions is rejected. Ten-submit graph medians are
+41.00/44.33 ms. Five-submit medians are 41.81/44.41 ms and repeat-live peak
+memory rises 5.34%/8.95% above supported eager, outside the 5% gate. Two-submit
+medians are 58.82/53.48 ms, and one-submit medians are 66.28/68.00 ms; both
+also exceed the memory gate. All candidates remain numerically exact with zero
+fallback, unexpected readback, deferred values, unsafe-slot leaks, or
+retirement failures. Fewer checkpoints hold transient resources longer and
+delay GPU start until more host recording is complete. The supported
+unrecorded default therefore remains ten submissions; Phase 6 next implements
+recorded partitions that eliminate recording rather than merely delaying
+submission. The loaded `torch_cpu.dll` SHA-256 was
+`9ff5ca5ddcae0fa32ceb9a8e478cdfe519cad7bdeabe7e8d8538ccb6b2e4207f`.
+Raw artifacts are under
+`agent_space/graph_recorded_partition_sweep_28d8f7b3133/` and
+`agent_space/graph_checkpoint_uninstrumented_sweep_28d8f7b3133/`.
+
 The same cases measure supported-default latency from preuploaded Vulkan inputs
 to completed Vulkan outputs, alternating plain eager and `VulkanGraphProgram`
 for three warmups and 30 samples per surface. DAv2 graph medians are 40.1 ms
