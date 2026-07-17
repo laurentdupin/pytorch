@@ -44,6 +44,39 @@ from 1.4% to 4.3% above eager. All recorded graph phases remain within
 the evidence gate of 5% above their same-process supported eager peak. This
 proves bounded peak-memory parity for the recorded shapes, not program-owned
 arenas or stable allocation addresses.
+
+The first qualifying RX 9070 long-session gate now establishes the standing
+lifetime baseline for Phase 5 and Phase 6 changes. At source commit
+`fa22f619aa7d4f5f618493f98032be99dd878743`, using the source-tree runtime
+built from `c8af28dac3e73a0b0f9dc894e91ab4aecfee6f92`, DAv2 `vits_140` ran for
+600.539 seconds and completed 8,501 consecutive graph invocations. Every
+invocation performed CPU parity and a final output readback; the run also
+compiled 34 periodic replacement guard variants while the preceding program
+remained live. It recorded zero CPU fallbacks, zero unexpected sync readbacks,
+and exactly 8,501 `tensor_cpu_readback` submit origins. Live bytes ended at
+547,571,728 against a preregistered 669,645,816-byte limit. The soak high-water
+was 663,756,560 bytes against a 697,582,141-byte replacement-overlap limit and
+the measured replacement preflight high-water was 664,363,944 bytes. All ten
+registered checks passed. This proves bounded long-session behavior for the
+current boxed v8 executor under fixed-shape execution, output observation, and
+periodic program replacement. It does not prove program-owned arenas, stable
+resource addresses, recorded command partitions, or multi-invocation flight.
+
+The raw census and parity artifacts are under
+`agent_space/graph_long_session_soak_exact_fa22f619aa7/`; their SHA-256 values
+are `3b3c19c9d4f12316cefe7ee8dadbae302d5b3bbd1952519e911f96c336c8898c`
+and `28080e3b5a8ef4c0e9f2e2967e57aab63cc94b607798d81b2bd1b16ebc68933d`.
+The artifact records `torch_cpu.dll` SHA-256
+`0871584acbed7f93d3c9208d2a5305147f1990b7e61e395c13330e6906a98f73`,
+`torch_python.dll` SHA-256
+`5118f781e75321947647467738a6bac8a04bfcb932da9a3869c1d35bf2f29f9a`,
+and the loaded CPython extension SHA-256
+`757bf8097feed0efe58615be57d62b4d2fe288b9060353fab3aa905906c9d8d1`.
+The adapter was `AMD Radeon RX 9070`, Vulkan API 1.4.349, driver version
+8,389,003. This is the comparison baseline for the resource-ownership batch;
+the gate must be rerun after that batch rather than treating this result as its
+completion evidence.
+
 The same cases measure supported-default latency from preuploaded Vulkan inputs
 to completed Vulkan outputs, alternating plain eager and `VulkanGraphProgram`
 for three warmups and 30 samples per surface. DAv2 graph medians are 40.1 ms
