@@ -1299,7 +1299,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 1)
         self.assertEqual(program.cpp_plan.recorded_partition_failure_count(), 0)
 
-    def test_cpp_graph_plan_does_not_record_resource_writer_bypass(self):
+    def test_cpp_graph_plan_records_batched_linear_resource_writer(self):
         class BatchedChainedLinear(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1329,10 +1329,10 @@ class TestVulkanGraph(TestCase):
 
         for output in outputs:
             torch.testing.assert_close(output, model(tensor))
-        self.assertEqual(program.cpp_plan.resource_write_count(), 0)
-        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 6)
-        self.assertEqual(program.cpp_plan.recorded_partition_capture_count(), 0)
-        self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 0)
+        self.assertEqual(program.cpp_plan.resource_write_count(), 6)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+        self.assertEqual(program.cpp_plan.recorded_partition_capture_count(), 1)
+        self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 1)
         self.assertEqual(program.cpp_plan.recorded_partition_failure_count(), 0)
 
     def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):

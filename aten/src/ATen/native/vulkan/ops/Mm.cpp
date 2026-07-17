@@ -1143,6 +1143,32 @@ Tensor ensure_linear_buffer_output_tensor(
   return output;
 }
 
+Tensor prepare_linear_buffer_output_tensor(
+    Tensor* const output_opt,
+    IntArrayRef sizes,
+    const c10::ScalarType dtype) {
+  if (output_opt == nullptr) {
+    return utils::mark_tensor_execution(
+        convert(vTensor{
+            api::context(),
+            sizes.vec(),
+            convert_dtype(dtype),
+            api::StorageType::BUFFER,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        }),
+        api::ExecutionLayout::BUFFER_DIRECT);
+  }
+
+  Tensor output = *output_opt;
+  if (
+      output.defined() && output.dim() != 2 && output.dim() >= 1 &&
+      output.numel() == c10::multiply_integers(sizes) &&
+      output.size(-1) == sizes.back()) {
+    output = reshape_to_2d(output);
+  }
+  return ensure_linear_buffer_output_tensor(output, sizes, dtype);
+}
+
 Tensor ensure_bmm_buffer_output_tensor(
     Tensor& output,
     IntArrayRef sizes,
@@ -1502,18 +1528,8 @@ Tensor run_float_buffer_linear(
   }
   vTensor& v_input = convert(input_tensor);
   vTensor& v_weight = convert(weight_tensor);
-  Tensor output_tensor = output_opt
-      ? ensure_linear_buffer_output_tensor(
-            *output_opt, output_sizes, input_arg_2d.scalar_type())
-      : utils::mark_tensor_execution(
-            convert(vTensor{
-                context,
-                output_sizes,
-                api::kFloat,
-                api::StorageType::BUFFER,
-                api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-            }),
-            api::ExecutionLayout::BUFFER_DIRECT);
+  Tensor output_tensor = prepare_linear_buffer_output_tensor(
+      output_opt, output_sizes, input_arg_2d.scalar_type());
   vTensor& v_output = convert(output_tensor);
 
   const struct {
@@ -2876,17 +2892,8 @@ Tensor run_bfloat16_buffer_linear(
       input_compute_arg_2d.sizes()[Layout::Parameter::height],
       weight.sizes()[Layout::Parameter::height],
   };
-  Tensor output_tensor = output_opt
-      ? ensure_linear_buffer_output_tensor(*output_opt, output_sizes, kFloat)
-      : utils::mark_tensor_execution(
-            convert(vTensor{
-                context,
-                output_sizes,
-                api::kFloat,
-                api::StorageType::BUFFER,
-                api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-            }),
-            api::ExecutionLayout::BUFFER_DIRECT);
+  Tensor output_tensor =
+      prepare_linear_buffer_output_tensor(output_opt, output_sizes, kFloat);
   vTensor& v_output = convert(output_tensor);
   decision.output_direct_buffer = v_output.has_direct_buffer_layout();
 
