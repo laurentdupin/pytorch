@@ -313,13 +313,20 @@ def _device_runtime_identity(device: torch.device) -> dict[str, Any]:
     properties = torch.vulkan.get_device_properties(device)
     torch_lib = Path(torch.__file__).resolve().parent / "lib"
     files: dict[str, Any] = {}
-    for name in ("torch_cpu.dll", "c10.dll"):
+    for name in ("torch_cpu.dll", "torch_python.dll", "c10.dll"):
         path = torch_lib / name
         files[name] = {
             "path": str(path),
             "sha256": sha256_file(path) if path.is_file() else None,
         }
+    extension = Path(torch._C.__file__).resolve()
+    files[extension.name] = {
+        "path": str(extension),
+        "sha256": sha256_file(extension),
+    }
     return {
+        "torch_version": torch.__version__,
+        "torch_git_version": torch.version.git_version,
         "device": str(device),
         "device_index": properties.index,
         "device_name": properties.name,
