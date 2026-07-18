@@ -13093,6 +13093,27 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         zeros = torch.zeros((2, 3), dtype=torch.bfloat16, device="vulkan")
         self.assertEqual(zeros.cpu(), torch.zeros((2, 3), dtype=torch.bfloat16))
 
+    def test_bfloat16_scalar_multiply_preserves_dtype_and_packed_rows(self):
+        torch.manual_seed(0)
+        scalar = 0.02551551815399144
+        shapes = ((7,), (1, 128), (513, 257), (2, 2, 3), (2, 3, 5, 7))
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        for shape in shapes:
+            source = (torch.randn(shape) * 4.0).to(torch.bfloat16)
+            expected = source * scalar
+            actual = (source.to("vulkan") * scalar).cpu()
+            self.assertEqual(actual.dtype, torch.bfloat16)
+            self.assertEqual(actual, expected)
+
+        source = torch.tensor([1.0, -2.0, 3.5], dtype=torch.bfloat16)
+        tensor_scalar_actual = torch.ops.aten.mul.Tensor(
+            source.to("vulkan"), torch.tensor(scalar)
+        ).cpu()
+        self.assertEqual(tensor_scalar_actual, source * torch.tensor(scalar))
+
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
     def test_mixed_float_bfloat16_binary_tensor_promotes_to_float(self):
         torch.manual_seed(0)
         x = torch.randn(1, 17, 384, dtype=torch.float32)

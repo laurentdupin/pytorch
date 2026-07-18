@@ -2179,6 +2179,14 @@ void pack_vulkan_to_cpu(vTensor& src, Tensor& dst) {
 
     if (staging_bytes > 0u) {
       auto submit_to_staging = [&](api::VulkanBuffer& staging_buffer) {
+        if (
+            !raw_buffer_readback_legal && src.last_write_was_compute() &&
+            !shader_packed_buffer) {
+          // A raw snapshot copy cannot inherit an unsubmitted compute writer
+          // through the logical-pack path.  Submit that writer before the
+          // fenced transfer at this host observation point.
+          context->submit_pending_work_and_poll_retire();
+        }
         bool submitted_to_gpu = false;
         std::unique_lock<std::mutex> context_lock(context->dispatch_lock());
         submitted_to_gpu = copy_vtensor_buffer_to_staging(

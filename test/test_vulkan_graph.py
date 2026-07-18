@@ -4068,6 +4068,23 @@ class TestVulkanGraph(TestCase):
         self.assertIsNone(partition.post_gather_scale)
         self.assertIn("aten.mul.Tensor", program.graph_module.code)
 
+    def test_bfloat16_scalar_multiply_stays_bfloat16_in_graph_program(self):
+        class Scale(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor * 0.02551551815399144
+
+        torch.manual_seed(0)
+        tensor = (torch.randn(3, 5, 7) * 4.0).to(torch.bfloat16)
+        expected = Scale()(tensor)
+        program = torch.vulkan.export_and_lower(Scale().eval(), tensor)
+        self.assertIn("aten.mul.Tensor", program.graph_module.code)
+
+        actual = program(tensor).cpu()
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(actual, expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
         class StateCasts(torch.nn.Module):
             def __init__(self):

@@ -1041,6 +1041,65 @@ static Tensor binary_op_scalar_buffer(
       convert(v_output), "aten::binary_op", "scalar_buffer_integral", {self});
 }
 
+static Tensor bfloat16_mul_scalar_buffer(
+    const Tensor& self_arg,
+    const Scalar& other) {
+  api::AllocationScope allocation_scope("binary_op.bfloat16_scalar_buffer");
+  utils::validate_replay_tensor_not_stale(
+      self_arg, "aten::mul.bfloat16_scalar_buffer");
+  Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  self = utils::prepare_vulkan_execution_tensor(
+      self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+  vTensor& v_self = convert(self);
+  TORCH_CHECK(
+      v_self.dtype() == api::kBFloat16 &&
+          v_self.storage_type() == api::StorageType::BUFFER,
+      "BF16 scalar multiplication requires BF16 buffer input");
+
+  api::Context* const context = api::context();
+  vTensor v_output{
+      context,
+      v_self.sizes(),
+      api::kBFloat16,
+      api::StorageType::BUFFER,
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+  };
+  const struct Block final {
+    float other;
+  } block{other.to<float>()};
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_self);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>((v_output.buffer_length() + 1) / 2),
+      1u,
+      1u,
+  };
+  context->submit_compute_job(
+      VK_KERNEL(buffer_bfloat16_mul_scalar),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+  utils::log_vulkan_op_hit("aten::mul.bfloat16_scalar_buffer");
+  return record_tensor_write_and_return(
+      convert(v_output),
+      "aten::mul",
+      "bfloat16_scalar_buffer",
+      {self});
+}
+
 static Tensor binary_op_scalar_buffer_integral(
     const Tensor& self_arg,
     const Scalar& other,
@@ -1174,6 +1233,12 @@ static Tensor binary_op_scalar(
 
   if (self_input.dim() > 4) {
     return binary_op_scalar_cpu_fallback(self_input, other, alpha_arg, op_kind);
+  }
+
+  if (
+      op_kind == BinaryOpKind::Mul &&
+      self_input.scalar_type() == kBFloat16) {
+    return bfloat16_mul_scalar_buffer(self_input, other);
   }
 
   if (should_run_buffer_binary_scalar_integral(
@@ -1534,6 +1599,21 @@ static Tensor binary_op_tensor(
   if (self_input.dim() > 4 || other_input.dim() > 4) {
     return binary_op_tensor_cpu_fallback(
         self_input, other_input, alpha_arg, op_kind);
+  }
+
+  if (op_kind == BinaryOpKind::Mul) {
+    if (
+        self_input.is_vulkan() && self_input.scalar_type() == kBFloat16 &&
+        other_input.device().is_cpu() && other_input.dim() == 0 &&
+        !other_input.is_complex() && !other_input.requires_grad()) {
+      return bfloat16_mul_scalar_buffer(self_input, other_input.item());
+    }
+    if (
+        other_input.is_vulkan() && other_input.scalar_type() == kBFloat16 &&
+        self_input.device().is_cpu() && self_input.dim() == 0 &&
+        !self_input.is_complex() && !self_input.requires_grad()) {
+      return bfloat16_mul_scalar_buffer(other_input, self_input.item());
+    }
   }
 
   utils::is_broadcastable(self_input, other_input);
