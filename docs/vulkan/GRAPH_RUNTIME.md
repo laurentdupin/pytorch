@@ -370,17 +370,25 @@ zero unsafe-slot leaks or retirement failures, and bounded live/high-water
 memory. This is the supported linear/add-layernorm resource arena; it is not a
 claim about convolution, descriptor reuse, or recorded command partitions.
 
-Exact-SHA `520e4ae8ee6` then normalizes the V1 graph-region ABI to one Tensor
-in and one Tensor out and assigns eligible linear-GELU and conv-ReLU-conv
-outputs to the arena. Exact-SHA `f0d1d1766df` adds non-escaping fp32 ReLU
-outputs. The final DAv2 plans contain 86 resource writers over 108 values in
-15 slots, perform 172 writes over two evidence invocations with zero bypass,
-remain bit-exact with eager Vulkan, and keep repeat-live high-water within
-1.73%/2.00% of supported eager. Add, mul, softmax, and matmul writer probes
-were rejected and deleted after isolation continued to report 12 bypasses per
-invocation. The accepted extensions increase stable-address coverage but do
-not yet justify command recording: remaining dispatcher-owned values break the
-transformer spans before they meet the preregistered recording threshold.
+Exact-SHA `520e4ae8ee6` normalizes the V1 graph-region ABI to one Tensor in and
+one Tensor out, and exact-SHA `f0d1d1766df` initially assigns non-escaping fp32
+ReLU outputs to the arena. Their semantic instructions remain useful, but a
+later qualified soak at `4b45cb8121a` records 84 unsafe slots across 28 guard
+recaptures. Writer-family isolation finds retained physical views from both
+graph-region and standalone ReLU output writers. Exact-SHA `da216f221f5`
+deletes those executor writer cases and adds a bug-class destruction regression;
+they are not accepted program-owned resources.
+
+The same corrected source accepts a strict attention semantic instruction for
+single-use fp32 rank-3/rank-4 scaled-QK, last-dimension softmax, and probability-V
+matmul chains. Shape prefixes must be symbolically identical, the scale must be
+static, finite, and positive, and broadcast, mask, and dropout variants remain
+visible as rejected candidates. Execution preserves the exact eager operation
+order. DAv2 lowers 12/12 chains, reducing 336 instructions to 288 while the
+arena contains 70 writers over 92 values in five slots. Two evidence invocations
+perform 140 writes with zero bypass and exact graph/eager parity. This creates a
+useful contiguous transformer semantic unit and owns its final output, but does
+not yet record its dispatches or fuse them into a shader.
 
 Resource-slot identity is no longer shape-and-dtype-only. The lowering passes
 an explicit storage type, GPU memory layout, and execution layout for every
@@ -390,7 +398,7 @@ and lifetime behavior. A buffer view is deliberately not materializable as an
 independent slot: its base allocation, offset, physical sizes, and strides must
 first be represented by the plan. This ABI change does not readmit any rejected
 writer family or claim a recorded partition.
-Exact-SHA `eec01e49a15` preserves both DAv2 guard plans at 86 writers, 108
+At that exact source, `eec01e49a15` preserved both DAv2 guard plans at 86 writers, 108
 resource values, 15 slots, 172 writes, zero bypass, exact graph/eager parity,
 and repeat-live high-water within 1.734%/2.004% of eager. This accepts the
 descriptor ABI only; the preregistered contiguous-partition gate remains open.
@@ -476,16 +484,21 @@ and cannot satisfy the gate. This exercises long-session drift, allocator
 fragmentation, recapture lifetime, and per-frame observation without requiring
 DeepDesktop packaging or changing the application repository.
 
-The current accepted result is exact-SHA `e00b4f0aa8b` with
-`VulkanGraphPlan.v9` on RX 9070. It ran 600.540 seconds, checked 8,372
-invocations, performed 33 alternating recaptures, and recorded one final
-readback per frame with zero fallback or unexpected readback. All 33 retired
+The current accepted result is exact-SHA `da216f221f5` with
+`VulkanGraphPlan.v9` on RX 9070. It ran 600.745 seconds, checked 8,600
+invocations, performed 34 alternating recaptures, and recorded one final
+readback per frame with zero fallback or unexpected readback. All 34 retired
 resource arenas released immediately; unsafe-slot and retirement-failure
-counters remained zero. Final live bytes were 555,343,312 against a
-673,545,566-byte limit, soak high-water was 666,539,792, and the replacement
-preflight high-water was 662,898,080 against a 696,042,984-byte limit. The
-preceding `5d9001ebcc7` convolution-inclusive candidate failed both memory
-bounds and is retained only as rejection evidence.
+counters remained zero. Final live bytes were 551,904,784 against a
+674,195,524-byte limit, soak high-water was 667,119,344, and the replacement
+preflight high-water was 668,239,672 against a 701,651,655-byte limit.
+
+The immediately preceding `4b45cb8121a` run completed 7,112 invocations and
+28 recaptures but recorded 84 unsafe-slot leaks. Its older gate did not reject
+that counter, so `da216f221f5` strengthens the gate and retrospectively
+classifies the run as a lifetime failure. The earlier `5d9001ebcc7`
+convolution-inclusive candidate also failed both memory bounds. Both remain
+rejection evidence only.
 
 The first recorded-command candidate (`f80ad5960893`) did not reach this soak
 gate because it failed the preregistered performance gates first. Although nine

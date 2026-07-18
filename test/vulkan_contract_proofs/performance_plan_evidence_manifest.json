@@ -4481,6 +4481,159 @@
         "Stable program ownership covers enough dispatch, descriptor, and barrier work to meet both preregistered command-record reduction thresholds before a model soak.",
         "The next candidate is preregistered and reruns the same isolated two-timestamp attribution, alternating supported-default distributions, flight-depth-times-arena memory gate, and qualified soak."
       ]
+    },
+    {
+      "id": "dav2_graph_region_relu_resource_ownership_lifetime_rejected_2026_07_18",
+      "status": "unsafe_blocked",
+      "head": "4b45cb8121ac3eee9d48e659233a60f3fc73c244",
+      "removed_by": "da216f221f5327092b94e6c58c5b391c759f25b9",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Qualify graph-region, standalone ReLU, and attention semantic output ownership under repeated program destruction and guard recapture."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. The run completed its then-registered checks, but the gate did not yet require the unsafe-slot counter to remain zero. Exact-source re-evaluation classifies the nonzero counter as a lifetime failure.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "two-generation resource arena",
+        "graph-region output writers",
+        "standalone fp32 ReLU output writers",
+        "strict scaled-QK-softmax-probability-V semantic attention instruction",
+        "alternating guard recapture every 250 invocations"
+      ],
+      "candidate": "Retain graph-region and standalone ReLU arena writers while adding stable output ownership for the strict attention semantic instruction.",
+      "correctness": {
+        "status": "rejected_unsafe_resource_lifetime",
+        "tests": [
+          "7,112 per-frame graph/eager parity checks",
+          "28 alternating guard recaptures",
+          "zero CPU fallback, unexpected readback, and retirement failure",
+          "writer-family isolation attributes one retained physical view to graph-region ownership and one to standalone ReLU ownership per destroyed program"
+        ],
+        "soak_status": "rejected_after_gate_strengthening"
+      },
+      "counters": {
+        "completed_invocations": 7112,
+        "parity_checks": 7112,
+        "guard_recaptures": 28,
+        "resource_arena_unsafe_slot_leak": 84,
+        "resource_arena_retirement_failure": 0
+      },
+      "timing_ms": {
+        "soak_elapsed_seconds": 600.7485749,
+        "performance_claim": "No latency claim. The candidate is rejected on resource lifetime despite completing the old soak checks."
+      },
+      "runtime_identity": {
+        "soak_census_sha256": "51e54e58d02a3654d2f7ea25ed34ac68e9f22a177167d43baeb8395073875a66",
+        "soak_parity_sha256": "673182a9b9d8c7b9e9024ef2c65dab8ee219b60461524861421b274136a2757b"
+      },
+      "artifacts": [
+        "agent_space/graph_attention_owned_soak_exact_4b45cb8121a/dav2_vits_graph_attention_owned_export_census.json",
+        "agent_space/graph_attention_owned_soak_exact_4b45cb8121a/dav2_vits_graph_attention_owned_export_parity.json"
+      ],
+      "decision": "Reject graph-region and standalone ReLU arena ownership and delete their C++ writer cases. Preserve both semantic instructions, preserve attention output ownership, add a destruction bug-class regression, and make zero unsafe-slot leaks and zero retirement failures mandatory soak checks.",
+      "revisit_conditions": [
+        "Physical-view base storage, offsets, sizes, and strides are represented by explicit program ownership.",
+        "Focused destruction tests and the qualified replacement soak both record zero unsafe slots.",
+        "No mechanism is retained behind an experimental flag while these ownership proofs are absent."
+      ]
+    },
+    {
+      "id": "dav2_graph_attention_semantic_partition_2026_07_18",
+      "status": "accepted_default_fix",
+      "head": "da216f221f5327092b94e6c58c5b391c759f25b9",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Establish one useful contiguous transformer semantic instruction with exact operation ordering, stable final-output ownership, and qualified lifetime evidence."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. Loaded torch_cpu.dll SHA-256 1443a871bd2d6ba321e860af048154df4fe8d32afd3c4966a346b8d37a179d99.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "fp32 rank-3 or rank-4 query/key/value",
+        "static finite positive scale",
+        "symbolically identical non-matrix prefixes",
+        "single-use scaled-QK and softmax intermediates",
+        "no broadcast, mask, dropout, or public-SDPA substitution",
+        "two-generation resource arena"
+      ],
+      "candidate": "Lower mul(query, scale), matmul with key transpose, last-dimension softmax, and value matmul into one semantic instruction that preserves the eager operation order and writes its final result into a plan-owned slot.",
+      "correctness": {
+        "status": "accepted_exact_and_lifetime_qualified",
+        "tests": [
+          "144 Vulkan graph tests",
+          "24 Vulkan graph evidence tests",
+          "69 Vulkan governance tests",
+          "normal and alternate graph/eager max_abs 0",
+          "normal graph/CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph/CPU max_abs 0.0024883747 under 0.004",
+          "zero CPU fallback, unexpected readback, deferred values, writer bypass, unsafe-slot leaks, and retirement failures",
+          "prior outputs remain live across repeated invocation",
+          "8,600 checked soak invocations with 34 alternating recaptures"
+        ],
+        "soak_status": "passed_qualified_600_second_gate"
+      },
+      "counters": {
+        "static_sdpa_fusions_per_guard": 12,
+        "static_sdpa_rejected_candidates_per_guard": 0,
+        "instruction_count_per_guard": 288,
+        "resource_writer_instruction_count": 70,
+        "resource_value_count": 92,
+        "resource_slot_count": 5,
+        "resource_writes_over_two_evidence_invocations": 140,
+        "resource_writer_bypass_count": 0,
+        "normal_repeat_live_peak_over_eager_percent": 1.0057044843,
+        "alternate_repeat_live_peak_over_eager_percent": 2.2577217181,
+        "soak_elapsed_seconds": 600.7454129,
+        "soak_completed_invocations": 8600,
+        "soak_guard_recaptures": 34,
+        "soak_immediate_arena_releases": 34,
+        "resource_arena_unsafe_slot_leak": 0,
+        "resource_arena_retirement_failure": 0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0
+      },
+      "memory_bytes": {
+        "replacement_preflight_high_water": 668239672,
+        "replacement_preflight_limit": 701651655,
+        "soak_baseline_live": 642090976,
+        "soak_final_live": 551904784,
+        "soak_final_live_limit": 674195524,
+        "soak_high_water": 667119344
+      },
+      "timing_ms": {
+        "performance_claim": "Structural acceptance only. The semantic instruction reduces plan instructions from 336 to 288 and creates a contiguous owned attention unit; it does not claim a fused shader, command recording, or a latency promotion."
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "1443a871bd2d6ba321e860af048154df4fe8d32afd3c4966a346b8d37a179d99",
+        "quick_census_sha256": "9975df66553573ed4c3945834ebb4bc8d5a710e9dfa706c2c9afdb5aad8f48fb",
+        "quick_parity_sha256": "6f2acd586aca18b6b65930eba00726cb5dc9c03b2e1c34560902379c815274ed",
+        "soak_census_sha256": "70cd8938f62c8a7e9e3d06d601cec0ce70b95b568b086e48386ea4e7a19d3ea8",
+        "soak_parity_sha256": "e6aa497221c64eb7424a041558869a072ed52a073263e7e4d66dee26ad4aba9b"
+      },
+      "artifacts": [
+        "agent_space/graph_attention_owned_exact_da216f221f5/dav2_vits_graph_attention_owned_export_census.json",
+        "agent_space/graph_attention_owned_exact_da216f221f5/dav2_vits_graph_attention_owned_export_parity.json",
+        "agent_space/graph_attention_owned_soak_exact_da216f221f5/dav2_vits_graph_attention_owned_export_census.json",
+        "agent_space/graph_attention_owned_soak_exact_da216f221f5/dav2_vits_graph_attention_owned_export_parity.json"
+      ],
+      "decision": "Accept the strict attention semantic instruction and its final-output ownership as the contiguous transformer partition substrate. Keep graph-region and standalone ReLU semantic execution but not their rejected arena writer ownership. A later Phase 6 candidate may record the attention unit only under the existing attribution, memory, and soak gates.",
+      "revisit_conditions": [
+        "Do not widen the matcher without semantic-family parity and real near-match negatives.",
+        "Do not describe this as SDPA replacement: exact eager operation order is a correctness requirement for this instruction.",
+        "Command recording must avoid the rejected one-primary-buffer-per-writer design and pass preregistered performance thresholds before soak promotion."
+      ]
     }
   ]
 }

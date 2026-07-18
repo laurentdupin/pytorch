@@ -128,27 +128,47 @@ This promotes the bounded linear/add-layernorm arena, not convolution,
 descriptors, explicit barriers, recorded commands, arbitrary dtype/rank, or
 concurrent/multi-invocation flight.
 
-Two accepted exact-source extensions broaden that arena without claiming a
-recorded partition. Commit `520e4ae8ee6` gives the enforced single-input,
-single-output graph-region ABI an honest Tensor-to-Tensor schema and writes
-linear-GELU and conv-ReLU-conv region results into stable slots. DAv2 plan
-instructions fall from 356 to 336, list projections from 20 to zero, and the
-arena grows to 78 writers over 100 values in ten slots. Repeat-live high-water
-is 1.66%/1.91% above supported eager. Exact artifacts are under
-`agent_space/graph_region_resource_exact_520e4ae8ee6/`; census/parity SHA-256
-values are `1e8864a468227a4f899a1b0eb0084285b3cec2954651b0721e57430019750559`
-and `e9812e1672dbc75ad6886e9a161c63f10dc29e4aecf7815b3b5eddf086605cfd`.
+Two exact-source extensions broadened the arena during focused testing without
+claiming a recorded partition. Commit `520e4ae8ee6` gives the enforced
+single-input, single-output graph-region ABI an honest Tensor-to-Tensor schema;
+commit `f0d1d1766df` adds non-escaping fp32 ReLU output writers. Their semantic
+lowering remains active, but their arena ownership is no longer accepted.
+A later qualified soak at `4b45cb8121a` found 84 unsafe slots across 28 guard
+recaptures. Isolation attributed one retained physical view to graph-region
+writers and one to standalone ReLU writers per destroyed program. Commit
+`da216f221f5` removes those writer cases and strengthens the soak gate to require
+zero unsafe-slot leaks and zero retirement failures. The focused short-run
+artifacts from `520e4ae8ee6` and `f0d1d1766df` remain historical evidence, not
+lifetime qualification.
 
-Commit `f0d1d1766df` additionally owns non-escaping fp32 ReLU results. Both
-DAv2 guards report 86 writers over 108 values in 15 slots, 172 writes over the
-two evidence invocations, zero writer bypass, exact graph/eager parity, and
-repeat-live high-water 1.73%/2.00% above eager. The matching
-`torch_cpu.dll` SHA-256 is
-`ffe0190360ed91f42fe90455e9b68a9657f2327d08419b83799bc170859ed627`.
-Exact artifacts are under `agent_space/graph_relu_ownership_exact_f0d1d1766df/`;
-census/parity SHA-256 values are
-`bc8e696ab9107325b10f027491d0cb39b797d2e6e21c9646fd9f04e4f8ac90dd`
-and `2423001b302069ce9957f749a569d9dad7e01e0b703bf519f68ebda6c36b72df`.
+Commit `da216f221f5` accepts the first contiguous transformer semantic unit.
+Strict lowering recognizes only fp32 rank-3/rank-4
+`mul(query, static_positive_scale) -> matmul(key.transpose(-2, -1)) ->
+softmax(last_dim) -> matmul(value)` chains with identical symbolic prefixes,
+single-use intermediates, and no broadcast, mask, or dropout. It preserves that
+exact eager operation order rather than substituting public SDPA. Both DAv2
+guards lower all 12 blocks, reject zero near-matches, shrink from 336 to 288
+instructions, and report 70 resource writers over 92 values in five slots and
+140 writes over two evidence invocations. Graph/eager parity is bit-exact,
+fallback/readback/deferred counts are zero, and repeat-live high-water is
+1.006%/2.258% above supported eager. This is semantic partitioning and stable
+attention-output ownership, not a fused shader or recorded command claim.
+
+The corrected qualified RX 9070 soak ran 600.745 seconds, checked 8,600
+invocations and 34 alternating recaptures, and recorded 34 immediate arena
+releases with zero unsafe-slot leaks or retirement failures. Final live bytes
+were 551,904,784, soak high-water was 667,119,344, and replacement-preflight
+high-water was 668,239,672; all registered limits passed. Exact artifacts are
+under `agent_space/graph_attention_owned_exact_da216f221f5/` and
+`agent_space/graph_attention_owned_soak_exact_da216f221f5/`. Census/parity
+SHA-256 values are
+`9975df66553573ed4c3945834ebb4bc8d5a710e9dfa706c2c9afdb5aad8f48fb`
+and `6f2acd586aca18b6b65930eba00726cb5dc9c03b2e1c34560902379c815274ed`;
+soak census/parity SHA-256 values are
+`70cd8938f62c8a7e9e3d06d601cec0ce70b95b568b086e48386ea4e7a19d3ea8`
+and `e6aa497221c64eb7424a041558869a072ed52a073263e7e4d66dee26ad4aba9b`.
+The loaded `torch_cpu.dll` SHA-256 was
+`1443a871bd2d6ba321e860af048154df4fe8d32afd3c4966a346b8d37a179d99`.
 Generic add, mul, softmax, and matmul writer probes each left 12 DAv2 writer
 bypasses per invocation in the relevant isolation runs; all four implementations
 were removed. These rejections show that stable point outputs alone still do
@@ -160,9 +180,9 @@ consumes that descriptor through the generic execution-object allocator while
 the current direct width-packed buffer descriptor retains the established
 allocation path. Buffer-view targets fail closed because a view requires base
 storage, offset, and stride ownership rather than a standalone allocation.
-Current writer admission remains unchanged; this is descriptor substrate for a
-future contiguous partition, not new add/mul/softmax/matmul coverage.
-Exact source `eec01e49a1576bdd188385901d1274c36c2b0cef` preserves the 336
+The descriptor landing did not itself change writer admission; it supplied the
+substrate later consumed by the strict attention partition.
+Exact source `eec01e49a1576bdd188385901d1274c36c2b0cef` preserved the then-current 336
 instructions, 86 writers, 108 resource values, 15 slots, 172 writes, zero
 bypass, exact graph/eager parity, and 1.734%/2.004% repeat-live memory deltas on
 both DAv2 guards. The matching `torch_cpu.dll` SHA-256 is

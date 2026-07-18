@@ -617,16 +617,23 @@ arena does not claim descriptor reuse, explicit barrier planning, recorded
 commands, arbitrary dtype/rank, or concurrent/multi-invocation flight, and it
 does not by itself close a legacy-subsystem deletion gate.
 
-Exact-SHA `520e4ae8ee6` extends the arena to eligible graph-region outputs
-after replacing the list-wrapped V1 region ABI with its enforced Tensor-to-
-Tensor contract. Exact-SHA `f0d1d1766df` adds non-escaping fp32 ReLU outputs.
-The resulting DAv2 plans own 86 writers over 108 values in 15 slots, record
-zero bypass and exact graph/eager parity, and remain within 2.00% of eager
-repeat-live high-water. Add, mul, softmax, and matmul ownership attempts were
-removed after each relevant isolation retained 12 bypasses per invocation.
-This is accepted resource coverage, not Phase 6 completion: a recording
-candidate still needs generic stable ownership across a useful contiguous
-multi-dispatch span.
+Exact-SHA `520e4ae8ee6` replaces the list-wrapped V1 graph-region ABI with its
+enforced Tensor-to-Tensor contract, and exact-SHA `f0d1d1766df` adds an fp32
+ReLU instruction. Their arena-writer extensions are rejected after the
+`4b45cb8121a` qualified soak records 84 unsafe slots across 28 recaptures.
+Exact-SHA `da216f221f5` removes those writer cases while preserving their
+semantic lowering and adds zero unsafe-slot and retirement-failure conditions
+to the soak gate.
+
+The same corrected source lowers the strict scaled-QK, softmax, probability-V
+attention chain as one semantic instruction and owns its final output. Both
+DAv2 guards lower all 12 blocks, shrink from 336 to 288 instructions, and own
+70 writers over 92 values in five slots with zero bypass and bit-exact
+graph/eager parity. The corrected ten-minute RX 9070 soak checks 8,600
+invocations and 34 recaptures with zero unsafe slots, zero retirement failures,
+and bounded memory. This closes the contiguous transformer semantic-partition
+gate, not recorded execution: the next Phase 6 candidate must record useful
+work inside that partition without restoring fine-grained primary buffers.
 
 The resource ABI now transports storage type, GPU memory layout, and execution
 layout per slot instead of assuming that shape and dtype fully describe a
@@ -635,9 +642,10 @@ standalone buffer-view targets fail closed until base-storage and physical-view
 metadata are represented. Operator admission is unchanged; the next recording
 candidate must use this descriptor substrate to own a contiguous transformer
 span rather than restoring isolated rejected writers.
-Exact-SHA `eec01e49a15` keeps both DAv2 guards exact and zero-bypass with the
-same 86 writers and memory deltas under 2.01%. This closes descriptor transport,
-not contiguous ownership or recorded execution.
+At that historical source, `eec01e49a15` keeps both DAv2 guards exact and
+zero-bypass with the same 86 writers and memory deltas under 2.01%. This closes
+descriptor transport, not contiguous ownership or recorded execution; the
+later lifetime result above supersedes those writer-ownership counts.
 
 Exit criteria:
 
