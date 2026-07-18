@@ -3136,11 +3136,18 @@ model gate and they do not imply model-specific production routes.
   after lowering cannot alter the immutable program. A dedicated
   multiply-then-widen shader candidate was rejected and removed: all 37 real
   Gemma candidates also feed observable BF16 consumers, so it had no admitted
-  corpus use. The one-token invocation now reaches the existing BF16
-  tensor-scalar path with zero fallback/readback/deferred values, but that path
-  returns float while graph metadata requires BF16 and therefore fails loud at
-  `_assert_tensor_metadata_default_2`. Preserving BF16 output semantics for
-  native tensor-scalar multiplication is the current execution blocker.
+  corpus use. Exact source `f8a3e2cdcc1` adds a race-free packed BF16 scalar
+  multiply for both scalar overloads and non-complex CPU zero-dimensional
+  tensor operands. It preserves exact BF16 results across odd padded widths,
+  and compute-written raw snapshot readback now submits the pending writer at
+  the host observation point. The full 159-test graph suite and 69 governance
+  tests pass, as does the Lotus DTensor preflight. The exact Gemma rerun shows
+  that `mul_2` is no longer the dtype implementation gap: its preceding
+  `run_linear_context_default` already widens the BF16 linear result to float,
+  while export requires BF16 through `mul_2` and `reshape_1`. Execution still
+  fails loud at `_assert_tensor_metadata_default_2` with zero
+  fallback/readback/deferred values. BF16-preserving native linear output is
+  therefore the current execution blocker.
   Dynamic FP32-to-BF16 also
   remains unresolved: its existing native shader produces zero data in a
   direct-buffer reproduction, and a packed-Int32 owner plus typed BF16 view
@@ -3149,9 +3156,9 @@ model gate and they do not imply model-specific production routes.
   compilation and blocker attribution,
   not end-to-end parity, memory, or performance evidence. The updated artifact
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
-  `DA1C313A09DE033E99D530869885F2D23011B5EAEAA2E59D4D563E1C88518C7A`.
+  `4B526C2A8A40BCA8B90A5F7D1E76CADA97A7A516FBDFC73405BE52CCEA27096A`.
   It records RX 9070 Vulkan `1.4.349` and loaded `torch_cpu.dll` SHA-256
-  `CB40DBA1171B38EC5668A45932432AF0C61AAE5CE97D6AC31A7E0B41A63A5D41`.
+  `E0E79FAC6F2FBED566C569F655E4F4AC88C2CA3DA6864210F46DF94DFAE216A3`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

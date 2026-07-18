@@ -746,8 +746,10 @@ C++ Vulkan body. The bounded pure derived-index subgraph used by the
 conditional-generation wrapper is now admitted with explicit escaping-output
 uploads and integer-bounds provenance. BF16 embedding constants now use the
 same explicit host partition until a generic native gather is proven; the real
-checkpoint lowers both its tied token table and per-layer table this way. Next
-establish BF16-preserving tensor-scalar multiplication, then cast and operator
-coverage for the remaining weights and mask consumers. Whole-model float32
+checkpoint lowers both its tied token table and per-layer table this way.
+BF16-preserving tensor-scalar multiplication and its immediate host-readback
+contract are now established. Next preserve BF16 output from native linear,
+then add cast and operator coverage for the remaining weights and mask
+consumers. Whole-model float32
 upload and monolithic buffers above the
 storage-buffer binding range are not candidate routes.
