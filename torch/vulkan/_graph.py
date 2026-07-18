@@ -24,6 +24,7 @@ from ._graph_lowering import (
     VulkanFreshReluFunctionalizationReport,
     VulkanGraphInputNormalizationReport,
     VulkanGraphRegionLoweringReport,
+    VulkanGraphTensorPlacementNodeReport,
     VulkanGraphTensorPlacementReport,
     VulkanLayernormLoweringReport,
     VulkanLiftedTensorConstantReport,
@@ -71,6 +72,42 @@ class VulkanGraphNodeRecord:
     target: str
     classification: str
     reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanHostResidentConstantPartitionNodeReport:
+    node_name: str
+    weight_attr: str
+    input_placeholder_name: str
+    output_placeholder_name: str
+    dtype: torch.dtype
+    weight_shape: tuple[int, int]
+    weight_bytes: int
+    reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanHostResidentConstantPartitionReport:
+    partition_count: int
+    upload_operator: str
+    nodes: tuple[VulkanHostResidentConstantPartitionNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True, repr=False)
+class _HostEmbeddingGatherPartition:
+    report: VulkanHostResidentConstantPartitionNodeReport
+    weight: torch.Tensor
+    weight_version: int
+    padding_idx: int
+    scale_grad_by_freq: bool
+    sparse: bool
+
+
+# Vulkan storage-buffer bindings use a 32-bit byte range on the supported
+# Windows drivers. Constants beyond that range cannot be made device-resident
+# as one tensor, regardless of available VRAM.
+_HOST_RESIDENT_EMBEDDING_MIN_BYTES = 1 << 32
+_HOST_GATHER_MAX_UPLOAD_BYTES = 256 << 20
 
 
 @dataclasses.dataclass(frozen=True)
@@ -680,8 +717,44 @@ def _export_input_signature(
     return tuple(signature)
 
 
+def _host_embedding_candidate_attrs(
+    graph_module: torch.fx.GraphModule,
+    state_dict: Mapping[str, torch.Tensor],
+) -> frozenset[str]:
+    candidates: set[str] = set()
+    for node in graph_module.graph.nodes:
+        if (
+            node.op != "call_function"
+            or node.target is not torch.ops.aten.embedding.default
+            or len(node.args) < 2
+        ):
+            continue
+        weight_node, indices_node = node.args[:2]
+        if (
+            not isinstance(weight_node, torch.fx.Node)
+            or weight_node.op != "get_attr"
+            or not isinstance(indices_node, torch.fx.Node)
+            or indices_node.op != "placeholder"
+        ):
+            continue
+        weight_attr = str(weight_node.target)
+        weight = state_dict.get(weight_attr)
+        if (
+            isinstance(weight, torch.Tensor)
+            and weight.device.type == "cpu"
+            and weight.dim() == 2
+            and weight.is_contiguous()
+            and weight.numel() * weight.element_size()
+            >= _HOST_RESIDENT_EMBEDDING_MIN_BYTES
+        ):
+            candidates.add(weight_attr)
+    return frozenset(candidates)
+
+
 def _freeze_cpu_state_dict_snapshot(
     exported_program: torch.export.ExportedProgram,
+    *,
+    borrowed_host_attrs: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, torch.Tensor], str]:
     snapshot: dict[str, torch.Tensor] = {}
     fingerprint = hashlib.sha256()
@@ -693,7 +766,15 @@ def _freeze_cpu_state_dict_snapshot(
                 "torch.vulkan.export_and_lower requires CPU state tensors; "
                 f"state {name!r} is on {value.device}"
             )
-        frozen = value.detach().contiguous().clone()
+        if name in borrowed_host_attrs:
+            if not value.is_contiguous():
+                raise VulkanGraphExecutionError(
+                    "Host-resident Vulkan graph constants must be contiguous; "
+                    f"state {name!r} is not"
+                )
+            frozen = value.detach()
+        else:
+            frozen = value.detach().contiguous().clone()
         snapshot[name] = frozen
         fingerprint.update(name.encode("utf-8"))
         fingerprint.update(b"\x00")
@@ -701,10 +782,163 @@ def _freeze_cpu_state_dict_snapshot(
         fingerprint.update(b"\x00")
         fingerprint.update(repr(tuple(frozen.shape)).encode("utf-8"))
         fingerprint.update(b"\x00")
-        fingerprint.update(
-            frozen.reshape(-1).view(torch.uint8).numpy().tobytes()
-        )
+        if name in borrowed_host_attrs:
+            # This identity is intentionally process-local. It makes an
+            # oversized immutable host constant safe for the in-process plan
+            # cache without copying or hashing several GiB at compilation.
+            fingerprint.update(b"borrowed_host_constant\x00")
+            fingerprint.update(str(frozen.data_ptr()).encode("ascii"))
+            fingerprint.update(b"\x00")
+            fingerprint.update(str(frozen._version).encode("ascii"))
+        else:
+            fingerprint.update(
+                frozen.reshape(-1).view(torch.uint8).numpy().tobytes()
+            )
     return snapshot, fingerprint.hexdigest()
+
+
+def _delete_graph_attr(graph_module: torch.fx.GraphModule, target: str) -> None:
+    owner: torch.nn.Module = graph_module
+    path = target.split(".")
+    for atom in path[:-1]:
+        child = getattr(owner, atom, None)
+        if not isinstance(child, torch.nn.Module):
+            return
+        owner = child
+    if hasattr(owner, path[-1]):
+        delattr(owner, path[-1])
+
+
+def _lower_host_embedding_gather_partitions(
+    graph_module: torch.fx.GraphModule,
+    state_dict_snapshot: Mapping[str, torch.Tensor],
+) -> tuple[
+    VulkanHostResidentConstantPartitionReport,
+    tuple[_HostEmbeddingGatherPartition, ...],
+]:
+    graph = graph_module.graph
+    placeholders = [node for node in graph.nodes if node.op == "placeholder"]
+    if not placeholders:
+        return (
+            VulkanHostResidentConstantPartitionReport(
+                partition_count=0,
+                upload_operator="vulkan_prepack::upload_graph_tensor_to_buffer",
+                nodes=(),
+            ),
+            (),
+        )
+    insertion_point = placeholders[-1]
+    partitions: list[_HostEmbeddingGatherPartition] = []
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target is not torch.ops.aten.embedding.default
+            or len(node.args) < 2
+        ):
+            continue
+        weight_node, indices_node = node.args[:2]
+        if (
+            not isinstance(weight_node, torch.fx.Node)
+            or weight_node.op != "get_attr"
+            or not isinstance(indices_node, torch.fx.Node)
+            or indices_node.op != "placeholder"
+        ):
+            continue
+        weight_attr = str(weight_node.target)
+        weight = state_dict_snapshot.get(weight_attr)
+        if (
+            not isinstance(weight, torch.Tensor)
+            or weight.numel() * weight.element_size()
+            < _HOST_RESIDENT_EMBEDDING_MIN_BYTES
+        ):
+            continue
+        padding_idx = int(node.args[2]) if len(node.args) > 2 else -1
+        scale_grad_by_freq = bool(node.args[3]) if len(node.args) > 3 else False
+        sparse = bool(node.args[4]) if len(node.args) > 4 else False
+        output_name = f"_vulkan_host_gather_{len(partitions)}"
+        with graph.inserting_after(insertion_point):
+            output = graph.placeholder(output_name)
+        output.meta = dict(node.meta)
+        insertion_point = output
+        report = VulkanHostResidentConstantPartitionNodeReport(
+            node_name=node.name,
+            weight_attr=weight_attr,
+            input_placeholder_name=str(indices_node.target),
+            output_placeholder_name=output_name,
+            dtype=weight.dtype,
+            weight_shape=(int(weight.shape[0]), int(weight.shape[1])),
+            weight_bytes=weight.numel() * weight.element_size(),
+            reason="oversized_embedding_exceeds_storage_buffer_binding_range",
+        )
+        partitions.append(
+            _HostEmbeddingGatherPartition(
+                report=report,
+                weight=weight,
+                weight_version=weight._version,
+                padding_idx=padding_idx,
+                scale_grad_by_freq=scale_grad_by_freq,
+                sparse=sparse,
+            )
+        )
+        node.replace_all_uses_with(output)
+        graph.erase_node(node)
+        if not weight_node.users:
+            graph.erase_node(weight_node)
+            _delete_graph_attr(graph_module, weight_attr)
+    if partitions:
+        graph.lint()
+        graph_module.recompile()
+    reports = tuple(partition.report for partition in partitions)
+    return (
+        VulkanHostResidentConstantPartitionReport(
+            partition_count=len(reports),
+            upload_operator="vulkan_prepack::upload_graph_tensor_to_buffer",
+            nodes=reports,
+        ),
+        tuple(partitions),
+    )
+
+
+def _run_host_embedding_gather_partitions(
+    partitions: tuple[_HostEmbeddingGatherPartition, ...],
+    placeholder_values: Mapping[str, Any],
+) -> tuple[tuple[torch.Tensor, ...], int]:
+    outputs: list[torch.Tensor] = []
+    total_upload_bytes = 0
+    for partition in partitions:
+        if partition.weight._version != partition.weight_version:
+            raise VulkanGraphExecutionError(
+                "Vulkan graph host-resident constant was mutated after lowering: "
+                f"{partition.report.weight_attr!r}"
+            )
+        indices = placeholder_values.get(partition.report.input_placeholder_name)
+        if not isinstance(indices, torch.Tensor) or indices.device.type != "cpu":
+            raise VulkanGraphExecutionError(
+                "Vulkan graph host embedding gather requires CPU indices for "
+                f"{partition.report.input_placeholder_name!r}"
+            )
+        upload_bytes = (
+            indices.numel()
+            * partition.report.weight_shape[1]
+            * partition.weight.element_size()
+        )
+        if upload_bytes > _HOST_GATHER_MAX_UPLOAD_BYTES:
+            raise VulkanGraphExecutionError(
+                "Vulkan graph host embedding gather exceeds the explicit "
+                f"{_HOST_GATHER_MAX_UPLOAD_BYTES}-byte upload budget: "
+                f"requested {upload_bytes} bytes"
+            )
+        total_upload_bytes += upload_bytes
+        outputs.append(
+            torch.ops.aten.embedding.default(
+                partition.weight,
+                indices,
+                partition.padding_idx,
+                partition.scale_grad_by_freq,
+                partition.sparse,
+            ).contiguous()
+        )
+    return tuple(outputs), total_upload_bytes
 
 
 def _move_runtime_value(
@@ -923,6 +1157,7 @@ def _bind_runtime_inputs(
     graph_module: torch.fx.GraphModule,
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
+    internal_placeholder_names: frozenset[str] = frozenset(),
 ) -> tuple[Any, ...]:
     input_spec = getattr(graph_module, "_in_spec", None)
     if not isinstance(input_spec, pytree.TreeSpec):
@@ -948,7 +1183,11 @@ def _bind_runtime_inputs(
             f"{received_spec} does not match exported tree {input_spec}"
         )
     flat_args = tuple(value for _, value in flat_args_with_path)
-    placeholder_names = _graph_placeholder_names(graph_module)
+    placeholder_names = tuple(
+        name
+        for name in _graph_placeholder_names(graph_module)
+        if name not in internal_placeholder_names
+    )
     if len(flat_args) != len(placeholder_names):
         raise VulkanGraphExecutionError(
             "VulkanGraphProgram input binding failed: exported input tree has "
@@ -1135,6 +1374,10 @@ class VulkanGraphProgram:
         static_identity_advanced_indices: VulkanStaticIdentityAdvancedIndexReport,
         static_gqa_repeats: VulkanStaticGQARepeatReport,
         static_sdpa_fusions: VulkanStaticSDPAFusionReport,
+        host_resident_constant_partitions: VulkanHostResidentConstantPartitionReport,
+        host_embedding_gather_partitions: tuple[
+            _HostEmbeddingGatherPartition, ...
+        ],
         tensor_placement: VulkanGraphTensorPlacementReport,
         linear_lowering: VulkanLinearLoweringReport,
         static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
@@ -1162,6 +1405,14 @@ class VulkanGraphProgram:
         self._static_identity_advanced_indices = static_identity_advanced_indices
         self._static_gqa_repeats = static_gqa_repeats
         self._static_sdpa_fusions = static_sdpa_fusions
+        self._host_resident_constant_partitions = (
+            host_resident_constant_partitions
+        )
+        self._host_embedding_gather_partitions = host_embedding_gather_partitions
+        self._internal_placeholder_names = frozenset(
+            partition.report.output_placeholder_name
+            for partition in host_embedding_gather_partitions
+        )
         self._tensor_placement = tensor_placement
         self._linear_lowering = linear_lowering
         self._static_linear_gelu_regions = static_linear_gelu_regions
@@ -1180,6 +1431,8 @@ class VulkanGraphProgram:
         self._last_cpu_fallback_count = 0
         self._last_sync_readback_count = 0
         self._last_deferred_values_created = 0
+        self._last_host_partition_count = 0
+        self._last_host_partition_transfer_bytes = 0
         self._last_implicit_boundary: VulkanGraphImplicitBoundaryAttribution | None = (
             None
         )
@@ -1246,6 +1499,12 @@ class VulkanGraphProgram:
     @property
     def static_sdpa_fusions(self) -> VulkanStaticSDPAFusionReport:
         return self._static_sdpa_fusions
+
+    @property
+    def host_resident_constant_partitions(
+        self,
+    ) -> VulkanHostResidentConstantPartitionReport:
+        return self._host_resident_constant_partitions
 
     @property
     def tensor_placement(self) -> VulkanGraphTensorPlacementReport:
@@ -1322,6 +1581,14 @@ class VulkanGraphProgram:
         return self._last_deferred_values_created
 
     @property
+    def last_host_partition_count(self) -> int:
+        return self._last_host_partition_count
+
+    @property
+    def last_host_partition_transfer_bytes(self) -> int:
+        return self._last_host_partition_transfer_bytes
+
+    @property
     def last_implicit_boundary(
         self,
     ) -> VulkanGraphImplicitBoundaryAttribution | None:
@@ -1332,6 +1599,8 @@ class VulkanGraphProgram:
         self._last_cpu_fallback_count = 0
         self._last_sync_readback_count = 0
         self._last_deferred_values_created = 0
+        self._last_host_partition_count = 0
+        self._last_host_partition_transfer_bytes = 0
         self._last_implicit_boundary = None
 
     def _run_exported_input_guard(self, bound_args: tuple[Any, ...]) -> None:
@@ -1348,7 +1617,12 @@ class VulkanGraphProgram:
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         with self._execution_lock:
             self._reset_last_run_diagnostics()
-            bound_args = _bind_runtime_inputs(self._graph_module, args, kwargs)
+            bound_args = _bind_runtime_inputs(
+                self._graph_module,
+                args,
+                kwargs,
+                self._internal_placeholder_names,
+            )
             fixed_shape_error = _fixed_shape_graph_input_error(
                 self._planning_context,
                 bound_args,
@@ -1361,6 +1635,20 @@ class VulkanGraphProgram:
                 bound_args,
                 self._input_normalization,
             )
+            public_placeholder_names = tuple(
+                name
+                for name in _graph_placeholder_names(self._graph_module)
+                if name not in self._internal_placeholder_names
+            )
+            (
+                host_partition_outputs,
+                self._last_host_partition_transfer_bytes,
+            ) = _run_host_embedding_gather_partitions(
+                self._host_embedding_gather_partitions,
+                dict(zip(public_placeholder_names, bound_args)),
+            )
+            self._last_host_partition_count = len(host_partition_outputs)
+            normalized_args = normalized_args + host_partition_outputs
             with torch.vulkan.device(self._device), _vulkan_graph_planning_scope(
                 self._planning_context
             ):
@@ -1495,10 +1783,14 @@ def export_and_lower(
         dynamic_shapes=dynamic_shapes,
         strict=False,
     )
-    cpu_state_snapshot, state_fingerprint = _freeze_cpu_state_dict_snapshot(
-        exported_program
-    )
     graph_module = exported_program.module()
+    borrowed_host_attrs = _host_embedding_candidate_attrs(
+        graph_module, exported_program.state_dict
+    )
+    cpu_state_snapshot, state_fingerprint = _freeze_cpu_state_dict_snapshot(
+        exported_program,
+        borrowed_host_attrs=borrowed_host_attrs,
+    )
     _inline_inference_grad_wrappers(graph_module)
     exported_input_guard = extract_verified_exported_input_guard(graph_module)
     input_normalization = lower_graph_input_dtype_normalizations(graph_module)
@@ -1517,12 +1809,38 @@ def export_and_lower(
     )
     static_gqa_repeats = lower_static_gqa_repeats(graph_module)
     static_sdpa_fusions = lower_static_sdpa_fusions(graph_module)
+    (
+        host_resident_constant_partitions,
+        host_embedding_gather_partitions,
+    ) = _lower_host_embedding_gather_partitions(
+        graph_module,
+        cpu_state_snapshot,
+    )
     tensor_placement = plan_graph_tensor_placements(
         graph_module,
         input_normalization,
         static_factory_constants,
         lifted_tensor_constants,
     )
+    if host_embedding_gather_partitions:
+        host_upload_nodes = tuple(
+            VulkanGraphTensorPlacementNodeReport(
+                source_kind="placeholder",
+                source_name=partition.report.output_placeholder_name,
+                dtype=partition.report.dtype,
+                storage_type="buffer",
+                execution_layout="buffer_direct",
+                reason="host_resident_embedding_gather_upload",
+            )
+            for partition in host_embedding_gather_partitions
+        )
+        tensor_placement = dataclasses.replace(
+            tensor_placement,
+            buffer_direct_count=(
+                tensor_placement.buffer_direct_count + len(host_upload_nodes)
+            ),
+            nodes=tensor_placement.nodes + host_upload_nodes,
+        )
     with torch.vulkan.device(target_device), _vulkan_graph_planning_scope(
         planning_context
     ):
@@ -1640,6 +1958,7 @@ def export_and_lower(
             repr(static_identity_advanced_indices),
             repr(static_gqa_repeats),
             repr(static_sdpa_fusions),
+            repr(host_resident_constant_partitions),
             repr(tensor_placement),
             repr(linear_lowering),
             repr(static_linear_gelu_regions),
@@ -1681,6 +2000,8 @@ def export_and_lower(
         static_identity_advanced_indices,
         static_gqa_repeats,
         static_sdpa_fusions,
+        host_resident_constant_partitions,
+        host_embedding_gather_partitions,
         tensor_placement,
         linear_lowering,
         static_linear_gelu_regions,
@@ -1703,6 +2024,8 @@ __all__ = [
     "VulkanGraphImplicitBoundaryAttribution",
     "VulkanGraphInputNormalizationReport",
     "VulkanGraphTensorPlacementReport",
+    "VulkanHostResidentConstantPartitionNodeReport",
+    "VulkanHostResidentConstantPartitionReport",
     "VulkanLiftedTensorConstantReport",
     "VulkanStaticIdentityAdvancedIndexReport",
     "VulkanStaticInferenceIdentityReport",

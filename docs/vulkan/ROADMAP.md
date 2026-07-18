@@ -738,3 +738,12 @@ CUDA and DirectML only after a graph-runtime milestone or before claiming a
 model/device gate.
 
 Do not let comparison deltas choose daily one-off Vulkan route additions.
+
+Gemma E2B is split into explicit prerequisites rather than treated as routine
+graph coverage. The first landed slice recognizes an oversized direct-input
+embedding and executes a bounded host gather/upload prelude while preserving a
+C++ Vulkan body. Next extend that partition to an admitted pure derived-index
+subgraph used by the conditional-generation wrapper, then establish BF16
+residency and operator coverage for the remaining weights. Whole-model float32
+upload and monolithic buffers above the storage-buffer binding range are not
+candidate routes.

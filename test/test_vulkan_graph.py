@@ -3881,6 +3881,64 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(model.projection.weight.device.type, "cpu")
         self.assertEqual(program(indices).cpu(), expected)
 
+    def test_oversized_embedding_uses_explicit_host_gather_partition(self):
+        class PackedPerLayerEmbedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(17, 8)
+
+            def forward(self, indices):
+                return self.embedding(indices).reshape(1, 2, 2, 4) * 0.5
+
+        torch.manual_seed(0)
+        model = PackedPerLayerEmbedding().eval()
+        indices = torch.tensor([[1, 3]], dtype=torch.long)
+        expected = model(indices)
+        with patch.object(
+            vulkan_graph, "_HOST_RESIDENT_EMBEDDING_MIN_BYTES", 1
+        ):
+            program = torch.vulkan.export_and_lower(model, indices)
+
+        report = program.host_resident_constant_partitions
+        self.assertEqual(report.partition_count, 1)
+        self.assertEqual(report.nodes[0].weight_attr, "embedding.weight")
+        self.assertEqual(report.nodes[0].weight_shape, (17, 8))
+        self.assertEqual(
+            report.nodes[0].reason,
+            "oversized_embedding_exceeds_storage_buffer_binding_range",
+        )
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertNotIn("embedding.weight", program.graph_module.state_dict())
+        self.assertEqual(program(indices).cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertEqual(program.last_host_partition_count, 1)
+        self.assertEqual(program.last_host_partition_transfer_bytes, 64)
+
+    def test_host_resident_embedding_rejects_post_lowering_mutation(self):
+        class PackedPerLayerEmbedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(17, 8)
+
+            def forward(self, indices):
+                return self.embedding(indices)
+
+        model = PackedPerLayerEmbedding().eval()
+        indices = torch.tensor([[1, 3]], dtype=torch.long)
+        with patch.object(
+            vulkan_graph, "_HOST_RESIDENT_EMBEDDING_MIN_BYTES", 1
+        ):
+            program = torch.vulkan.export_and_lower(model, indices)
+        with torch.no_grad():
+            model.embedding.weight.add_(1.0)
+        with self.assertRaisesRegex(
+            vulkan_graph.VulkanGraphExecutionError,
+            "host-resident constant was mutated",
+        ):
+            program(indices)
+
     def test_static_arange_expression_becomes_graph_owned_constant(self):
         class StaticArange(torch.nn.Module):
             def forward(self, tensor):

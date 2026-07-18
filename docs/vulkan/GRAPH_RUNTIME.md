@@ -77,6 +77,19 @@ policy may be added only when partition boundaries, transfer bytes, readbacks,
 and synchronization are explicit in the compiled plan and runtime counters.
 Unsupported nodes must never silently fall through to CPU.
 
+The first explicit CPU partition is a bounded host-resident embedding gather.
+An inference-only `aten::embedding` whose contiguous two-dimensional weight is
+at least 4 GiB cannot be bound as one supported Vulkan storage buffer. When its
+indices are a direct CPU graph input, lowering retains the immutable weight on
+the host, replaces the lookup with an internal direct-buffer plan input, and
+gathers and uploads only the selected rows before device execution. The
+program reports the weight identity, shape, bytes, partition count, and actual
+per-invocation transfer bytes. It rejects Vulkan indices, post-lowering weight
+mutation, and gathered uploads above the bounded 256 MiB budget. This is an
+explicit program prelude, not dispatcher fallback: the Vulkan body may still
+compile to `VulkanGraphPlan`, and fallback/readback counters remain independent.
+Derived-index CPU preludes and general CPU partition policy are not implemented.
+
 ### Rewrite And Fuse
 
 Fusion is a graph rewrite, not an eager placeholder protocol. Initial rewrite
@@ -455,6 +468,7 @@ Every graph program reports:
 - memory-slot and peak-byte plan;
 - selected fusion and kernel plans;
 - submit, readback, fallback, and copy counters;
+- explicit host-partition count and transfer bytes;
 - numerical parity against eager execution for validation runs.
 
 The first run may use an opt-in eager A/B self-check. A failed self-check

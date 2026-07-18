@@ -3001,8 +3001,10 @@ The five-model corpus is:
   embedding gather, and fallback/readback attribution.
 - PaddleOCR: OCR pipeline signal for batch norm, small-spatial pointwise conv,
   grid sample diagnostics, and remaining conv-transpose/fallback pressure.
-- Gemma E2B: memory/dtype roadmap signal; current evidence says it is blocked
-  before useful Vulkan route coverage by float32 model-weight OOM.
+- Gemma E2B: memory/dtype and explicit-partition roadmap signal. The checkpoint
+  contains one BF16 `[262144,8960]` per-layer embedding tensor (4.375 GiB),
+  which cannot be represented by one supported Vulkan storage-buffer binding;
+  converting the full model to float32 also exceeds the RX 9070 memory budget.
 
 Do not infer production route names from this corpus.
 
@@ -3060,9 +3062,19 @@ model gate and they do not imply model-specific production routes.
   performance gate. The artifact is
   `agent_space/paddleocr_vulkan_step11_current_20260718.json`, SHA-256
   `656bdb5d96ac185ffd2ff1ae67e57170839de086c8665adee4852eb72e38c911`.
-- Gemma E2B: still blocked before useful route coverage by model-weight Vulkan
-  OOM while moving
-  `gemma4forconditionalgeneration.model.language_model.embed_tokens_per_layer.weight`.
+- Gemma E2B: the first host-resident-constant slice is implemented for a direct
+  graph-input embedding lookup. It retains an oversized contiguous embedding
+  weight on CPU without a multi-GiB clone/hash, guards its Tensor version,
+  gathers selected rows under a 256 MiB transfer budget, uploads the compact
+  result as a direct-buffer internal input, and reports explicit partition and
+  transfer counts. A synthetic packed-per-layer analogue compiles its remaining
+  body to the C++ plan with exact parity and zero fallback/readback. This does
+  not yet make the checkpoint runnable: the actual
+  `Gemma4ForConditionalGeneration` wrapper derives `llm_input_ids` through a
+  multimodal masking subgraph before the PLE lookup, so that derived-index
+  prelude is not admitted, and the remaining model still needs BF16 weight
+  residency/operator coverage. The previous whole-model `.to(vulkan)` path
+  therefore remains blocked; it is no longer the intended execution design.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
