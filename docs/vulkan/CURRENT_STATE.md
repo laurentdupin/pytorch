@@ -3080,6 +3080,16 @@ model gate and they do not imply model-specific production routes.
   consumers and the rest of the model still need BF16 weight residency/operator
   coverage. The previous whole-model `.to(vulkan)` path therefore remains
   blocked; it is no longer the intended execution design.
+  A real checkpoint-backed one-token text export at exact source
+  `70e386a2bc3` completes in 6.80 seconds with 4,833 graph nodes: 277 linears,
+  35 SDPAs, and zero unsupported operator registrations after normalization.
+  This is an import/export census, not a Vulkan execution result. The exported
+  state has 10,062,445,126 logical bytes but 9,257,138,758 unique alias bytes;
+  the 768 MiB difference is the tied token embedding/lm-head storage. Graph
+  state freezing now clones and hashes each exact CPU storage alias once while
+  retaining all state names and mutation-sensitive fingerprints. The artifact
+  is `agent_space/gemma_step13_export_probe.json`, SHA-256
+  `7731b7165329d502fd4dc458d7b3c3915f3d82fa01d15f03ef07c6d31672b835`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

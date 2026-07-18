@@ -61,6 +61,9 @@ The lowering pass:
   rather than representing the intermediate rank-5 expand;
 - places lifted parameters, buffers, constants, and runtime inputs on the
   selected Vulkan device through an explicit placement report;
+- freezes exact CPU storage aliases once and maps every tied state-dict name to
+  that one immutable snapshot, hashing subsequent names as alias relationships
+  rather than cloning and byte-hashing the same storage again;
 - normalizes graph metadata into stable input, constant, temporary, and output
   value classes;
 - rejects unsupported mutation or alias semantics with a node-level reason.

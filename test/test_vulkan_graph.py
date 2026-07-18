@@ -3795,6 +3795,44 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(first(tensor).cpu(), expected_first)
         self.assertEqual(second(tensor).cpu(), expected_second)
 
+    def test_cpu_state_snapshot_deduplicates_exact_storage_aliases(self):
+        class TiedEmbeddingHead(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(17, 8)
+                self.head = torch.nn.Linear(8, 17, bias=False)
+                self.head.weight = self.embedding.weight
+
+            def forward(self, indices):
+                return self.head(self.embedding(indices))
+
+        model = TiedEmbeddingHead().eval()
+        indices = torch.tensor([[1, 3]], dtype=torch.long)
+        first_export = torch.export.export(
+            model, (indices,), strict=False
+        )
+        first_snapshot, first_fingerprint = (
+            vulkan_graph._freeze_cpu_state_dict_snapshot(first_export)
+        )
+        self.assertIs(
+            first_snapshot["embedding.weight"],
+            first_snapshot["head.weight"],
+        )
+
+        with torch.no_grad():
+            model.embedding.weight.add_(1.0)
+        second_export = torch.export.export(
+            model, (indices,), strict=False
+        )
+        second_snapshot, second_fingerprint = (
+            vulkan_graph._freeze_cpu_state_dict_snapshot(second_export)
+        )
+        self.assertIs(
+            second_snapshot["embedding.weight"],
+            second_snapshot["head.weight"],
+        )
+        self.assertNotEqual(first_fingerprint, second_fingerprint)
+
     def test_export_and_lower_matches_cpu_and_preserves_model(self):
         class LinearRelu(torch.nn.Module):
             def __init__(self):

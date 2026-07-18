@@ -865,6 +865,21 @@ def _freeze_cpu_state_dict_snapshot(
     borrowed_host_attrs: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, torch.Tensor], str]:
     snapshot: dict[str, torch.Tensor] = {}
+    borrowed_alias_keys = {
+        (
+            value.untyped_storage().data_ptr(),
+            value.storage_offset(),
+            tuple(value.shape),
+            tuple(value.stride()),
+            value.dtype,
+        )
+        for name, value in exported_program.state_dict.items()
+        if name in borrowed_host_attrs and isinstance(value, torch.Tensor)
+    }
+    frozen_aliases: dict[
+        tuple[int, int, tuple[int, ...], tuple[int, ...], torch.dtype],
+        tuple[str, torch.Tensor],
+    ] = {}
     fingerprint = hashlib.sha256()
     for name, value in sorted(exported_program.state_dict.items()):
         if not isinstance(value, torch.Tensor):
@@ -874,7 +889,17 @@ def _freeze_cpu_state_dict_snapshot(
                 "torch.vulkan.export_and_lower requires CPU state tensors; "
                 f"state {name!r} is on {value.device}"
             )
-        if name in borrowed_host_attrs:
+        alias_key = (
+            value.untyped_storage().data_ptr(),
+            value.storage_offset(),
+            tuple(value.shape),
+            tuple(value.stride()),
+            value.dtype,
+        )
+        existing_alias = frozen_aliases.get(alias_key)
+        if existing_alias is not None:
+            alias_name, frozen = existing_alias
+        elif alias_key in borrowed_alias_keys:
             if not value.is_contiguous():
                 raise VulkanGraphExecutionError(
                     "Host-resident Vulkan graph constants must be contiguous; "
@@ -883,6 +908,8 @@ def _freeze_cpu_state_dict_snapshot(
             frozen = value.detach()
         else:
             frozen = value.detach().contiguous().clone()
+        if existing_alias is None:
+            frozen_aliases[alias_key] = (name, frozen)
         snapshot[name] = frozen
         fingerprint.update(name.encode("utf-8"))
         fingerprint.update(b"\x00")
@@ -890,7 +917,10 @@ def _freeze_cpu_state_dict_snapshot(
         fingerprint.update(b"\x00")
         fingerprint.update(repr(tuple(frozen.shape)).encode("utf-8"))
         fingerprint.update(b"\x00")
-        if name in borrowed_host_attrs:
+        if existing_alias is not None:
+            fingerprint.update(b"exact_storage_alias\x00")
+            fingerprint.update(alias_name.encode("utf-8"))
+        elif alias_key in borrowed_alias_keys:
             # This identity is intentionally process-local. It makes an
             # oversized immutable host constant safe for the in-process plan
             # cache without copying or hashing several GiB at compilation.
