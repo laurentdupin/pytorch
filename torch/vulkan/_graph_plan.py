@@ -123,6 +123,7 @@ _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
         "vulkan_prepack::run_linear_context",
         "vulkan_prepack::run_graph_add_layernorm_plan",
         "vulkan_prepack::run_vulkan_graph_region_plan",
+        "aten::relu",
     )
 )
 _RESOURCE_ARENA_FLIGHT_DEPTH = 2
@@ -726,6 +727,11 @@ def compile_vulkan_graph_plan(
             node, len(instruction_output_ids), planning_context
         )
         if any(descriptor is None for descriptor in descriptors):
+            continue
+        if operator_name.startswith("aten::") and any(
+            descriptor is not None and descriptor.dtype is not torch.float32
+            for descriptor in descriptors
+        ):
             continue
         resource_writer_instruction_count += 1
         for value_id, descriptor in zip(instruction_output_ids, descriptors):

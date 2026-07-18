@@ -1282,6 +1282,28 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.resource_write_count(), 3)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
+    def test_cpp_graph_plan_owns_relu_output_storage(self):
+        class ReluSin(torch.nn.Module):
+            def forward(self, tensor):
+                return torch.sin(torch.relu(tensor))
+
+        torch.manual_seed(42)
+        model = ReluSin().eval()
+        tensor = torch.randn(2, 3, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.resource_writer_instruction_count, 1)
+        self.assertEqual(report.resource_value_count, 1)
+        with torch.inference_mode():
+            outputs = [program(tensor) for _ in range(3)]
+            actual = [output.cpu() for output in outputs]
+
+        for output in actual:
+            torch.testing.assert_close(output, model(tensor))
+        self.assertEqual(program.cpp_plan.resource_write_count(), 3)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
     def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):
         class LinearViewOutput(torch.nn.Module):
             def __init__(self):

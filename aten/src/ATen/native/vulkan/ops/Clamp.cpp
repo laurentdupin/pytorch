@@ -1061,6 +1061,18 @@ Tensor relu_buffer_out_vulkan(
   return clamp_buffer_impl(input, 0, std::nullopt, &output);
 }
 
+std::optional<Tensor> try_relu_buffer_out_vulkan(
+    const Tensor& input,
+    Tensor& output) {
+  if (
+      !output.defined() || !output.is_vulkan() || !input.is_vulkan() ||
+      input.scalar_type() != at::kFloat ||
+      !can_run_float_buffer_clamp(convert(input))) {
+    return std::nullopt;
+  }
+  return clamp_buffer_impl(input, 0, std::nullopt, &output);
+}
+
 Tensor& gelu_buffer_inplace_vulkan(
     Tensor& input,
     const std::string_view approximate) {

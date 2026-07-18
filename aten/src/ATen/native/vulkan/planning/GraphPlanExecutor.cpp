@@ -6,6 +6,7 @@
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/SyncCounters.h>
 #include <ATen/native/vulkan/ops/Convert.h>
+#include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
@@ -62,6 +63,7 @@ enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   LinearContext,
   AddLayernormPlan,
   GraphRegionPlan,
+  Relu,
 };
 
 struct VulkanGraphPlanArgument final {
@@ -157,6 +159,9 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
   }
   if (operator_name == "vulkan_prepack::run_vulkan_graph_region_plan") {
     return VulkanGraphPlanResourceWriterKind::GraphRegionPlan;
+  }
+  if (operator_name == "aten::relu") {
+    return VulkanGraphPlanResourceWriterKind::Relu;
   }
   return VulkanGraphPlanResourceWriterKind::None;
 }
@@ -483,6 +488,21 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       stack.clear();
       stack.emplace_back(std::move(*result));
       return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::Relu: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 1u && stack[0].isTensor(),
+          "VulkanGraphPlan.v9 relu resource writer has invalid arguments");
+      auto result =
+          try_relu_buffer_out_vulkan(stack[0].toTensor(), *targets[0]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      stack.clear();
+      stack.emplace_back(std::move(*result));
+      return same_vulkan_storage(stack[0].toTensor(), *targets[0])
+          ? VulkanGraphPlanResourceWriteResult::Written
+          : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
     }
     case VulkanGraphPlanResourceWriterKind::None:
       break;

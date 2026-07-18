@@ -4,12 +4,18 @@
 
 #include <ATen/native/vulkan/ops/Common.h>
 
+#include <optional>
+
 namespace at {
 namespace native {
 namespace vulkan {
 namespace ops {
 
 Tensor relu_buffer_out_vulkan(
+    const Tensor& input,
+    Tensor& output);
+
+std::optional<Tensor> try_relu_buffer_out_vulkan(
     const Tensor& input,
     Tensor& output);
 
