@@ -19688,64 +19688,48 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                             scale=0.125,
                             enable_gqa=False)
 
-    def test_diffusion_style_scaled_dot_product_attention_matches_numpy_reference(self):
-        log_name = "diffusion_style_sdpa_vulkan_failure_test.log"
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_path = os.path.join(repo_root, log_name)
-        if os.path.exists(log_path):
-            os.remove(log_path)
+    def test_diffusion_style_scaled_dot_product_attention_matches_cpu_reference(self):
+        script = """
+            import os
+            import torch
+            import torch.nn.functional as F
 
-        try:
-            script = """
-                import os
-                import torch
-                import torch.nn.functional as F
+            torch.manual_seed(0)
+            torch.vulkan.set_device(
+                int(os.environ.get("PYTORCH_VULKAN_TEST_DEVICE", "0")))
+            cases = [
+                (torch.randn(1, 5, 384, 64),
+                 torch.randn(1, 5, 384, 64),
+                 torch.randn(1, 5, 384, 64)),
+                (torch.randn(1, 1, 768, 512),
+                 torch.randn(1, 1, 768, 512),
+                 torch.randn(1, 1, 768, 512)),
+            ]
 
-                torch.manual_seed(0)
-                torch.vulkan.set_device(
-                    int(os.environ.get("PYTORCH_VULKAN_TEST_DEVICE", "0")))
-                cases = [
-                    (torch.randn(1, 5, 384, 64),
-                     torch.randn(1, 5, 384, 64),
-                     torch.randn(1, 5, 384, 64)),
-                    (torch.randn(1, 1, 768, 512),
-                     torch.randn(1, 1, 768, 512),
-                     torch.randn(1, 1, 768, 512)),
-                ]
+            with torch.inference_mode():
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                for query, key, value in cases:
+                    expected = F.scaled_dot_product_attention(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0)
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        dropout_p=0.0).cpu()
+                    torch.testing.assert_close(
+                        actual, expected, rtol=1e-4, atol=1e-4)
+                assert torch.ops.vulkan_prepack.cpu_fallback_count() == 0
+                assert torch.ops.vulkan_prepack.sync_readback_count() == 0
+            print("OK")
+        """
 
-                with torch.inference_mode():
-                    for query, key, value in cases:
-                        try:
-                            F.scaled_dot_product_attention(
-                                query.to("vulkan"),
-                                key.to("vulkan"),
-                                value.to("vulkan"),
-                                dropout_p=0.0).cpu()
-                        except RuntimeError as exc:
-                            if "KnownBadDiffusion4dSdpa" not in str(exc):
-                                raise
-                        else:
-                            raise AssertionError(
-                                "diffusion-style 4D SDPA should hard-fail "
-                                "until the generic buffer route is fixed")
-                print("OK")
-            """
-
-            self._run_repo_python_subprocess(
-                script,
-                extra_env={"PYTORCH_VULKAN_FAILURE_LOG": log_name},
-                error_prefix="Diffusion-style SDPA Vulkan subprocess failed.",
-            )
-
-            self.assertTrue(os.path.exists(log_path))
-            with open(log_path, "r", encoding="utf-8") as log_file:
-                log_text = log_file.read()
-
-            self.assertIn("failure_class=RouteHardFail", log_text)
-            self.assertIn("reason=KnownBadDiffusion4dSdpa", log_text)
-        finally:
-            if os.path.exists(log_path):
-                os.remove(log_path)
+        self._run_repo_python_subprocess(
+            script,
+            error_prefix="Diffusion-style SDPA Vulkan subprocess failed.",
+        )
 
     def test_diffusion_full_shape_scaled_dot_product_attention_manual(self):
         if os.getenv("PYTORCH_VULKAN_RUN_SLOW_DIFFUSION_TESTS") != "1":
@@ -22096,10 +22080,52 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(repeat, actual, rtol=1e-5, atol=1e-5)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
-    def test_scaled_dot_product_attention_single_head_diffusion_shape_guard(self):
+    def test_scaled_dot_product_attention_single_head_diffusion_layout_guard(self):
         query = torch.randn(1, 1, 641, 512)
         key = torch.randn(1, 1, 641, 512)
         value = torch.randn(1, 1, 641, 512)
+
+        with torch.inference_mode():
+            with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
+                F.scaled_dot_product_attention(
+                    query.to("vulkan"),
+                    key.to("vulkan"),
+                    value.to("vulkan"),
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+
+    def test_scaled_dot_product_attention_single_head_diffusion_784_matches_cpu(self):
+        torch.manual_seed(0)
+        query = torch.randn(1, 1, 784, 512)
+        key = torch.randn(1, 1, 784, 512)
+        value = torch.randn(1, 1, 784, 512)
+
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+        )
+        with torch.inference_mode():
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            actual = F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+            ).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_scaled_dot_product_attention_single_head_diffusion_score_budget_guard(self):
+        query = torch.randn(1, 1, 1452, 512)
+        key = torch.randn(1, 1, 1452, 512)
+        value = torch.randn(1, 1, 1452, 512)
 
         with torch.inference_mode():
             with self.assertRaisesRegex(RuntimeError, "KnownBadDiffusion4dSdpa"):
@@ -34946,6 +34972,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     scale=0.0883883,
                     enable_gqa=True,
                 )
+
                 token = torch.ops.vulkan_prepack.begin_vulkan_planning_request_scope(
                     2,  # LLM
                     2,  # Decode

@@ -15,7 +15,6 @@ namespace {
 constexpr double kHeadDim64Scale = 0.125;
 constexpr double kHeadDim512Scale = 0.04419417382415922;
 constexpr int64_t kRuntimeDiffusionSquareMaxHeads = 32;
-constexpr int64_t kRuntimeDiffusionSquareMaxSequence = 640;
 constexpr int64_t kRuntimeDiffusionSquareMaxScoreElements = 2097152;
 constexpr int64_t kRuntimeDiffusionCrossMaxHeads = 32;
 constexpr int64_t kRuntimeDiffusionCrossMaxQuerySequence = 512;
@@ -80,6 +79,17 @@ bool scale_matches_head_dim(
   return std::abs(*scale - expected_scale) <= 1.0e-6;
 }
 
+bool is_within_square_score_budget(
+    const int64_t heads,
+    const int64_t sequence) {
+  if (heads <= 0 || sequence <= 0) {
+    return false;
+  }
+  const int64_t elements_per_head =
+      kRuntimeDiffusionSquareMaxScoreElements / heads;
+  return sequence <= elements_per_head / sequence;
+}
+
 bool is_runtime_cross_attention_shape(
     const int64_t heads,
     const int64_t query_sequence,
@@ -108,10 +118,8 @@ bool is_runtime_square_attention_shape(
       (heads == 1 && head_dim == 512 && query_sequence % 4 == 0);
   return heads > 0 && heads <= kRuntimeDiffusionSquareMaxHeads &&
       query_sequence > 0 &&
-      query_sequence <= kRuntimeDiffusionSquareMaxSequence &&
       query_sequence == key_value_sequence && supported_head_dim &&
-      heads * query_sequence * key_value_sequence <=
-          kRuntimeDiffusionSquareMaxScoreElements &&
+      is_within_square_score_budget(heads, query_sequence) &&
       scale_matches_head_dim(scale, head_dim);
 }
 

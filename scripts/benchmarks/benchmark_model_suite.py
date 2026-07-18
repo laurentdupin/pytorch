@@ -1994,18 +1994,19 @@ def run_lotus(args: argparse.Namespace, backend: str) -> BenchmarkRecord:
                 match_input_res=True,
             )
 
-        for _ in range(args.warmup):
-            forward()
-        if phase_tracker is not None:
-            phase_tracker.mark("warmup")
-        timing, output = measure_repeated(
-            "device_resident_forward",
-            args.repeats,
-            forward,
-            torch_module=torch,
-            backend=backend,
-            device=device,
-        )
+        with torch.inference_mode():
+            for _ in range(args.warmup):
+                forward()
+            if phase_tracker is not None:
+                phase_tracker.mark("warmup")
+            timing, output = measure_repeated(
+                "device_resident_forward",
+                args.repeats,
+                forward,
+                torch_module=torch,
+                backend=backend,
+                device=device,
+            )
         if phase_tracker is not None:
             phase_tracker.mark("timed_forward")
         record = BenchmarkRecord(

@@ -86,6 +86,19 @@ constexpr ExecutionContractMetadata
             "unsupported_semantics_do_not_match",
             "fresh_buffer_probability_materialization_before_value_bmm");
 
+constexpr int64_t kRuntimeSquareMaxScoreElements = 2097152;
+
+bool is_within_square_score_budget(
+    const int64_t heads,
+    const int64_t sequence) {
+  if (heads <= 0 || sequence <= 0) {
+    return false;
+  }
+  const int64_t elements_per_head =
+      kRuntimeSquareMaxScoreElements / heads;
+  return sequence <= elements_per_head / sequence;
+}
+
 bool is_runtime_diffusion_square_score_shape(
     const IntArrayRef input_sizes,
     const ScalarType input_dtype,
@@ -95,9 +108,9 @@ bool is_runtime_diffusion_square_score_shape(
   }
   const int64_t heads = input_sizes[0];
   const int64_t sequence = input_sizes[1];
-  return heads > 0 && heads <= 32 && sequence > 0 && sequence <= 640 &&
+  return heads > 0 && heads <= 32 && sequence > 0 &&
       input_sizes[2] == sequence &&
-      heads * sequence * sequence <= 2097152;
+      is_within_square_score_budget(heads, sequence);
 }
 
 bool is_runtime_rectangular_score_shape(
