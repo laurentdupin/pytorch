@@ -128,6 +128,32 @@ This promotes the bounded linear/add-layernorm arena, not convolution,
 descriptors, explicit barriers, recorded commands, arbitrary dtype/rank, or
 concurrent/multi-invocation flight.
 
+Two accepted exact-source extensions broaden that arena without claiming a
+recorded partition. Commit `520e4ae8ee6` gives the enforced single-input,
+single-output graph-region ABI an honest Tensor-to-Tensor schema and writes
+linear-GELU and conv-ReLU-conv region results into stable slots. DAv2 plan
+instructions fall from 356 to 336, list projections from 20 to zero, and the
+arena grows to 78 writers over 100 values in ten slots. Repeat-live high-water
+is 1.66%/1.91% above supported eager. Exact artifacts are under
+`agent_space/graph_region_resource_exact_520e4ae8ee6/`; census/parity SHA-256
+values are `1e8864a468227a4f899a1b0eb0084285b3cec2954651b0721e57430019750559`
+and `e9812e1672dbc75ad6886e9a161c63f10dc29e4aecf7815b3b5eddf086605cfd`.
+
+Commit `f0d1d1766df` additionally owns non-escaping fp32 ReLU results. Both
+DAv2 guards report 86 writers over 108 values in 15 slots, 172 writes over the
+two evidence invocations, zero writer bypass, exact graph/eager parity, and
+repeat-live high-water 1.73%/2.00% above eager. The matching
+`torch_cpu.dll` SHA-256 is
+`ffe0190360ed91f42fe90455e9b68a9657f2327d08419b83799bc170859ed627`.
+Exact artifacts are under `agent_space/graph_relu_ownership_exact_f0d1d1766df/`;
+census/parity SHA-256 values are
+`bc8e696ab9107325b10f027491d0cb39b797d2e6e21c9646fd9f04e4f8ac90dd`
+and `2423001b302069ce9957f749a569d9dad7e01e0b703bf519f68ebda6c36b72df`.
+Generic add, mul, softmax, and matmul writer probes each left 12 DAv2 writer
+bypasses per invocation in the relevant isolation runs; all four implementations
+were removed. These rejections show that stable point outputs alone still do
+not form a sufficiently broad contiguous recorded partition.
+
 Phase 6 attribution at exact source commit
 `28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657` keeps the existing 32-job
 checkpoint frequency and sweeps exact observed topologies of 10, 5, 2, and 1

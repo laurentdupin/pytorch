@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-07-17",
+  "last_updated": "2026-07-18",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -14,6 +14,86 @@
     "proposed_unstarted"
   ],
   "entries": [
+    {
+      "id": "dav2_graph_relu_resource_writer_accepted_2026_07_18",
+      "status": "accepted_default_fix",
+      "head": "f0d1d1766dfb28bed2477ee17fc34f2dfb740eaf",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Extend stable v9 program-owned output coverage only for writer families that remain exact, memory-safe, and zero-bypass on both DAv2 guards."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. Matching torch_cpu.dll SHA-256 ffe0190360ed91f42fe90455e9b68a9657f2327d08419b83799bc170859ed627.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "non-escaping exact-shape fp32 ReLU outputs",
+        "two-generation completion-guarded resource arena",
+        "supported ten-submit unrecorded topology"
+      ],
+      "candidate": "Write eligible ReLU results directly into program-owned resource slots while preserving dispatcher execution for unsupported layouts.",
+      "correctness": {
+        "status": "accepted_structural_ownership_no_latency_claim",
+        "tests": [
+          "exact graph-versus-eager parity on both DAv2 guards",
+          "normal graph-versus-CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph-versus-CPU max_abs 0.0024883747 under 0.004",
+          "zero CPU fallback, unexpected readback, deferred values, writer bypass, unsafe-slot leaks, and retirement failures",
+          "repeated invocation while prior outputs remain live",
+          "partial-failure arena recovery",
+          "139 Vulkan graph tests, 23 graph evidence tests, and 69 governance tests"
+        ]
+      },
+      "counters": {
+        "instruction_count": 336,
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 15,
+        "resource_value_count": 108,
+        "resource_writer_instruction_count": 86,
+        "resource_writes_over_two_evidence_invocations": 172,
+        "resource_writer_bypass_count": 0,
+        "normal_repeat_live_peak_over_eager_percent": 1.734,
+        "alternate_repeat_live_peak_over_eager_percent": 2.004,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0,
+        "unsafe_slot_leak": 0,
+        "retirement_failure": 0
+      },
+      "rejected_writer_probes": {
+        "families": [
+          "aten::add.Tensor",
+          "aten::mul.Tensor",
+          "aten::softmax.int",
+          "aten::matmul"
+        ],
+        "result": "Each relevant isolation retained 12 DAv2 writer bypasses per invocation. All four implementations were removed rather than retained as inactive branches.",
+        "revisit_condition": "Return only with a generic storage/layout contract that proves zero bypass and contributes enough contiguous dispatch coverage to the preregistered recording threshold."
+      },
+      "timing_ms": {
+        "measurement_repeats": 1,
+        "performance_claim": "Structural ownership evidence only. The single-sample timings are reference diagnostics and do not promote a latency change."
+      },
+      "artifacts": [
+        "agent_space/graph_relu_ownership_exact_f0d1d1766df/dav2_vits_relu_ownership_export_census.json",
+        "agent_space/graph_relu_ownership_exact_f0d1d1766df/dav2_vits_relu_ownership_export_parity.json"
+      ],
+      "artifact_identity": {
+        "census_sha256": "bc8e696ab9107325b10f027491d0cb39b797d2e6e21c9646fd9f04e4f8ac90dd",
+        "parity_sha256": "2423001b302069ce9957f749a569d9dad7e01e0b703bf519f68ebda6c36b72df"
+      },
+      "decision": "Accept ReLU output ownership as a bounded v9 resource extension. Do not claim a latency win or recorded partition; delete the four zero-bypass failures and continue toward broader generic stable spans.",
+      "revisit_conditions": [
+        "Do not widen a writer family unless both DAv2 guards execute it with zero writer bypass and remain within the 5% repeat-live memory gate.",
+        "Preregister a recorded candidate only after stable ownership covers enough contiguous dispatches to plausibly meet the command-record reduction threshold.",
+        "Require the qualified RX 9070 soak before any new ownership or recording path becomes a supported default."
+      ]
+    },
     {
       "id": "paddle_hymt_transfer_linear_cleanup_2026_07_02",
       "status": "accepted_default_fix",

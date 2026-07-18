@@ -370,6 +370,18 @@ zero unsafe-slot leaks or retirement failures, and bounded live/high-water
 memory. This is the supported linear/add-layernorm resource arena; it is not a
 claim about convolution, descriptor reuse, or recorded command partitions.
 
+Exact-SHA `520e4ae8ee6` then normalizes the V1 graph-region ABI to one Tensor
+in and one Tensor out and assigns eligible linear-GELU and conv-ReLU-conv
+outputs to the arena. Exact-SHA `f0d1d1766df` adds non-escaping fp32 ReLU
+outputs. The final DAv2 plans contain 86 resource writers over 108 values in
+15 slots, perform 172 writes over two evidence invocations with zero bypass,
+remain bit-exact with eager Vulkan, and keep repeat-live high-water within
+1.73%/2.00% of supported eager. Add, mul, softmax, and matmul writer probes
+were rejected and deleted after isolation continued to report 12 bypasses per
+invocation. The accepted extensions increase stable-address coverage but do
+not yet justify command recording: remaining dispatcher-owned values break the
+transformer spans before they meet the preregistered recording threshold.
+
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and

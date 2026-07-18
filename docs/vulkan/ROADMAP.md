@@ -617,6 +617,17 @@ arena does not claim descriptor reuse, explicit barrier planning, recorded
 commands, arbitrary dtype/rank, or concurrent/multi-invocation flight, and it
 does not by itself close a legacy-subsystem deletion gate.
 
+Exact-SHA `520e4ae8ee6` extends the arena to eligible graph-region outputs
+after replacing the list-wrapped V1 region ABI with its enforced Tensor-to-
+Tensor contract. Exact-SHA `f0d1d1766df` adds non-escaping fp32 ReLU outputs.
+The resulting DAv2 plans own 86 writers over 108 values in 15 slots, record
+zero bypass and exact graph/eager parity, and remain within 2.00% of eager
+repeat-live high-water. Add, mul, softmax, and matmul ownership attempts were
+removed after each relevant isolation retained 12 bypasses per invocation.
+This is accepted resource coverage, not Phase 6 completion: a recording
+candidate still needs generic stable ownership across a useful contiguous
+multi-dispatch span.
+
 Exit criteria:
 
 - the C++ executor matches the Python correctness executor;
