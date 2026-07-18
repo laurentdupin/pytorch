@@ -2082,6 +2082,59 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.nodes[0].reason, "fresh_value_has_other_users")
         self.assertEqual(relu.target, torch.ops.aten.relu_.default)
 
+    def test_fresh_mul_functionalization_executes_cpp_plan(self):
+        class FreshMul(torch.nn.Module):
+            def forward(self, tensor, scale):
+                fresh = torch.ops.aten.add.Tensor(tensor, tensor)
+                return torch.ops.aten.mul_.Tensor(fresh, scale)
+
+        model = FreshMul().eval()
+        tensor = torch.randn(2, 3)
+        scale = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(model, (tensor, scale))
+
+        report = program.fresh_mul_functionalization
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.functionalized_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "fresh_single_user_non_aliasing_tensor_result",
+        )
+        self.assertEqual(report.nodes[0].source_operator_name, "aten.add.Tensor")
+        self.assertEqual(report.nodes[0].replacement_target, "aten::mul.Tensor")
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor, scale)
+        self.assertEqual(output.cpu(), model(tensor, scale))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_fresh_mul_functionalization_rejects_input_alias(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        scale = graph.placeholder("scale")
+        mul = graph.call_function(torch.ops.aten.mul_.Tensor, (tensor, scale))
+        graph.output(mul)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        report = vulkan_graph_lowering.functionalize_fresh_mul_mutations(
+            graph_module
+        )
+
+        self.assertEqual(report.functionalized_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "source_is_not_an_operator_result",
+        )
+        self.assertEqual(mul.target, torch.ops.aten.mul_.Tensor)
+
     def test_cpp_graph_plan_elides_static_inference_dropout(self):
         class InferenceDropout(torch.nn.Module):
             def forward(self, tensor):
@@ -4636,6 +4689,61 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_retains_unused_specialized_inputs(self):
+        class SpecializedInputs(torch.nn.Module):
+            def forward(self, tensor, use_cache: bool, logits_to_keep: int):
+                return tensor + 1
+
+        model = SpecializedInputs().eval()
+        tensor = torch.randn(2, 3)
+        program = torch.vulkan.export_and_lower(
+            model,
+            (tensor, False, 1),
+        )
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.cpp_plan_report.status, "compiled")
+        self.assertEqual(program.cpp_plan_report.input_count, 1)
+        with patch.object(
+            vulkan_graph._VulkanGraphInterpreter,
+            "run_node",
+            side_effect=AssertionError("Python node execution is forbidden"),
+        ):
+            output = program(tensor, False, 1)
+        self.assertEqual(output.cpu(), model(tensor, False, 1))
+        with self.assertRaisesRegex(
+            torch.vulkan.VulkanGraphExecutionError,
+            "exported input guard failed",
+        ):
+            program(tensor, True, 1)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
+    def test_cpp_graph_plan_rejects_used_non_tensor_input(self):
+        graph = torch.fx.Graph()
+        tensor = graph.placeholder("tensor")
+        tensor.meta["val"] = torch.empty(2, 3)
+        scale = graph.placeholder("scale")
+        scale.meta["val"] = 2
+        output = graph.call_function(
+            torch.ops.aten.mul.Scalar,
+            args=(tensor, scale),
+        )
+        output.meta["val"] = torch.empty(2, 3)
+        graph.output(output)
+        graph_module = torch.fx.GraphModule({}, graph)
+
+        compilation = vulkan_graph.compile_vulkan_graph_plan(
+            graph_module,
+            {output.name: "direct_vulkan"},
+        )
+        self.assertIsNone(compilation.plan)
+        self.assertEqual(
+            compilation.report.reason,
+            "non_tensor_input:scale",
+        )
 
     def test_cpp_graph_plan_checks_integer_shape_arithmetic(self):
         class DynamicScale(torch.nn.Module):

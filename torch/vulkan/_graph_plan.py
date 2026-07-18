@@ -107,6 +107,7 @@ class VulkanGraphPlanReport:
 class _VulkanGraphPlanCompilation:
     plan: Any | None
     report: VulkanGraphPlanReport
+    input_indices: tuple[int, ...]
 
 
 _VALUE_ARGUMENT = 0
@@ -189,6 +190,7 @@ def _rejected(
             value_use_counts=(),
             value_last_uses=(),
         ),
+        input_indices=(),
     )
 
 
@@ -381,19 +383,28 @@ def compile_vulkan_graph_plan(
     def rejected(reason: str) -> _VulkanGraphPlanCompilation:
         return _rejected(reason, planning_context)
 
-    placeholders = [
+    graph_placeholders = [
         node for node in graph_module.graph.nodes if node.op == "placeholder"
     ]
+    if not graph_placeholders:
+        return rejected("v9_requires_tensor_inputs")
+    for node in graph_placeholders:
+        if (
+            not isinstance(node.meta.get("val"), torch.Tensor)
+            and node.users
+        ):
+            return rejected(f"non_tensor_input:{node.name}")
+    input_indices = tuple(
+        index
+        for index, node in enumerate(graph_placeholders)
+        if isinstance(node.meta.get("val"), torch.Tensor)
+    )
+    placeholders = [graph_placeholders[index] for index in input_indices]
     if not placeholders:
         return rejected("v9_requires_tensor_inputs")
-    for node in placeholders:
-        if not isinstance(node.meta.get("val"), torch.Tensor):
-            return rejected(f"non_tensor_input:{node.name}")
 
     value_ids = {node: index for index, node in enumerate(placeholders)}
-    value_types = {
-        node: torch._C.TensorType.get() for node in placeholders
-    }
+    value_types = {node: torch._C.TensorType.get() for node in placeholders}
     multi_value_ids: dict[torch.fx.Node, tuple[int, ...]] = {}
     multi_value_types: dict[torch.fx.Node, tuple[Any, ...]] = {}
     constants: list[Any] = []
@@ -912,7 +923,7 @@ def compile_vulkan_graph_plan(
         or tuple(plan.value_last_uses()) != report.value_last_uses
     ):
         raise RuntimeError("VulkanGraphPlan.v9 C++ schema disagrees with lowering")
-    return _VulkanGraphPlanCompilation(plan, report)
+    return _VulkanGraphPlanCompilation(plan, report, input_indices)
 
 
 __all__ = [

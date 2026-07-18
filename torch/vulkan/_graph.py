@@ -21,6 +21,7 @@ from ._graph_plan import (
 from ._graph_lowering import (
     VulkanConv2dLoweringReport,
     VulkanFreshDetachFunctionalizationReport,
+    VulkanFreshMulFunctionalizationReport,
     VulkanFreshReluFunctionalizationReport,
     VulkanGraphInputNormalizationReport,
     VulkanGraphRegionLoweringReport,
@@ -40,6 +41,7 @@ from ._graph_lowering import (
     VulkanStaticLinearGeluRegionReport,
     extract_verified_exported_input_guard,
     functionalize_fresh_detach_mutations,
+    functionalize_fresh_mul_mutations,
     functionalize_fresh_relu_mutations,
     is_verified_exported_input_guard_call,
     lower_lifted_tensor_constants,
@@ -1676,6 +1678,7 @@ class VulkanGraphProgram:
         static_factory_constants: VulkanStaticFactoryConstantReport,
         lifted_tensor_constants: VulkanLiftedTensorConstantReport,
         fresh_detach_functionalization: VulkanFreshDetachFunctionalizationReport,
+        fresh_mul_functionalization: VulkanFreshMulFunctionalizationReport,
         fresh_relu_functionalization: VulkanFreshReluFunctionalizationReport,
         static_inference_identities: VulkanStaticInferenceIdentityReport,
         static_identity_advanced_indices: VulkanStaticIdentityAdvancedIndexReport,
@@ -1698,6 +1701,7 @@ class VulkanGraphProgram:
         vulkan_graph_regions: VulkanGraphRegionLoweringReport,
         cpp_plan: Any | None,
         cpp_plan_report: VulkanGraphPlanReport,
+        cpp_plan_input_indices: tuple[int, ...],
     ) -> None:
         self._graph_module = graph_module
         self._exported_input_guard = exported_input_guard
@@ -1709,6 +1713,7 @@ class VulkanGraphProgram:
         self._static_factory_constants = static_factory_constants
         self._lifted_tensor_constants = lifted_tensor_constants
         self._fresh_detach_functionalization = fresh_detach_functionalization
+        self._fresh_mul_functionalization = fresh_mul_functionalization
         self._fresh_relu_functionalization = fresh_relu_functionalization
         self._static_inference_identities = static_inference_identities
         self._static_identity_advanced_indices = static_identity_advanced_indices
@@ -1741,6 +1746,7 @@ class VulkanGraphProgram:
         self._vulkan_graph_regions = vulkan_graph_regions
         self._cpp_plan = cpp_plan
         self._cpp_plan_report = cpp_plan_report
+        self._cpp_plan_input_indices = cpp_plan_input_indices
         self._run_count = 0
         self._last_executed_nodes: tuple[str, ...] = ()
         self._last_cpu_fallback_count = 0
@@ -1796,6 +1802,12 @@ class VulkanGraphProgram:
         self,
     ) -> VulkanFreshReluFunctionalizationReport:
         return self._fresh_relu_functionalization
+
+    @property
+    def fresh_mul_functionalization(
+        self,
+    ) -> VulkanFreshMulFunctionalizationReport:
+        return self._fresh_mul_functionalization
 
     @property
     def static_inference_identities(self) -> VulkanStaticInferenceIdentityReport:
@@ -2003,9 +2015,13 @@ class VulkanGraphProgram:
                     with torch.inference_mode():
                         if self._cpp_plan is not None:
                             try:
+                                plan_inputs = [
+                                    moved_args[index]
+                                    for index in self._cpp_plan_input_indices
+                                ]
                                 flat_output = (
                                     torch.ops.vulkan_prepack.run_vulkan_graph_plan.default(
-                                        list(moved_args), self._cpp_plan
+                                        plan_inputs, self._cpp_plan
                                     )
                                 )
                             except Exception as error:
@@ -2139,6 +2155,7 @@ def export_and_lower(
         graph_module
     )
     fresh_relu_functionalization = functionalize_fresh_relu_mutations(graph_module)
+    fresh_mul_functionalization = functionalize_fresh_mul_mutations(graph_module)
     static_inference_identities = lower_static_inference_identities(
         graph_module,
         fresh_detach_functionalization,
@@ -2328,6 +2345,7 @@ def export_and_lower(
             repr(lifted_tensor_constants),
             repr(fresh_detach_functionalization),
             repr(fresh_relu_functionalization),
+            repr(fresh_mul_functionalization),
             repr(static_inference_identities),
             repr(static_identity_advanced_indices),
             repr(static_gqa_repeats),
@@ -2370,6 +2388,7 @@ def export_and_lower(
         static_factory_constants,
         lifted_tensor_constants,
         fresh_detach_functionalization,
+        fresh_mul_functionalization,
         fresh_relu_functionalization,
         static_inference_identities,
         static_identity_advanced_indices,
@@ -2390,6 +2409,7 @@ def export_and_lower(
         vulkan_graph_regions,
         cpp_plan_compilation.plan,
         cpp_plan_compilation.report,
+        cpp_plan_compilation.input_indices,
     )
 
 
@@ -2397,6 +2417,7 @@ __all__ = [
     "VulkanGraphCensus",
     "VulkanGraphExecutionError",
     "VulkanFreshDetachFunctionalizationReport",
+    "VulkanFreshMulFunctionalizationReport",
     "VulkanFreshReluFunctionalizationReport",
     "VulkanGraphImplicitBoundaryAttribution",
     "VulkanGraphInputNormalizationReport",

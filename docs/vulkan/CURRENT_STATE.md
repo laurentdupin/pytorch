@@ -3106,6 +3106,19 @@ model gate and they do not imply model-specific production routes.
   retaining all state names and mutation-sensitive fingerprints. The artifact
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
   `7731b7165329d502fd4dc458d7b3c3915f3d82fa01d15f03ef07c6d31672b835`.
+  A checkpoint-backed lower at the source commit containing this entry now
+  reaches `VulkanGraphPlan.v9`: 4,202 instructions, three tensor inputs, 3,672
+  invocation value slots, 52 list arguments, and submission ownership. Two
+  unused specialized kwargs (`use_cache=False`, `logits_to_keep=1`) are
+  projected out of the tensor-only C++ plan input table but remain covered by
+  exported runtime guards. All 35 per-layer `aten::mul_` nodes are
+  functionalized only because their inputs are fresh single-user non-aliasing
+  operator results; observable input/alias mutation remains rejected. The PLE
+  remains one explicit 4.375 GiB host partition. This is whole-text-graph plan
+  compilation, not execution, parity, fallback/readback, memory, or performance
+  evidence. The updated artifact is
+  `agent_space/gemma_step13_export_probe.json`, SHA-256
+  `1F1C169E1FBC52FD117C585397809E940E37DF052022A5FC162F3FDF32F88C03`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

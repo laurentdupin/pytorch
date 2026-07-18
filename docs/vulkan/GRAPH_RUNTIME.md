@@ -64,6 +64,12 @@ The lowering pass:
 - freezes exact CPU storage aliases once and maps every tied state-dict name to
   that one immutable snapshot, hashing subsequent names as alias relationships
   rather than cloning and byte-hashing the same storage again;
+- projects unused specialized non-tensor export inputs out of the C++ plan
+  input table while retaining them in runtime binding and exported guard
+  validation; non-tensor inputs used by graph execution remain rejected;
+- functionalizes in-place multiply on a fresh, single-user, non-aliasing
+  operator result to ordinary `aten::mul`, preserving input/alias mutations as
+  fail-closed rejections;
 - normalizes graph metadata into stable input, constant, temporary, and output
   value classes;
 - rejects unsupported mutation or alias semantics with a node-level reason.

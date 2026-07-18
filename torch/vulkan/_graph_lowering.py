@@ -299,6 +299,24 @@ class VulkanFreshReluFunctionalizationReport:
 
 
 @dataclasses.dataclass(frozen=True)
+class VulkanFreshMulFunctionalizationNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    source_node_name: str | None
+    source_operator_name: str | None
+    replacement_target: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanFreshMulFunctionalizationReport:
+    candidate_count: int
+    functionalized_count: int
+    rejected_count: int
+    nodes: tuple[VulkanFreshMulFunctionalizationNodeReport, ...]
+
+
+@dataclasses.dataclass(frozen=True)
 class VulkanStaticInferenceIdentityNodeReport:
     node_name: str
     status: str
@@ -1395,6 +1413,62 @@ def functionalize_fresh_relu_mutations(
         graph_module.graph.lint()
         graph_module.recompile()
     return VulkanFreshReluFunctionalizationReport(
+        candidate_count=len(reports),
+        functionalized_count=functionalized_count,
+        rejected_count=len(reports) - functionalized_count,
+        nodes=tuple(reports),
+    )
+
+
+def functionalize_fresh_mul_mutations(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanFreshMulFunctionalizationReport:
+    reports: list[VulkanFreshMulFunctionalizationNodeReport] = []
+    for node in tuple(graph_module.graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.mul_.Tensor
+        ):
+            continue
+        source = node.args[0] if len(node.args) == 2 and not node.kwargs else None
+        rejection = _fresh_single_user_tensor_rejection(source, node)
+        if rejection is not None:
+            reports.append(
+                VulkanFreshMulFunctionalizationNodeReport(
+                    node_name=node.name,
+                    status="rejected",
+                    reason=rejection,
+                    source_node_name=(
+                        source.name if isinstance(source, torch.fx.Node) else None
+                    ),
+                    source_operator_name=(
+                        str(source.target)
+                        if isinstance(source, torch.fx.Node)
+                        else None
+                    ),
+                    replacement_target=None,
+                )
+            )
+            continue
+        node.target = torch.ops.aten.mul.Tensor
+        reports.append(
+            VulkanFreshMulFunctionalizationNodeReport(
+                node_name=node.name,
+                status="functionalized",
+                reason="fresh_single_user_non_aliasing_tensor_result",
+                source_node_name=source.name,
+                source_operator_name=str(source.target),
+                replacement_target="aten::mul.Tensor",
+            )
+        )
+
+    functionalized_count = sum(
+        report.status == "functionalized" for report in reports
+    )
+    if functionalized_count:
+        graph_module.graph.lint()
+        graph_module.recompile()
+    return VulkanFreshMulFunctionalizationReport(
         candidate_count=len(reports),
         functionalized_count=functionalized_count,
         rejected_count=len(reports) - functionalized_count,
@@ -4649,6 +4723,8 @@ __all__ = [
     "VulkanGraphInputNormalizationReport",
     "VulkanGraphTensorPlacementNodeReport",
     "VulkanGraphTensorPlacementReport",
+    "VulkanFreshMulFunctionalizationNodeReport",
+    "VulkanFreshMulFunctionalizationReport",
     "VulkanStaticInferenceIdentityNodeReport",
     "VulkanStaticInferenceIdentityReport",
     "VulkanLiftedTensorConstantNodeReport",
@@ -4684,6 +4760,7 @@ __all__ = [
     "lower_static_linear_to_vulkan_contexts",
     "lower_static_linear_gelu_regions",
     "lower_graph_input_dtype_normalizations",
+    "functionalize_fresh_mul_mutations",
     "lower_static_inference_identities",
     "lower_lifted_tensor_constants",
     "lower_static_factory_constants",
