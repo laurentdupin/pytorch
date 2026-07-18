@@ -487,6 +487,7 @@ def _lowering_report_objects(
             program, "static_identity_advanced_indices", None
         ),
         "static_gqa_repeats": getattr(program, "static_gqa_repeats", None),
+        "static_sdpa_fusions": getattr(program, "static_sdpa_fusions", None),
         "tensor_placement": getattr(program, "tensor_placement", None),
         "linear_lowering": getattr(program, "linear_lowering", None),
         "static_linear_gelu_regions": getattr(

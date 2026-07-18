@@ -38,6 +38,19 @@ Tensor repeat_attention_heads_for_gqa_vulkan(
     const Tensor& tensor,
     int64_t repeat_factor);
 
+Tensor run_graph_attention_math_vulkan(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    double scale);
+
+Tensor run_graph_attention_math_out_vulkan(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    double scale,
+    Tensor& output);
+
 Tensor run_attention_runtime_buffer_math_program_bridge(
     const Tensor& query,
     const Tensor& key,

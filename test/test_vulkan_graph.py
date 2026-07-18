@@ -4162,6 +4162,114 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(report.nodes[0].reason, "gqa_repeat_requires_float32")
         self.assertIn("aten.expand.default", program.graph_module.code)
 
+    def test_static_attention_chain_lowers_to_semantic_sdpa(self):
+        class Attention(torch.nn.Module):
+            def forward(self, query, key, value):
+                scores = torch.matmul(
+                    query * 0.125,
+                    key.transpose(-2, -1),
+                )
+                probability = torch.softmax(scores, dim=-1)
+                return torch.matmul(probability, value) + query
+
+        torch.manual_seed(0)
+        query = torch.randn(1, 6, 5, 64)
+        key = torch.randn_like(query)
+        value = torch.randn_like(query)
+        model = Attention().eval()
+        program = torch.vulkan.export_and_lower(model, (query, key, value))
+        report = program.static_sdpa_fusions
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 1)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(report.nodes[0].scale, 0.125)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "static_unmasked_sdpa_semantic_fusion",
+        )
+        self.assertIn(
+            "vulkan_prepack.run_graph_attention_math.default",
+            program.graph_module.code,
+        )
+        self.assertNotIn("aten.matmul.default", program.graph_module.code)
+        self.assertEqual(
+            program.cpp_plan_report.resource_writer_instruction_count,
+            1,
+        )
+        self.assertEqual(
+            program(query, key, value).cpu(),
+            model(query, key, value),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_static_attention_chain_preserves_externally_used_scores(self):
+        class AttentionWithScores(torch.nn.Module):
+            def forward(self, query, key, value):
+                scores = torch.matmul(
+                    query * 0.125,
+                    key.transpose(-2, -1),
+                )
+                probability = torch.softmax(scores, dim=-1)
+                return torch.matmul(probability, value), scores
+
+        query = torch.randn(1, 2, 3, 4)
+        key = torch.randn_like(query)
+        value = torch.randn_like(query)
+        model = AttentionWithScores().eval()
+        program = torch.vulkan.export_and_lower(model, (query, key, value))
+        report = program.static_sdpa_fusions
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "attention_intermediate_has_external_users",
+        )
+        self.assertNotIn(
+            "vulkan_prepack.run_graph_attention_math.default",
+            program.graph_module.code,
+        )
+        self.assertEqual(
+            program(query, key, value)[0].cpu(),
+            model(query, key, value)[0],
+        )
+
+    def test_static_attention_chain_rejects_non_last_softmax(self):
+        class NonLastSoftmax(torch.nn.Module):
+            def forward(self, query, key, value):
+                scores = torch.matmul(
+                    query * 0.5,
+                    key.transpose(-2, -1),
+                )
+                return torch.matmul(torch.softmax(scores, dim=-2), value)
+
+        query = torch.randn(1, 2, 3, 3)
+        key = torch.randn_like(query)
+        value = torch.randn_like(query)
+        program = torch.vulkan.export_and_lower(
+            NonLastSoftmax().eval(),
+            (query, key, value),
+        )
+        report = program.static_sdpa_fusions
+
+        self.assertEqual(report.candidate_count, 1)
+        self.assertEqual(report.lowered_count, 0)
+        self.assertEqual(report.rejected_count, 1)
+        self.assertEqual(
+            report.nodes[0].reason,
+            "attention_reduction_or_transpose_dims_mismatch",
+        )
+        self.assertNotIn(
+            "vulkan_prepack.run_graph_attention_math.default",
+            program.graph_module.code,
+        )
+
     def test_enable_grad_wrapper_stays_unsupported_for_inference(self):
         body_graph = torch.fx.Graph()
         body_input = body_graph.placeholder("tensor")

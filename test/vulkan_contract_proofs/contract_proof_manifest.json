@@ -5,7 +5,7 @@
       "accepted_entry_count": 16,
       "admission_digest": "60b8c62b3c609fbe62334d9a5299b93e98fb5dc4db2d2511ae10bd6ab164660d",
       "cardinality_estimate": 16,
-      "dependency_digest": "ad348ff6dae9e3a1a0f3aa66ab47be505e53ee399ed64e4c445e5ce080ee1ab7",
+      "dependency_digest": "4f646c800662960bf31d321d3b9e4369e0ecd7e00a9a2eca8d0344149950308f",
       "exact_sparse_row_count": 16,
       "factorized_group_count": 0,
       "proof_entry_count": 16
@@ -48,7 +48,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -76,7 +76,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -104,7 +104,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -132,7 +132,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -160,7 +160,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -188,7 +188,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -216,7 +216,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -244,7 +244,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -272,7 +272,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -300,7 +300,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -328,7 +328,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -356,7 +356,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -384,7 +384,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -412,7 +412,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -440,7 +440,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -468,7 +468,7 @@
       "admission_kind": "exact_sparse_row",
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
-      "dependency_digest": "d6393246c87c060e1ff57701c90d94b974c7d25cacc42b467ba84947dd6edbd7",
+      "dependency_digest": "08b8b43b99a80c142977e127715eeb60fba8daf3c46adcb9019a4c83b85ab6e1",
       "exact_row_debt": true,
       "expiry": "broader attention probability producer/consumer layout proof replaces finite rows",
       "fallback_readback_copy_budget": {
@@ -3324,7 +3324,7 @@
       "tuple_id": "depth_vision_factorized_projection_144"
     }
   ],
-  "proof_manifest_digest": "2ef70be43532b26bba2dcf1e63ffaae81c5b989542620d312b845edf7903e1d0",
+  "proof_manifest_digest": "37f6d8282acb96129f21a862a32e9bcf18b48a0aca065b64ad24eb9946b49018",
   "schema_version": 1,
-  "source_accepted_manifest_digest": "a2c305d4a66778651d9293657ce710f9c1b5d2791784dbd90d6f157129e59de2"
+  "source_accepted_manifest_digest": "1800483781dfe51860f589196bfc4bbe911226a47f8105153e47cc19711b49a8"
 }

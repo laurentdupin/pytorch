@@ -3814,6 +3814,80 @@ Tensor repeat_attention_heads_for_gqa_vulkan(
   return materialize_bounded_decode_gqa_repeat(buffer_tensor, repeat_factor);
 }
 
+Tensor run_graph_attention_math_vulkan(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    double scale) {
+  TORCH_CHECK(
+      query.is_vulkan() && key.is_vulkan() && value.is_vulkan(),
+      "Vulkan graph attention math expects Vulkan tensors");
+  TORCH_CHECK(
+      (query.dim() == 3 || query.dim() == 4) &&
+          key.dim() == query.dim() && value.dim() == query.dim(),
+      "Vulkan graph attention math expects matching rank-3 or rank-4 tensors");
+  TORCH_CHECK(
+      query.scalar_type() == kFloat && key.scalar_type() == kFloat &&
+          value.scalar_type() == kFloat,
+      "Vulkan graph attention math currently supports float32 tensors only");
+  TORCH_CHECK(
+      std::isfinite(scale) && scale > 0.0,
+      "Vulkan graph attention math expects a finite positive scale");
+  TORCH_CHECK(
+      query.sizes().slice(0, query.dim() - 2) ==
+              key.sizes().slice(0, key.dim() - 2) &&
+          query.sizes().slice(0, query.dim() - 2) ==
+              value.sizes().slice(0, value.dim() - 2) &&
+          query.size(-1) == key.size(-1) &&
+          key.size(-2) == value.size(-2),
+      "Vulkan graph attention math tensor shapes do not satisfy the "
+      "attention contract");
+
+  Tensor scores = at::matmul(at::mul(query, scale), key.transpose(-2, -1));
+  Tensor probability = at::softmax(scores, -1);
+  utils::log_vulkan_op_hit("vulkan_prepack::run_graph_attention_math");
+  return at::matmul(probability, value);
+}
+
+Tensor run_graph_attention_math_out_vulkan(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    double scale,
+    Tensor& output) {
+  TORCH_CHECK(
+      output.is_vulkan() && output.scalar_type() == kFloat &&
+          output.dim() == query.dim(),
+      "Vulkan graph attention math output expects a matching float Vulkan "
+      "tensor");
+  const std::vector<int64_t> expected_output_sizes = [&]() {
+    std::vector<int64_t> sizes = query.sizes().vec();
+    sizes.back() = value.size(-1);
+    return sizes;
+  }();
+  TORCH_CHECK(
+      output.sizes().equals(expected_output_sizes),
+      "Vulkan graph attention math output has an incompatible shape");
+
+  Tensor scores = at::matmul(at::mul(query, scale), key.transpose(-2, -1));
+  Tensor probability = at::softmax(scores, -1);
+  const int64_t batch_heads = c10::multiply_integers(
+      query.sizes().slice(0, query.dim() - 2));
+  Tensor probability_3d = probability.reshape(
+      {batch_heads, query.size(-2), key.size(-2)});
+  Tensor value_3d =
+      value.reshape({batch_heads, value.size(-2), value.size(-1)});
+  Tensor output_3d =
+      output.reshape({batch_heads, query.size(-2), value.size(-1)});
+  Tensor result_3d =
+      bmm_buffer_out_vulkan(probability_3d, value_3d, output_3d);
+  TORCH_CHECK(
+      tensor_storage_identity(result_3d) == tensor_storage_identity(output),
+      "Vulkan graph attention math output rebound its stable resource");
+  utils::log_vulkan_op_hit("vulkan_prepack::run_graph_attention_math.out");
+  return output;
+}
+
 Tensor scaled_dot_product_attention_vulkan(
     const Tensor& query,
     const Tensor& key,

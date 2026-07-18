@@ -2499,6 +2499,9 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "vulkan_prepack::repeat_attention_heads_for_gqa("
       "Tensor tensor, int repeat_factor) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_graph_attention_math("
+      "Tensor query, Tensor key, Tensor value, float scale) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge("
       "Tensor backbone_input, "
       "__torch__.torch.classes.vulkan.VisionBackboneBlockContext backbone_context, "
@@ -3496,6 +3499,9 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::repeat_attention_heads_for_gqa"),
       TORCH_FN(repeat_attention_heads_for_gqa_vulkan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_attention_math"),
+      TORCH_FN(run_graph_attention_math_vulkan));
   m.impl(
       TORCH_SELECTIVE_NAME(
           "vulkan_prepack::run_vision_backbone_decoder_replay_bundle_bridge"),

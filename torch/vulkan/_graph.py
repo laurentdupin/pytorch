@@ -33,6 +33,7 @@ from ._graph_lowering import (
     VulkanStaticConv2dReluRegionReport,
     VulkanStaticFactoryConstantReport,
     VulkanStaticGQARepeatReport,
+    VulkanStaticSDPAFusionReport,
     VulkanStaticIdentityAdvancedIndexReport,
     VulkanStaticInferenceIdentityReport,
     VulkanStaticLinearGeluRegionReport,
@@ -46,6 +47,7 @@ from ._graph_lowering import (
     lower_static_conv2d_to_vulkan_contexts,
     lower_static_factory_constants,
     lower_static_gqa_repeats,
+    lower_static_sdpa_fusions,
     lower_static_identity_advanced_indices,
     lower_static_inference_identities,
     lower_static_add_layernorm_regions,
@@ -1132,6 +1134,7 @@ class VulkanGraphProgram:
         static_inference_identities: VulkanStaticInferenceIdentityReport,
         static_identity_advanced_indices: VulkanStaticIdentityAdvancedIndexReport,
         static_gqa_repeats: VulkanStaticGQARepeatReport,
+        static_sdpa_fusions: VulkanStaticSDPAFusionReport,
         tensor_placement: VulkanGraphTensorPlacementReport,
         linear_lowering: VulkanLinearLoweringReport,
         static_linear_gelu_regions: VulkanStaticLinearGeluRegionReport,
@@ -1158,6 +1161,7 @@ class VulkanGraphProgram:
         self._static_inference_identities = static_inference_identities
         self._static_identity_advanced_indices = static_identity_advanced_indices
         self._static_gqa_repeats = static_gqa_repeats
+        self._static_sdpa_fusions = static_sdpa_fusions
         self._tensor_placement = tensor_placement
         self._linear_lowering = linear_lowering
         self._static_linear_gelu_regions = static_linear_gelu_regions
@@ -1238,6 +1242,10 @@ class VulkanGraphProgram:
     @property
     def static_gqa_repeats(self) -> VulkanStaticGQARepeatReport:
         return self._static_gqa_repeats
+
+    @property
+    def static_sdpa_fusions(self) -> VulkanStaticSDPAFusionReport:
+        return self._static_sdpa_fusions
 
     @property
     def tensor_placement(self) -> VulkanGraphTensorPlacementReport:
@@ -1508,6 +1516,7 @@ def export_and_lower(
         graph_module
     )
     static_gqa_repeats = lower_static_gqa_repeats(graph_module)
+    static_sdpa_fusions = lower_static_sdpa_fusions(graph_module)
     tensor_placement = plan_graph_tensor_placements(
         graph_module,
         input_normalization,
@@ -1630,6 +1639,7 @@ def export_and_lower(
             repr(static_inference_identities),
             repr(static_identity_advanced_indices),
             repr(static_gqa_repeats),
+            repr(static_sdpa_fusions),
             repr(tensor_placement),
             repr(linear_lowering),
             repr(static_linear_gelu_regions),
@@ -1670,6 +1680,7 @@ def export_and_lower(
         static_inference_identities,
         static_identity_advanced_indices,
         static_gqa_repeats,
+        static_sdpa_fusions,
         tensor_placement,
         linear_lowering,
         static_linear_gelu_regions,

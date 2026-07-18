@@ -403,6 +403,27 @@ class VulkanStaticGQARepeatReport:
 
 
 @dataclasses.dataclass(frozen=True)
+class VulkanStaticSDPAFusionNodeReport:
+    node_name: str
+    status: str
+    reason: str
+    query_shape: tuple[str, ...] | None
+    key_shape: tuple[str, ...] | None
+    value_shape: tuple[str, ...] | None
+    scale: float | None
+    replacement_node_name: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class VulkanStaticSDPAFusionReport:
+    candidate_count: int
+    lowered_count: int
+    rejected_count: int
+    nodes: tuple[VulkanStaticSDPAFusionNodeReport, ...]
+    operator: str
+
+
+@dataclasses.dataclass(frozen=True)
 class VulkanGraphTensorPlacementNodeReport:
     source_kind: str
     source_name: str
@@ -612,6 +633,25 @@ def _node_static_tensor_shape(node: torch.fx.Node) -> tuple[int, ...] | None:
             return None
         static_shape.append(size)
     return tuple(static_shape)
+
+
+def _node_tensor_shape(node: torch.fx.Node) -> tuple[Any, ...] | None:
+    value = node.meta.get("val")
+    shape = value.shape if isinstance(value, torch.Tensor) else None
+    if shape is None:
+        tensor_meta = node.meta.get("tensor_meta")
+        shape = getattr(tensor_meta, "shape", None)
+    return tuple(shape) if shape is not None else None
+
+
+def _shape_expression(shape: tuple[Any, ...] | None) -> tuple[str, ...] | None:
+    return tuple(str(size) for size in shape) if shape is not None else None
+
+
+def _shape_dimensions_identical(left: Any, right: Any) -> bool:
+    # Identical exported expressions are a deliberately narrower proof than a
+    # symbolic equality guard.  This pass must not add guards while lowering.
+    return str(left) == str(right)
 
 
 def _static_shape_argument(value: Any) -> tuple[int, ...] | None:
@@ -2037,6 +2077,270 @@ def lower_static_gqa_repeats(
         rejected_count=sum(report.status == "rejected" for report in reports),
         nodes=tuple(reports),
         operator="vulkan_prepack::repeat_attention_heads_for_gqa",
+    )
+
+
+def lower_static_sdpa_fusions(
+    graph_module: torch.fx.GraphModule,
+) -> VulkanStaticSDPAFusionReport:
+    """Replace a fully proven eager attention chain with semantic SDPA.
+
+    This pass deliberately recognizes only the unmasked inference form emitted by
+    the current vision transformer corpus.  Broader masking, broadcasting, dtype,
+    and dynamic-shape families remain visible until their contracts are proven.
+    """
+    graph = graph_module.graph
+    reports: list[VulkanStaticSDPAFusionNodeReport] = []
+
+    def record(
+        node: torch.fx.Node,
+        status: str,
+        reason: str,
+        query_shape: tuple[str, ...] | None = None,
+        key_shape: tuple[str, ...] | None = None,
+        value_shape: tuple[str, ...] | None = None,
+        scale: float | None = None,
+        replacement_node_name: str | None = None,
+    ) -> None:
+        reports.append(
+            VulkanStaticSDPAFusionNodeReport(
+                node_name=node.name,
+                status=status,
+                reason=reason,
+                query_shape=query_shape,
+                key_shape=key_shape,
+                value_shape=value_shape,
+                scale=scale,
+                replacement_node_name=replacement_node_name,
+            )
+        )
+
+    for node in tuple(graph.nodes):
+        if (
+            node.op != "call_function"
+            or node.target != torch.ops.aten.matmul.default
+            or len(node.args) != 2
+            or node.kwargs
+        ):
+            continue
+        probability, value = node.args
+        if not (
+            isinstance(probability, torch.fx.Node)
+            and probability.op == "call_function"
+            and probability.target == torch.ops.aten.softmax.int
+        ):
+            continue
+
+        if len(probability.args) != 2 or probability.kwargs:
+            record(node, "rejected", "softmax_signature_not_default")
+            continue
+        scores, softmax_dim = probability.args
+        if not (
+            isinstance(scores, torch.fx.Node)
+            and scores.op == "call_function"
+            and scores.target == torch.ops.aten.matmul.default
+            and len(scores.args) == 2
+            and not scores.kwargs
+        ):
+            record(node, "rejected", "attention_scores_not_matmul")
+            continue
+        scaled_query, transposed_key = scores.args
+        if not (
+            isinstance(scaled_query, torch.fx.Node)
+            and scaled_query.op == "call_function"
+            and scaled_query.target == torch.ops.aten.mul.Tensor
+            and len(scaled_query.args) == 2
+            and not scaled_query.kwargs
+        ):
+            record(node, "rejected", "query_scale_not_static_mul")
+            continue
+        query, scale_arg = scaled_query.args
+        if not (
+            isinstance(transposed_key, torch.fx.Node)
+            and transposed_key.op == "call_function"
+            and transposed_key.target == torch.ops.aten.transpose.int
+            and len(transposed_key.args) == 3
+            and not transposed_key.kwargs
+        ):
+            record(node, "rejected", "key_not_last_two_dims_transpose")
+            continue
+        key, transpose_dim0, transpose_dim1 = transposed_key.args
+        if not all(
+            isinstance(candidate, torch.fx.Node)
+            for candidate in (query, key, value)
+        ):
+            record(node, "rejected", "attention_inputs_not_graph_tensors")
+            continue
+
+        query_tensor_shape = _node_tensor_shape(query)
+        key_tensor_shape = _node_tensor_shape(key)
+        value_tensor_shape = _node_tensor_shape(value)
+        probability_shape = _node_tensor_shape(probability)
+        query_shape = _shape_expression(query_tensor_shape)
+        key_shape = _shape_expression(key_tensor_shape)
+        value_shape = _shape_expression(value_tensor_shape)
+        rank = (
+            len(query_tensor_shape) if query_tensor_shape is not None else None
+        )
+        normalized_softmax_dim = (
+            softmax_dim + len(probability_shape or ())
+            if isinstance(softmax_dim, int) and softmax_dim < 0
+            else softmax_dim
+        )
+        normalized_transpose_dims = tuple(
+            dim + rank
+            if isinstance(dim, int) and dim < 0 and rank is not None
+            else dim
+            for dim in (transpose_dim0, transpose_dim1)
+        )
+        scale = (
+            float(scale_arg)
+            if isinstance(scale_arg, int | float)
+            and not isinstance(scale_arg, bool)
+            else None
+        )
+
+        if any(
+            len(intermediate.users) != 1
+            for intermediate in (
+                probability,
+                scores,
+                scaled_query,
+                transposed_key,
+            )
+        ):
+            record(
+                node,
+                "rejected",
+                "attention_intermediate_has_external_users",
+                query_shape,
+                key_shape,
+                value_shape,
+                scale,
+            )
+            continue
+        if (
+            rank not in (3, 4)
+            or key_tensor_shape is None
+            or value_tensor_shape is None
+        ):
+            record(
+                node,
+                "rejected",
+                "attention_shapes_not_rank_3_or_4",
+                query_shape,
+                key_shape,
+                value_shape,
+                scale,
+            )
+            continue
+        if (
+            normalized_softmax_dim != rank - 1
+            or normalized_transpose_dims != (rank - 2, rank - 1)
+        ):
+            record(
+                node,
+                "rejected",
+                "attention_reduction_or_transpose_dims_mismatch",
+                query_shape,
+                key_shape,
+                value_shape,
+                scale,
+            )
+            continue
+        if (
+            len(key_tensor_shape) != rank
+            or len(value_tensor_shape) != rank
+            or any(
+                not _shape_dimensions_identical(left, right)
+                for left, right in zip(
+                    query_tensor_shape[:-2],
+                    key_tensor_shape[:-2],
+                    strict=True,
+                )
+            )
+            or any(
+                not _shape_dimensions_identical(left, right)
+                for left, right in zip(
+                    query_tensor_shape[:-2],
+                    value_tensor_shape[:-2],
+                    strict=True,
+                )
+            )
+            or not _shape_dimensions_identical(
+                query_tensor_shape[-1], key_tensor_shape[-1]
+            )
+            or not _shape_dimensions_identical(
+                key_tensor_shape[-2], value_tensor_shape[-2]
+            )
+        ):
+            record(
+                node,
+                "rejected",
+                "attention_shape_expression_contract_mismatch",
+                query_shape,
+                key_shape,
+                value_shape,
+                scale,
+            )
+            continue
+        if any(
+            _node_tensor_dtype(input_node) != torch.float32
+            for input_node in (query, key, value)
+        ):
+            record(
+                node,
+                "rejected",
+                "attention_requires_float32",
+                query_shape,
+                key_shape,
+                value_shape,
+                scale,
+            )
+            continue
+        if scale is None or not math.isfinite(scale) or scale <= 0.0:
+            record(
+                node,
+                "rejected",
+                "attention_scale_not_finite_positive_scalar",
+                query_shape,
+                key_shape,
+                value_shape,
+                scale,
+            )
+            continue
+
+        with graph.inserting_before(node):
+            replacement = graph.call_function(
+                torch.ops.vulkan_prepack.run_graph_attention_math.default,
+                (query, key, value, scale),
+            )
+        replacement.meta = dict(node.meta)
+        node.replace_all_uses_with(replacement)
+        graph.erase_node(node)
+        record(
+            node,
+            "lowered",
+            "static_unmasked_sdpa_semantic_fusion",
+            query_shape,
+            key_shape,
+            value_shape,
+            scale,
+            replacement.name,
+        )
+
+    lowered_count = sum(report.status == "lowered" for report in reports)
+    if lowered_count:
+        graph.eliminate_dead_code()
+        graph.lint()
+        graph_module.recompile()
+
+    return VulkanStaticSDPAFusionReport(
+        candidate_count=len(reports),
+        lowered_count=lowered_count,
+        rejected_count=sum(report.status == "rejected" for report in reports),
+        nodes=tuple(reports),
+        operator="vulkan_prepack::run_graph_attention_math",
     )
 
 
@@ -4355,6 +4659,8 @@ __all__ = [
     "VulkanStaticIdentityAdvancedIndexReport",
     "VulkanStaticGQARepeatNodeReport",
     "VulkanStaticGQARepeatReport",
+    "VulkanStaticSDPAFusionNodeReport",
+    "VulkanStaticSDPAFusionReport",
     "VulkanLayernormLoweringNodeReport",
     "VulkanLayernormLoweringReport",
     "VulkanStaticAddLayernormRegionNodeReport",
@@ -4383,5 +4689,6 @@ __all__ = [
     "lower_static_factory_constants",
     "lower_static_identity_advanced_indices",
     "lower_static_gqa_repeats",
+    "lower_static_sdpa_fusions",
     "plan_graph_tensor_placements",
 ]

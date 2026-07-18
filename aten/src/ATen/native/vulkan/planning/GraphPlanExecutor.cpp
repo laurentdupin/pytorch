@@ -9,6 +9,7 @@
 #include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
+#include <ATen/native/vulkan/ops/Softmax.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/GraphProgramPlans.h>
@@ -65,6 +66,7 @@ enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   AddLayernormPlan,
   GraphRegionPlan,
   Relu,
+  AttentionMath,
 };
 
 struct VulkanGraphPlanArgument final {
@@ -167,6 +169,9 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
   }
   if (operator_name == "aten::relu") {
     return VulkanGraphPlanResourceWriterKind::Relu;
+  }
+  if (operator_name == "vulkan_prepack::run_graph_attention_math") {
+    return VulkanGraphPlanResourceWriterKind::AttentionMath;
   }
   return VulkanGraphPlanResourceWriterKind::None;
 }
@@ -537,6 +542,25 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       }
       stack.clear();
       stack.emplace_back(std::move(*result));
+      return same_vulkan_storage(stack[0].toTensor(), *targets[0])
+          ? VulkanGraphPlanResourceWriteResult::Written
+          : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
+    }
+    case VulkanGraphPlanResourceWriterKind::AttentionMath: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 4u &&
+              stack[0].isTensor() && stack[1].isTensor() &&
+              stack[2].isTensor() && stack[3].isDouble(),
+          "VulkanGraphPlan.v9 attention-math resource writer has invalid arguments");
+      Tensor result =
+          at::native::vulkan::ops::run_graph_attention_math_out_vulkan(
+              stack[0].toTensor(),
+              stack[1].toTensor(),
+              stack[2].toTensor(),
+              stack[3].toDouble(),
+              *targets[0]);
+      stack.clear();
+      stack.emplace_back(std::move(result));
       return same_vulkan_storage(stack[0].toTensor(), *targets[0])
           ? VulkanGraphPlanResourceWriteResult::Written
           : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
