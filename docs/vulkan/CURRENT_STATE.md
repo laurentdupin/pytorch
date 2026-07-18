@@ -3127,10 +3127,21 @@ model gate and they do not imply model-specific production routes.
   expressions into 215 unique graph-owned constants with 62 reuses, including
   scalar and normalization-weight dtype casts. The C++ plan shrinks from 4,201
   to 3,966 instructions and lower time in the current probe falls from 36.56 to
-  21.04 seconds. A real one-token invocation gathers and uploads 20,992 bytes,
-  then fails loud at the first BF16 `aten::mul.Tensor` with one attributed CPU
-  fallback, zero sync readback, and zero deferred values. Elementwise BF16
-  multiplication is the current execution blocker. Dynamic FP32-to-BF16 also
+  21.04 seconds. Exact source `1cccc01022d` then folds an immutable BF16
+  tensor-scalar multiply into each explicit host gather when the unscaled
+  embedding result has no observable consumer. The real token and PLE
+  partitions apply exact BF16 scales `39.25` and `16.0`; the plan shrinks to
+  3,963 instructions while preserving the 20,992-byte transfer boundary.
+  Observable unscaled results reject the fold, and mutation of the source scale
+  after lowering cannot alter the immutable program. A dedicated
+  multiply-then-widen shader candidate was rejected and removed: all 37 real
+  Gemma candidates also feed observable BF16 consumers, so it had no admitted
+  corpus use. The one-token invocation now reaches the existing BF16
+  tensor-scalar path with zero fallback/readback/deferred values, but that path
+  returns float while graph metadata requires BF16 and therefore fails loud at
+  `_assert_tensor_metadata_default_2`. Preserving BF16 output semantics for
+  native tensor-scalar multiplication is the current execution blocker.
+  Dynamic FP32-to-BF16 also
   remains unresolved: its existing native shader produces zero data in a
   direct-buffer reproduction, and a packed-Int32 owner plus typed BF16 view
   candidate failed the general-width and readback/consumer gates, so all of its
@@ -3138,7 +3149,9 @@ model gate and they do not imply model-specific production routes.
   compilation and blocker attribution,
   not end-to-end parity, memory, or performance evidence. The updated artifact
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
-  `0D1ED154FDACF022E600C2582CFD244432EEF62EE483B5C5A274AADA43932867`.
+  `DA1C313A09DE033E99D530869885F2D23011B5EAEAA2E59D4D563E1C88518C7A`.
+  It records RX 9070 Vulkan `1.4.349` and loaded `torch_cpu.dll` SHA-256
+  `CB40DBA1171B38EC5668A45932432AF0C61AAE5CE97D6AC31A7E0B41A63A5D41`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
