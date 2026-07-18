@@ -4007,6 +4007,67 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_host_partition_count, 1)
         self.assertEqual(program.last_host_partition_transfer_bytes, 264)
 
+    def test_bfloat16_host_gather_folds_immutable_scalar_multiply(self):
+        class ScaledBFloat16Embedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(
+                    257, 33, dtype=torch.bfloat16
+                )
+                self.register_buffer(
+                    "scale",
+                    torch.tensor(0.125, dtype=torch.bfloat16),
+                )
+
+            def forward(self, indices):
+                return self.embedding(indices) * self.scale
+
+        torch.manual_seed(0)
+        model = ScaledBFloat16Embedding().eval()
+        indices = torch.tensor([[1, 3, 17, 256]], dtype=torch.long)
+        expected = model(indices)
+        program = torch.vulkan.export_and_lower(model, indices)
+        partition = program.host_resident_constant_partitions.nodes[0]
+        self.assertEqual(
+            partition.post_gather_transform,
+            "bfloat16_tensor_scalar_multiply",
+        )
+        self.assertEqual(partition.post_gather_scale, 0.125)
+        self.assertNotIn("aten.mul.Tensor", program.graph_module.code)
+        self.assertEqual(program(indices).cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_host_partition_transfer_bytes, 264)
+
+        model.scale.fill_(2.0)
+        self.assertEqual(program(indices).cpu(), expected)
+
+    def test_bfloat16_host_gather_keeps_observable_unscaled_value(self):
+        class ObservableBFloat16Embedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(
+                    17, 8, dtype=torch.bfloat16
+                )
+                self.register_buffer(
+                    "scale",
+                    torch.tensor(0.125, dtype=torch.bfloat16),
+                )
+
+            def forward(self, indices):
+                gathered = self.embedding(indices)
+                return gathered, gathered * self.scale
+
+        indices = torch.tensor([[1, 3]], dtype=torch.long)
+        program = torch.vulkan.export_and_lower(
+            ObservableBFloat16Embedding().eval(),
+            indices,
+        )
+        partition = program.host_resident_constant_partitions.nodes[0]
+        self.assertIsNone(partition.post_gather_transform)
+        self.assertIsNone(partition.post_gather_scale)
+        self.assertIn("aten.mul.Tensor", program.graph_module.code)
+
     def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
         class StateCasts(torch.nn.Module):
             def __init__(self):

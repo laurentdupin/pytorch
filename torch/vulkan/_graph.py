@@ -86,6 +86,8 @@ class VulkanHostResidentConstantPartitionNodeReport:
     weight_shape: tuple[int, int]
     weight_bytes: int
     reason: str
+    post_gather_transform: str | None = None
+    post_gather_scale: float | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -124,6 +126,7 @@ class _HostEmbeddingGatherPartition:
     padding_idx: int
     scale_grad_by_freq: bool
     sparse: bool
+    post_gather_scale: torch.Tensor | None
 
 
 @dataclasses.dataclass(frozen=True, repr=False)
@@ -1132,6 +1135,60 @@ def _run_host_index_partitions(
     return tuple(outputs), transfer_bytes
 
 
+def _is_unobserved_tensor_metadata_assertion(
+    node: torch.fx.Node,
+    value: torch.fx.Node,
+) -> bool:
+    return (
+        node.op == "call_function"
+        and node.target == torch.ops.aten._assert_tensor_metadata.default
+        and len(node.args) == 1
+        and node.args[0] is value
+        and "dtype" in node.kwargs
+        and set(node.kwargs).issubset({"dtype", "device", "layout"})
+        and not node.users
+    )
+
+
+def _host_embedding_bfloat16_scale_candidate(
+    graph_module: torch.fx.GraphModule,
+    embedding: torch.fx.Node,
+) -> tuple[torch.fx.Node, torch.fx.Node, torch.Tensor] | None:
+    observable_users = tuple(
+        user
+        for user in embedding.users
+        if not _is_unobserved_tensor_metadata_assertion(user, embedding)
+    )
+    if len(observable_users) != 1:
+        return None
+    mul = observable_users[0]
+    if (
+        mul.op != "call_function"
+        or mul.target != torch.ops.aten.mul.Tensor
+        or len(mul.args) != 2
+        or mul.kwargs
+        or getattr(mul.meta.get("val"), "dtype", None) != torch.bfloat16
+    ):
+        return None
+    if mul.args[0] is embedding:
+        scale_node = mul.args[1]
+    elif mul.args[1] is embedding:
+        scale_node = mul.args[0]
+    else:
+        return None
+    if not isinstance(scale_node, torch.fx.Node) or scale_node.op != "get_attr":
+        return None
+    scale = _get_graph_attr(graph_module, str(scale_node.target))
+    if (
+        not isinstance(scale, torch.Tensor)
+        or scale.device.type != "cpu"
+        or scale.dtype != torch.bfloat16
+        or scale.numel() != 1
+    ):
+        return None
+    return mul, scale_node, scale.detach().contiguous().clone()
+
+
 def _lower_host_embedding_gather_partitions(
     graph_module: torch.fx.GraphModule,
     state_dict_snapshot: Mapping[str, torch.Tensor],
@@ -1177,10 +1234,20 @@ def _lower_host_embedding_gather_partitions(
         padding_idx = int(node.args[2]) if len(node.args) > 2 else -1
         scale_grad_by_freq = bool(node.args[3]) if len(node.args) > 3 else False
         sparse = bool(node.args[4]) if len(node.args) > 4 else False
+        scale_candidate = (
+            _host_embedding_bfloat16_scale_candidate(graph_module, node)
+            if weight.dtype == torch.bfloat16
+            else None
+        )
+        scale_mul = None if scale_candidate is None else scale_candidate[0]
+        scale_node = None if scale_candidate is None else scale_candidate[1]
+        post_gather_scale = (
+            None if scale_candidate is None else scale_candidate[2]
+        )
         output_name = f"_vulkan_host_gather_{len(partitions)}"
         with graph.inserting_after(insertion_point):
             output = graph.placeholder(output_name)
-        output.meta = dict(node.meta)
+        output.meta = dict((node if scale_mul is None else scale_mul).meta)
         insertion_point = output
         report = VulkanHostResidentConstantPartitionNodeReport(
             node_name=node.name,
@@ -1191,6 +1258,16 @@ def _lower_host_embedding_gather_partitions(
             weight_shape=(int(weight.shape[0]), int(weight.shape[1])),
             weight_bytes=weight.numel() * weight.element_size(),
             reason=_host_resident_embedding_reason(weight),
+            post_gather_transform=(
+                None
+                if post_gather_scale is None
+                else "bfloat16_tensor_scalar_multiply"
+            ),
+            post_gather_scale=(
+                None
+                if post_gather_scale is None
+                else float(post_gather_scale.item())
+            ),
         )
         partitions.append(
             _HostEmbeddingGatherPartition(
@@ -1200,10 +1277,27 @@ def _lower_host_embedding_gather_partitions(
                 padding_idx=padding_idx,
                 scale_grad_by_freq=scale_grad_by_freq,
                 sparse=sparse,
+                post_gather_scale=post_gather_scale,
             )
         )
-        node.replace_all_uses_with(output)
+        if scale_mul is not None:
+            for assertion in tuple(node.users):
+                if _is_unobserved_tensor_metadata_assertion(assertion, node):
+                    graph.erase_node(assertion)
+            for assertion in tuple(scale_mul.users):
+                if _is_unobserved_tensor_metadata_assertion(
+                    assertion, scale_mul
+                ):
+                    graph.erase_node(assertion)
+            scale_mul.replace_all_uses_with(output)
+            graph.erase_node(scale_mul)
+        else:
+            node.replace_all_uses_with(output)
         graph.erase_node(node)
+        if scale_node is not None and not scale_node.users:
+            scale_attr = str(scale_node.target)
+            graph.erase_node(scale_node)
+            _delete_graph_attr(graph_module, scale_attr)
         if not weight_node.users:
             graph.erase_node(weight_node)
             _delete_graph_attr(graph_module, weight_attr)
@@ -1251,15 +1345,18 @@ def _run_host_embedding_gather_partitions(
                 f"requested {upload_bytes} bytes"
             )
         total_upload_bytes += upload_bytes
-        outputs.append(
-            torch.ops.aten.embedding.default(
-                partition.weight,
-                indices,
-                partition.padding_idx,
-                partition.scale_grad_by_freq,
-                partition.sparse,
-            ).contiguous()
+        gathered = torch.ops.aten.embedding.default(
+            partition.weight,
+            indices,
+            partition.padding_idx,
+            partition.scale_grad_by_freq,
+            partition.sparse,
         )
+        if partition.post_gather_scale is not None:
+            gathered = torch.ops.aten.mul.Tensor(
+                gathered, partition.post_gather_scale
+            )
+        outputs.append(gathered.contiguous())
     return tuple(outputs), total_upload_bytes
 
 
