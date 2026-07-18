@@ -1580,7 +1580,37 @@ Tensor upload_graph_tensor_to_buffer(
   TORCH_CHECK(
       tensor.device().type() == kCPU,
       "vulkan_prepack::upload_graph_tensor_to_buffer expects a CPU tensor");
-  return maybe_move_runtime_tensor_to_device(tensor, device);
+  Tensor output = maybe_move_runtime_tensor_to_device(tensor, device);
+  if (
+      tensor.numel() > 0 &&
+      (tensor.scalar_type() == kInt || tensor.scalar_type() == kLong)) {
+    const Tensor contiguous = tensor.contiguous();
+    int64_t min_value = 0;
+    int64_t max_value = 0;
+    if (contiguous.scalar_type() == kInt) {
+      const int32_t* const data = contiguous.const_data_ptr<int32_t>();
+      min_value = data[0];
+      max_value = data[0];
+      for (const auto index : c10::irange(1, contiguous.numel())) {
+        min_value = std::min<int64_t>(min_value, data[index]);
+        max_value = std::max<int64_t>(max_value, data[index]);
+      }
+    } else {
+      const int64_t* const data = contiguous.const_data_ptr<int64_t>();
+      min_value = data[0];
+      max_value = data[0];
+      for (const auto index : c10::irange(1, contiguous.numel())) {
+        min_value = std::min(min_value, data[index]);
+        max_value = std::max(max_value, data[index]);
+      }
+    }
+    record_tensor_integer_value_bounds(
+        output,
+        min_value,
+        max_value,
+        "graph_direct_buffer_cpu_upload");
+  }
+  return output;
 }
 
 Tensor create_causal_attention_mask_runtime(

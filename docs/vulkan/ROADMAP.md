@@ -742,8 +742,9 @@ Do not let comparison deltas choose daily one-off Vulkan route additions.
 Gemma E2B is split into explicit prerequisites rather than treated as routine
 graph coverage. The first landed slice recognizes an oversized direct-input
 embedding and executes a bounded host gather/upload prelude while preserving a
-C++ Vulkan body. Next extend that partition to an admitted pure derived-index
-subgraph used by the conditional-generation wrapper, then establish BF16
-residency and operator coverage for the remaining weights. Whole-model float32
-upload and monolithic buffers above the storage-buffer binding range are not
-candidate routes.
+C++ Vulkan body. The bounded pure derived-index subgraph used by the
+conditional-generation wrapper is now admitted with explicit escaping-output
+uploads and integer-bounds provenance. Next establish BF16 residency and
+operator coverage for the remaining weights and mask consumers. Whole-model
+float32 upload and monolithic buffers above the storage-buffer binding range
+are not candidate routes.

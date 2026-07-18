@@ -3068,13 +3068,18 @@ model gate and they do not imply model-specific production routes.
   gathers selected rows under a 256 MiB transfer budget, uploads the compact
   result as a direct-buffer internal input, and reports explicit partition and
   transfer counts. A synthetic packed-per-layer analogue compiles its remaining
-  body to the C++ plan with exact parity and zero fallback/readback. This does
-  not yet make the checkpoint runnable: the actual
-  `Gemma4ForConditionalGeneration` wrapper derives `llm_input_ids` through a
-  multimodal masking subgraph before the PLE lookup, so that derived-index
-  prelude is not admitted, and the remaining model still needs BF16 weight
-  residency/operator coverage. The previous whole-model `.to(vulkan)` path
-  therefore remains blocked; it is no longer the intended execution design.
+  body to the C++ plan with exact parity and zero fallback/readback. The second
+  slice admits the pure integral form used to derive `llm_input_ids`: bounded
+  equality/boolean-mask construction plus a clone-owned index update executes
+  as an explicit CPU prelude, its escaping results are uploaded as internal
+  inputs, and CPU-observed integer bounds become device tensor provenance.
+  A masked packed-embedding analogue compiles to the C++ plan with exact parity,
+  zero fallback/readback, and 80 explicitly counted transfer bytes. BF16 rows
+  also preserve exact values through the gather/upload boundary. This does not
+  yet make the checkpoint runnable: the conditional wrapper's remaining mask
+  consumers and the rest of the model still need BF16 weight residency/operator
+  coverage. The previous whole-model `.to(vulkan)` path therefore remains
+  blocked; it is no longer the intended execution design.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

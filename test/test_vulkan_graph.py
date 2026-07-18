@@ -3939,6 +3939,80 @@ class TestVulkanGraph(TestCase):
         ):
             program(indices)
 
+    def test_derived_embedding_indices_use_explicit_host_prelude(self):
+        class MaskedPackedPerLayerEmbedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.main_embedding = torch.nn.Embedding(17, 4)
+                self.per_layer_embedding = torch.nn.Embedding(17, 8)
+
+            def forward(self, indices):
+                multimodal_mask = (indices == 15) | (indices == 16)
+                text_indices = indices.clone()
+                text_indices[multimodal_mask] = 0
+                main = self.main_embedding(text_indices)
+                per_layer = self.per_layer_embedding(text_indices).reshape(
+                    1, 2, 2, 4
+                )
+                return main + per_layer.sum(2)
+
+        torch.manual_seed(0)
+        model = MaskedPackedPerLayerEmbedding().eval()
+        indices = torch.tensor([[1, 16]], dtype=torch.long)
+        expected = model(indices)
+        with patch.object(
+            vulkan_graph, "_HOST_RESIDENT_EMBEDDING_MIN_BYTES", 400
+        ):
+            program = torch.vulkan.export_and_lower(model, indices)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertEqual(program.host_index_partitions.partition_count, 1)
+        index_partition = program.host_index_partitions.nodes[0]
+        self.assertEqual(index_partition.input_placeholder_names, ("indices",))
+        self.assertEqual(
+            index_partition.reason, "pure_integral_embedding_index_prelude"
+        )
+        self.assertEqual(len(index_partition.outputs), 1)
+        self.assertEqual(index_partition.outputs[0].dtype, torch.long)
+        self.assertEqual(index_partition.outputs[0].placement, "buffer_direct")
+        self.assertEqual(
+            program.host_resident_constant_partitions.nodes[0].weight_attr,
+            "per_layer_embedding.weight",
+        )
+        self.assertEqual(program(indices).cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertEqual(program.last_host_partition_count, 2)
+        self.assertEqual(program.last_host_partition_transfer_bytes, 80)
+
+    def test_host_resident_embedding_preserves_bfloat16_rows(self):
+        class PackedPerLayerEmbedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(
+                    17, 8, dtype=torch.bfloat16
+                )
+
+            def forward(self, indices):
+                return self.embedding(indices)
+
+        torch.manual_seed(0)
+        model = PackedPerLayerEmbedding().eval()
+        indices = torch.tensor([[1, 3]], dtype=torch.long)
+        expected = model(indices)
+        with patch.object(
+            vulkan_graph, "_HOST_RESIDENT_EMBEDDING_MIN_BYTES", 1
+        ):
+            program = torch.vulkan.export_and_lower(model, indices)
+
+        actual = program(indices)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(actual.cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_host_partition_transfer_bytes, 32)
+
     def test_static_arange_expression_becomes_graph_owned_constant(self):
         class StaticArange(torch.nn.Module):
             def forward(self, tensor):
