@@ -635,6 +635,9 @@ standalone buffer-view targets fail closed until base-storage and physical-view
 metadata are represented. Operator admission is unchanged; the next recording
 candidate must use this descriptor substrate to own a contiguous transformer
 span rather than restoring isolated rejected writers.
+Exact-SHA `eec01e49a15` keeps both DAv2 guards exact and zero-bypass with the
+same 86 writers and memory deltas under 2.01%. This closes descriptor transport,
+not contiguous ownership or recorded execution.
 
 Exit criteria:
 

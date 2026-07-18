@@ -390,6 +390,10 @@ and lifetime behavior. A buffer view is deliberately not materializable as an
 independent slot: its base allocation, offset, physical sizes, and strides must
 first be represented by the plan. This ABI change does not readmit any rejected
 writer family or claim a recorded partition.
+Exact-SHA `eec01e49a15` preserves both DAv2 guard plans at 86 writers, 108
+resource values, 15 slots, 172 writes, zero bypass, exact graph/eager parity,
+and repeat-live high-water within 1.734%/2.004% of eager. This accepts the
+descriptor ABI only; the preregistered contiguous-partition gate remains open.
 
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute

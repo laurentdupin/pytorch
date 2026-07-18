@@ -15,6 +15,74 @@
   ],
   "entries": [
     {
+      "id": "vulkan_graph_resource_layout_descriptor_abi_2026_07_18",
+      "status": "accepted_reporting_infrastructure",
+      "head": "eec01e49a1576bdd188385901d1274c36c2b0cef",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Replace shape-and-dtype-only graph resource identity with explicit storage, GPU-memory-layout, and execution-layout descriptors before attempting a contiguous recorded transformer partition."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. Matching torch_cpu.dll SHA-256 eb2917976f1c76bf34e8217e699ca21cf1db8be559334326e17fa95e7adb981c and torch_python.dll SHA-256 8804d74d650f4ca9f4899c67c1a67a16cb292b6c63ff96804b548b695cf98770.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9 resource-slot ABI",
+        "storage type",
+        "GPU memory layout",
+        "execution layout",
+        "two-generation completion-guarded resource arena"
+      ],
+      "candidate": "Transport and validate a layout descriptor for every program-owned slot, preserve the established direct width-packed buffer allocation path, and reject standalone buffer-view targets.",
+      "correctness": {
+        "status": "accepted_structural_ownership_no_latency_claim",
+        "tests": [
+          "140 Vulkan graph tests",
+          "exact graph-versus-eager parity on both DAv2 guards",
+          "normal graph-versus-CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph-versus-CPU max_abs 0.0024883747 under 0.004",
+          "zero CPU fallback, unexpected readback, deferred values, and writer bypass",
+          "current source-runtime Vulkan, distributed, and DTensor compiled preflight",
+          "buffer-view targets fail closed"
+        ]
+      },
+      "counters": {
+        "instruction_count": 336,
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 15,
+        "resource_value_count": 108,
+        "resource_writer_instruction_count": 86,
+        "resource_writes_over_two_evidence_invocations": 172,
+        "resource_writer_bypass_count": 0,
+        "normal_repeat_live_peak_over_eager_percent": 1.734,
+        "alternate_repeat_live_peak_over_eager_percent": 2.004,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0
+      },
+      "timing_ms": {
+        "measurement_repeats": 1,
+        "performance_claim": "Descriptor-substrate evidence only. No latency or recorded-partition promotion."
+      },
+      "artifacts": [
+        "agent_space/graph_layout_descriptors_exact_eec01e49a15/dav2_vits_layout_descriptors_export_census.json",
+        "agent_space/graph_layout_descriptors_exact_eec01e49a15/dav2_vits_layout_descriptors_export_parity.json"
+      ],
+      "artifact_identity": {
+        "census_sha256": "ade6185351e8746c86c87fd954a7defc7ff0c8865f851df00d127cbc0ea8a05d",
+        "parity_sha256": "f3ee94cd32e09f032f3d2095e03653fa8a2e1caa42ea1889a94971e7abc74d2f"
+      },
+      "decision": "Accept the layout-aware resource ABI without broadening writer admission. Buffer views remain aliases over owned base storage, not independently allocated targets.",
+      "revisit_conditions": [
+        "Represent base storage, offset, physical sizes, and strides before admitting buffer-view slots.",
+        "Restore no rejected writer family unless it is zero-bypass on both guards and contributes to a useful contiguous partition.",
+        "Require the preregistered command-buffer reduction and memory gates before recorded execution promotion."
+      ]
+    },
+    {
       "id": "dav2_graph_relu_resource_writer_accepted_2026_07_18",
       "status": "accepted_default_fix",
       "head": "f0d1d1766dfb28bed2477ee17fc34f2dfb740eaf",

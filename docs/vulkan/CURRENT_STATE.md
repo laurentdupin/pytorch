@@ -162,6 +162,15 @@ allocation path. Buffer-view targets fail closed because a view requires base
 storage, offset, and stride ownership rather than a standalone allocation.
 Current writer admission remains unchanged; this is descriptor substrate for a
 future contiguous partition, not new add/mul/softmax/matmul coverage.
+Exact source `eec01e49a1576bdd188385901d1274c36c2b0cef` preserves the 336
+instructions, 86 writers, 108 resource values, 15 slots, 172 writes, zero
+bypass, exact graph/eager parity, and 1.734%/2.004% repeat-live memory deltas on
+both DAv2 guards. The matching `torch_cpu.dll` SHA-256 is
+`eb2917976f1c76bf34e8217e699ca21cf1db8be559334326e17fa95e7adb981c`.
+Artifacts are under `agent_space/graph_layout_descriptors_exact_eec01e49a15/`;
+census/parity SHA-256 values are
+`ade6185351e8746c86c87fd954a7defc7ff0c8865f851df00d127cbc0ea8a05d`
+and `f3ee94cd32e09f032f3d2095e03653fa8a2e1caa42ea1889a94971e7abc74d2f`.
 
 Phase 6 attribution at exact source commit
 `28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657` keeps the existing 32-job
