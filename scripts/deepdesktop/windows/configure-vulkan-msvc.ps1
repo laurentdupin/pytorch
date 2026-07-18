@@ -22,8 +22,8 @@ function Resolve-PythonPath {
         $candidates += $Requested
     }
 
-    $candidates += (Join-Path $RepoRoot "agent_space\venvs\transformers\Scripts\python.exe")
     $candidates += (Join-Path $RepoRoot ".venv\Scripts\python.exe")
+    $candidates += (Join-Path $RepoRoot "agent_space\venvs\transformers\Scripts\python.exe")
     $candidates += "python.exe"
     $candidates += "python"
 
@@ -170,6 +170,8 @@ cmake -S $repoRoot -B (Join-Path $repoRoot "build") `
     -A x64 `
     -T host=x64 `
     -DPython_EXECUTABLE="$pythonPath" `
+    -DPYTHON_EXECUTABLE="$pythonPath" `
+    -DPython3_EXECUTABLE="$pythonPath" `
     -DVulkan_LIBRARY="$vulkanLib" `
     -DVulkan_INCLUDE_DIR="$vulkanInclude" `
     -DUSE_CUDA=OFF `
