@@ -3002,7 +3002,7 @@ promotes them. On the RX 9070, the rebuilt source runtime reports all three as
 supported. This is device-addressing groundwork only: no planner or executor
 route consumes these bits yet, so it is not a BF16 coverage or performance
 claim. The current validated deployed Release hashes are `torch_cpu.dll`
-`96295E9E05FD7C8B95DD95254D9FFF7E51F6546542447495DAE81011148FF5FB` and
+`51BD8EA938C1CC5608710A6669D43C7ACB814DF05011CF3654DE2497E6B46C80` and
 `torch_python.dll`
 `DAAF80848BBEF090B5CF5F7DE7687769061CE643AD411B25A82544B6C16B09C0`.
 
@@ -3125,10 +3125,14 @@ model gate and they do not imply model-specific production routes.
   A real one-token invocation gathers and uploads 20,992 bytes, then fails loud
   at the first `aten::to.dtype` with one attributed CPU fallback, zero sync
   readback, and zero deferred values. That cast is the current execution
-  blocker. This is whole-text-graph plan compilation and blocker attribution,
+  blocker. The existing native FP32-to-BF16 shader produces zero data in a
+  direct-buffer reproduction. A packed-Int32 owner plus typed BF16 view
+  candidate also failed the general-width and readback/consumer gates, so all
+  of its shader, runtime, and test code was removed. This is whole-text-graph
+  plan compilation and blocker attribution,
   not end-to-end parity, memory, or performance evidence. The updated artifact
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
-  `944049DD52F43893AA745BACED5CBAD3776222597165EFC8F4E98D5CF6D78D34`.
+  `D33388BD2CA9CAC0AEA7F52E2FCCD3423850EFD6CE0592590C3379038D53B5F7`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
