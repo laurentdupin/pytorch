@@ -6,7 +6,6 @@
 #include <ATen/native/vulkan/api/Context.h>
 #include <ATen/native/vulkan/api/SyncCounters.h>
 #include <ATen/native/vulkan/ops/Convert.h>
-#include <ATen/native/vulkan/ops/Clamp.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
@@ -64,8 +63,6 @@ enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   None,
   LinearContext,
   AddLayernormPlan,
-  GraphRegionPlan,
-  Relu,
   AttentionMath,
 };
 
@@ -163,12 +160,6 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
   }
   if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
     return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
-  }
-  if (operator_name == "vulkan_prepack::run_vulkan_graph_region_plan") {
-    return VulkanGraphPlanResourceWriterKind::GraphRegionPlan;
-  }
-  if (operator_name == "aten::relu") {
-    return VulkanGraphPlanResourceWriterKind::Relu;
   }
   if (operator_name == "vulkan_prepack::run_graph_attention_math") {
     return VulkanGraphPlanResourceWriterKind::AttentionMath;
@@ -510,41 +501,6 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       stack.emplace_back(std::move(residual_output));
       stack.emplace_back(std::move(normalized_output));
       return VulkanGraphPlanResourceWriteResult::Written;
-    }
-    case VulkanGraphPlanResourceWriterKind::GraphRegionPlan: {
-      TORCH_CHECK(
-          targets.size() == 1u && stack.size() == 2u && stack[0].isTensor(),
-          "VulkanGraphPlan.v9 graph-region resource writer has invalid arguments");
-      const auto region_plan =
-          stack[1].toCustomClass<VulkanGraphRegionPlan>();
-      auto result = try_run_vulkan_graph_region_plan_out(
-          stack[0].toTensor(), region_plan, *targets[0]);
-      if (!result) {
-        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
-      }
-      if (!same_vulkan_storage(*result, *targets[0])) {
-        stack.clear();
-        stack.emplace_back(std::move(*result));
-        return VulkanGraphPlanResourceWriteResult::ProducedUnowned;
-      }
-      stack.clear();
-      stack.emplace_back(std::move(*result));
-      return VulkanGraphPlanResourceWriteResult::Written;
-    }
-    case VulkanGraphPlanResourceWriterKind::Relu: {
-      TORCH_CHECK(
-          targets.size() == 1u && stack.size() == 1u && stack[0].isTensor(),
-          "VulkanGraphPlan.v9 relu resource writer has invalid arguments");
-      auto result =
-          try_relu_buffer_out_vulkan(stack[0].toTensor(), *targets[0]);
-      if (!result) {
-        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
-      }
-      stack.clear();
-      stack.emplace_back(std::move(*result));
-      return same_vulkan_storage(stack[0].toTensor(), *targets[0])
-          ? VulkanGraphPlanResourceWriteResult::Written
-          : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
     }
     case VulkanGraphPlanResourceWriterKind::AttentionMath: {
       TORCH_CHECK(

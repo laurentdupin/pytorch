@@ -122,8 +122,6 @@ _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
     (
         "vulkan_prepack::run_linear_context",
         "vulkan_prepack::run_graph_add_layernorm_plan",
-        "vulkan_prepack::run_vulkan_graph_region_plan",
-        "aten::relu",
         "vulkan_prepack::run_graph_attention_math",
     )
 )

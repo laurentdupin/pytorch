@@ -1207,7 +1207,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.resource_write_count(), 6)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
-    def test_cpp_graph_plan_owns_gelu_region_output_storage(self):
+    def test_cpp_graph_plan_keeps_gelu_region_output_unowned(self):
         class LinearGeluSin(torch.nn.Module):
             def __init__(self, approximate):
                 super().__init__()
@@ -1229,9 +1229,9 @@ class TestVulkanGraph(TestCase):
                 program = torch.vulkan.export_and_lower(model, tensor)
                 report = program.cpp_plan_report
 
-                self.assertEqual(report.resource_writer_instruction_count, 1)
-                self.assertEqual(report.resource_value_count, 1)
-                self.assertEqual(report.resource_slot_count, 1)
+                self.assertEqual(report.resource_writer_instruction_count, 0)
+                self.assertEqual(report.resource_value_count, 0)
+                self.assertEqual(report.resource_slot_count, 0)
                 with torch.inference_mode():
                     outputs = [program(tensor) for _ in range(3)]
                     actual = [output.cpu() for output in outputs]
@@ -1251,10 +1251,10 @@ class TestVulkanGraph(TestCase):
                             else 1e-4
                         ),
                     )
-                self.assertEqual(program.cpp_plan.resource_write_count(), 3)
+                self.assertEqual(program.cpp_plan.resource_write_count(), 0)
                 self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
-    def test_cpp_graph_plan_owns_conv_region_output_storage(self):
+    def test_cpp_graph_plan_keeps_conv_region_output_unowned(self):
         class ConvReluConvSin(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1270,19 +1270,19 @@ class TestVulkanGraph(TestCase):
         program = torch.vulkan.export_and_lower(model, tensor)
         report = program.cpp_plan_report
 
-        self.assertEqual(report.resource_writer_instruction_count, 1)
-        self.assertEqual(report.resource_value_count, 1)
-        self.assertEqual(report.resource_slot_count, 1)
+        self.assertEqual(report.resource_writer_instruction_count, 0)
+        self.assertEqual(report.resource_value_count, 0)
+        self.assertEqual(report.resource_slot_count, 0)
         with torch.inference_mode():
             outputs = [program(tensor) for _ in range(3)]
             actual = [output.cpu() for output in outputs]
 
         for output in actual:
             torch.testing.assert_close(output, model(tensor), rtol=1e-4, atol=1e-4)
-        self.assertEqual(program.cpp_plan.resource_write_count(), 3)
+        self.assertEqual(program.cpp_plan.resource_write_count(), 0)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
-    def test_cpp_graph_plan_owns_relu_output_storage(self):
+    def test_cpp_graph_plan_keeps_relu_output_unowned(self):
         class ReluSin(torch.nn.Module):
             def forward(self, tensor):
                 return torch.sin(torch.relu(tensor))
@@ -1293,15 +1293,15 @@ class TestVulkanGraph(TestCase):
         program = torch.vulkan.export_and_lower(model, tensor)
         report = program.cpp_plan_report
 
-        self.assertEqual(report.resource_writer_instruction_count, 1)
-        self.assertEqual(report.resource_value_count, 1)
+        self.assertEqual(report.resource_writer_instruction_count, 0)
+        self.assertEqual(report.resource_value_count, 0)
         with torch.inference_mode():
             outputs = [program(tensor) for _ in range(3)]
             actual = [output.cpu() for output in outputs]
 
         for output in actual:
             torch.testing.assert_close(output, model(tensor))
-        self.assertEqual(program.cpp_plan.resource_write_count(), 3)
+        self.assertEqual(program.cpp_plan.resource_write_count(), 0)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
     def test_cpp_graph_plan_rejects_resource_alias_that_escapes(self):
@@ -1558,6 +1558,48 @@ class TestVulkanGraph(TestCase):
         del output
         torch.ops.vulkan_prepack.synchronize()
         del plan
+        gc.collect()
+
+        counters = _graph_program_invocation_counters()
+        self.assertGreaterEqual(counters[10], 1)
+        self.assertEqual(counters[11:], [0, 0, 0])
+
+    def test_cpp_graph_plan_destruction_does_not_leak_region_or_relu_inputs(self):
+        class LinearRegionRelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.first = torch.nn.Linear(4, 4)
+                self.second = torch.nn.Linear(4, 4)
+
+            def forward(self, tensor):
+                owned = self.first(tensor)
+                region = torch.nn.functional.gelu(
+                    self.second(owned),
+                    approximate="tanh",
+                )
+                return torch.sin(torch.relu(region))
+
+        gc.collect()
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.manual_seed(43)
+        model = LinearRegionRelu().eval()
+        tensor = torch.randn(2, 4)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(
+            program.cpp_plan_report.resource_writer_instruction_count,
+            1,
+        )
+        output = program(tensor)
+        torch.testing.assert_close(
+            output.cpu(),
+            model(tensor),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+        del output
+        torch.ops.vulkan_prepack.synchronize()
+        del program
         gc.collect()
 
         counters = _graph_program_invocation_counters()

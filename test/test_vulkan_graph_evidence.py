@@ -393,6 +393,10 @@ class TestVulkanGraphEvidence(TestCase):
                     "sync_readback": 0,
                 },
                 "submission_counters": {
+                    "graph_program_invocation": {
+                        "resource_arena_unsafe_slot_leak": 0,
+                        "resource_arena_retirement_failure": 0,
+                    },
                     "submit_origin": {"tensor_cpu_readback": 3000},
                 },
                 "memory": {
@@ -432,6 +436,18 @@ class TestVulkanGraphEvidence(TestCase):
         self.assertEqual(gate["status"], "failed")
         self.assertTrue(gate["qualified_gate_run"])
         self.assertFalse(gate["checks"]["final_live_bytes_bounded"])
+
+    def test_qualified_long_session_soak_rejects_unsafe_resource_leak(self):
+        record = self._long_session_soak_record()
+        record["measurement"]["submission_counters"][
+            "graph_program_invocation"
+        ]["resource_arena_unsafe_slot_leak"] = 1
+        gate = _evaluate_long_session_soak_gate(record)
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["qualified_gate_run"])
+        self.assertFalse(
+            gate["checks"]["zero_resource_arena_unsafe_slot_leak"]
+        )
 
     def test_state_replay_mapping_is_explicit_and_one_to_one(self):
         self.assertEqual(_state_replay_mapping(None), ())
@@ -762,6 +778,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "static_inference_identities": None,
                 "static_identity_advanced_indices": None,
                 "static_gqa_repeats": None,
+                "static_sdpa_fusions": None,
                 "tensor_placement": None,
                 "linear_lowering": {"created_context_count": 2},
                 "static_linear_gelu_regions": None,
@@ -784,6 +801,7 @@ class TestVulkanGraphEvidence(TestCase):
                 "static_inference_identities": None,
                 "static_identity_advanced_indices": None,
                 "static_gqa_repeats": None,
+                "static_sdpa_fusions": None,
                 "tensor_placement": None,
                 "linear_lowering": None,
                 "static_linear_gelu_regions": None,
@@ -806,6 +824,7 @@ class TestVulkanGraphEvidence(TestCase):
             "static_inference_identities": {"lowered_count": 48},
             "static_identity_advanced_indices": {"lowered_count": 5},
             "static_gqa_repeats": {"lowered_count": 6},
+            "static_sdpa_fusions": {"lowered_count": 12},
             "tensor_placement": {"buffer_direct_count": 7},
         }
         reports = _lowering_reports(SimpleNamespace(**preparation_reports))

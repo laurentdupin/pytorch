@@ -773,6 +773,9 @@ def _evaluate_long_session_soak_gate(record: dict[str, Any]) -> dict[str, Any]:
     measurement = record["measurement"]
     memory = measurement["memory"]
     runtime_counters = measurement["runtime_counters"]
+    graph_invocation_counters = measurement["submission_counters"][
+        "graph_program_invocation"
+    ]
     submit_counters = measurement["submission_counters"]["submit_origin"]
     preflight_peak = memory["replacement_preflight"]["high_water_bytes"]
     soak_phase = memory["soak"]
@@ -803,6 +806,12 @@ def _evaluate_long_session_soak_gate(record: dict[str, Any]) -> dict[str, Any]:
         "zero_cpu_fallback": runtime_counters["cpu_fallback"] == 0,
         "zero_unexpected_sync_readback": (
             runtime_counters["sync_readback"] == 0
+        ),
+        "zero_resource_arena_unsafe_slot_leak": (
+            graph_invocation_counters["resource_arena_unsafe_slot_leak"] == 0
+        ),
+        "zero_resource_arena_retirement_failure": (
+            graph_invocation_counters["resource_arena_retirement_failure"] == 0
         ),
         "one_final_readback_per_frame": (
             submit_counters["tensor_cpu_readback"]
