@@ -382,6 +382,15 @@ invocation. The accepted extensions increase stable-address coverage but do
 not yet justify command recording: remaining dispatcher-owned values break the
 transformer spans before they meet the preregistered recording threshold.
 
+Resource-slot identity is no longer shape-and-dtype-only. The lowering passes
+an explicit storage type, GPU memory layout, and execution layout for every
+slot, and the C++ arena materializes the matching execution object. Existing
+writers still request direct width-packed buffers, preserving their allocation
+and lifetime behavior. A buffer view is deliberately not materializable as an
+independent slot: its base allocation, offset, physical sizes, and strides must
+first be represented by the plan. This ABI change does not readmit any rejected
+writer family or claim a recorded partition.
+
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and

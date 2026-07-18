@@ -133,6 +133,19 @@ _RESOURCE_ARENA_FLIGHT_DEPTH = 2
 class _VulkanGraphResourceDescriptor:
     sizes: tuple[int, ...]
     dtype: torch.dtype
+    storage_type: int
+    memory_layout: int
+    execution_layout: int
+
+
+_STORAGE_TYPE_BUFFER = 0
+_MEMORY_LAYOUT_TENSOR_WIDTH_PACKED = 0
+_EXECUTION_LAYOUT_BUFFER_DIRECT = 1
+_DIRECT_WIDTH_BUFFER_RESOURCE = (
+    _STORAGE_TYPE_BUFFER,
+    _MEMORY_LAYOUT_TENSOR_WIDTH_PACKED,
+    _EXECUTION_LAYOUT_BUFFER_DIRECT,
+)
 
 
 def _rejected(
@@ -294,7 +307,9 @@ def _resource_descriptor(
         if concrete_size <= 0:
             return None
         sizes.append(concrete_size)
-    return _VulkanGraphResourceDescriptor(tuple(sizes), value.dtype)
+    return _VulkanGraphResourceDescriptor(
+        tuple(sizes), value.dtype, *_DIRECT_WIDTH_BUFFER_RESOURCE
+    )
 
 
 def _resource_output_descriptors(
@@ -763,6 +778,15 @@ def compile_vulkan_graph_plan(
     resource_slot_ranks = [
         len(descriptor.sizes) for descriptor in resource_descriptors
     ]
+    resource_slot_storage_types = [
+        descriptor.storage_type for descriptor in resource_descriptors
+    ]
+    resource_slot_memory_layouts = [
+        descriptor.memory_layout for descriptor in resource_descriptors
+    ]
+    resource_slot_execution_layouts = [
+        descriptor.execution_layout for descriptor in resource_descriptors
+    ]
     resource_value_count = sum(slot_id >= 0 for slot_id in value_resource_slot_ids)
 
     plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
@@ -783,6 +807,9 @@ def compile_vulkan_graph_plan(
         resource_slot_sizes,
         resource_slot_ranks,
         _RESOURCE_ARENA_FLIGHT_DEPTH,
+        resource_slot_storage_types,
+        resource_slot_memory_layouts,
+        resource_slot_execution_layouts,
     )
     report = VulkanGraphPlanReport(
         status="compiled",

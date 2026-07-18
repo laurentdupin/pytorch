@@ -106,6 +106,14 @@ class ReadbackBufferObject final {
 
 ScratchArena create_vulkan_scratch_arena(const VulkanScratchArenaSpec&);
 
+Tensor create_vulkan_execution_tensor(
+    IntArrayRef sizes,
+    ScalarType dtype,
+    api::ExecutionLayout execution_layout,
+    api::GPUMemoryLayout memory_layout,
+    api::StorageType storage_type,
+    bool persistent = true);
+
 ReadbackBufferObject create_vulkan_readback_buffer_object(
     size_t size_bytes);
 

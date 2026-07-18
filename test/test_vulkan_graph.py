@@ -1494,6 +1494,37 @@ class TestVulkanGraph(TestCase):
                 2,
             )
 
+    def test_cpp_graph_plan_rejects_resource_buffer_view_target(self):
+        context = torch.ops.vulkan_prepack.create_linear_context(
+            torch.randn(4, 4), torch.randn(4)
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "resource slots cannot materialize buffer views",
+        ):
+            torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+                ["linear", "sin"],
+                ["vulkan_prepack::run_linear_context", "aten::sin"],
+                ["", ""],
+                [[[0], [-1]], [[1]]],
+                [[0, 0], [0]],
+                [[1], [2]],
+                [context],
+                1,
+                [2],
+                0,
+                0,
+                False,
+                None,
+                [-1, 0, -1],
+                [2, 4],
+                [2],
+                2,
+                [0],
+                [0],
+                [2],
+            )
+
     def test_cpp_graph_plan_releases_resource_arena_when_plan_dies(self):
         gc.collect()
         torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()

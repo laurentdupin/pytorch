@@ -154,6 +154,15 @@ bypasses per invocation in the relevant isolation runs; all four implementations
 were removed. These rejections show that stable point outputs alone still do
 not form a sufficiently broad contiguous recorded partition.
 
+Resource slots now carry explicit storage-type, GPU-memory-layout, and
+execution-layout fields from Python lowering into the C++ plan. Arena creation
+consumes that descriptor through the generic execution-object allocator while
+the current direct width-packed buffer descriptor retains the established
+allocation path. Buffer-view targets fail closed because a view requires base
+storage, offset, and stride ownership rather than a standalone allocation.
+Current writer admission remains unchanged; this is descriptor substrate for a
+future contiguous partition, not new add/mul/softmax/matmul coverage.
+
 Phase 6 attribution at exact source commit
 `28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657` keeps the existing 32-job
 checkpoint frequency and sweeps exact observed topologies of 10, 5, 2, and 1

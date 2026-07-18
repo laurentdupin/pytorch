@@ -255,6 +255,28 @@ std::string make_vulkan_runtime_object_label(
   return stream.str();
 }
 
+Tensor create_vulkan_execution_tensor(
+    const IntArrayRef sizes,
+    const ScalarType dtype,
+    const api::ExecutionLayout execution_layout,
+    const api::GPUMemoryLayout memory_layout,
+    const api::StorageType storage_type,
+    const bool persistent) {
+  if (
+      execution_layout == api::ExecutionLayout::BUFFER_DIRECT &&
+      memory_layout == api::GPUMemoryLayout::TENSOR_WIDTH_PACKED &&
+      storage_type == api::StorageType::BUFFER) {
+    return create_buffer_tensor(sizes, dtype, persistent);
+  }
+  return create_execution_object_storage(
+      sizes.vec(),
+      dtype,
+      execution_layout,
+      memory_layout,
+      storage_type,
+      persistent);
+}
+
 const Tensor& ScratchArena::storage() const {
   TORCH_CHECK(state_, "Scratch arena is not initialized");
   return state_->storage_;

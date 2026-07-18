@@ -10,6 +10,7 @@
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
 #include <ATen/native/vulkan/ops/Utils.h>
+#include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/GraphProgramPlans.h>
 #include <ATen/native/vulkan/planning/Request.h>
 
@@ -90,6 +91,10 @@ struct VulkanGraphPlanInstruction final {
 struct VulkanGraphPlanResourceSlot final {
   std::vector<int64_t> sizes;
   ScalarType dtype{kFloat};
+  api::StorageType storage_type{api::StorageType::BUFFER};
+  api::GPUMemoryLayout memory_layout{
+      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED};
+  api::ExecutionLayout execution_layout{api::ExecutionLayout::BUFFER_DIRECT};
 };
 
 struct VulkanGraphPlanResourceArena final {
@@ -405,6 +410,38 @@ enum class VulkanGraphPlanResourceWriteResult : uint8_t {
   ProducedUnowned,
   NeedsDispatcher,
 };
+
+api::StorageType parse_resource_storage_type(const int64_t value) {
+  if (
+      value >= static_cast<int64_t>(api::StorageType::BUFFER) &&
+      value <= static_cast<int64_t>(api::StorageType::TEXTURE_2D)) {
+    return static_cast<api::StorageType>(value);
+  }
+  TORCH_CHECK(
+      false, "VulkanGraphPlan.v9 has invalid resource storage type ", value);
+}
+
+api::GPUMemoryLayout parse_resource_memory_layout(const int64_t value) {
+  if (
+      value >=
+          static_cast<int64_t>(api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) &&
+      value <=
+          static_cast<int64_t>(api::GPUMemoryLayout::TENSOR_CHANNELS_PACKED)) {
+    return static_cast<api::GPUMemoryLayout>(value);
+  }
+  TORCH_CHECK(
+      false, "VulkanGraphPlan.v9 has invalid resource memory layout ", value);
+}
+
+api::ExecutionLayout parse_resource_execution_layout(const int64_t value) {
+  if (
+      value >= static_cast<int64_t>(api::ExecutionLayout::TEXTURE) &&
+      value <= static_cast<int64_t>(api::ExecutionLayout::PACKED_WEIGHT)) {
+    return static_cast<api::ExecutionLayout>(value);
+  }
+  TORCH_CHECK(
+      false, "VulkanGraphPlan.v9 has invalid resource execution layout ", value);
+}
 
 VulkanGraphPlanResourceWriteResult execute_resource_writer(
     VulkanGraphPlan& plan,
@@ -1069,6 +1106,9 @@ bool VulkanGraphPlan::valid() const {
   for (const VulkanGraphPlanResourceSlot& slot : state_->resource_slots) {
     if (
         slot.dtype != kFloat || slot.sizes.empty() ||
+        (api::uses_buffer_execution(slot.execution_layout) !=
+         (slot.storage_type == api::StorageType::BUFFER)) ||
+        slot.execution_layout == api::ExecutionLayout::BUFFER_VIEW ||
         !std::all_of(slot.sizes.begin(), slot.sizes.end(), [](const int64_t size) {
           return size > 0;
         })) {
@@ -1146,8 +1186,13 @@ int64_t VulkanGraphPlan::acquire_resource_arena(
   arena.device_index = device_index;
   arena.tensors.reserve(state_->resource_slots.size());
   for (const VulkanGraphPlanResourceSlot& slot : state_->resource_slots) {
-    arena.tensors.push_back(
-        create_buffer_tensor(slot.sizes, slot.dtype, /*persistent=*/true));
+    arena.tensors.push_back(create_vulkan_execution_tensor(
+        slot.sizes,
+        slot.dtype,
+        slot.execution_layout,
+        slot.memory_layout,
+        slot.storage_type,
+        /*persistent=*/true));
   }
   state_->resource_arenas.push_back(std::move(arena));
   state_->resource_arena_generation_count.fetch_add(
@@ -1214,7 +1259,10 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<int64_t> value_resource_slot_ids,
     std::vector<int64_t> resource_slot_sizes,
     std::vector<int64_t> resource_slot_ranks,
-    const int64_t resource_arena_flight_depth) {
+    const int64_t resource_arena_flight_depth,
+    std::vector<int64_t> resource_slot_storage_types,
+    std::vector<int64_t> resource_slot_memory_layouts,
+    std::vector<int64_t> resource_slot_execution_layouts) {
   TORCH_CHECK(
       input_count > 0,
       "VulkanGraphPlan.v9 requires at least one tensor input");
@@ -1290,6 +1338,27 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       flattened_rank_sum == resource_slot_sizes.size(),
       "VulkanGraphPlan.v9 resource slot ranks must partition the flat sizes");
 
+  const size_t resource_slot_count = resource_slot_ranks.size();
+  if (resource_slot_storage_types.empty()) {
+    resource_slot_storage_types.assign(
+        resource_slot_count, static_cast<int64_t>(api::StorageType::BUFFER));
+  }
+  if (resource_slot_memory_layouts.empty()) {
+    resource_slot_memory_layouts.assign(
+        resource_slot_count,
+        static_cast<int64_t>(api::GPUMemoryLayout::TENSOR_WIDTH_PACKED));
+  }
+  if (resource_slot_execution_layouts.empty()) {
+    resource_slot_execution_layouts.assign(
+        resource_slot_count,
+        static_cast<int64_t>(api::ExecutionLayout::BUFFER_DIRECT));
+  }
+  TORCH_CHECK(
+      resource_slot_storage_types.size() == resource_slot_count &&
+          resource_slot_memory_layouts.size() == resource_slot_count &&
+          resource_slot_execution_layouts.size() == resource_slot_count,
+      "VulkanGraphPlan.v9 resource layout descriptors must match slot count");
+
   auto state = std::make_shared<VulkanGraphPlan::State>();
   state->input_count = input_count;
   state->planning_request = make_vulkan_planning_request(
@@ -1308,7 +1377,8 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       resource_slot_ranks.empty() ? 0 : resource_arena_flight_depth;
   state->resource_slots.reserve(resource_slot_ranks.size());
   size_t resource_size_offset = 0u;
-  for (const int64_t rank : resource_slot_ranks) {
+  for (const auto slot_index : c10::irange(resource_slot_ranks.size())) {
+    const int64_t rank = resource_slot_ranks[slot_index];
     std::vector<int64_t> slot_sizes(
         resource_slot_sizes.begin() + resource_size_offset,
         resource_slot_sizes.begin() + resource_size_offset + rank);
@@ -1318,8 +1388,27 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
             slot_sizes.end(),
             [](const int64_t size) { return size > 0; }),
         "VulkanGraphPlan.v9 resource slots require positive fp32 buffer shapes");
+    const api::StorageType storage_type =
+        parse_resource_storage_type(resource_slot_storage_types[slot_index]);
+    const api::GPUMemoryLayout memory_layout =
+        parse_resource_memory_layout(resource_slot_memory_layouts[slot_index]);
+    const api::ExecutionLayout execution_layout =
+        parse_resource_execution_layout(
+            resource_slot_execution_layouts[slot_index]);
+    TORCH_CHECK(
+        execution_layout != api::ExecutionLayout::BUFFER_VIEW,
+        "VulkanGraphPlan.v9 resource slots cannot materialize buffer views");
+    TORCH_CHECK(
+        api::uses_buffer_execution(execution_layout) ==
+            (storage_type == api::StorageType::BUFFER),
+        "VulkanGraphPlan.v9 resource storage and execution layouts disagree");
     state->resource_slots.push_back(
-        VulkanGraphPlanResourceSlot{std::move(slot_sizes), kFloat});
+        VulkanGraphPlanResourceSlot{
+            std::move(slot_sizes),
+            kFloat,
+            storage_type,
+            memory_layout,
+            execution_layout});
     resource_size_offset += static_cast<size_t>(rank);
   }
   for (const auto value_index : c10::irange(state->values.size())) {

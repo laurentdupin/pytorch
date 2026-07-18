@@ -628,6 +628,14 @@ This is accepted resource coverage, not Phase 6 completion: a recording
 candidate still needs generic stable ownership across a useful contiguous
 multi-dispatch span.
 
+The resource ABI now transports storage type, GPU memory layout, and execution
+layout per slot instead of assuming that shape and dtype fully describe a
+target. Direct width-packed buffers retain the proven allocator path, and
+standalone buffer-view targets fail closed until base-storage and physical-view
+metadata are represented. Operator admission is unchanged; the next recording
+candidate must use this descriptor substrate to own a contiguous transformer
+span rather than restoring isolated rejected writers.
+
 Exit criteria:
 
 - the C++ executor matches the Python correctness executor;
