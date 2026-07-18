@@ -2308,6 +2308,92 @@ bool is_gtx_class_runtime_device() {
   return device_name != nullptr && std::strstr(device_name, "GTX") != nullptr;
 }
 
+constexpr size_t kLargeSlidingWindowConvCacheLimitBytes =
+    size_t{2} * 1024u * 1024u;
+constexpr size_t kLargeSlidingWindowConvContractLimitBytes =
+    size_t{8} * 1024u * 1024u;
+constexpr uint64_t kLargeTransientConvCheckpointSubmitBudget = 48u;
+constexpr uint64_t kLargeTransientConvCheckpointByteBudget =
+    1024ull * 1024ull * 1024ull;
+
+std::atomic<uint64_t>& large_transient_conv_checkpoint_submit_count() {
+  static std::atomic<uint64_t> count{0u};
+  return count;
+}
+
+std::atomic<uint64_t>& large_transient_conv_checkpoint_bytes() {
+  static std::atomic<uint64_t> bytes{0u};
+  return bytes;
+}
+
+void maybe_synchronize_after_large_transient_conv_checkpoint(
+    const Tensor& input,
+    const PackedWeightHandle& packed_weight,
+    const Tensor& output) {
+  if (
+      !c10::InferenceMode::is_enabled() || !packed_weight.defined() ||
+      packed_weight.kind() != PackedWeightKind::Conv2dSlidingWindow ||
+      packed_weight.resident_nbytes() <=
+          kLargeSlidingWindowConvContractLimitBytes) {
+    return;
+  }
+
+  const uint64_t weight_bytes =
+      static_cast<uint64_t>(packed_weight.resident_nbytes());
+  const uint64_t invocation_bytes =
+      static_cast<uint64_t>(input.nbytes()) + weight_bytes +
+      static_cast<uint64_t>(output.nbytes());
+  const uint64_t observed_submits =
+      large_transient_conv_checkpoint_submit_count().fetch_add(
+          1u, std::memory_order_relaxed) +
+      1u;
+  const uint64_t observed_bytes =
+      large_transient_conv_checkpoint_bytes().fetch_add(
+          invocation_bytes, std::memory_order_relaxed) +
+      invocation_bytes;
+  if (
+      observed_submits < kLargeTransientConvCheckpointSubmitBudget &&
+      observed_bytes < kLargeTransientConvCheckpointByteBudget) {
+    return;
+  }
+
+  const uint64_t checkpoint_submits =
+      large_transient_conv_checkpoint_submit_count().exchange(
+          0u, std::memory_order_relaxed);
+  const uint64_t checkpoint_bytes =
+      large_transient_conv_checkpoint_bytes().exchange(
+          0u, std::memory_order_relaxed);
+  std::ostringstream stream;
+  stream << "aten::convolution.large_transient_checkpoint"
+         << " submits=" << checkpoint_submits
+         << " bytes=" << checkpoint_bytes
+         << " weight_bytes=" << weight_bytes;
+  utils::log_vulkan_op_hit(stream.str());
+
+  api::AllocationScope allocation_scope(
+      "convolution.large_transient_checkpoint");
+  api::Context* const context = api::context();
+  std::function<void()> packed_weight_cleanup =
+      utils::take_retired_packed_weight_cleanup();
+  if (context->owns_graph_program_invocation()) {
+    context->request_graph_program_checkpoint(
+        [packed_weight_cleanup = std::move(packed_weight_cleanup)]() mutable {
+          if (packed_weight_cleanup) {
+            packed_weight_cleanup();
+          }
+        },
+        true);
+    utils::log_vulkan_op_hit(
+        "aten::convolution.large_transient_checkpoint."
+        "requested_graph_checkpoint");
+    return;
+  }
+  context->synchronize_stream(context->current_c10_stream());
+  if (packed_weight_cleanup) {
+    packed_weight_cleanup();
+  }
+}
+
 PackedWeightResidencyClass float_buffer_conv2d_weight_residency_class(
     const size_t resident_nbytes,
     const std::vector<int64_t>& logical_weight_sizes) {
@@ -2383,10 +2469,6 @@ bool should_cache_float_buffer_conv2d_handle(
   // Keeping all of them in the persistent packed-weight cache creates live
   // memory pressure without producing hits; let normal Vulkan deferred cleanup
   // own their in-flight lifetime instead.
-  constexpr size_t kLargeSlidingWindowConvCacheLimitBytes =
-      size_t{2} * 1024u * 1024u;
-  constexpr size_t kLargeSlidingWindowConvContractLimitBytes =
-      size_t{8} * 1024u * 1024u;
   if (
       handle.residency_class() ==
           PackedWeightResidencyClass::PersistentInference &&
@@ -5017,7 +5099,7 @@ static Tensor run_conv2d_context_impl(
         float_buffer_conv_transpose2d_skip_reason(
             buffer_input, packed_weight, transposed, quantized);
     if (buffer_transpose_skip_reason == nullptr) {
-      return run_float_buffer_conv_transpose2d_impl(
+      Tensor output = run_float_buffer_conv_transpose2d_impl(
           buffer_input,
           packed_weight,
           stride,
@@ -5028,13 +5110,16 @@ static Tensor run_conv2d_context_impl(
           output_min,
           output_max,
           output_arg);
+      maybe_synchronize_after_large_transient_conv_checkpoint(
+          buffer_input, packed_weight, output);
+      return output;
     }
     if (transposed) {
       utils::log_vulkan_op_hit(buffer_transpose_skip_reason);
     }
     if (can_run_float_buffer_conv2d(
             buffer_input, packed_weight, transposed, quantized, output_padding)) {
-      return run_float_buffer_conv2d_impl(
+      Tensor output = run_float_buffer_conv2d_impl(
           buffer_input,
           packed_weight,
           stride,
@@ -5044,6 +5129,9 @@ static Tensor run_conv2d_context_impl(
           output_min,
           output_max,
           output_arg);
+      maybe_synchronize_after_large_transient_conv_checkpoint(
+          buffer_input, packed_weight, output);
+      return output;
     }
   }
 

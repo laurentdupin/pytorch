@@ -6987,6 +6987,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                     for row in plan_keys),
                 msg="\n".join(plan_keys))
 
+    def test_vulkan_large_transient_conv_chain_completes(self):
+        torch.manual_seed(1751)
+        x_cpu = torch.randn(1, 512, 4, 4)
+        weight_cpu = torch.randn(512, 512, 3, 3)
+        expected = F.conv2d(x_cpu, weight_cpu, padding=1)
+
+        with torch.inference_mode():
+            x_vulkan = x_cpu.to("vulkan")
+            weight_vulkan = weight_cpu.to("vulkan")
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            for _ in range(72):
+                actual = F.conv2d(x_vulkan, weight_vulkan, padding=1)
+            actual = actual.cpu()
+
+        self._assert_outputs_close(expected, actual, atol=2e-2, rtol=2e-2)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+        self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
     def test_vulkan_linear_plan_key_snapshot_records_capability_profile(self):
         torch.manual_seed(1752)
         x_cpu = torch.randn(8, 16)
