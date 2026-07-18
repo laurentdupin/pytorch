@@ -3122,17 +3122,23 @@ model gate and they do not imply model-specific production routes.
   functionalized only because their inputs are fresh single-user non-aliasing
   operator results; observable input/alias mutation remains rejected. The tied
   768 MiB token table and 4.375 GiB PLE are two explicit BF16 host partitions.
-  A real one-token invocation gathers and uploads 20,992 bytes, then fails loud
-  at the first `aten::to.dtype` with one attributed CPU fallback, zero sync
-  readback, and zero deferred values. That cast is the current execution
-  blocker. The existing native FP32-to-BF16 shader produces zero data in a
-  direct-buffer reproduction. A packed-Int32 owner plus typed BF16 view
-  candidate also failed the general-width and readback/consumer gates, so all
-  of its shader, runtime, and test code was removed. This is whole-text-graph
-  plan compilation and blocker attribution,
+  Bounded CPU state expressions up to 1 MiB are now evaluated during lowering
+  under the immutable state fingerprint. On the real graph this folds 277
+  expressions into 215 unique graph-owned constants with 62 reuses, including
+  scalar and normalization-weight dtype casts. The C++ plan shrinks from 4,201
+  to 3,966 instructions and lower time in the current probe falls from 36.56 to
+  21.04 seconds. A real one-token invocation gathers and uploads 20,992 bytes,
+  then fails loud at the first BF16 `aten::mul.Tensor` with one attributed CPU
+  fallback, zero sync readback, and zero deferred values. Elementwise BF16
+  multiplication is the current execution blocker. Dynamic FP32-to-BF16 also
+  remains unresolved: its existing native shader produces zero data in a
+  direct-buffer reproduction, and a packed-Int32 owner plus typed BF16 view
+  candidate failed the general-width and readback/consumer gates, so all of its
+  shader, runtime, and test code was removed. This is whole-text-graph plan
+  compilation and blocker attribution,
   not end-to-end parity, memory, or performance evidence. The updated artifact
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
-  `D33388BD2CA9CAC0AEA7F52E2FCCD3423850EFD6CE0592590C3379038D53B5F7`.
+  `0D1ED154FDACF022E600C2582CFD244432EEF62EE483B5C5A274AADA43932867`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

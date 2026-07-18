@@ -4007,6 +4007,68 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_host_partition_count, 1)
         self.assertEqual(program.last_host_partition_transfer_bytes, 264)
 
+    def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
+        class StateCasts(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("scale", torch.tensor(1.25))
+                self.register_buffer(
+                    "weight",
+                    torch.arange(33, dtype=torch.bfloat16),
+                )
+
+            def forward(self, tensor):
+                return (
+                    tensor,
+                    self.scale.to(torch.bfloat16),
+                    self.weight.to(torch.float32),
+                )
+
+        tensor = torch.randn(2, 4, dtype=torch.bfloat16)
+        model = StateCasts().eval()
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        report = program.static_factory_constants
+        cast_nodes = [
+            node
+            for node in report.nodes
+            if node.operator_name == "aten::to.dtype"
+        ]
+        self.assertEqual(len(cast_nodes), 2)
+        self.assertTrue(all(node.status == "lowered" for node in cast_nodes))
+        self.assertNotIn("aten.to.dtype", program.graph_module.code)
+        actual = program(tensor)
+        self.assertEqual(tuple(value.cpu() for value in actual), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+        model.scale.fill_(9.0)
+        model.weight.fill_(0)
+        repeated = program(tensor)
+        self.assertEqual(tuple(value.cpu() for value in repeated), expected)
+
+    def test_large_state_dtype_cast_is_not_folded(self):
+        class LargeStateCast(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer(
+                    "weight",
+                    torch.ones((1 << 18) + 1, dtype=torch.float32),
+                )
+
+            def forward(self, tensor):
+                return tensor, self.weight.to(torch.bfloat16)
+
+        tensor = torch.randn(1)
+        program = torch.vulkan.export_and_lower(LargeStateCast().eval(), tensor)
+        self.assertIn("aten.to.dtype", program.graph_module.code)
+        self.assertFalse(
+            any(
+                node.operator_name == "aten::to.dtype"
+                for node in program.static_factory_constants.nodes
+            )
+        )
+
     def test_oversized_embedding_uses_explicit_host_gather_partition(self):
         class PackedPerLayerEmbedding(torch.nn.Module):
             def __init__(self):

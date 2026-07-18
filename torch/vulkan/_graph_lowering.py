@@ -1064,6 +1064,7 @@ _STATIC_FACTORY_EXPRESSION_OPERATOR_NAMES = frozenset(
         "aten::unsqueeze",
     )
 )
+_STATIC_FACTORY_STATE_INPUT_MAX_BYTES = 1 << 20
 
 
 def _is_static_arange_target(target: Any) -> bool:
@@ -1100,13 +1101,18 @@ def _resolve_static_factory_expression_value(
 ) -> tuple[Any, bool, bool]:
     if isinstance(value, torch.fx.Node):
         target = str(value.target)
-        if (
-            value.op == "get_attr"
-            and target.startswith("_vulkan_static_factory_constant_")
-            and hasattr(graph_module, target)
-        ):
-            constant = getattr(graph_module, target)
-            if isinstance(constant, torch.Tensor) and constant.device.type == "cpu":
+        if value.op == "get_attr":
+            constant: Any = graph_module
+            for name in target.split("."):
+                if not hasattr(constant, name):
+                    return None, False, False
+                constant = getattr(constant, name)
+            if (
+                isinstance(constant, torch.Tensor)
+                and constant.device.type == "cpu"
+                and constant.numel() * constant.element_size()
+                <= _STATIC_FACTORY_STATE_INPUT_MAX_BYTES
+            ):
                 return constant, True, True
         return None, False, False
     if isinstance(value, tuple | list):
@@ -1124,13 +1130,20 @@ def _resolve_static_factory_expression_value(
     return value, _is_static_factory_value(value), False
 
 
-def _contains_static_factory_constant_node(value: Any) -> bool:
+def _contains_static_factory_constant_node(
+    graph_module: torch.fx.GraphModule,
+    value: Any,
+) -> bool:
     if isinstance(value, torch.fx.Node):
-        return value.op == "get_attr" and str(value.target).startswith(
-            "_vulkan_static_factory_constant_"
+        _, is_static, contains_constant = _resolve_static_factory_expression_value(
+            graph_module, value
         )
+        return is_static and contains_constant
     if isinstance(value, tuple | list):
-        return any(_contains_static_factory_constant_node(item) for item in value)
+        return any(
+            _contains_static_factory_constant_node(graph_module, item)
+            for item in value
+        )
     return False
 
 
@@ -1154,7 +1167,7 @@ def lower_static_factory_constants(
         if not is_factory and not is_expression:
             continue
         if is_expression and not any(
-            _contains_static_factory_constant_node(argument)
+            _contains_static_factory_constant_node(graph_module, argument)
             for argument in (*node.args, *node.kwargs.values())
         ):
             continue
