@@ -59,6 +59,7 @@ struct PhysicalDevice final {
   bool supports_descriptor_buffer;
   bool has_shader_bfloat16;
   bool has_shader_int8;
+  bool has_storage_buffer_16bit;
   bool has_storage_buffer_8bit;
   bool has_cooperative_matrix;
   bool has_subgroup_size_control;
@@ -250,6 +251,10 @@ class Adapter final {
 
   inline bool has_storage_buffer_8bit() const {
     return physical_device_.has_storage_buffer_8bit;
+  }
+
+  inline bool has_storage_buffer_16bit() const {
+    return physical_device_.has_storage_buffer_16bit;
   }
 
   inline bool has_cooperative_matrix() const {

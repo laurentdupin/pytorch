@@ -2238,6 +2238,7 @@ bool can_run_bfloat16_buffer_conv2d(
     const bool quantized,
     const IntArrayRef output_padding) {
   if (
+      !api::context()->adapter_ptr()->has_storage_buffer_16bit() ||
       transposed ||
       quantized ||
       !output_padding_is_zero(output_padding) ||

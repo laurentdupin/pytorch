@@ -88,11 +88,15 @@ Unsupported nodes must never silently fall through to CPU.
 
 The first explicit CPU partition is a bounded host-resident embedding gather.
 An inference-only `aten::embedding` whose contiguous two-dimensional weight is
-at least 4 GiB cannot be bound as one supported Vulkan storage buffer. When its
-indices are a direct CPU graph input or an admitted pure integral expression,
-lowering retains the immutable weight on the host, replaces the lookup with an
-internal direct-buffer plan input, and gathers and uploads only the selected
-rows before device execution. The first derived-index family admits at most 64
+BF16 or at least 4 GiB remains host resident. The size rule prevents a tensor
+that exceeds the supported storage-buffer binding range from being represented
+as one device buffer. The BF16 rule remains in force until a native embedding
+transport passes randomized legal widths and values; a width-four packed-word
+prototype was not a general proof. When indices are a direct CPU graph input or
+an admitted pure integral expression, lowering retains the immutable weight on
+the host, replaces the lookup with an internal direct-buffer plan input, and
+gathers and uploads only the selected rows before device execution. The first
+derived-index family admits at most 64
 nodes composed of scalar equality, boolean union, clone, lifted constants, and
 a clone-owned index update; lifted constants are capped at 1 MiB. Escaping mask
 and index results become explicit uploaded plan inputs. Direct integer uploads

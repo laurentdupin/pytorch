@@ -3972,6 +3972,41 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(model.projection.weight.device.type, "cpu")
         self.assertEqual(program(indices).cpu(), expected)
 
+    def test_bfloat16_embedding_uses_explicit_host_gather_partition(self):
+        class BFloat16Embedding(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(
+                    257, 33, dtype=torch.bfloat16
+                )
+
+            def forward(self, indices):
+                return self.embedding(indices)
+
+        torch.manual_seed(0)
+        model = BFloat16Embedding().eval()
+        indices = torch.tensor([[1, 3, 17, 256]], dtype=torch.long)
+        expected = model(indices)
+        program = torch.vulkan.export_and_lower(model, indices)
+
+        self.assertEqual(
+            program.host_resident_constant_partitions.partition_count, 1
+        )
+        partition = program.host_resident_constant_partitions.nodes[0]
+        self.assertEqual(partition.weight_attr, "embedding.weight")
+        self.assertEqual(
+            partition.reason,
+            "bfloat16_embedding_requires_host_gather_partition",
+        )
+        self.assertNotIn("embedding.weight", program.graph_module.state_dict())
+        actual = program(indices)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(actual.cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_host_partition_count, 1)
+        self.assertEqual(program.last_host_partition_transfer_bytes, 264)
+
     def test_oversized_embedding_uses_explicit_host_gather_partition(self):
         class PackedPerLayerEmbedding(torch.nn.Module):
             def __init__(self):

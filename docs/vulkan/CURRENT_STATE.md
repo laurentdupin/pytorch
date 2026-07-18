@@ -3001,10 +3001,10 @@ profiles mask all three capabilities off until profile-specific evidence
 promotes them. On the RX 9070, the rebuilt source runtime reports all three as
 supported. This is device-addressing groundwork only: no planner or executor
 route consumes these bits yet, so it is not a BF16 coverage or performance
-claim. The validated deployed Release hashes are `torch_cpu.dll`
-`5853503F838E7DFBCB081C577ED89886C1A00EE7C9BE98090E4CEF526C4ED98E` and
+claim. The current validated deployed Release hashes are `torch_cpu.dll`
+`96295E9E05FD7C8B95DD95254D9FFF7E51F6546542447495DAE81011148FF5FB` and
 `torch_python.dll`
-`68847BA8BB0D356266F83DFC92ED0779934B457E572EFD889BB2C886C0D9B59F`.
+`DAAF80848BBEF090B5CF5F7DE7687769061CE643AD411B25A82544B6C16B09C0`.
 
 ## Coverage Corpus
 
@@ -3031,10 +3031,12 @@ to real distributed/c10d/Gloo support for model-framework import paths:
 `USE_DISTRIBUTED=ON`, `USE_GLOO=ON`, `USE_C10D_GLOO=ON`, and `USE_LIBUV=ON`
 with `libuv_ROOT` resolved from an explicit argument, the environment, or
 `agent_space\libuv_install`. MPI, NCCL, c10d MPI/NCCL, and TensorPipe remain
-off for this Windows-local configuration. Existing build products still need a
-reconfigure and rebuild before `torch._C._distributed_c10d` appears in the
-runtime; changing helper defaults does not repair an already-built
-`torch/lib`.
+off for this Windows-local configuration. The canonical MSVC helper prefers the
+repository `.venv` and pins `Python_EXECUTABLE`, `PYTHON_EXECUTABLE`, and
+`Python3_EXECUTABLE` to the same interpreter so a reconfigure cannot silently
+change ABI. The current rebuilt runtime exports `_distributed_c10d` and the
+compiled DTensor schema API, and the Lotus DTensor preflight passes. Changing
+helper defaults alone still does not repair an already-built `torch/lib`.
 
 ## Current Telemetry Checkpoint
 
@@ -3091,11 +3093,16 @@ model gate and they do not imply model-specific production routes.
   inputs, and CPU-observed integer bounds become device tensor provenance.
   A masked packed-embedding analogue compiles to the C++ plan with exact parity,
   zero fallback/readback, and 80 explicitly counted transfer bytes. BF16 rows
-  also preserve exact values through the gather/upload boundary. This does not
-  yet make the checkpoint runnable: the conditional wrapper's remaining mask
-  consumers and the rest of the model still need BF16 weight residency/operator
-  coverage. The previous whole-model `.to(vulkan)` path therefore remains
-  blocked; it is no longer the intended execution design.
+  also preserve exact values through the gather/upload boundary. BF16 embedding
+  constants now always take this explicit host-gather route: a native packed
+  32-bit transport preserved all 65,536 BF16 values at width four, but failed
+  randomized general widths including aligned width 128, so it was rejected and
+  removed. Native BF16 linear and convolution admission now additionally fails
+  closed unless the logical device enabled both `storageBuffer16BitAccess` and
+  `shaderInt16`. This does not yet make the checkpoint runnable: the remaining
+  casts, mask consumers, and operators still need BF16 coverage. The previous
+  whole-model `.to(vulkan)` path therefore remains blocked; it is no longer the
+  intended execution design.
   A real checkpoint-backed one-token text export at exact source
   `70e386a2bc3` completes in 6.80 seconds with 4,833 graph nodes: 277 linears,
   35 SDPAs, and zero unsupported operator registrations after normalization.
@@ -3107,18 +3114,21 @@ model gate and they do not imply model-specific production routes.
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
   `7731b7165329d502fd4dc458d7b3c3915f3d82fa01d15f03ef07c6d31672b835`.
   A checkpoint-backed lower at the source commit containing this entry now
-  reaches `VulkanGraphPlan.v9`: 4,202 instructions, three tensor inputs, 3,672
+  reaches `VulkanGraphPlan.v9`: 4,201 instructions, four tensor inputs, 3,672
   invocation value slots, 52 list arguments, and submission ownership. Two
   unused specialized kwargs (`use_cache=False`, `logits_to_keep=1`) are
   projected out of the tensor-only C++ plan input table but remain covered by
   exported runtime guards. All 35 per-layer `aten::mul_` nodes are
   functionalized only because their inputs are fresh single-user non-aliasing
-  operator results; observable input/alias mutation remains rejected. The PLE
-  remains one explicit 4.375 GiB host partition. This is whole-text-graph plan
-  compilation, not execution, parity, fallback/readback, memory, or performance
-  evidence. The updated artifact is
-  `agent_space/gemma_step13_export_probe.json`, SHA-256
-  `1F1C169E1FBC52FD117C585397809E940E37DF052022A5FC162F3FDF32F88C03`.
+  operator results; observable input/alias mutation remains rejected. The tied
+  768 MiB token table and 4.375 GiB PLE are two explicit BF16 host partitions.
+  A real one-token invocation gathers and uploads 20,992 bytes, then fails loud
+  at the first `aten::to.dtype` with one attributed CPU fallback, zero sync
+  readback, and zero deferred values. That cast is the current execution
+  blocker. This is whole-text-graph plan compilation and blocker attribution,
+  not end-to-end parity, memory, or performance evidence. The updated artifact
+  is `agent_space/gemma_step13_export_probe.json`, SHA-256
+  `944049DD52F43893AA745BACED5CBAD3776222597165EFC8F4E98D5CF6D78D34`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

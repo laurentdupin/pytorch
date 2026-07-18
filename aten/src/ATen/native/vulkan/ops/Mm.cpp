@@ -2807,6 +2807,7 @@ bool can_run_bfloat16_buffer_linear(
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
   if (
+      !api::context()->adapter_ptr()->has_storage_buffer_16bit() ||
       input.device().type() != c10::DeviceType::Vulkan ||
       weight.device().type() != c10::DeviceType::Vulkan ||
       input.scalar_type() != kBFloat16 ||

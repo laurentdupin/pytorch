@@ -58,6 +58,7 @@ PhysicalDevice::PhysicalDevice(
       supports_descriptor_buffer(false),
       has_shader_bfloat16(false),
       has_shader_int8(false),
+      has_storage_buffer_16bit(false),
       has_storage_buffer_8bit(false),
       has_cooperative_matrix(false),
       has_subgroup_size_control(false),
@@ -164,6 +165,9 @@ PhysicalDevice::PhysicalDevice(
       shader_bfloat16_features.shaderBFloat16Type == VK_TRUE;
 #endif
   has_shader_int8 = vulkan12_features.shaderInt8 == VK_TRUE;
+  has_storage_buffer_16bit =
+      vulkan11_features.storageBuffer16BitAccess == VK_TRUE &&
+      features2.features.shaderInt16 == VK_TRUE;
   has_storage_buffer_8bit =
       vulkan12_features.storageBuffer8BitAccess == VK_TRUE;
   has_maintenance4 = vulkan13_features.maintenance4 == VK_TRUE;
@@ -593,6 +597,10 @@ VkDevice create_logical_device(
   }
   if (physical_device.has_storage_buffer_8bit) {
     vulkan12_features.storageBuffer8BitAccess = VK_TRUE;
+  }
+  if (physical_device.has_storage_buffer_16bit) {
+    vulkan11_features.storageBuffer16BitAccess = VK_TRUE;
+    enabled_features2.features.shaderInt16 = VK_TRUE;
   }
   vulkan12_features.timelineSemaphore =
       physical_device.has_timeline_semaphore ? VK_TRUE : VK_FALSE;

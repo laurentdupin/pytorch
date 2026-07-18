@@ -136,6 +136,22 @@ class _HostIndexPartition:
 # Windows drivers. Constants beyond that range cannot be made device-resident
 # as one tensor, regardless of available VRAM.
 _HOST_RESIDENT_EMBEDDING_MIN_BYTES = 1 << 32
+
+
+def _requires_host_resident_embedding(weight: torch.Tensor) -> bool:
+    return (
+        weight.dtype == torch.bfloat16
+        or weight.numel() * weight.element_size()
+        >= _HOST_RESIDENT_EMBEDDING_MIN_BYTES
+    )
+
+
+def _host_resident_embedding_reason(weight: torch.Tensor) -> str:
+    if weight.dtype == torch.bfloat16:
+        return "bfloat16_embedding_requires_host_gather_partition"
+    return "oversized_embedding_exceeds_storage_buffer_binding_range"
+
+
 _HOST_GATHER_MAX_UPLOAD_BYTES = 256 << 20
 _HOST_INDEX_CONSTANT_MAX_BYTES = 1 << 20
 _HOST_INDEX_MAX_NODE_COUNT = 64
@@ -854,8 +870,7 @@ def _host_embedding_candidate_attrs(
             and weight.device.type == "cpu"
             and weight.dim() == 2
             and weight.is_contiguous()
-            and weight.numel() * weight.element_size()
-            >= _HOST_RESIDENT_EMBEDDING_MIN_BYTES
+            and _requires_host_resident_embedding(weight)
         ):
             candidates.add(weight_attr)
     return frozenset(candidates)
@@ -968,8 +983,7 @@ def _lower_host_index_partitions(
             weight = _get_graph_attr(graph_module, str(node.args[0].target))
             if (
                 isinstance(weight, torch.Tensor)
-                and weight.numel() * weight.element_size()
-                >= _HOST_RESIDENT_EMBEDDING_MIN_BYTES
+                and _requires_host_resident_embedding(weight)
                 and node.args[1] not in roots
             ):
                 roots.append(node.args[1])
@@ -1157,8 +1171,7 @@ def _lower_host_embedding_gather_partitions(
         weight = state_dict_snapshot.get(weight_attr)
         if (
             not isinstance(weight, torch.Tensor)
-            or weight.numel() * weight.element_size()
-            < _HOST_RESIDENT_EMBEDDING_MIN_BYTES
+            or not _requires_host_resident_embedding(weight)
         ):
             continue
         padding_idx = int(node.args[2]) if len(node.args) > 2 else -1
@@ -1177,7 +1190,7 @@ def _lower_host_embedding_gather_partitions(
             dtype=weight.dtype,
             weight_shape=(int(weight.shape[0]), int(weight.shape[1])),
             weight_bytes=weight.numel() * weight.element_size(),
-            reason="oversized_embedding_exceeds_storage_buffer_binding_range",
+            reason=_host_resident_embedding_reason(weight),
         )
         partitions.append(
             _HostEmbeddingGatherPartition(
