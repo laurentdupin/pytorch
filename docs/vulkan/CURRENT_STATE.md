@@ -2990,6 +2990,22 @@ minimum-profile runtime-policy feature masking, minimum-profile compiled-session
 layout clamping, and minimum-profile SDPA qtile admission to the shared path
 instead of the subgroup path.
 
+Live capability discovery and `torch.vulkan.get_device_properties()` now expose
+buffer device address, push descriptor, and descriptor buffer support. The
+logical-device feature chain enables supported buffer-device-address and
+descriptor-buffer features. Buffer device address is a Vulkan 1.2 core feature,
+which is always available at the API level because this fork requires a Vulkan
+1.3 loader and physical device. The Vulkan 1.1/1.2 named profiles are reduced
+planner/test masks, not supported runtime targets. Existing named reduced
+profiles mask all three capabilities off until profile-specific evidence
+promotes them. On the RX 9070, the rebuilt source runtime reports all three as
+supported. This is device-addressing groundwork only: no planner or executor
+route consumes these bits yet, so it is not a BF16 coverage or performance
+claim. The validated deployed Release hashes are `torch_cpu.dll`
+`5853503F838E7DFBCB081C577ED89886C1A00EE7C9BE98090E4CEF526C4ED98E` and
+`torch_python.dll`
+`68847BA8BB0D356266F83DFC92ED0779934B457E572EFD889BB2C886C0D9B59F`.
+
 ## Coverage Corpus
 
 The five-model corpus is:

@@ -105,6 +105,9 @@ VULKAN_CAPABILITY_PROFILE_FEATURE_KEYS = (
     "unified_memory",
     "maintenance4",
     "synchronization2",
+    "buffer_device_address",
+    "push_descriptor",
+    "descriptor_buffer",
     "shader_integer_dot_product",
     "shader_bfloat16",
     "shader_int8",
@@ -7940,6 +7943,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertGreaterEqual(properties.num_compute_queues, 1)
                 self.assertGreater(properties.max_image_dimension_2d, 0)
                 self.assertGreater(properties.max_image_dimension_3d, 0)
+                self.assertIsInstance(properties.has_buffer_device_address, bool)
+                self.assertIsInstance(properties.supports_push_descriptor, bool)
+                self.assertIsInstance(properties.supports_descriptor_buffer, bool)
                 self.assertIn(properties.name, repr(properties))
 
     def test_vulkan_set_device_and_context_manager_select_default_device(self):
@@ -35111,6 +35117,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 field.split("=", 1) for field in capability_line.split()[1:]
             )
             for field in (
+                "has_buffer_device_address",
+                "supports_push_descriptor",
+                "supports_descriptor_buffer",
                 "has_shader_bfloat16",
                 "has_shader_int8",
                 "has_storage_buffer_8bit",

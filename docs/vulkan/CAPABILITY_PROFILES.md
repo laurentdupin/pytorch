@@ -71,6 +71,12 @@ Unknown profile IDs fail loudly.
 
 Unset or empty `PYTORCH_VULKAN_CAPABILITY_PROFILE` preserves current behavior.
 
+Live capability discovery also records `buffer_device_address`,
+`push_descriptor`, and `descriptor_buffer`. Existing named reduced profiles
+mask all three off until adapter/profile evidence promotes them. Merely
+reporting an extension does not select an execution path; planner and executor
+work must still add an explicit capability-gated consumer.
+
 ## Scope
 
 This MVP covers runtime/planner capability admission and cheap route-legality

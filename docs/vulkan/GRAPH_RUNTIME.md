@@ -159,6 +159,13 @@ Runtime dimensions remain metadata or parameters when the selected kernels are
 shape-dynamic. A new exact shape key is required only when dispatch structure,
 allocation size, specialization, or a recorded command binding changes.
 
+The normalized capability set records buffer device address, push descriptor,
+and descriptor buffer support for future low-overhead binding work. These bits
+are admission inputs, not implicit route selectors. Until an executor consumer
+lands with its own parity and lifetime proof, existing descriptor-set binding
+remains the supported execution path and named reduced profiles mask the new
+bits off.
+
 ## Execution Stages
 
 ### Stage 1: Python Correctness Executor

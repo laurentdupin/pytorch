@@ -29,6 +29,10 @@ void query_subgroup_size_control_support(
     uint32_t& max_compute_workgroup_subgroups,
     uint32_t& required_subgroup_size_stages);
 
+bool physical_device_supports_extension(
+    VkPhysicalDevice physical_device,
+    const char* extension_name);
+
 } // namespace
 
 PhysicalDevice::PhysicalDevice(
@@ -49,6 +53,9 @@ PhysicalDevice::PhysicalDevice(
       has_shader_integer_dot_product(false),
       has_pipeline_creation_cache_control(false),
       has_timeline_semaphore(false),
+      has_buffer_device_address(false),
+      supports_push_descriptor(false),
+      supports_descriptor_buffer(false),
       has_shader_bfloat16(false),
       has_shader_int8(false),
       has_storage_buffer_8bit(false),
@@ -117,6 +124,16 @@ PhysicalDevice::PhysicalDevice(
       VK_FALSE,
   };
 #endif
+#ifdef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
+  VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
   void* features2_pnext = nullptr;
 #ifdef VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME
   shader_bfloat16_features.pNext = features2_pnext;
@@ -125,6 +142,10 @@ PhysicalDevice::PhysicalDevice(
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   cooperative_matrix_features.pNext = features2_pnext;
   features2_pnext = &cooperative_matrix_features;
+#endif
+#ifdef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
+  descriptor_buffer_features.pNext = features2_pnext;
+  features2_pnext = &descriptor_buffer_features;
 #endif
   vulkan13_features.pNext = features2_pnext;
   features2_pnext = &vulkan13_features;
@@ -154,6 +175,17 @@ PhysicalDevice::PhysicalDevice(
   has_pipeline_creation_cache_control =
       vulkan13_features.pipelineCreationCacheControl == VK_TRUE;
   has_timeline_semaphore = vulkan12_features.timelineSemaphore == VK_TRUE;
+  has_buffer_device_address = vulkan12_features.bufferDeviceAddress == VK_TRUE;
+#ifdef VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
+  supports_push_descriptor = physical_device_supports_extension(
+      handle, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+#endif
+#ifdef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
+  supports_descriptor_buffer =
+      descriptor_buffer_features.descriptorBuffer == VK_TRUE &&
+      physical_device_supports_extension(
+          handle, VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
+#endif
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
   has_cooperative_matrix =
       cooperative_matrix_features.cooperativeMatrix == VK_TRUE;
@@ -416,6 +448,15 @@ void find_requested_device_extensions(
   }
 }
 
+bool physical_device_supports_extension(
+    VkPhysicalDevice physical_device,
+    const char* extension_name) {
+  std::vector<const char*> enabled_extensions;
+  find_requested_device_extensions(
+      physical_device, enabled_extensions, {extension_name});
+  return !enabled_extensions.empty();
+}
+
 VkDevice create_logical_device(
     const PhysicalDevice& physical_device,
     const uint32_t num_queues_to_create,
@@ -475,6 +516,12 @@ VkDevice create_logical_device(
 #ifdef VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME
       VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME,
 #endif /* VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME */
+#ifdef VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
+      VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+#endif /* VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME */
+#ifdef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
+      VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
+#endif /* VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME */
   };
 
   std::vector<const char*> enabled_device_extensions;
@@ -512,6 +559,16 @@ VkDevice create_logical_device(
       VK_FALSE,
   };
 #endif
+#ifdef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
+  VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
+      nullptr,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+      VK_FALSE,
+  };
+#endif
   VkPhysicalDeviceFeatures2 enabled_features2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
       nullptr,
@@ -539,6 +596,8 @@ VkDevice create_logical_device(
   }
   vulkan12_features.timelineSemaphore =
       physical_device.has_timeline_semaphore ? VK_TRUE : VK_FALSE;
+  vulkan12_features.bufferDeviceAddress =
+      physical_device.has_buffer_device_address ? VK_TRUE : VK_FALSE;
   vulkan13_features.maintenance4 =
       physical_device.has_maintenance4 ? VK_TRUE : VK_FALSE;
   vulkan13_features.synchronization2 =
@@ -574,6 +633,20 @@ VkDevice create_logical_device(
     cooperative_matrix_features.cooperativeMatrixRobustBufferAccess = VK_TRUE;
     cooperative_matrix_features.pNext = enabled_features2.pNext;
     enabled_features2.pNext = &cooperative_matrix_features;
+  }
+#endif
+#ifdef VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME
+  const bool enable_descriptor_buffer =
+      physical_device.supports_descriptor_buffer &&
+      std::find(
+          enabled_device_extensions.begin(),
+          enabled_device_extensions.end(),
+          VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME) !=
+          enabled_device_extensions.end();
+  if (enable_descriptor_buffer) {
+    descriptor_buffer_features.descriptorBuffer = VK_TRUE;
+    descriptor_buffer_features.pNext = enabled_features2.pNext;
+    enabled_features2.pNext = &descriptor_buffer_features;
   }
 #endif
 
@@ -857,6 +930,15 @@ std::string Adapter::stringize() const {
   ss << "    pipelineCreationCacheControl: "
      << (physical_device_.has_pipeline_creation_cache_control ? "true"
                                                               : "false")
+     << std::endl;
+  ss << "    bufferDeviceAddress: "
+     << (physical_device_.has_buffer_device_address ? "true" : "false")
+     << std::endl;
+  ss << "    pushDescriptor: "
+     << (physical_device_.supports_push_descriptor ? "true" : "false")
+     << std::endl;
+  ss << "    descriptorBuffer: "
+     << (physical_device_.supports_descriptor_buffer ? "true" : "false")
      << std::endl;
   ss << "    shaderBFloat16: "
      << (physical_device_.has_shader_bfloat16 ? "true" : "false")

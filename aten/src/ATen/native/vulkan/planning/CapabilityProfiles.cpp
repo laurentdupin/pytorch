@@ -41,6 +41,11 @@ constexpr VulkanRuntimeCapabilityProfile profile(
   result.has_vulkan_1_3 = api >= api_version(1u, 3u);
   result.has_maintenance4 = maintenance4;
   result.has_synchronization2 = synchronization2;
+  // Named reduced profiles do not admit the experimental device-addressing
+  // paths until profile-specific evidence records them.
+  result.has_buffer_device_address = false;
+  result.supports_push_descriptor = false;
+  result.supports_descriptor_buffer = false;
   result.has_shader_zero_initialize_workgroup_memory = false;
   result.has_shader_integer_dot_product = shader_integer_dot_product;
   result.has_pipeline_creation_cache_control = false;
@@ -465,6 +470,12 @@ VulkanRuntimeCapabilityProfile intersect_vulkan_capability_profiles(
   result.has_pipeline_creation_cache_control =
       actual.has_pipeline_creation_cache_control &&
       requested.has_pipeline_creation_cache_control;
+  result.has_buffer_device_address =
+      actual.has_buffer_device_address && requested.has_buffer_device_address;
+  result.supports_push_descriptor =
+      actual.supports_push_descriptor && requested.supports_push_descriptor;
+  result.supports_descriptor_buffer = actual.supports_descriptor_buffer &&
+      requested.supports_descriptor_buffer;
   result.has_shader_bfloat16 =
       actual.has_shader_bfloat16 && requested.has_shader_bfloat16;
   result.has_shader_int8 = actual.has_shader_int8 && requested.has_shader_int8;
@@ -544,6 +555,9 @@ VulkanMLFeatureSet normalize_vulkan_ml_feature_set(
       profile.has_vulkan_1_3 && profile.api_version >= api_version(1u, 3u);
   features.has_maintenance4 = profile.has_maintenance4;
   features.has_synchronization2 = profile.has_synchronization2;
+  features.has_buffer_device_address = profile.has_buffer_device_address;
+  features.supports_push_descriptor = profile.supports_push_descriptor;
+  features.supports_descriptor_buffer = profile.supports_descriptor_buffer;
   features.has_shader_integer_dot_product =
       profile.has_shader_integer_dot_product;
   features.has_shader_bfloat16 = profile.has_shader_bfloat16;

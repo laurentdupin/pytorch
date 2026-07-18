@@ -37,6 +37,9 @@ VulkanRuntimeCapabilityProfile query_vulkan_runtime_capability_profile() {
       adapter->has_shader_integer_dot_product();
   profile.has_pipeline_creation_cache_control =
       adapter->has_pipeline_creation_cache_control();
+  profile.has_buffer_device_address = adapter->has_buffer_device_address();
+  profile.supports_push_descriptor = adapter->supports_push_descriptor();
+  profile.supports_descriptor_buffer = adapter->supports_descriptor_buffer();
   profile.has_shader_bfloat16 = adapter->has_shader_bfloat16();
   profile.has_shader_int8 = adapter->has_shader_int8();
   profile.has_storage_buffer_8bit = adapter->has_storage_buffer_8bit();

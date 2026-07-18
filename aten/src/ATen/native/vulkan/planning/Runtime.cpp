@@ -317,6 +317,9 @@ struct RuntimePolicyLogState final {
   std::atomic<uint64_t> has_shader_zero_initialize_workgroup_memory{0u};
   std::atomic<uint64_t> has_shader_integer_dot_product{0u};
   std::atomic<uint64_t> has_pipeline_creation_cache_control{0u};
+  std::atomic<uint64_t> has_buffer_device_address{0u};
+  std::atomic<uint64_t> supports_push_descriptor{0u};
+  std::atomic<uint64_t> supports_descriptor_buffer{0u};
   std::atomic<uint64_t> has_shader_bfloat16{0u};
   std::atomic<uint64_t> has_shader_int8{0u};
   std::atomic<uint64_t> has_storage_buffer_8bit{0u};
@@ -362,6 +365,12 @@ struct RuntimePolicyLogState final {
         << has_shader_integer_dot_product.load(std::memory_order_relaxed)
         << " has_pipeline_creation_cache_control="
         << has_pipeline_creation_cache_control.load(std::memory_order_relaxed)
+        << " has_buffer_device_address="
+        << has_buffer_device_address.load(std::memory_order_relaxed)
+        << " supports_push_descriptor="
+        << supports_push_descriptor.load(std::memory_order_relaxed)
+        << " supports_descriptor_buffer="
+        << supports_descriptor_buffer.load(std::memory_order_relaxed)
         << " has_shader_bfloat16="
         << has_shader_bfloat16.load(std::memory_order_relaxed)
         << " has_shader_int8=" << has_shader_int8.load(std::memory_order_relaxed)
@@ -467,6 +476,15 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
   state.has_pipeline_creation_cache_control.store(
       capabilities.has_pipeline_creation_cache_control ? 1u : 0u,
       std::memory_order_relaxed);
+  state.has_buffer_device_address.store(
+      capabilities.has_buffer_device_address ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.supports_push_descriptor.store(
+      capabilities.supports_push_descriptor ? 1u : 0u,
+      std::memory_order_relaxed);
+  state.supports_descriptor_buffer.store(
+      capabilities.supports_descriptor_buffer ? 1u : 0u,
+      std::memory_order_relaxed);
   state.has_shader_bfloat16.store(
       capabilities.has_shader_bfloat16 ? 1u : 0u,
       std::memory_order_relaxed);
@@ -554,6 +572,12 @@ void log_runtime_policy_build(const VulkanRuntimePolicy& policy) {
       << (capabilities.has_shader_integer_dot_product ? 1u : 0u)
       << " has_pipeline_creation_cache_control="
       << (capabilities.has_pipeline_creation_cache_control ? 1u : 0u)
+      << " has_buffer_device_address="
+      << (capabilities.has_buffer_device_address ? 1u : 0u)
+      << " supports_push_descriptor="
+      << (capabilities.supports_push_descriptor ? 1u : 0u)
+      << " supports_descriptor_buffer="
+      << (capabilities.supports_descriptor_buffer ? 1u : 0u)
       << " has_shader_bfloat16=" << (capabilities.has_shader_bfloat16 ? 1u : 0u)
       << " has_shader_int8=" << (capabilities.has_shader_int8 ? 1u : 0u)
       << " has_storage_buffer_8bit="

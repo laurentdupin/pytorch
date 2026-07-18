@@ -19,6 +19,9 @@ struct VulkanRuntimeCapabilityProfile final {
   bool has_shader_zero_initialize_workgroup_memory{false};
   bool has_shader_integer_dot_product{false};
   bool has_pipeline_creation_cache_control{false};
+  bool has_buffer_device_address{false};
+  bool supports_push_descriptor{false};
+  bool supports_descriptor_buffer{false};
   bool has_shader_bfloat16{false};
   bool has_shader_int8{false};
   bool has_storage_buffer_8bit{false};

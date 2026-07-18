@@ -54,6 +54,9 @@ struct PhysicalDevice final {
   bool has_shader_integer_dot_product;
   bool has_pipeline_creation_cache_control;
   bool has_timeline_semaphore;
+  bool has_buffer_device_address;
+  bool supports_push_descriptor;
+  bool supports_descriptor_buffer;
   bool has_shader_bfloat16;
   bool has_shader_int8;
   bool has_storage_buffer_8bit;
@@ -223,6 +226,18 @@ class Adapter final {
 
   inline bool has_timeline_semaphore() const {
     return physical_device_.has_timeline_semaphore;
+  }
+
+  inline bool has_buffer_device_address() const {
+    return physical_device_.has_buffer_device_address;
+  }
+
+  inline bool supports_push_descriptor() const {
+    return physical_device_.supports_push_descriptor;
+  }
+
+  inline bool supports_descriptor_buffer() const {
+    return physical_device_.supports_descriptor_buffer;
   }
 
   inline bool has_shader_bfloat16() const {

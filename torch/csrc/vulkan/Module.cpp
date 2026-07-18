@@ -71,6 +71,9 @@ struct VulkanDeviceProperties final {
   bool has_shader_bfloat16;
   bool has_shader_int8;
   bool has_storage_buffer_8bit;
+  bool has_buffer_device_address;
+  bool supports_push_descriptor;
+  bool supports_descriptor_buffer;
   bool has_cooperative_matrix;
   bool has_subgroup_size_control;
   bool has_compute_full_subgroups;
@@ -104,6 +107,9 @@ struct VulkanDeviceProperties final {
         has_shader_bfloat16(physical_device.has_shader_bfloat16),
         has_shader_int8(physical_device.has_shader_int8),
         has_storage_buffer_8bit(physical_device.has_storage_buffer_8bit),
+        has_buffer_device_address(physical_device.has_buffer_device_address),
+        supports_push_descriptor(physical_device.supports_push_descriptor),
+        supports_descriptor_buffer(physical_device.supports_descriptor_buffer),
         has_cooperative_matrix(physical_device.has_cooperative_matrix),
         has_subgroup_size_control(physical_device.has_subgroup_size_control),
         has_compute_full_subgroups(physical_device.has_compute_full_subgroups),
@@ -154,6 +160,15 @@ void registerVulkanDeviceProperties(PyObject* module) {
       .def_readonly(
           "has_storage_buffer_8bit",
           &VulkanDeviceProperties::has_storage_buffer_8bit)
+      .def_readonly(
+          "has_buffer_device_address",
+          &VulkanDeviceProperties::has_buffer_device_address)
+      .def_readonly(
+          "supports_push_descriptor",
+          &VulkanDeviceProperties::supports_push_descriptor)
+      .def_readonly(
+          "supports_descriptor_buffer",
+          &VulkanDeviceProperties::supports_descriptor_buffer)
       .def_readonly(
           "has_cooperative_matrix",
           &VulkanDeviceProperties::has_cooperative_matrix)
