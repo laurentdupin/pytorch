@@ -416,7 +416,10 @@ runtime cases preserving the conservative score pre-materialization and
 post-softmax clone policy through `DiffusionMaterializedSquareRuntimeShape`.
 The square runtime family now covers single-head `head_dim=512` when the
 materialized key transpose can remain width-pack compatible (`sequence % 4 == 0`);
-non-compatible `512` sequences remain blocked on a direct-buffer materialization
+its sequence extent is governed by the shared overflow-safe score-element budget
+rather than the former 640 ceiling. Exact-SHA `207730deaa2` admits and proves
+the Lotus `[1,1,784,512]` row while preserving the over-budget hard fail.
+Non-compatible `512` sequences remain blocked on a direct-buffer materialization
 command plan rather than exact-row admission.
 `VisionSelfAttentionSDPAContract` `Rank3Head64Scale1RuntimeShape` covers fp32
 rank-3 vision self-attention by semantic Q/K/V equality, head dim `64`, explicit
@@ -683,6 +686,13 @@ writers is explicitly rejected.
   and elementwise fusion into graph rewrites;
 - move generated shader compilation behind a real compiler and pipeline cache;
 - add capability-keyed heuristic and bounded autotuning plans.
+
+Corpus progress at exact-SHA `3d666cbacd7`: Lotus now passes the compiled
+DTensor preflight and runs end to end on RX 9070 after bounded retirement for
+uncached inference sliding-window convolution weights above 8 MB prevents VAE
+decode stack overflow. The one-repeat 224x224 run is finite and completes in
+2.790 seconds, but 11 CPU fallbacks and two sync readbacks keep its clean-route
+gate open. This is a generic convolution lifetime correction, not a Lotus route.
 
 Exit criteria:
 

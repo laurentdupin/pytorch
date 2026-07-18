@@ -747,6 +747,11 @@ bounded score tensor. The old `kv=2` cross rows are fixtures; square diffusion
 self-attention now also has runtime semantic admission for `head_dim=64` and
 single-head `head_dim=512` when the score budget holds and the `512` materialized
 math path can prove a width-pack-compatible key transpose (`sequence % 4 == 0`).
+The square runtime and its score-softmax policy no longer impose the historical
+`sequence <= 640` ceiling: both use the same overflow-safe 2,097,152-element
+score budget. Exact-SHA `207730deaa2` proves the Lotus-derived
+`[1,1,784,512]` row against CPU while a divisible `[1,1,1452,512]` row remains
+hard-failed for exceeding that budget.
 Non-width-pack-compatible `512` square sequences still fail closed on the
 direct-buffer materialization guard, so the remaining square blocker is a layout
 command-plan issue rather than an exact-row admission issue.
@@ -3042,14 +3047,25 @@ model gate and they do not imply model-specific production routes.
 - Gemma E2B: still blocked before useful route coverage by model-weight Vulkan
   OOM while moving
   `gemma4forconditionalgeneration.model.language_model.embed_tokens_per_layer.weight`.
-- Lotus: Task181 encountered a source-tree build without the compiled DTensor C
-  API `_DTensor_OpSchema_post_init`. The current 2026-07-17 Visual Studio build
-  has `BUILD_PYTHON`, distributed, Gloo, C10D-Gloo, and libuv enabled; the
-  loaded runtime exports both `_distributed_c10d` and
+- Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
-  This clears the recorded environment blocker but does not establish a fresh
-  end-to-end Lotus result. Lotus remains excluded from backend regression
-  budgets until that model run is recollected.
+  Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
+  the legal `[1,1,784,512]` diffusion SDPA row. The first rerun then exposed a
+  native Windows stack overflow after 71 uncached 12.6 MB sliding-window
+  convolution weights accumulated during VAE decode. Exact-SHA `3d666cbacd7`
+  adds the convolution counterpart to the existing large-linear lifetime guard:
+  only inference-mode sliding-window weights above the existing 8 MB cacheable
+  contract participate, with 48-submit/1 GiB budgets and graph-owner checkpoint
+  handoff. A 72-convolution bug-class regression passes, and the fresh RX 9070
+  Lotus run completes end to end in 2.790 seconds for one 224x224 generated
+  image/one diffusion step. Output is finite (`min=0.05349`, `max=0.85677`,
+  `mean=0.45076`) with shape 224x224. This is a run result, not a clean-route or
+  performance gate: 11 CPU fallbacks and two embedding index-bounds readbacks
+  remain. The exact artifact is
+  `agent_space/lotus_vulkan_step11_conv_checkpoint_20260718.json`, SHA-256
+  `1480e8f84d9e32a96f50f98c2de4cc1b5ac6b7c9ef1701ae231fb1dbd7de2ee2`;
+  loaded `torch_cpu.dll` SHA-256 is
+  `b2b5416cf30baca41508a5324dc85911dfc6a6c01cf82d5b2671a6b4ba03df5e`.
 
 Benchmark-local distributed shims must stay import-only and single-process.
 `_c10d_functional.wait_tensor` may be an identity shim for telemetry imports;
@@ -3594,11 +3610,12 @@ These files are diagnostic inputs. Production code must not depend on
   not replace the RX 9070/RX 6700 XT/GTX 1080 real-hardware rows.
 - Gemma E2B is a memory/dtype milestone, not a reason to add exact route
   exceptions.
-- The current source-tree runtime passes the Lotus compiled-DTensor preflight,
-  but no fresh end-to-end Lotus telemetry has been collected from that build.
-  Do not fake compiled `torch._C` DTensor APIs if the preflight regresses; fix
-  and deploy the real `torch_python` runtime before treating Lotus as backend
-  evidence.
+- The current source-tree runtime passes the Lotus compiled-DTensor preflight
+  and fresh exact-source RX 9070 telemetry completes end to end. It still has
+  11 CPU fallbacks and two embedding index-bounds readbacks, so it is coverage
+  evidence rather than a clean-route or performance gate. Do not fake compiled
+  `torch._C` DTensor APIs if the preflight regresses; fix and deploy the real
+  `torch_python` runtime.
 - PaddleOCR completed the Task179 RX 9070 screenshot row with one known CPU
   fallback and one sync readback, but that is still telemetry-only and not
   cross-adapter gate-ready. Rerun the real-model matrix after the next backend

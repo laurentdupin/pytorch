@@ -96,6 +96,27 @@ condition and migration target.
   ownership contract with explicit packed-weight/scratch lifetime handoff,
   timeline-gated retire, and no generation-control CPU fallback hiding.
 
+### Large Transient Convolution Execution Checkpoint
+
+- Location: `aten/src/ATen/native/vulkan/ops/Convolution.cpp`
+- Status: temporary, generic lifetime guard
+- Reason: inference-only sliding-window convolution weights above the existing
+  8 MB cacheability contract are intentionally not persisted. Long diffusion
+  encoder/decoder chains can accumulate enough of those in-flight packed
+  contexts to overflow the Windows native stack even though ordinary command
+  submission cadence continues. The checkpoint uses 48-submit and 1 GiB
+  budgets and delegates to graph-program ownership when one is active; cached
+  convolution weights do not participate.
+- Evidence: exact-SHA `3d666cbacd7` completes a 72-convolution regression and a
+  real RX 9070 Lotus pass that previously overflowed after 71 uncached 12.6 MB
+  weights during VAE decode. The resulting Lotus output is finite and the model
+  runs end to end; remaining fallback/readback work is independent.
+- Expiry: graph/program convolution ownership explicitly retains and retires
+  transient packed weights by timeline generation, and both the 72-operation
+  regression and a real Lotus run remain stable with this checkpoint removed.
+- Migration target: program-owned convolution packed-weight/scratch lifetime
+  with bounded in-flight generations and no periodic host fence.
+
 ### Embedding Device Index Bounds
 
 - Location: `aten/src/ATen/native/vulkan/ops/Indexing.cpp` and
