@@ -3040,10 +3040,26 @@ model gate and they do not imply model-specific production routes.
   small-sequence broadening remains blocked: a scratch `S=1..115`
   sequence-append candidate reduced readback pressure but changed
   generation-token behavior, so it was not promoted.
+- A fresh one-token RX 9070 row at exact production source `3d666cbacd7`
+  completes in 3.989 seconds with 28 CPU fallbacks and nine readbacks. Its
+  reason census is generation-control traffic: small Long arithmetic and
+  comparison, `isin`, boolean reductions, scalar loop termination, plus one
+  embedding bounds readback. The 225 linear modules complete and the existing
+  model-core graph evidence remains the kernel-coverage claim; this one-token
+  row does not reach the second decode step or raise a performance gate. The
+  artifact is `agent_space/hymt_vulkan_step11_current_20260718.json`, SHA-256
+  `3a60fb3b6f57411e5688396ec2a3519e2791ced6fc7de196911cfd41add44188`.
 - PaddleOCR RX 9070 screenshot: stable in the Task179 single row. It reported
   `cpu_fallback=1`, `sync_readback=1`, `tensor_cpu_readback=1824`, and
   `conv_prepack_upload=140`; the earlier first-attempt DeviceLost did not
   reproduce in that run.
+- A fresh exact-runtime 224x224 generated-document row completes end to end in
+  1.006 seconds with zero CPU fallback and zero sync readback. It returns one
+  output item and exercises the Vulkan grid-sample path. This is a clean
+  one-repeat eager coverage row, not a distribution or cross-adapter
+  performance gate. The artifact is
+  `agent_space/paddleocr_vulkan_step11_current_20260718.json`, SHA-256
+  `656bdb5d96ac185ffd2ff1ae67e57170839de086c8665adee4852eb72e38c911`.
 - Gemma E2B: still blocked before useful route coverage by model-weight Vulkan
   OOM while moving
   `gemma4forconditionalgeneration.model.language_model.embed_tokens_per_layer.weight`.

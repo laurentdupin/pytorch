@@ -693,6 +693,12 @@ uncached inference sliding-window convolution weights above 8 MB prevents VAE
 decode stack overflow. The one-repeat 224x224 run is finite and completes in
 2.790 seconds, but 11 CPU fallbacks and two sync readbacks keep its clean-route
 gate open. This is a generic convolution lifetime correction, not a Lotus route.
+Fresh companion rows keep the remaining boundary explicit: PaddleOCR completes
+a 224x224 generated-document pass with zero fallback/readback, while HY-MT's
+one-token pass completes all 225 linears but retains 28 fallbacks and nine
+readbacks in caller-owned generation control. Those scalar loop decisions are
+not a reason to add model orchestration to eager Vulkan; the existing prefill
+and two-step decode graph evidence remains the model-core replacement gate.
 
 Exit criteria:
 
