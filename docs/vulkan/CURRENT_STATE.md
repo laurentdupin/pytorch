@@ -3189,6 +3189,21 @@ model gate and they do not imply model-specific production routes.
   `30D70896462D90304C2E47547D6FDBB3C85682E68CDA4589AD23D461DEBFB3E5`;
   loaded `torch_cpu.dll` SHA-256 is
   `8BCF6F6801029D3B3D118A53548B37E43CD638C7B76A81E524A5911CD490E3AC`.
+  Exact source `76ac6d225b3` admits this rank-5 expansion as a metadata-only
+  buffer view and keeps SDPA completion and hard-fail handling under the active
+  graph submission owner. Supported unmasked and boolean-masked SDPA graphs
+  retain zero fallback/readback, while rejected graph SDPA now preserves its
+  semantic route reason instead of being masked by a forbidden device-wide
+  synchronization. The 167 graph tests, 69 governance checks with regenerated
+  dependency manifests, and Lotus DTensor preflight pass. The exact Gemma
+  rerun advances to masked BF16 SDPA with query/key/value
+  `[1,8,1,256]`, scale `1`, and no GQA. It fails loud as
+  `KnownBadSdpaMaskOrCausal` with zero fallback, readback, and deferred values;
+  the two explicit host partitions still transfer 20,992 bytes. This is the
+  current generic BF16 attention-contract blocker. The exact artifact SHA-256
+  is `E19F5D6BD5B43054A5E7C3B60E80FA60FB77C2DAE71B40A6D91DF7C0F51D1850`;
+  loaded `torch_cpu.dll` SHA-256 is
+  `A58342D745417EBF4BEEACE5A3B037E169BB73C8563E27F1BC322CF0E32414CD`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

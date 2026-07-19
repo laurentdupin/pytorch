@@ -747,9 +747,10 @@ conditional-generation wrapper is now admitted with explicit escaping-output
 uploads and integer-bounds provenance. BF16 embedding constants now use the
 same explicit host partition until a generic native gather is proven; the real
 checkpoint lowers both its tied token table and per-layer table this way.
-BF16-preserving tensor-scalar multiplication, its immediate host-readback
-contract, and aligned native linear output are now established. Next add
-BF16 tensor-tensor arithmetic, bias, odd-K, and graph-safe dynamic cast
-coverage for the remaining weights and mask consumers. Whole-model float32
-upload and monolithic buffers above the
+  BF16-preserving tensor-scalar/tensor-tensor arithmetic, aligned native linear
+  output, rotary concatenation, and rank-5 metadata expansion are now
+  established. Next close the semantic BF16 masked-SDPA family reached by the
+  real graph, then add bias, odd-K, and graph-safe dynamic cast coverage for the
+  remaining weights and consumers. Whole-model float32 upload and monolithic
+  buffers above the
 storage-buffer binding range are not candidate routes.
