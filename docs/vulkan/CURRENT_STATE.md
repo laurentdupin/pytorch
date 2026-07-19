@@ -3407,6 +3407,22 @@ model gate and they do not imply model-specific production routes.
   `04CA4F024BDDF16836B6030FAC7350D038E7DAFDF5DF135BB3FAA4EF70A415B0`.
   The locally deployed `torch_python` still embeds source `46b37eb7a76`, so
   this exact source/DLL artifact is not clean release-identity evidence.
+
+  A teacher-forced follow-up at exact source `07352203c7f` keeps the prefill
+  outputs and both generations of decode outputs live while chaining a second
+  explicit cache handoff. The cache-length-two guard also lowers to a 4,046
+  instruction v9 C++ plan; execution grows all 30 cache leaves to sequence
+  length three with every leaf inside CPU tolerance and zero fallback,
+  readback, or deferred values. Its single execution sample is 0.664 seconds.
+  Logit mean/max absolute error is `0.07093`/`0.44571`; together with the first
+  decode's `0.35470`/`0.68215`, this does not establish parity but also does not
+  show monotonic cache-state corruption. The artifact is
+  `agent_space/gemma_step13_flat_cache_two_decode_probe.json`, SHA-256
+  `8F8263F2E8E63804650AFAB4A40C0705BBC0AFC311AEF98325B74D70C7D23264`,
+  against the same deployed `torch_cpu.dll` SHA-256
+  `04CA4F024BDDF16836B6030FAC7350D038E7DAFDF5DF135BB3FAA4EF70A415B0`.
+  This is two-step cache-lifetime coverage, not free-running generation,
+  distribution, or memory evidence.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
