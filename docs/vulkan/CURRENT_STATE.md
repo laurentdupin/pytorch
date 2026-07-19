@@ -3423,6 +3423,33 @@ model gate and they do not imply model-specific production routes.
   `04CA4F024BDDF16836B6030FAC7350D038E7DAFDF5DF135BB3FAA4EF70A415B0`.
   This is two-step cache-lifetime coverage, not free-running generation,
   distribution, or memory evidence.
+
+  Exact source `7f9d1664811` adds full-model attribution without changing the
+  backend. A 4,834-node export returning logits plus all 36 hidden states lowers
+  to the C++ plan and executes in one 0.600-second sample with zero fallback,
+  readback, or deferred values. Embedding and layer outputs 0 through 2 are
+  bit-exact. The first nonzero difference appears after layer 3; mean hidden
+  error then grows gradually, exceeds the strict gate at layers 22 and 23,
+  recedes through layer 33, and reaches mean/max `0.03118`/`0.5` after the final
+  layer/norm boundary. This confirms accumulated state sensitivity rather than
+  one monotonically corrupting layer. The artifact is
+  `agent_space/gemma_step13_hidden_state_curve.json`, SHA-256
+  `6CA6491548E37C881083A8D3566F4AA45E43032E62F31C6E398CA9601EAF6F22`.
+
+  A modified-export diagnostic of layer 3 narrows the first difference further.
+  Input normalization, Q/K/V projections, rotary setup, and SDPA are bit-exact;
+  the attention output projection is the first differing node at mean/max
+  `1.27e-6`/`0.001953`, followed by the MLP down projection at
+  `1.04e-4`/`0.03125` and the per-layer projection at
+  `2.48e-4`/`0.0078125`. The layer's gated output finishes at mean/max
+  `2.77e-5`/`0.015625`. Because output rewriting makes this diagnostic use the
+  Python correctness executor, it attributes the shared Vulkan kernel surface
+  but is not C++ plan-execution evidence. The artifact is
+  `agent_space/gemma_step13_layer3_diagnostic.json`, SHA-256
+  `AC1E368C8471FDA482144E6E81A3A1FCF9FF42596E995E0A9B08F6961CD22177`.
+  Together with the established same-input final-norm proof, this moves the
+  next correctness experiment to BF16 projection accumulation across repeated
+  layers; another rotary, SDPA, or mean-order candidate is not indicated.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
