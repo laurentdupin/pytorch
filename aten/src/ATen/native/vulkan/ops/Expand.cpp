@@ -40,7 +40,7 @@ Tensor expand(
 
   if (self.is_vulkan() && self.dim() <= 5 && output_size.size() <= 5) {
     const vTensor& v_self = convert(self);
-    if (utils::supports_buffer_view_fast_path(v_self)) {
+    if (utils::supports_buffer_metadata_view_fast_path(v_self)) {
       const auto logical_geometry = inferExpandGeometry_dimvector(
           v_self.sizes(), v_self.logical_strides(), output_size);
       const auto physical_geometry = inferExpandGeometry_dimvector(

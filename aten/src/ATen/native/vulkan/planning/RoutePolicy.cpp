@@ -229,7 +229,10 @@ std::string format_hard_fail(
 [[noreturn]] void fail_hard_fail(
     const char* op_name,
     const VulkanRouteDecision& decision) {
-  api::context()->synchronize_device();
+  api::Context* const context = api::context();
+  if (!context->owns_graph_program_invocation()) {
+    context->synchronize_device();
+  }
   api::fail_vulkan(
       api::VulkanFailureClass::RouteHardFail,
       op_name,

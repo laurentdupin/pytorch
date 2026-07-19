@@ -12,7 +12,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -47,11 +47,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -62,11 +62,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -140,7 +140,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -175,11 +175,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -190,11 +190,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -268,7 +268,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -303,11 +303,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -318,11 +318,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -396,7 +396,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -431,11 +431,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -446,11 +446,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -524,7 +524,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -559,11 +559,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -574,11 +574,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -652,7 +652,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -687,11 +687,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -702,11 +702,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -780,7 +780,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -815,11 +815,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -830,11 +830,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -908,7 +908,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -943,11 +943,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -958,11 +958,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1036,7 +1036,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1071,11 +1071,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1086,11 +1086,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1164,7 +1164,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1199,11 +1199,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1214,11 +1214,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1292,7 +1292,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1327,11 +1327,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1342,11 +1342,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1420,7 +1420,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1455,11 +1455,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1470,11 +1470,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1548,7 +1548,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1583,11 +1583,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1598,11 +1598,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1676,7 +1676,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1711,11 +1711,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1726,11 +1726,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1804,7 +1804,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1839,11 +1839,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1854,11 +1854,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -1932,7 +1932,7 @@
       "cardinality_estimate": 1,
       "contract_name": "AttentionProbabilityMaterializationContract",
       "dependency_digests": {
-        "entry_dependency_digest": "abe18b25ddaee09ac9d8850f40f2a27bce9c5f4a1b8a2ccdefad80a164919440",
+        "entry_dependency_digest": "d56c871a315bbb9af5e6aa2d194550c801dea773957a08e59bd910fe9c70069d",
         "expected_counter_policy": {
           "policy": {
             "copy": "row_policy_vulkan_clone_required_or_direct_safe_recorded",
@@ -1967,11 +1967,11 @@
           "sha256": "d78aca6222b080c8165b4738a81cf10845249b18215498c2bed15a1a28c74013"
         },
         "matcher_source": {
-          "combined_sha256": "27dc322c76323499fc3d267a8795c97aa2192a46d8b78b9fa3c7a66e94d05aa8",
+          "combined_sha256": "cfab1372685b1824c87dc906b78db07801efbf6b375f6fcb3147160d5dd8a543",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/ops/Softmax.cpp",
-              "sha256": "01371bba06f0f2153c8632571fb1dfb6957f29904366ceaceed25233f4146857"
+              "sha256": "dacc40e9243ee66d1850d81db4d6c431ff17a79fe6aca63bf760ecb4b019dfca"
             },
             {
               "path": "aten/src/ATen/native/vulkan/planning/ExecutionContractsSDPAExecutionPolicy.cpp",
@@ -1982,11 +1982,11 @@
           "missing": []
         },
         "route_policy_dependency": {
-          "combined_sha256": "e7edcadfc399b08b6ddab29d49e7f8713dadeacb815d5095b14cc6d39013265d",
+          "combined_sha256": "82c6d3904614a6078f11eacaaa06418b965ed9dc0ac282785cbc210b32fb42fd",
           "files": [
             {
               "path": "aten/src/ATen/native/vulkan/planning/RoutePolicy.cpp",
-              "sha256": "7dc8c5ecdc66996fbf1bbc643a0a69cee50a80d508c83e6fa529d47eeae21e2e"
+              "sha256": "b8ff9715d35e5b771cd29b814f1212676d579f68a69ea863c640dee4ee0f868b"
             }
           ],
           "known": true,
@@ -14713,14 +14713,14 @@
   "entry_count": 162,
   "generator": "tools/vulkan_contract_codegen/compare_contract_admission.py",
   "git_ref": "WORKTREE",
-  "manifest_digest": "2c16eb712657ccd14d33e60ba4ed9be78b3068343d259f58489854dd2a7b7aea",
+  "manifest_digest": "0bba394c1f2b3f0734aaf23915bc0fe689b5b3aefae25bf7eca02f7f88e8c49d",
   "schema_version": 1,
   "summaries": {
     "AttentionProbabilityMaterializationContract": {
       "admission_digest": "60b8c62b3c609fbe62334d9a5299b93e98fb5dc4db2d2511ae10bd6ab164660d",
       "bounded_envelope_count": 0,
       "cardinality_estimate": 16,
-      "dependency_digest": "da83bf40fa54ff1c17accad4f57564a5bf87c1cb32088c3269e9038e3d1999a9",
+      "dependency_digest": "4321d966ed520c7a4a3febf19fa4a1c1032eb4cb76e4b504dfbe251e34f6c388",
       "entry_count": 16,
       "exact_sparse_row_count": 16,
       "factorized_group_count": 0,

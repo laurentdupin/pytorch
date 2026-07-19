@@ -12972,14 +12972,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
             torch.testing.assert_close(actual, expected)
 
-    def test_5d_expand_fallback_match_cpu(self):
+    def test_5d_expand_metadata_view_matches_cpu(self):
         src = torch.arange(2 * 3 * 4 * 5, dtype=torch.float32).reshape(2, 3, 4, 5)
         vulkan = src.to("vulkan")
+        torch.ops.vulkan_prepack.reset_fallback_counters()
 
         expected = src.unsqueeze(2).expand(2, 3, 7, 4, 5)
         actual = vulkan.unsqueeze(2).expand(2, 3, 7, 4, 5).cpu()
 
         self.assertEqual(actual, expected)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+        rotary = torch.randn(1, 1, 1, 1, 256, dtype=torch.bfloat16)
+        expected_rotary = rotary.expand(1, 1, 8, 1, 256)
+        actual_rotary = rotary.to("vulkan").expand(1, 1, 8, 1, 256).cpu()
+        self.assertEqual(actual_rotary, expected_rotary)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
     def test_5d_transpose_and_permute_fallback_match_cpu(self):
         src = torch.arange(2 * 3 * 4 * 5 * 6, dtype=torch.float32).reshape(2, 3, 4, 5, 6)

@@ -4146,6 +4146,25 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_bfloat16_rank5_rotary_expand_stays_on_graph(self):
+        class ExpandRotary(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.unsqueeze(2).expand(1, 1, 8, 1, 256).reshape(
+                    1, 8, 1, 256
+                )
+
+        torch.manual_seed(0)
+        tensor = torch.randn(1, 1, 1, 256, dtype=torch.bfloat16)
+        model = ExpandRotary().eval()
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        actual = program(tensor).cpu()
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
         class StateCasts(torch.nn.Module):
             def __init__(self):
@@ -4615,6 +4634,58 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.census.unsupported_node_count, 0)
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_unmasked_sdpa_defers_sync_to_graph_submission_owner(self):
+        class Attention(torch.nn.Module):
+            def forward(self, query, key, value):
+                return torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+
+        torch.manual_seed(0)
+        query = torch.randn(1, 2, 17, 64)
+        key = torch.randn(1, 2, 19, 64)
+        value = torch.randn(1, 2, 19, 64)
+        model = Attention().eval()
+        expected = model(query, key, value)
+        program = torch.vulkan.export_and_lower(model, (query, key, value))
+
+        self.assertFalse(torch.is_inference_mode_enabled())
+        actual = program(query, key, value).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_sdpa_graph_hard_fail_preserves_route_reason(self):
+        class UnsupportedAttention(torch.nn.Module):
+            def forward(self, query, key, value):
+                return torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+
+        query = torch.randn(1, 8, 1, 256)
+        key = torch.randn(1, 8, 1, 256)
+        value = torch.randn(1, 8, 1, 256)
+        program = torch.vulkan.export_and_lower(
+            UnsupportedAttention().eval(), (query, key, value)
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "RouteHardFail",
+        ) as error:
+            program(query, key, value)
+
+        self.assertNotIn("forbids device synchronization", str(error.exception))
 
     def test_rejects_static_advanced_index_that_reorders_values(self):
         class ReverseMask(torch.nn.Module):

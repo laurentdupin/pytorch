@@ -1057,10 +1057,13 @@ void log_sdpa_event(
 }
 
 Tensor finalize_public_sdpa_output(Tensor output) {
-  if (!c10::InferenceMode::is_enabled()) {
+  api::Context* const context = api::context();
+  if (
+      !c10::InferenceMode::is_enabled() &&
+      !context->owns_graph_program_invocation()) {
     utils::log_vulkan_op_hit(
       "aten::scaled_dot_product_attention.non_inference_sync");
-    api::context()->synchronize_device();
+    context->synchronize_device();
   }
   return output;
 }
