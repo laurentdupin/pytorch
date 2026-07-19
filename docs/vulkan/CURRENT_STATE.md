@@ -3312,6 +3312,20 @@ model gate and they do not imply model-specific production routes.
   ignored rollback-cache DLLs match at SHA-256
   `F412EB773FA8929E2088F94895CD7CA737B829BAA4F2975E88984FD5DAAD0A35`,
   with all 171 graph tests and the Lotus DTensor preflight passing.
+
+  Reference-surface attribution does not explain the remaining 1.6% gap.
+  Default, single-thread, and oneDNN-disabled CPU executions produce identical
+  logits, and using the exported module itself as the CPU reference reproduces
+  the same 4,185 misses, `0.06023` mean error, and `0.9999480` cosine similarity.
+  The exported-reference artifact is
+  `agent_space/gemma_step13_exported_cpu_parity.json`, SHA-256
+  `91CCE0BBD8D5982C0379FE5D9FDC3C5632C5B09C4F1F7AC929E0B0BE98897602`.
+  Same-input probes of representative decoder layers all pass the strict gate;
+  layer-local mean errors range from `5.1e-6` to `4.54e-4`, and layer 4's
+  individual linears are bit-exact except for two sub-`1e-6` FP32 differences.
+  The remaining blocker is therefore accumulated backend rounding sensitivity
+  across 35 BF16 layers, not a CPU-reference variant, export decomposition,
+  missing operator, or isolated faulty decoder layer.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
