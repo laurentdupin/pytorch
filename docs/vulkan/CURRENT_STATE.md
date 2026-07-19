@@ -3493,6 +3493,33 @@ model gate and they do not imply model-specific production routes.
   and zero fallback/readback/deferred values. Its artifact is
   `agent_space/gemma_step13_lanes32_restored_eight.json`, SHA-256
   `43E6A2C3E553BB6D070333B0D47F5E8C4F7550A51AE2EBAE69882B7B020F6EF1`.
+
+  Final accumulation-order screening does not identify a smaller local
+  reduction as a sound replacement. One- and four-lane CPU simulations are
+  bit-exact for the first divergent layer-3 attention projection, but at layer
+  22 the accepted eight-lane order is bit-exact for the MLP down projection
+  while one and four lanes introduce one and two differing values. The layer
+  artifacts are `agent_space/gemma_step13_layer3_lane_screen.json` and
+  `agent_space/gemma_step13_layer22_lane_screen.json`, SHA-256
+  `F43906D69918E18805C39453834420BE28EFB65D6163F55427528B7A429B41FE` and
+  `4090B8467A7043F9FB93A7119690977A8A4D8510933793F30AA4368E60FDF484`.
+  A final accepted-kernel full-model run also rejects weakening the gate after
+  the fact: 124,276/262,144 logits (47.4%) miss PyTorch's BF16 default
+  `rtol=0.016, atol=1e-5`, 54,112 (20.6%) miss `rtol=atol=0.02`, and the
+  established 4,185 (1.6%) miss `rtol=atol=0.05`. Median/p90/p99 absolute
+  errors are `0.05246`/`0.12196`/`0.18252`. Cosine remains `0.9999480`, argmax
+  is equal, and top-10 overlap is 10/10, but those semantic indicators do not
+  establish numerical parity. The C++ plan retains zero fallback/readback/
+  deferred values and two explicit host partitions transferring 20,992 bytes.
+  The artifact is `agent_space/gemma_step13_tolerance_grid.json`, SHA-256
+  `7A548AB1AB72D2DA2F30A58D1F34D75EE41AD151F2E9C6A75E1550F1C1769B4E`,
+  produced by loaded backend runtime `f881f755694` with matching
+  `torch_cpu.dll` SHA-256
+  `BA35E6E8EF9E42F9736E9DF87F5415386F5B002328D7DDA444D4E0DD49554C72`.
+  Gemma Step 13 therefore closes as feature-complete but correctness-blocked
+  for logits. Revisit requires a graph-wide numerical strategy and an
+  independently registered acceptance gate, not another isolated reduction
+  order or model-specific production route.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
