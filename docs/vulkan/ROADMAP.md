@@ -755,8 +755,9 @@ fallback/readback and explicit host partitions. It preserves the CPU argmax and
 10/10 top-10 entries after adopting a generic eight-lane FP32 partial-sum
 reduction for BF16 buffer linear, but 1.6% of logits still miss the strict
 elementwise parity gate due to accumulated error before the final hidden/logit
-projection. The next Gemma gates are full CPU parity, repeated/generation and
-decode coverage, memory, and latency distributions. Padded multi-row odd-K
+projection. The next Gemma gates are full CPU parity, multi-token generation
+and decode coverage, memory, and latency distributions. Repeated one-token
+execution with prior outputs live is now bit-stable. Padded multi-row odd-K
 linear remains generic dtype breadth work; it fails loudly while single-row
 odd-K remains supported. Static BF16 graph-linear bias and dynamic
 FP32-to-BF16 graph casts are bit-exact and are no longer pending items. The

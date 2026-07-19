@@ -3361,6 +3361,21 @@ model gate and they do not imply model-specific production routes.
   The remaining blocker is therefore accumulated backend rounding sensitivity
   across 35 BF16 layers, not a CPU-reference variant, export decomposition,
   missing operator, or isolated faulty decoder layer.
+
+  Repeated one-token execution is now established independently of that open
+  numerical gate. On source `d4898013f08`, the 3,956-instruction C++ plan ran
+  three times while every prior Vulkan output remained live. All three logits
+  tensors were bit-identical, and every invocation retained zero fallback,
+  readback, and deferred values plus the same two explicit host partitions and
+  20,992 transfer bytes. The three iteration times were 1.439, 0.792, and
+  0.743 seconds; these are repeat/lifetime evidence, not a performance
+  distribution. The loaded `torch_cpu.dll` SHA-256 was
+  `B465CF1C34D5AFD69C97CA6F9C1A153863B83417CEC33448A34F92016AB757F9`.
+  The artifact is `agent_space/gemma_step13_repeat_live_outputs.json`, SHA-256
+  `B028088966D9D6D03FD512054DF41AEC7252B8A15A051D97755400DAB364170D`.
+  It also records that the locally deployed `torch_python` still embeds an
+  older `torch.version.git_version`, so this run is not release-identity
+  evidence.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
