@@ -3204,6 +3204,36 @@ model gate and they do not imply model-specific production routes.
   is `E19F5D6BD5B43054A5E7C3B60E80FA60FB77C2DAE71B40A6D91DF7C0F51D1850`;
   loaded `torch_cpu.dll` SHA-256 is
   `A58342D745417EBF4BEEACE5A3B037E169BB73C8563E27F1BC322CF0E32414CD`.
+  Exact source `073122df016` admits matching BF16 query/key/value tensors in
+  the bounded masked-attention contract through head/value width 512. The
+  runtime widens through the existing FP32 buffer math path and rounds the
+  public result back to BF16; randomized rank-3/rank-4 boolean-mask coverage
+  includes unequal value dimensions, broadcast masks, and widths 64 through
+  512, while FP16, width 513, and the existing score budget remain rejected.
+  The first full-model run then exposed Windows stack exhaustion after four
+  completed attention layers because the existing large-linear lifetime guard
+  covered only the FP32 linear path. BF16 linear now uses isolated counters and
+  a measured-safe 16-call/256 MiB checkpoint budget through the graph
+  submission owner; the FP32 48-call/1 GiB policy is unchanged. A
+  16-instruction BF16 regression distinguishes this checkpoint from the normal
+  32-instruction graph cadence.
+
+  The exact checkpoint-backed one-token Gemma graph now executes end to end on
+  RX 9070. It lowers to 3,956 C++ instructions and returns one FP32 tensor with
+  shape `[1,1,262144]`; the measured probe records 7.896 seconds export, 29.805
+  seconds lower, and 0.800 seconds execution, with zero CPU fallback, sync
+  readback, or deferred values. The two explicit host-resident embedding
+  partitions still transfer 20,992 bytes. The artifact is
+  `agent_space/gemma_step13_export_probe.json`, SHA-256
+  `BDF7D6C39C022834168399136EE772AA45CF043178A7A2D458697344551DAE75`;
+  loaded `torch_cpu.dll` SHA-256 is
+  `E5048129387D6DF1162C1F3922672B82DE7BC86A7796AB7084475FEF221A39CC`.
+  This proves one-token graph execution, not CPU parity, latency distributions,
+  generation/decode, memory gates, or production readiness. The incremental
+  developer runtime also reports embedded `torch.version.git_version`
+  `81b3b58748cadcee9b9d94db2c6ab7e4bbd00944`, so the clean release identity
+  contract remains unproven despite the artifact's exact source-tree commit and
+  DLL hash.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

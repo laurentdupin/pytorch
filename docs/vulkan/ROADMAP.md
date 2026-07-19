@@ -747,10 +747,12 @@ conditional-generation wrapper is now admitted with explicit escaping-output
 uploads and integer-bounds provenance. BF16 embedding constants now use the
 same explicit host partition until a generic native gather is proven; the real
 checkpoint lowers both its tied token table and per-layer table this way.
-  BF16-preserving tensor-scalar/tensor-tensor arithmetic, aligned native linear
-  output, rotary concatenation, and rank-5 metadata expansion are now
-  established. Next close the semantic BF16 masked-SDPA family reached by the
-  real graph, then add bias, odd-K, and graph-safe dynamic cast coverage for the
-  remaining weights and consumers. Whole-model float32 upload and monolithic
-  buffers above the
-storage-buffer binding range are not candidate routes.
+BF16-preserving tensor-scalar/tensor-tensor arithmetic, aligned native linear
+output, rotary concatenation, rank-5 metadata expansion, and bounded masked
+attention through width 512 are now established. The checkpoint-backed
+one-token graph executes end to end with zero fallback/readback and explicit
+host partitions; the next Gemma gates are CPU parity, repeated/generation and
+decode coverage, memory, and latency distributions. Bias, odd-K, and graph-safe
+dynamic cast coverage remain generic dtype breadth work, but are not blockers
+for the current one-token graph. Whole-model float32 upload and monolithic
+buffers above the storage-buffer binding range are not candidate routes.
