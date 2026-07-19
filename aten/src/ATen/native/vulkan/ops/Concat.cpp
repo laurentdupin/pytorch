@@ -290,7 +290,9 @@ bool can_use_last_dim2_buffer_cat(
   }
   const Tensor& reference = tensors[0];
   if (
-      reference.scalar_type() != kFloat || reference.dim() == 0 ||
+      (reference.scalar_type() != kFloat &&
+       reference.scalar_type() != kBFloat16) ||
+      reference.dim() == 0 ||
       dim != reference.dim() - 1) {
     return false;
   }
@@ -402,8 +404,12 @@ Tensor cat_last_dim2_buffer(
   vTensor& v_right = convert(right);
   api::Context* const context = api::context();
   api::PipelineBarrier pipeline_barrier{};
+  const bool is_bfloat16 = tensors[0].get().scalar_type() == kBFloat16;
   const api::utils::uvec3 global_size = {
-      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(
+          is_bfloat16 ? (v_output.buffer_length() + 1) / 2
+                      : v_output.numel(),
+          1)),
       1u,
       1u,
   };
@@ -421,7 +427,8 @@ Tensor cat_last_dim2_buffer(
   api::UniformParamsBuffer params(context, block);
 
   context->submit_compute_job(
-      VK_KERNEL(cat_last_dim2_buffer_float),
+      is_bfloat16 ? VK_KERNEL(cat_last_dim2_buffer_bfloat16)
+                  : VK_KERNEL(cat_last_dim2_buffer_float),
       pipeline_barrier,
       global_size,
       adaptive_work_group_size(global_size),

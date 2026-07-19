@@ -4127,6 +4127,25 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_bfloat16_rope_half_cat_stays_on_graph(self):
+        class RotateHalf(torch.nn.Module):
+            def forward(self, tensor):
+                return torch.cat(
+                    (-tensor[..., 128:], tensor[..., :128]), dim=-1
+                )
+
+        torch.manual_seed(0)
+        tensor = torch.randn(1, 1, 8, 256, dtype=torch.bfloat16)
+        model = RotateHalf().eval()
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        actual = program(tensor).cpu()
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
         class StateCasts(torch.nn.Module):
             def __init__(self):
@@ -4358,6 +4377,46 @@ class TestVulkanGraph(TestCase):
                 for node in program.graph_module.graph.nodes
             )
         )
+        self.assertEqual(program(tensor).cpu(), expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_static_integer_mask_expression_becomes_graph_owned_constant(self):
+        class StaticMask(torch.nn.Module):
+            def forward(self, tensor):
+                positions = torch.arange(
+                    tensor.shape[0], dtype=torch.int64, device=tensor.device
+                )
+                positions = positions.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+                mask = positions > (positions - 512)
+                return torch.ops.aten.to.dtype_layout(
+                    mask,
+                    dtype=torch.bool,
+                    layout=torch.strided,
+                    device=tensor.device,
+                    pin_memory=False,
+                    non_blocking=False,
+                    copy=True,
+                    memory_format=None,
+                )
+
+        tensor = torch.randn(4, 2)
+        model = StaticMask().eval()
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+        expression_names = {
+            node.operator_name for node in program.static_factory_constants.nodes
+        }
+        self.assertTrue(
+            {
+                "aten::sub.Tensor",
+                "aten::gt.Tensor",
+                "aten::to.dtype_layout",
+            }.issubset(expression_names)
+        )
+        self.assertNotIn("aten.sub.Tensor", program.graph_module.code)
+        self.assertNotIn("aten.gt.Tensor", program.graph_module.code)
+        self.assertNotIn("aten.to.dtype_layout", program.graph_module.code)
         self.assertEqual(program(tensor).cpu(), expected)
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
@@ -5398,6 +5457,41 @@ class TestVulkanGraph(TestCase):
         self.assertNotIn("aten.to.device", program.graph_module.code)
         self.assertIn("dtype=torch.int64", program.key.input_signature[0])
         self.assertEqual(program(attention_mask).cpu(), model(attention_mask))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_normalizes_repeated_equivalent_attention_mask_conversions(self):
+        class NormalizeMaskTwice(torch.nn.Module):
+            def forward(self, attention_mask):
+                first = attention_mask.to(
+                    device=attention_mask.device,
+                    dtype=torch.bool,
+                )
+                second = attention_mask.to(
+                    device=attention_mask.device,
+                    dtype=torch.bool,
+                )
+                return first, second
+
+        attention_mask = torch.tensor([[1, 0, 1]], dtype=torch.int64)
+        model = NormalizeMaskTwice().eval()
+        program = torch.vulkan.export_and_lower(model, attention_mask)
+        report = program.input_normalization
+        self.assertEqual(report.candidate_count, 2)
+        self.assertEqual(report.lowered_count, 2)
+        self.assertEqual(report.rejected_count, 0)
+        self.assertEqual(
+            {node.placeholder_name for node in report.nodes}, {"attention_mask"}
+        )
+        self.assertTrue(
+            all(
+                node.reason == "isolated_int64_placeholder_to_bool"
+                for node in report.nodes
+            )
+        )
+        self.assertNotIn("aten.to.device", program.graph_module.code)
+        actual = tuple(value.cpu() for value in program(attention_mask))
+        self.assertEqual(actual, model(attention_mask))
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 

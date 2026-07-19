@@ -60,11 +60,12 @@ uint compute_output_raw(const uint physical_idx, const uvec4 physical_sizes) {
     return 0u;
   }
   const uint input_idx =
-      coord_to_idx(coord, uInMeta.physical_strides) + uInMeta.info.w;
+      coord_to_idx(coord, uInMeta.physical_strides);
   if (input_idx >= uInMeta.info.z) {
     return 0u;
   }
-  return float_to_bfloat16(read_bfloat16(input_idx) * uArgs.other);
+  return float_to_bfloat16(
+      read_bfloat16(input_idx + uInMeta.info.w) * uArgs.other);
 }
 
 void main() {

@@ -202,6 +202,45 @@ Tensor unary_op_buffer(
   };
 
   api::PipelineBarrier pipeline_barrier{};
+  if (self.scalar_type() == kBFloat16) {
+    TORCH_INTERNAL_ASSERT(op_kind == UnaryOpKind::Neg);
+    const struct Block final {
+      float other;
+    } block{-1.0f};
+    api::UniformParamsBuffer params(context, block);
+    const uvec3 global_size = {
+        safe_downcast<uint32_t>((v_output.buffer_length() + 1) / 2),
+        1u,
+        1u,
+    };
+    const uvec3 local_size = adaptive_work_group_size(global_size);
+    api::UniformParamsBuffer out_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_output);
+    api::UniformParamsBuffer in_meta =
+        utils::make_buffer_compute_metadata_ubo(context, v_self);
+    log_unary_submit(
+        op_kind, "buffer_bfloat16", v_self, v_output, global_size, local_size);
+    context->submit_compute_job(
+        VK_KERNEL(buffer_bfloat16_mul_scalar),
+        pipeline_barrier,
+        global_size,
+        local_size,
+        VK_NULL_HANDLE,
+        v_output.buffer(
+            pipeline_barrier,
+            api::PipelineStage::COMPUTE,
+            api::MemoryAccessType::WRITE),
+        out_meta.buffer(),
+        v_self.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+        in_meta.buffer(),
+        params.buffer());
+    return record_tensor_write_and_return(
+        convert(v_output),
+        "aten::unary",
+        unary_op_kind_name(op_kind),
+        {self});
+  }
+
   const uvec3 global_size = {
       safe_downcast<uint32_t>(v_output.numel()),
       1u,
@@ -246,8 +285,16 @@ Tensor unary_op(
   if (needs_unary_cpu_fallback(self_arg)) {
     return unary_op_cpu_fallback(self_arg, op_kind);
   }
+  if (self_arg.scalar_type() == kBFloat16 && op_kind != UnaryOpKind::Neg) {
+    return unary_op_cpu_fallback(self_arg, op_kind);
+  }
 
   Tensor self = self_arg.is_vulkan() ? self_arg : self_arg.vulkan();
+  if (self.scalar_type() == kBFloat16) {
+    self = utils::prepare_vulkan_execution_tensor(
+        self, utils::VulkanExecutionPlanKind::ElementwiseBufferInput);
+    return unary_op_buffer(self, buffer_shader_descriptor, op_kind);
+  }
   const auto plan = utils::build_vulkan_execution_plan(
       self, utils::VulkanExecutionPlanKind::ElementwiseInput);
   if (api::uses_buffer_execution(plan.execution_layout)) {

@@ -809,15 +809,18 @@ def lower_graph_input_dtype_normalizations(
     graph = graph_module.graph
     reports: list[VulkanGraphInputNormalizationNodeReport] = []
     changed = False
-    candidate_count = 0
+    candidates = tuple(
+        node
+        for node in graph.nodes
+        if node.op == "call_function"
+        and node.target in (torch.ops.aten.to.dtype, torch.ops.aten.to.device)
+    )
+    candidate_count = len(candidates)
+    consumed_candidates: set[torch.fx.Node] = set()
 
-    for node in tuple(graph.nodes):
-        if node.op != "call_function" or node.target not in (
-            torch.ops.aten.to.dtype,
-            torch.ops.aten.to.device,
-        ):
+    for node in candidates:
+        if node in consumed_candidates:
             continue
-        candidate_count += 1
         if node.target == torch.ops.aten.to.dtype:
             if len(node.args) != 2 or node.kwargs:
                 reports.append(
@@ -969,13 +972,29 @@ def lower_graph_input_dtype_normalizations(
             )
             continue
 
+        normalization_nodes = (node,)
+        if operation_name == "to_device" and not chain:
+            normalization_nodes = tuple(
+                user
+                for user in placeholder.users
+                if user.op == "call_function"
+                and user.target is torch.ops.aten.to.device
+                and len(user.args) == 3
+                and not user.kwargs
+                and user.args[0] is placeholder
+                and user.args[1] == target_device
+                and user.args[2] == target_dtype
+            )
+
         assertions: list[torch.fx.Node] = []
         path = (placeholder, *chain)
         path_isolated = True
         for index, value in enumerate(path):
             expected_user = chain[index] if index < len(chain) else node
             for user in value.users:
-                if user is expected_user:
+                if user is expected_user or (
+                    value is placeholder and user in normalization_nodes
+                ):
                     continue
                 if _is_metadata_assertion(user, value):
                     assertions.append(user)
@@ -1020,19 +1039,21 @@ def lower_graph_input_dtype_normalizations(
         for assertion in assertions:
             assertion.kwargs = {**assertion.kwargs, "dtype": target_dtype}
         normalized_input = chain[-1] if chain else placeholder
-        node.replace_all_uses_with(normalized_input)
-        graph.erase_node(node)
-        reports.append(
-            _input_normalization_report(
-                node,
-                "lowered",
-                lowered_reason,
-                placeholder,
-                source_dtype,
-                target_dtype,
-                chain,
+        for normalization_node in normalization_nodes:
+            normalization_node.replace_all_uses_with(normalized_input)
+            graph.erase_node(normalization_node)
+            reports.append(
+                _input_normalization_report(
+                    normalization_node,
+                    "lowered",
+                    lowered_reason,
+                    placeholder,
+                    source_dtype,
+                    target_dtype,
+                    chain,
+                )
             )
-        )
+        consumed_candidates.update(normalization_nodes)
         changed = True
 
     if changed:
@@ -1058,9 +1079,12 @@ _STATIC_ARANGE_OPERATOR_NAMES = frozenset(
 _STATIC_FACTORY_EXPRESSION_OPERATOR_NAMES = frozenset(
     (
         "aten::add.Tensor",
+        "aten::gt.Tensor",
         "aten::le.Tensor",
         "aten::new_ones",
+        "aten::sub.Tensor",
         "aten::to.dtype",
+        "aten::to.dtype_layout",
         "aten::unsqueeze",
     )
 )

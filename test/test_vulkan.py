@@ -12362,6 +12362,22 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             self.assertEqual(actual, expected)
             self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_bfloat16_last_dim_cat_rope_halves_stays_on_device(self):
+        with torch.inference_mode():
+            tensor = torch.randn(1, 1, 8, 256, dtype=torch.bfloat16)
+            tensor_vulkan = tensor.to("vulkan")
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+            scaled = tensor_vulkan[..., 128:] * -0.5
+            left = -tensor_vulkan[..., 128:]
+            right = tensor_vulkan[..., :128]
+
+            self.assertEqual(scaled.cpu(), tensor[..., 128:] * -0.5)
+            actual = torch.cat((left, right), dim=-1).cpu()
+            expected = torch.cat((-tensor[..., 128:], tensor[..., :128]), dim=-1)
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
     def test_float_last_dim_cat_three_buffer_inputs_falls_back(self):
         with torch.inference_mode():
             tensors = [
