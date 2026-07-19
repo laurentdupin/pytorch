@@ -7,9 +7,6 @@ import re
 import subprocess
 from pathlib import Path
 
-from packaging.version import Version
-
-
 UNKNOWN = "Unknown"
 RELEASE_PATTERN = re.compile(r"/v[0-9]+(\.[0-9]+)*(-rc[0-9]+)?/")
 
@@ -92,6 +89,10 @@ def get_torch_version(sha: str | None = None) -> str:
                 sha = get_sha(pytorch_root)
             version += "+git" + sha[:7]
             origin += " and git commit"
+    # Version generation requires the build dependency, but callers that only
+    # query source identity (for example CMake configuration) do not.
+    from packaging.version import Version
+
     # Validate that the version is PEP 440 compliant
     parsed_version = Version(version)
     if sdist_version:

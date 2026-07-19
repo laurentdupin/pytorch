@@ -39,8 +39,16 @@ endfunction()
 execute_process(
     COMMAND "${Python_EXECUTABLE}" -c "from tools.generate_torch_version import get_sha;print(get_sha('.'), end='')"
     OUTPUT_VARIABLE COMMIT_SHA
+    ERROR_VARIABLE COMMIT_SHA_ERROR
+    RESULT_VARIABLE COMMIT_SHA_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
     WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/..
 )
+if(NOT COMMIT_SHA_RESULT EQUAL 0 OR COMMIT_SHA STREQUAL "")
+    message(FATAL_ERROR
+        "Failed to determine the source commit with ${Python_EXECUTABLE}: "
+        "${COMMIT_SHA_ERROR}")
+endif()
 
 # ---[ Write the macros file
 configure_file(
