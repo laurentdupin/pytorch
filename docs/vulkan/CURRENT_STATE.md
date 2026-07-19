@@ -3146,8 +3146,17 @@ model gate and they do not imply model-specific production routes.
   `run_linear_context_default` already widens the BF16 linear result to float,
   while export requires BF16 through `mul_2` and `reshape_1`. Execution still
   fails loud at `_assert_tensor_metadata_default_2` with zero
-  fallback/readback/deferred values. BF16-preserving native linear output is
-  therefore the current execution blocker.
+  fallback/readback/deferred values. Exact source `fb394bc0808` replaces the
+  generated 16-bit FP32-to-BF16 writer with a packed 32-bit-word shader,
+  preserves valid padded BF16 linear views, and rounds aligned native BF16
+  linear results back to the dtype required by export. The 160-test graph
+  suite, 69 governance tests, and Lotus DTensor preflight pass. Gemma now
+  crosses the former assertion and fails loud at `add_1`: a same-shape
+  `[1,1,35,256]` BF16 add between the normalized branch and preserved
+  embedding branch. The current execution blocker is generic BF16
+  tensor-tensor add/multiply coverage. Odd-K native BF16 linear, BF16 bias
+  without fallback, and graph-safe texture-input FP32-to-BF16 conversion remain
+  separate family gaps and are not covered by this aligned-linear result.
   Dynamic FP32-to-BF16 also
   remains unresolved: its existing native shader produces zero data in a
   direct-buffer reproduction, and a packed-Int32 owner plus typed BF16 view
@@ -3156,9 +3165,9 @@ model gate and they do not imply model-specific production routes.
   compilation and blocker attribution,
   not end-to-end parity, memory, or performance evidence. The updated artifact
   is `agent_space/gemma_step13_export_probe.json`, SHA-256
-  `4B526C2A8A40BCA8B90A5F7D1E76CADA97A7A516FBDFC73405BE52CCEA27096A`.
+  `4C811F9CD57273D389C09C5C5F3593304A766A3474ABF6E6620DF0D6D4EBED76`.
   It records RX 9070 Vulkan `1.4.349` and loaded `torch_cpu.dll` SHA-256
-  `E0E79FAC6F2FBED566C569F655E4F4AC88C2CA3DA6864210F46DF94DFAE216A3`.
+  `B577B90D5078F6F9068329883F4822542474DD40CF5D09573D6CE68B2E5F5662`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
