@@ -49,7 +49,10 @@ Tensor run_graph_attention_math_out_vulkan(
     const Tensor& key,
     const Tensor& value,
     double scale,
-    Tensor& output);
+    Tensor& output,
+    Tensor& scaled_query,
+    Tensor& scores,
+    Tensor& probability);
 
 Tensor run_attention_runtime_buffer_math_program_bridge(
     const Tensor& query,

@@ -1251,6 +1251,58 @@ Tensor softmax_buffer_lastdim_impl(const Tensor& input, Tensor* output_opt) {
       {resolved_input});
 }
 
+Tensor mul_scalar_buffer_out_vulkan(
+    const Tensor& input,
+    const float scalar,
+    Tensor& output) {
+  TORCH_CHECK(
+      input.is_vulkan() && output.is_vulkan() &&
+          input.scalar_type() == kFloat && output.scalar_type() == kFloat &&
+          input.sizes().equals(output.sizes()),
+      "Vulkan graph scalar multiply requires matching float Vulkan tensors");
+  vTensor& v_input = convert(input);
+  vTensor& v_output = convert(output);
+  TORCH_CHECK(
+      v_input.storage_type() == api::StorageType::BUFFER &&
+          v_output.storage_type() == api::StorageType::BUFFER &&
+          utils::supports_buffer_view_fast_path(v_input) &&
+          v_output.has_direct_buffer_layout(),
+      "Vulkan graph scalar multiply requires buffer-backed input and direct "
+      "buffer output");
+
+  api::Context* const context = api::context();
+  const struct Block final {
+    float other;
+  } block{scalar};
+  api::UniformParamsBuffer params(context, block);
+  api::UniformParamsBuffer out_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_output);
+  api::UniformParamsBuffer in_meta =
+      utils::make_buffer_compute_metadata_ubo(context, v_input);
+  api::PipelineBarrier pipeline_barrier{};
+  const uvec3 global_size = {
+      safe_downcast<uint32_t>(v_output.numel()), 1u, 1u};
+  context->submit_compute_job(
+      VK_KERNEL(buffer_mul_scalar),
+      pipeline_barrier,
+      global_size,
+      adaptive_work_group_size(global_size),
+      VK_NULL_HANDLE,
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::COMPUTE,
+          api::MemoryAccessType::WRITE),
+      out_meta.buffer(),
+      v_input.buffer(pipeline_barrier, api::PipelineStage::COMPUTE),
+      in_meta.buffer(),
+      params.buffer());
+  return record_tensor_write_and_return(
+      output,
+      "vulkan_prepack::run_graph_attention_math",
+      "scaled_query_buffer_out",
+      {input});
+}
+
 Tensor softmax_buffer_lastdim(const Tensor& input) {
   return softmax_buffer_lastdim_impl(input, nullptr);
 }
@@ -3889,7 +3941,10 @@ Tensor run_graph_attention_math_out_vulkan(
     const Tensor& key,
     const Tensor& value,
     double scale,
-    Tensor& output) {
+    Tensor& output,
+    Tensor& scaled_query,
+    Tensor& scores,
+    Tensor& probability) {
   TORCH_CHECK(
       output.is_vulkan() && output.scalar_type() == kFloat &&
           output.dim() == query.dim(),
@@ -3904,18 +3959,39 @@ Tensor run_graph_attention_math_out_vulkan(
       output.sizes().equals(expected_output_sizes),
       "Vulkan graph attention math output has an incompatible shape");
 
-  Tensor scores = at::matmul(at::mul(query, scale), key.transpose(-2, -1));
-  Tensor probability = at::softmax(scores, -1);
+  const std::vector<int64_t> expected_scores_sizes = [&]() {
+    std::vector<int64_t> sizes = query.sizes().vec();
+    sizes.back() = key.size(-2);
+    return sizes;
+  }();
+  TORCH_CHECK(
+      scaled_query.sizes().equals(query.sizes()) &&
+          scores.sizes().equals(expected_scores_sizes) &&
+          probability.sizes().equals(expected_scores_sizes),
+      "Vulkan graph attention math scratch resources have incompatible shapes");
+
   const int64_t batch_heads = c10::multiply_integers(
       query.sizes().slice(0, query.dim() - 2));
+  Tensor scaled_query_result = mul_scalar_buffer_out_vulkan(
+      query, static_cast<float>(scale), scaled_query);
+  Tensor scaled_query_3d = scaled_query_result.reshape(
+      {batch_heads, query.size(-2), query.size(-1)});
+  Tensor key_3d = key.reshape({batch_heads, key.size(-2), key.size(-1)});
+  Tensor key_transposed_3d = key_3d.transpose(1, 2);
+  Tensor scores_3d = scores.reshape(
+      {batch_heads, query.size(-2), key.size(-2)});
+  Tensor scores_result_3d = bmm_buffer_out_vulkan(
+      scaled_query_3d, key_transposed_3d, scores_3d);
   Tensor probability_3d = probability.reshape(
       {batch_heads, query.size(-2), key.size(-2)});
+  Tensor probability_result_3d = softmax_buffer_lastdim_out_vulkan(
+      scores_result_3d, probability_3d);
   Tensor value_3d =
       value.reshape({batch_heads, value.size(-2), value.size(-1)});
   Tensor output_3d =
       output.reshape({batch_heads, query.size(-2), value.size(-1)});
   Tensor result_3d =
-      bmm_buffer_out_vulkan(probability_3d, value_3d, output_3d);
+      bmm_buffer_out_vulkan(probability_result_3d, value_3d, output_3d);
   TORCH_CHECK(
       tensor_storage_identity(result_3d) == tensor_storage_identity(output),
       "Vulkan graph attention math output rebound its stable resource");

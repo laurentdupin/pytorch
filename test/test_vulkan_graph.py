@@ -1547,6 +1547,38 @@ class TestVulkanGraph(TestCase):
                 2,
             )
 
+    def test_cpp_graph_plan_rejects_attention_scratch_output_overlap(self):
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "instruction scratch and output slots overlap",
+        ):
+            torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
+                ["attention", "relu"],
+                ["vulkan_prepack::run_graph_attention_math", "aten::relu"],
+                ["", ""],
+                [
+                    [[0], [1], [2], [-1]],
+                    [[3]],
+                ],
+                [[0, 0, 0, 0], [0]],
+                [[3], [4]],
+                [0.5],
+                3,
+                [4],
+                1,
+                3,
+                False,
+                None,
+                [-1, -1, -1, 3, -1],
+                [1, 2, 3, 4, 1, 2, 3, 3, 1, 2, 3, 3, 1, 2, 3, 4],
+                [4, 4, 4, 4],
+                2,
+                [],
+                [],
+                [],
+                [3, 1, 2, -1, -1, -1],
+            )
+
     def test_cpp_graph_plan_rejects_malformed_resource_slot_ranks(self):
         context = torch.ops.vulkan_prepack.create_linear_context(
             torch.randn(4, 4), torch.randn(4)
@@ -4966,9 +4998,16 @@ class TestVulkanGraph(TestCase):
             program.cpp_plan_report.resource_writer_instruction_count,
             1,
         )
+        self.assertEqual(program.cpp_plan_report.resource_value_count, 1)
+        self.assertEqual(program.cpp_plan_report.resource_slot_count, 4)
+        first = program(query, key, value)
+        second = program(query + 0.25, key, value)
         self.assertEqual(
-            program(query, key, value).cpu(),
-            model(query, key, value),
+            first.cpu(), model(query, key, value), rtol=1e-4, atol=1e-4
+        )
+        self.assertEqual(
+            second.cpu(),
+            model(query + 0.25, key, value),
             rtol=1e-4,
             atol=1e-4,
         )

@@ -106,7 +106,8 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     int64_t resource_arena_flight_depth,
     std::vector<int64_t> resource_slot_storage_types,
     std::vector<int64_t> resource_slot_memory_layouts,
-    std::vector<int64_t> resource_slot_execution_layouts);
+    std::vector<int64_t> resource_slot_execution_layouts,
+    std::vector<int64_t> instruction_scratch_resource_slot_ids);
 
 std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,

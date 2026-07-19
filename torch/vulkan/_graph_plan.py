@@ -127,6 +127,7 @@ _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
     )
 )
 _RESOURCE_ARENA_FLIGHT_DEPTH = 2
+_ATTENTION_SCRATCH_RESOURCE_COUNT = 3
 
 
 @dataclass(frozen=True)
@@ -350,6 +351,39 @@ def _resource_output_descriptors(
         if known is not None:
             descriptors = [item if item is not None else known for item in descriptors]
     return tuple(descriptors)
+
+
+def _attention_scratch_descriptors(
+    node: torch.fx.Node,
+    planning_context: VulkanGraphPlanningContext,
+) -> tuple[_VulkanGraphResourceDescriptor, ...] | None:
+    if node.target._schema.name != "vulkan_prepack::run_graph_attention_math":
+        return ()
+    bound_arguments = _bound_operator_arguments(node)
+    if isinstance(bound_arguments, str) or len(bound_arguments) < 3:
+        return None
+    query_node, key_node = bound_arguments[:2]
+    if not isinstance(query_node, torch.fx.Node) or not isinstance(
+        key_node, torch.fx.Node
+    ):
+        return None
+    query = query_node.meta.get("val")
+    key = key_node.meta.get("val")
+    query_descriptor = _resource_descriptor(query, planning_context)
+    key_descriptor = _resource_descriptor(key, planning_context)
+    if (
+        query_descriptor is None
+        or key_descriptor is None
+        or len(query_descriptor.sizes) not in (3, 4)
+        or len(key_descriptor.sizes) != len(query_descriptor.sizes)
+    ):
+        return None
+    scores_descriptor = _VulkanGraphResourceDescriptor(
+        (*query_descriptor.sizes[:-1], key_descriptor.sizes[-2]),
+        torch.float32,
+        *_DIRECT_WIDTH_BUFFER_RESOURCE,
+    )
+    return (query_descriptor, scores_descriptor, scores_descriptor)
 
 
 def _alias_info_labels(alias_info: Any) -> set[str]:
@@ -732,11 +766,39 @@ def compile_vulkan_graph_plan(
             alias_escapes[value_id] = component_escapes
 
     value_resource_slot_ids = [-1] * value_count
+    instruction_scratch_resource_slot_ids = [-1] * (
+        len(instruction_nodes) * _ATTENTION_SCRATCH_RESOURCE_COUNT
+    )
     resource_descriptors: list[_VulkanGraphResourceDescriptor] = []
     resource_slot_last_uses: list[int] = []
     resource_writer_instruction_count = 0
     resource_alias_extended_lifetime_count = 0
     resource_alias_escape_rejection_count = 0
+
+    def reserve_resource_slot(
+        descriptor: _VulkanGraphResourceDescriptor,
+        instruction_index: int,
+        last_use: int,
+    ) -> int:
+        slot_id = next(
+            (
+                index
+                for index, (slot_descriptor, slot_last_use) in enumerate(
+                    zip(resource_descriptors, resource_slot_last_uses)
+                )
+                if slot_descriptor == descriptor
+                and slot_last_use < instruction_index
+            ),
+            -1,
+        )
+        if slot_id < 0:
+            slot_id = len(resource_descriptors)
+            resource_descriptors.append(descriptor)
+            resource_slot_last_uses.append(last_use)
+        else:
+            resource_slot_last_uses[slot_id] = last_use
+        return slot_id
+
     for instruction_index, (node, operator_name, instruction_output_ids) in enumerate(
         zip(instruction_nodes, operator_names, instruction_output_value_ids)
     ):
@@ -758,26 +820,33 @@ def compile_vulkan_graph_plan(
             for descriptor in descriptors
         ):
             continue
+        scratch_descriptors = _attention_scratch_descriptors(node, planning_context)
+        if scratch_descriptors is None:
+            continue
+        if scratch_descriptors:
+            scratch_slot_ids = [
+                reserve_resource_slot(
+                    descriptor, instruction_index, instruction_index
+                )
+                for descriptor in scratch_descriptors
+            ]
+            if len(set(scratch_slot_ids)) != _ATTENTION_SCRATCH_RESOURCE_COUNT:
+                raise AssertionError(
+                    "attention scratch resources must have distinct live slots"
+                )
+            scratch_offset = (
+                instruction_index * _ATTENTION_SCRATCH_RESOURCE_COUNT
+            )
+            instruction_scratch_resource_slot_ids[
+                scratch_offset : scratch_offset
+                + _ATTENTION_SCRATCH_RESOURCE_COUNT
+            ] = scratch_slot_ids
         resource_writer_instruction_count += 1
         for value_id, descriptor in zip(instruction_output_ids, descriptors):
             assert descriptor is not None
-            slot_id = next(
-                (
-                    index
-                    for index, (slot_descriptor, slot_last_use) in enumerate(
-                        zip(resource_descriptors, resource_slot_last_uses)
-                    )
-                    if slot_descriptor == descriptor
-                    and slot_last_use < instruction_index
-                ),
-                -1,
+            slot_id = reserve_resource_slot(
+                descriptor, instruction_index, alias_last_uses[value_id]
             )
-            if slot_id < 0:
-                slot_id = len(resource_descriptors)
-                resource_descriptors.append(descriptor)
-                resource_slot_last_uses.append(alias_last_uses[value_id])
-            else:
-                resource_slot_last_uses[slot_id] = alias_last_uses[value_id]
             value_resource_slot_ids[value_id] = slot_id
             if alias_last_uses[value_id] > last_uses[value_id]:
                 resource_alias_extended_lifetime_count += 1
@@ -820,6 +889,7 @@ def compile_vulkan_graph_plan(
         resource_slot_storage_types,
         resource_slot_memory_layouts,
         resource_slot_execution_layouts,
+        instruction_scratch_resource_slot_ids,
     )
     report = VulkanGraphPlanReport(
         status="compiled",

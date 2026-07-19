@@ -2878,7 +2878,8 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "int resource_arena_flight_depth=2, "
       "int[] resource_slot_storage_types=[], "
       "int[] resource_slot_memory_layouts=[], "
-      "int[] resource_slot_execution_layouts=[]) "
+      "int[] resource_slot_execution_layouts=[], "
+      "int[] instruction_scratch_resource_slot_ids=[]) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vulkan_graph_plan(Tensor[] inputs, "

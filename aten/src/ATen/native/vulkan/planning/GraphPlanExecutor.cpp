@@ -84,6 +84,7 @@ struct VulkanGraphPlanInstruction final {
   bool reusable_list_arguments{false};
   std::vector<VulkanGraphPlanArgument> arguments;
   std::vector<int64_t> output_value_ids;
+  std::vector<int64_t> scratch_resource_slot_ids;
   std::vector<int64_t> release_value_ids;
 };
 
@@ -506,15 +507,25 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       TORCH_CHECK(
           targets.size() == 1u && stack.size() == 4u &&
               stack[0].isTensor() && stack[1].isTensor() &&
-              stack[2].isTensor() && stack[3].isDouble(),
+              stack[2].isTensor() && stack[3].isDouble() &&
+              instruction.scratch_resource_slot_ids.size() == 3u,
           "VulkanGraphPlan.v9 attention-math resource writer has invalid arguments");
+      Tensor& scaled_query = plan.resource_tensor(
+          arena_index, instruction.scratch_resource_slot_ids[0]);
+      Tensor& scores = plan.resource_tensor(
+          arena_index, instruction.scratch_resource_slot_ids[1]);
+      Tensor& probability = plan.resource_tensor(
+          arena_index, instruction.scratch_resource_slot_ids[2]);
       Tensor result =
           at::native::vulkan::ops::run_graph_attention_math_out_vulkan(
               stack[0].toTensor(),
               stack[1].toTensor(),
               stack[2].toTensor(),
               stack[3].toDouble(),
-              *targets[0]);
+              *targets[0],
+              scaled_query,
+              scores,
+              probability);
       stack.clear();
       stack.emplace_back(std::move(result));
       return same_vulkan_storage(stack[0].toTensor(), *targets[0])
@@ -1242,7 +1253,8 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     const int64_t resource_arena_flight_depth,
     std::vector<int64_t> resource_slot_storage_types,
     std::vector<int64_t> resource_slot_memory_layouts,
-    std::vector<int64_t> resource_slot_execution_layouts) {
+    std::vector<int64_t> resource_slot_execution_layouts,
+    std::vector<int64_t> instruction_scratch_resource_slot_ids) {
   TORCH_CHECK(
       input_count > 0,
       "VulkanGraphPlan.v9 requires at least one tensor input");
@@ -1252,8 +1264,14 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           overload_names.size() == instruction_count &&
           argument_refs.size() == instruction_count &&
           argument_kinds.size() == instruction_count &&
-          instruction_output_value_ids.size() == instruction_count,
+          instruction_output_value_ids.size() == instruction_count &&
+          (instruction_scratch_resource_slot_ids.empty() ||
+           instruction_scratch_resource_slot_ids.size() ==
+               instruction_count * 3u),
       "VulkanGraphPlan.v9 requires aligned non-empty instruction fields");
+  if (instruction_scratch_resource_slot_ids.empty()) {
+    instruction_scratch_resource_slot_ids.resize(instruction_count * 3u, -1);
+  }
   TORCH_CHECK(
       !output_value_ids.empty(),
       "VulkanGraphPlan.v9 requires at least one output value");
@@ -1486,6 +1504,45 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
               resource_writer_kind != VulkanGraphPlanResourceWriterKind::None,
           "VulkanGraphPlan.v9 resource outputs require a supported complete writer");
     }
+    std::vector<int64_t> scratch_resource_slot_ids;
+    scratch_resource_slot_ids.reserve(3u);
+    const size_t scratch_offset = instruction_index * 3u;
+    for (const auto scratch_index : c10::irange(3u)) {
+      const int64_t slot_id =
+          instruction_scratch_resource_slot_ids[scratch_offset + scratch_index];
+      TORCH_CHECK(
+          slot_id >= -1,
+          "VulkanGraphPlan.v9 instruction scratch slot must be -1 or a "
+          "resource-slot index");
+      if (slot_id >= 0) {
+        scratch_resource_slot_ids.push_back(slot_id);
+      }
+    }
+    TORCH_CHECK(
+        scratch_resource_slot_ids.empty() ||
+            (resource_writer_kind ==
+                 VulkanGraphPlanResourceWriterKind::AttentionMath &&
+             scratch_resource_slot_ids.size() == 3u),
+        "VulkanGraphPlan.v9 instruction scratch slots require the "
+        "attention-math resource writer");
+    for (const int64_t slot_id : scratch_resource_slot_ids) {
+      TORCH_CHECK(
+          slot_id >= 0 &&
+              slot_id < static_cast<int64_t>(state->resource_slots.size()),
+          "VulkanGraphPlan.v9 instruction scratch slot is out of range");
+      TORCH_CHECK(
+          std::count(
+              scratch_resource_slot_ids.begin(),
+              scratch_resource_slot_ids.end(),
+              slot_id) == 1,
+          "VulkanGraphPlan.v9 instruction scratch slots must be distinct");
+      for (const int64_t output_value_id : output_value_ids_for_instruction) {
+        TORCH_CHECK(
+            state->values[static_cast<size_t>(output_value_id)]
+                    .resource_slot_id != slot_id,
+            "VulkanGraphPlan.v9 instruction scratch and output slots overlap");
+      }
+    }
     const size_t expected_argument_count =
         schema ? schema->arguments().size() : 2u;
     TORCH_CHECK(
@@ -1583,6 +1640,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         schema == nullptr || !schema_has_list_return(*schema),
         std::move(arguments),
         std::move(output_value_ids_for_instruction),
+        std::move(scratch_resource_slot_ids),
         {}});
     defined_value_count += static_cast<int64_t>(
         state->instructions.back().output_value_ids.size());
@@ -1620,6 +1678,21 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
           "VulkanGraphPlan.v9 resource slot lifetimes overlap");
     }
     assigned.push_back(value_index);
+  }
+  for (const auto instruction_index : c10::irange(state->instructions.size())) {
+    const VulkanGraphPlanInstruction& instruction =
+        state->instructions[instruction_index];
+    for (const int64_t slot_id : instruction.scratch_resource_slot_ids) {
+      for (const size_t value_index :
+           resource_slot_values[static_cast<size_t>(slot_id)]) {
+        const VulkanGraphPlanValue& value = state->values[value_index];
+        TORCH_CHECK(
+            value.last_use < static_cast<int64_t>(instruction_index) ||
+                value.definition > static_cast<int64_t>(instruction_index),
+            "VulkanGraphPlan.v9 scratch and value resource-slot lifetimes "
+            "overlap");
+      }
+    }
   }
   for (const auto value_index : c10::irange(state->values.size())) {
     const VulkanGraphPlanValue& value = state->values[value_index];
