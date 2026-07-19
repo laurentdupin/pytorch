@@ -748,11 +748,14 @@ uploads and integer-bounds provenance. BF16 embedding constants now use the
 same explicit host partition until a generic native gather is proven; the real
 checkpoint lowers both its tied token table and per-layer table this way.
 BF16-preserving tensor-scalar/tensor-tensor arithmetic, aligned native linear
-output, rotary concatenation, rank-5 metadata expansion, and bounded masked
-attention through width 512 are now established. The checkpoint-backed
-one-token graph executes end to end with zero fallback/readback and explicit
-host partitions; the next Gemma gates are CPU parity, repeated/generation and
-decode coverage, memory, and latency distributions. Bias, odd-K, and graph-safe
-dynamic cast coverage remain generic dtype breadth work, but are not blockers
-for the current one-token graph. Whole-model float32 upload and monolithic
-buffers above the storage-buffer binding range are not candidate routes.
+output, aligned BF16 upcast, GELU/tanh, rotary concatenation, rank-5 metadata
+expansion, and bounded masked attention through width 512 are now established.
+The checkpoint-backed one-token graph executes end to end with zero
+fallback/readback and explicit host partitions. It preserves the CPU argmax and
+9/10 top-10 entries, but still misses the strict elementwise parity gate due to
+accumulated BF16 error at the final hidden/logit projection. The next Gemma gates
+are full CPU parity, repeated/generation and decode coverage, memory, and latency
+distributions. Bias, odd-K, and graph-safe dynamic cast coverage remain generic
+dtype breadth work, but are not blockers for the current one-token graph.
+Whole-model float32 upload and monolithic buffers above the storage-buffer
+binding range are not candidate routes.

@@ -3234,6 +3234,29 @@ model gate and they do not imply model-specific production routes.
   `81b3b58748cadcee9b9d94db2c6ab7e4bbd00944`, so the clean release identity
   contract remains unproven despite the artifact's exact source-tree commit and
   DLL hash.
+
+  Exact source `09af707a22d` closes three correctness gaps exposed by internal
+  checkpoint comparison. Vulkan storage buffers now declare the transfer-source
+  and transfer-destination usage required by their direct upload/readback paths;
+  the prior undefined usage made the Gemma-shaped `[1,1,35,256]` BF16-to-FP32
+  cast return zeros for small buffers while larger allocations happened to
+  succeed. Aligned BF16 upcast now uses the generic typed 16-bit-storage cast
+  shader, and BF16 GELU/tanh use FP32 math with BF16 round-to-nearest-even
+  storage. Five focused eager tests and all 171 graph tests pass against matching
+  build/deployed `torch_cpu.dll` SHA-256
+  `D1B4C46A4D027A46F6A987D74675758EADA68931D6880555EA10324679FAFAF9`.
+  The exact-commit one-token Gemma rerun remains a 3,956-instruction C++ plan
+  with two explicit host partitions transferring 20,992 bytes and zero fallback,
+  readback, or deferred values; it measures 7.615 seconds export, 20.994 seconds
+  lower, and 0.589 seconds execution. Final logits are all finite, preserve the
+  CPU argmax, overlap 9/10 CPU top-10 entries, and reach cosine similarity
+  `0.9999127`, but 11,992/262,144 values (4.6%) still miss the strict
+  `rtol=atol=0.05` gate (max absolute error `0.3998`, mean `0.1007`). Therefore
+  Gemma now runs end to end with the correct top token but does not yet pass CPU
+  numerical parity. The next correctness work is accumulated BF16 linear/norm
+  error at the final hidden/logit projection, not another missing operator. The
+  artifact is `agent_space/gemma_step13_export_probe.json`, SHA-256
+  `003AFDAD415502CAAE7531A5AC2B55FFCB099FB96F92010609C1D1D13DBE9FAD`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
