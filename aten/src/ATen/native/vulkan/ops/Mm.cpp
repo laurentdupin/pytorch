@@ -1015,6 +1015,9 @@ void log_float_buffer_linear_submit(
 constexpr uint64_t kLargeLinearCheckpointMinWeightBytes = 4ull * 1024ull * 1024ull;
 constexpr uint64_t kLargeLinearCheckpointSubmitBudget = 48ull;
 constexpr uint64_t kLargeLinearCheckpointByteBudget = 1024ull * 1024ull * 1024ull;
+constexpr uint64_t kLargeBFloat16LinearCheckpointSubmitBudget = 16ull;
+constexpr uint64_t kLargeBFloat16LinearCheckpointByteBudget =
+    256ull * 1024ull * 1024ull;
 
 std::atomic<uint64_t>& large_linear_checkpoint_submit_count() {
   static std::atomic<uint64_t> count{0u};
@@ -1022,6 +1025,16 @@ std::atomic<uint64_t>& large_linear_checkpoint_submit_count() {
 }
 
 std::atomic<uint64_t>& large_linear_checkpoint_bytes() {
+  static std::atomic<uint64_t> bytes{0u};
+  return bytes;
+}
+
+std::atomic<uint64_t>& large_bfloat16_linear_checkpoint_submit_count() {
+  static std::atomic<uint64_t> count{0u};
+  return count;
+}
+
+std::atomic<uint64_t>& large_bfloat16_linear_checkpoint_bytes() {
   static std::atomic<uint64_t> bytes{0u};
   return bytes;
 }
@@ -1038,12 +1051,24 @@ void maybe_synchronize_after_large_linear_checkpoint(
   if (weight_bytes < kLargeLinearCheckpointMinWeightBytes) {
     return;
   }
+  const bool bfloat16_weight = packed_weight.scalar_type() == kBFloat16;
+  const uint64_t submit_budget = bfloat16_weight
+      ? kLargeBFloat16LinearCheckpointSubmitBudget
+      : kLargeLinearCheckpointSubmitBudget;
+  const uint64_t byte_budget = bfloat16_weight
+      ? kLargeBFloat16LinearCheckpointByteBudget
+      : kLargeLinearCheckpointByteBudget;
+  std::atomic<uint64_t>& checkpoint_submit_count = bfloat16_weight
+      ? large_bfloat16_linear_checkpoint_submit_count()
+      : large_linear_checkpoint_submit_count();
+  std::atomic<uint64_t>& checkpoint_byte_count = bfloat16_weight
+      ? large_bfloat16_linear_checkpoint_bytes()
+      : large_linear_checkpoint_bytes();
 
   const uint64_t observed_submits =
-      large_linear_checkpoint_submit_count().fetch_add(
-          1u, std::memory_order_relaxed) +
+      checkpoint_submit_count.fetch_add(1u, std::memory_order_relaxed) +
       1u;
-  const uint64_t observed_bytes = large_linear_checkpoint_bytes().fetch_add(
+  const uint64_t observed_bytes = checkpoint_byte_count.fetch_add(
                                       static_cast<uint64_t>(input.nbytes()) +
                                           weight_bytes +
                                           static_cast<uint64_t>(output.nbytes()),
@@ -1052,22 +1077,21 @@ void maybe_synchronize_after_large_linear_checkpoint(
       static_cast<uint64_t>(output.nbytes());
 
   if (
-      observed_submits < kLargeLinearCheckpointSubmitBudget &&
-      observed_bytes < kLargeLinearCheckpointByteBudget) {
+      observed_submits < submit_budget && observed_bytes < byte_budget) {
     return;
   }
 
   const uint64_t checkpoint_submits =
-      large_linear_checkpoint_submit_count().exchange(
-          0u, std::memory_order_relaxed);
+      checkpoint_submit_count.exchange(0u, std::memory_order_relaxed);
   const uint64_t checkpoint_bytes =
-      large_linear_checkpoint_bytes().exchange(0u, std::memory_order_relaxed);
+      checkpoint_byte_count.exchange(0u, std::memory_order_relaxed);
 
   std::ostringstream stream;
   stream << "aten::linear.large_stack_checkpoint"
          << " submits=" << checkpoint_submits
          << " bytes=" << checkpoint_bytes
-         << " weight_bytes=" << weight_bytes;
+         << " weight_bytes=" << weight_bytes
+         << " dtype=" << packed_weight.scalar_type();
   utils::log_vulkan_op_hit(stream.str());
 
   api::AllocationScope allocation_scope("linear.large_stack_checkpoint");
@@ -3090,6 +3114,8 @@ Tensor run_bfloat16_buffer_linear(
     *output_opt = output;
     output = *output_opt;
   }
+  maybe_synchronize_after_large_linear_checkpoint(
+      input_compute_arg_2d, weight, output);
   return reshape_linear_output_if_needed(
       output, input_arg, /*preserve_storage=*/true);
 }

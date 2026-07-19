@@ -1051,6 +1051,44 @@ class TestVulkanGraph(TestCase):
             [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         )
 
+    def test_cpp_graph_plan_owns_large_bfloat16_linear_checkpoints(self):
+        class RepeatedLinear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.up = torch.nn.Linear(1024, 2048, bias=False)
+                self.down = torch.nn.Linear(2048, 1024, bias=False)
+
+            def forward(self, tensor):
+                value = tensor
+                for _ in range(8):
+                    value = self.down(self.up(value))
+                return value
+
+        model = RepeatedLinear().eval().to(torch.bfloat16)
+        tensor = torch.randn(1, 1024, dtype=torch.bfloat16)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(program.execution_mode, "cpp_plan")
+        self.assertTrue(program.cpp_plan_report.submission_owned)
+        torch.ops.vulkan_prepack.reset_graph_program_invocation_counters()
+        torch.ops.vulkan_prepack.reset_submit_origin_counters()
+        output = program(tensor)
+
+        submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
+        self.assertEqual(output.shape, (1, 1024))
+        self.assertEqual(output.dtype, torch.bfloat16)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+        self.assertGreaterEqual(submit_origins[15], 2)
+        self.assertEqual(
+            submit_origins[0], submit_origins[7] + submit_origins[15]
+        )
+        self.assertEqual(
+            _graph_program_invocation_counters(),
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+
     def test_cpp_graph_plan_rejects_mutable_dispatch(self):
         with self.assertRaisesRegex(RuntimeError, "rejects mutable operator"):
             torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
@@ -4686,6 +4724,35 @@ class TestVulkanGraph(TestCase):
             program(query, key, value)
 
         self.assertNotIn("forbids device synchronization", str(error.exception))
+
+    def test_bfloat16_boolean_masked_sdpa_stays_on_graph(self):
+        class Attention(torch.nn.Module):
+            def forward(self, query, key, value, mask):
+                return torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    attn_mask=mask,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=1.0,
+                )
+
+        torch.manual_seed(0)
+        query = torch.randn(1, 8, 1, 512, dtype=torch.bfloat16)
+        key = torch.randn(1, 8, 1, 512, dtype=torch.bfloat16)
+        value = torch.randn(1, 8, 1, 512, dtype=torch.bfloat16)
+        mask = torch.ones(1, 1, 1, 1, dtype=torch.bool)
+        model = Attention().eval()
+        expected = model(query, key, value, mask)
+        program = torch.vulkan.export_and_lower(model, (query, key, value, mask))
+
+        actual = program(query, key, value, mask).cpu()
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
 
     def test_rejects_static_advanced_index_that_reorders_values(self):
         class ReverseMask(torch.nn.Module):

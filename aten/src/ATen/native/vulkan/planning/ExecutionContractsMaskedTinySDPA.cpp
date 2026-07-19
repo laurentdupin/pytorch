@@ -56,15 +56,15 @@ constexpr ExecutionContractMetadata kMaskedTinySDPABooleanRuntimeMetadata =
         "MaskedTinySDPAContract",
         "BooleanKeepMaskRuntimeShape",
         "masked_tiny_boolean_keep_mask_runtime_shape",
-        "masked_tiny_sdpa_boolean_dynamic_random_shape_tests",
+        "masked_tiny_sdpa_boolean_dynamic_random_shape_and_bfloat16_tests",
         "masked_tiny_sdpa_boolean_semantic_guards",
         "fallback_on_unsupported_layout_or_semantics",
         "expanded_additive_buffer");
 
 constexpr int64_t kRuntimeMaskedTinyMaxBatchHeads = 64;
 constexpr int64_t kRuntimeMaskedTinyMaxSequence = 64;
-constexpr int64_t kRuntimeMaskedTinyMaxHeadDim = 128;
-constexpr int64_t kRuntimeMaskedTinyMaxValueDim = 128;
+constexpr int64_t kRuntimeMaskedTinyMaxHeadDim = 512;
+constexpr int64_t kRuntimeMaskedTinyMaxValueDim = 512;
 constexpr int64_t kRuntimeMaskedTinyMaxScoreElements = 65536;
 
 int64_t dim_or_sentinel(const IntArrayRef sizes, const size_t dim) {
@@ -231,8 +231,8 @@ MaskedTinySDPAMatch match_masked_tiny_sdpa_contract(
           true)) {
     if (
         has_attn_mask && dropout_p == 0.0 && !is_causal && !enable_gqa &&
-        query_dtype == kFloat && key_dtype == kFloat &&
-        value_dtype == kFloat &&
+        query_dtype == key_dtype && key_dtype == value_dtype &&
+        (query_dtype == kFloat || query_dtype == kBFloat16) &&
         (attn_mask_dtype == kFloat || attn_mask_dtype == kBool) &&
         is_runtime_masked_sdpa_shape(
             query_sizes, key_sizes, value_sizes, attn_mask_sizes, scale)) {

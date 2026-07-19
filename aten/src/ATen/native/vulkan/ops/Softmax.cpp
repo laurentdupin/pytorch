@@ -3317,6 +3317,38 @@ Tensor scaled_dot_product_attention_vulkan_impl(
     utils::fail_hard_fail(
         "aten::scaled_dot_product_attention", route_decision);
   }
+  if (
+      query.scalar_type() == kBFloat16 && key.scalar_type() == kBFloat16 &&
+      value.scalar_type() == kBFloat16 &&
+      route_decision.kernel_family == "masked_tiny_sdpa") {
+    Tensor query_float = utils::cast_vulkan_tensor_dtype(query, kFloat);
+    Tensor key_float = utils::cast_vulkan_tensor_dtype(key, kFloat);
+    Tensor value_float = utils::cast_vulkan_tensor_dtype(value, kFloat);
+    const auto float_runtime_policy = utils::build_vulkan_runtime_policy(
+        utils::make_vulkan_attention_request(
+            attention_policy,
+            query_float,
+            key_float,
+            value_float,
+            utils::VulkanTensorRole::Input,
+            dropout_p != 0.0));
+    Tensor output_float = std::get<0>(scaled_dot_product_attention_math_vulkan_impl(
+        query_float,
+        key_float,
+        value_float,
+        attn_mask,
+        dropout_p,
+        is_causal,
+        std::nullopt,
+        scale,
+        enable_gqa,
+        attention_policy,
+        float_runtime_policy));
+    utils::log_vulkan_op_hit(
+        "aten::scaled_dot_product_attention.bfloat16_widened_math");
+    return finalize_public_sdpa_output(
+        utils::cast_vulkan_tensor_dtype(output_float, kBFloat16));
+  }
   log_attention_kernel_family_choice(input_runtime_policy);
   log_attention_execution_strategy_choice(input_runtime_policy);
   log_sdpa_event(

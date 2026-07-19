@@ -4308,7 +4308,7 @@ class TestVulkanGovernance(TestCase):
             "result.family = MaskedTinySDPAFamily::AdditiveFloatMaskRuntimeShape",
             "result.metadata = &kMaskedTinySDPARuntimeMetadata",
             '"BooleanKeepMaskRuntimeShape"',
-            '"masked_tiny_sdpa_boolean_dynamic_random_shape_tests"',
+            '"masked_tiny_sdpa_boolean_dynamic_random_shape_and_bfloat16_tests"',
             '"expanded_additive_buffer"',
             "result.family = MaskedTinySDPAFamily::BooleanKeepMaskRuntimeShape",
             "result.metadata = &kMaskedTinySDPABooleanRuntimeMetadata",
@@ -13116,6 +13116,24 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         zeros = torch.zeros((2, 3), dtype=torch.bfloat16, device="vulkan")
         self.assertEqual(zeros.cpu(), torch.zeros((2, 3), dtype=torch.bfloat16))
+
+    def test_bfloat16_widened_binary_preserves_direct_buffer_shapes(self):
+        torch.manual_seed(0)
+        for shape in ((2, 4), (2, 8), (1, 8, 1, 256)):
+            with self.subTest(shape=shape):
+                source = torch.randn(shape, dtype=torch.bfloat16)
+                zeros = torch.zeros(shape, dtype=torch.bfloat16)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                actual = (source.to("vulkan") + zeros.to("vulkan")).cpu()
+
+                self.assertEqual(actual, source)
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.cpu_fallback_count(), 0
+                )
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.sync_readback_count(), 0
+                )
 
     def test_bfloat16_scalar_multiply_preserves_dtype_and_packed_rows(self):
         torch.manual_seed(0)
@@ -22080,6 +22098,104 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
         self.assertEqual(torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    def test_scaled_dot_product_attention_bfloat16_boolean_mask_random_shapes(self):
+        seed = torch.seed()
+        print(f"masked_tiny_sdpa_bfloat16_random_seed={seed}")
+        generator = torch.Generator().manual_seed(seed)
+        cases = (
+            (2, 5, 7, 64, 48),
+            (1, 3, 4, 6, 128, 96),
+            (2, 2, 1, 8, 256, 256),
+            (1, 8, 1, 1, 512, 512),
+            (1, 4, 7, 3, 32, 24),
+        )
+
+        for shape in cases:
+            with self.subTest(shape=shape):
+                if len(shape) == 5:
+                    batch, target_len, source_len, head_dim, value_dim = shape
+                    query_shape = (batch, target_len, head_dim)
+                    key_shape = (batch, source_len, head_dim)
+                    value_shape = (batch, source_len, value_dim)
+                    mask_shape = (batch, target_len, source_len)
+                else:
+                    (
+                        batch,
+                        heads,
+                        target_len,
+                        source_len,
+                        head_dim,
+                        value_dim,
+                    ) = shape
+                    query_shape = (batch, heads, target_len, head_dim)
+                    key_shape = (batch, heads, source_len, head_dim)
+                    value_shape = (batch, heads, source_len, value_dim)
+                    mask_shape = (batch, 1, target_len, source_len)
+
+                query = torch.randn(
+                    query_shape, generator=generator, dtype=torch.bfloat16)
+                key = torch.randn(
+                    key_shape, generator=generator, dtype=torch.bfloat16)
+                value = torch.randn(
+                    value_shape, generator=generator, dtype=torch.bfloat16)
+                mask = torch.rand(mask_shape, generator=generator) > 0.35
+                mask[..., 0] = True
+                expected = F.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    attn_mask=mask,
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=0.125,
+                )
+
+                with torch.inference_mode():
+                    torch.ops.vulkan_prepack.reset_fallback_counters()
+                    actual = F.scaled_dot_product_attention(
+                        query.to("vulkan"),
+                        key.to("vulkan"),
+                        value.to("vulkan"),
+                        attn_mask=mask.to("vulkan"),
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=0.125,
+                    ).cpu()
+
+                self.assertEqual(actual.dtype, torch.bfloat16)
+                self.assertEqual(actual, expected, rtol=2e-2, atol=2e-2)
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+                self.assertEqual(
+                    torch.ops.vulkan_prepack.sync_readback_count(), 0)
+
+    @parametrize(
+        "dtype,shape",
+        (
+            (torch.float16, (1, 8, 1, 256)),
+            (torch.bfloat16, (1, 8, 1, 513)),
+            (torch.bfloat16, (1, 17, 64, 64)),
+        ),
+    )
+    def test_scaled_dot_product_attention_bfloat16_boolean_mask_guards(
+            self, dtype, shape):
+        query = torch.randn(shape, dtype=dtype)
+        key = torch.randn(shape, dtype=dtype)
+        value = torch.randn(shape, dtype=dtype)
+        mask = torch.ones(
+            shape[0], 1, shape[-2], shape[-2], dtype=torch.bool)
+
+        with self.assertRaisesRegex(RuntimeError, "KnownBadSdpaMaskOrCausal"):
+            F.scaled_dot_product_attention(
+                query.to("vulkan"),
+                key.to("vulkan"),
+                value.to("vulkan"),
+                attn_mask=mask.to("vulkan"),
+                dropout_p=0.0,
+                is_causal=False,
+                scale=0.125,
+            )
 
     def test_scaled_dot_product_attention_boolean_keep_mask_shape_guard(self):
         query = torch.randn(1, 16, 4, 128)
