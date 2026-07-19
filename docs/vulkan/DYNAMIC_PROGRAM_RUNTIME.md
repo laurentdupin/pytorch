@@ -229,15 +229,17 @@ route is selected. It has no exact shape row requirement; unsupported cases are
 semantic issues such as dtype, rank, layout, broadcast incompatibility, or an
 unsupported op.
 
-`SequenceCatDirectBuffer` admits fp32 rank-4 direct-buffer `cat` on dim 2 when
+`SequenceCatDirectBuffer` admits fp32 or BF16 rank-4 buffer `cat` on dim 2 when
 batch, head count, and head dimension match and both sequence lengths are
-positive. It routes through the existing runtime-sized dim-2 buffer cat shader
-without requiring a finite KV-cache row for every sequence length.
+positive. FP32 retains the direct-layout requirement; the packed BF16 shader
+also accepts buffer-compute views such as a one-token head/sequence transpose.
+Neither dtype requires a finite KV-cache row for every sequence length.
 `InitialSequenceCatDirectBuffer` covers the matching empty-cache bootstrap case:
-`torch.cat([empty, cache], dim=2)` with a Vulkan empty left operand, a fp32
+`torch.cat([empty, cache], dim=2)` with a Vulkan empty left operand, an fp32 or BF16
 rank-4 Vulkan buffer cache tensor, and positive runtime batch/head/sequence/head
-dim values. It uses the existing buffer copy path, so initial prompt sequence
-length and head geometry no longer need exact `InitialCache` row admission.
+dim values. FP32 uses the existing metadata copy; BF16 copies a complete,
+contiguous, offset-zero allocation as packed raw storage. Initial prompt
+sequence length and head geometry no longer need exact `InitialCache` rows.
 
 `LinearOrMatmulDirectBuffer` admits fp32 rank-2 and rank-3 direct-buffer linear
 or matmul-style execution when the RHS is rank 2, dimensions are positive,

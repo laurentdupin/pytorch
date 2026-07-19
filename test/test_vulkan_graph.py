@@ -4227,6 +4227,26 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_bfloat16_kv_cache_cat_stays_on_graph(self):
+        class InitialAndAppend(torch.nn.Module):
+            def forward(self, value, token):
+                empty = torch.empty(0, dtype=value.dtype, device=value.device)
+                initial = torch.cat((empty, value), dim=-2)
+                return torch.cat((initial, token), dim=-2)
+
+        torch.manual_seed(0)
+        value = torch.randn(1, 1, 1, 256, dtype=torch.bfloat16)
+        token = torch.randn(1, 1, 1, 256, dtype=torch.bfloat16)
+        model = InitialAndAppend().eval()
+        expected = model(value, token)
+        program = torch.vulkan.export_and_lower(model, (value, token))
+
+        actual = program(value, token).cpu()
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_bfloat16_rank5_rotary_expand_stays_on_graph(self):
         class ExpandRotary(torch.nn.Module):
             def forward(self, tensor):

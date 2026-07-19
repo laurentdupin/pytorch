@@ -883,6 +883,7 @@ class TestVulkanGovernance(TestCase):
             "is_patch_embed_float_buffer_conv_route_semantics",
             source)
         self.assertIn("cat_dim2_4d_buffer_float", source)
+        self.assertIn("cat_dim2_4d_buffer_bfloat16", source)
         self.assertIn("sequence_cat_dim2_4d_single_dispatch", source)
         self.assertIn("initial_sequence_cat_direct_buffer_copy", source)
         self.assertIn(
@@ -12839,6 +12840,57 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
                 self.assertEqual(actual, expected)
                 self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_bfloat16_kv_cache_cat_initial_and_sequence_match_cpu(self):
+        torch.manual_seed(0)
+        with torch.inference_mode():
+            for heads, head_dim in ((1, 256), (1, 512), (3, 24)):
+                value_base = torch.randn(
+                    1, 1, heads, head_dim, dtype=torch.bfloat16
+                )
+                value = value_base.transpose(1, 2)
+                empty = torch.empty(0, dtype=torch.bfloat16)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+
+                initial = torch.cat(
+                    (
+                        empty.to("vulkan"),
+                        value_base.to("vulkan").transpose(1, 2),
+                    ),
+                    dim=-2,
+                )
+                self.assertEqual(
+                    initial.cpu(), torch.cat((empty, value), dim=-2)
+                )
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+                token_base = torch.randn(
+                    1, 1, heads, head_dim, dtype=torch.bfloat16
+                )
+                token = token_base.transpose(1, 2)
+                torch.ops.vulkan_prepack.reset_fallback_counters()
+                actual = torch.cat(
+                    (initial, token_base.to("vulkan").transpose(1, 2)),
+                    dim=-2,
+                ).cpu()
+                expected = torch.cat((value, token), dim=-2)
+                self.assertEqual(actual, expected)
+                self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
+    def test_bfloat16_initial_kv_cache_noncontiguous_view_falls_back(self):
+        with torch.inference_mode():
+            empty = torch.empty(0, dtype=torch.bfloat16)
+            value_base = torch.randn(1, 3, 2, 24, dtype=torch.bfloat16)
+            value = value_base.transpose(1, 2)
+            torch.ops.vulkan_prepack.reset_fallback_counters()
+
+            actual = torch.cat(
+                (empty.to("vulkan"), value_base.to("vulkan").transpose(1, 2)),
+                dim=-2,
+            ).cpu()
+
+            self.assertEqual(actual, torch.cat((empty, value), dim=-2))
+            self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 1)
 
     def test_float_kv_cache_initial_dynamic_random_shapes_match_cpu(self):
         import random

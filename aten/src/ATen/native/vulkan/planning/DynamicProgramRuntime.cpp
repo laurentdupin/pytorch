@@ -193,8 +193,12 @@ bool is_elementwise_broadcast_semantics(
 bool is_sequence_cat_direct_buffer_semantics(
     const DynamicProgramRequest& request) {
   const auto& shape = request.shape;
-  return request.dtype == kFloat && request.other_dtype == kFloat &&
-      request.output_dtype == kFloat && request.rank == 4 &&
+  const bool supported_dtype =
+      (request.dtype == kFloat && request.other_dtype == kFloat &&
+       request.output_dtype == kFloat) ||
+      (request.dtype == kBFloat16 && request.other_dtype == kBFloat16 &&
+       request.output_dtype == kBFloat16);
+  return supported_dtype && request.rank == 4 &&
       request.input_direct_buffer && request.weight_direct_buffer &&
       request.output_direct_buffer && shape.self_rank == 4 &&
       shape.other_rank == 4 && shape.output_rank == 4 && shape.cat_dim == 2 &&
@@ -207,8 +211,12 @@ bool is_sequence_cat_direct_buffer_semantics(
 bool is_initial_sequence_cat_direct_buffer_semantics(
     const DynamicProgramRequest& request) {
   const auto& shape = request.shape;
-  return request.dtype == kFloat && request.other_dtype == kFloat &&
-      request.output_dtype == kFloat && request.rank == 4 &&
+  const bool supported_dtype =
+      (request.dtype == kFloat && request.other_dtype == kFloat &&
+       request.output_dtype == kFloat) ||
+      (request.dtype == kBFloat16 && request.other_dtype == kBFloat16 &&
+       request.output_dtype == kBFloat16);
+  return supported_dtype && request.rank == 4 &&
       request.input_direct_buffer && request.weight_direct_buffer &&
       request.output_direct_buffer && shape.self_rank == 1 &&
       shape.other_rank == 4 && shape.output_rank == 4 && shape.cat_dim == 2 &&
@@ -418,24 +426,29 @@ DynamicProgramCommandPlan patch_embed_float_buffer_conv_route_plan() {
   return plan;
 }
 
-DynamicProgramCommandPlan sequence_cat_direct_buffer_static_shader_plan() {
+DynamicProgramCommandPlan sequence_cat_direct_buffer_static_shader_plan(
+    const ScalarType dtype) {
   DynamicProgramCommandPlan plan;
   plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
   plan.command_plan = DynamicProgramCommandPlanKind::SingleDispatch;
   plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
-  plan.shader_family = "cat_dim2_4d_buffer_float";
+  plan.shader_family = dtype == kBFloat16
+      ? "cat_dim2_4d_buffer_bfloat16"
+      : "cat_dim2_4d_buffer_float";
   plan.command_list_label = "sequence_cat_dim2_4d_single_dispatch";
   plan.requires_runtime_shader_compile = false;
   plan.requires_custom_command_list = false;
   return plan;
 }
 
-DynamicProgramCommandPlan initial_sequence_cat_direct_buffer_plan() {
+DynamicProgramCommandPlan initial_sequence_cat_direct_buffer_plan(
+    const ScalarType dtype) {
   DynamicProgramCommandPlan plan;
   plan.shader_policy = DynamicProgramShaderSelectionPolicy::ExistingStaticShader;
   plan.command_plan = DynamicProgramCommandPlanKind::MultiDispatch;
   plan.cache_policy = DynamicProgramCachePolicy::CapabilityProfileProgramKey;
-  plan.shader_family = "buffer_to_buffer";
+  plan.shader_family =
+      dtype == kBFloat16 ? "raw_buffer_copy" : "buffer_to_buffer";
   plan.command_list_label = "initial_sequence_cat_direct_buffer_copy";
   plan.requires_runtime_shader_compile = false;
   plan.requires_custom_command_list = false;
@@ -804,9 +817,14 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
       break;
     case DynamicProgramSemanticFamily::SequenceCatDirectBuffer:
       if (!is_sequence_cat_direct_buffer_semantics(request)) {
+        const bool supported_dtype =
+            (request.dtype == kFloat && request.other_dtype == kFloat &&
+             request.output_dtype == kFloat) ||
+            (request.dtype == kBFloat16 &&
+             request.other_dtype == kBFloat16 &&
+             request.output_dtype == kBFloat16);
         decision.reject_reason =
-            (request.dtype != kFloat || request.other_dtype != kFloat ||
-             request.output_dtype != kFloat)
+            !supported_dtype
             ? DynamicProgramRejectReason::UnsupportedDType
             : (request.rank != 4 || request.shape.self_rank != 4 ||
                request.shape.other_rank != 4 || request.shape.output_rank != 4)
@@ -821,9 +839,14 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
       break;
     case DynamicProgramSemanticFamily::InitialSequenceCatDirectBuffer:
       if (!is_initial_sequence_cat_direct_buffer_semantics(request)) {
+        const bool supported_dtype =
+            (request.dtype == kFloat && request.other_dtype == kFloat &&
+             request.output_dtype == kFloat) ||
+            (request.dtype == kBFloat16 &&
+             request.other_dtype == kBFloat16 &&
+             request.output_dtype == kBFloat16);
         decision.reject_reason =
-            (request.dtype != kFloat || request.other_dtype != kFloat ||
-             request.output_dtype != kFloat)
+            !supported_dtype
             ? DynamicProgramRejectReason::UnsupportedDType
             : request.rank != 4 || request.shape.self_rank != 1 ||
                     request.shape.other_rank != 4 ||
@@ -1041,10 +1064,10 @@ DynamicProgramDecision build_dynamic_program_runtime_plan(
       ? elementwise_broadcast_static_shader_plan()
       : request.semantic_family ==
               DynamicProgramSemanticFamily::SequenceCatDirectBuffer
-      ? sequence_cat_direct_buffer_static_shader_plan()
+      ? sequence_cat_direct_buffer_static_shader_plan(request.dtype)
       : request.semantic_family ==
               DynamicProgramSemanticFamily::InitialSequenceCatDirectBuffer
-      ? initial_sequence_cat_direct_buffer_plan()
+      ? initial_sequence_cat_direct_buffer_plan(request.dtype)
       : request.semantic_family ==
               DynamicProgramSemanticFamily::Conv2DDirectBuffer
       ? conv2d_direct_buffer_static_shader_plan()

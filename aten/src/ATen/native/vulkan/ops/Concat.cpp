@@ -120,7 +120,13 @@ utils::KVCacheAppendMatch match_dynamic_initial_sequence_cat_direct_buffer(
   if (!right.is_vulkan()) {
     return {};
   }
-  const vTensor& v_right = convert(right);
+  vTensor& v_right = convert(right);
+  if (
+      right.scalar_type() == kBFloat16 &&
+      (!right.is_contiguous() || v_right.storage_offset() != 0 ||
+       v_right.buffer_length() != v_right.gpu_numel())) {
+    return {};
+  }
   const int64_t normalized_right_dim = normalize_dim(in_dim, right.dim());
   const utils::DynamicProgramAdmission admission = utils::admit_dynamic_program(
       utils::make_initial_sequence_cat_direct_buffer_dynamic_program(
@@ -148,14 +154,15 @@ utils::KVCacheAppendMatch match_dynamic_initial_sequence_cat_direct_buffer(
   return result;
 }
 
-bool has_direct_sequence_cat_buffer_layout(const Tensor& tensor) {
+bool has_sequence_cat_buffer_layout(const Tensor& tensor) {
   if (!tensor.is_vulkan()) {
     return false;
   }
   const vTensor& v_tensor = convert(tensor);
   return v_tensor.storage_type() == api::StorageType::BUFFER &&
-      v_tensor.has_direct_buffer_layout() &&
-      utils::supports_buffer_elementwise_compute(v_tensor);
+      utils::supports_buffer_elementwise_compute(v_tensor) &&
+      (v_tensor.has_direct_buffer_layout() ||
+       tensor.scalar_type() == kBFloat16);
 }
 
 utils::KVCacheAppendMatch match_dynamic_sequence_cat_direct_buffer(
@@ -173,8 +180,8 @@ utils::KVCacheAppendMatch match_dynamic_sequence_cat_direct_buffer(
           left.scalar_type(),
           right.scalar_type(),
           left.scalar_type(),
-          has_direct_sequence_cat_buffer_layout(left),
-          has_direct_sequence_cat_buffer_layout(right),
+          has_sequence_cat_buffer_layout(left),
+          has_sequence_cat_buffer_layout(right),
           true,
           dim,
           nullptr,
@@ -696,7 +703,11 @@ Tensor cat_kv_cache_append_dim2_buffer(
   api::Context* const context = api::context();
   api::PipelineBarrier pipeline_barrier{};
   const api::utils::uvec3 global_size = {
-      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(v_output.numel(), 1)),
+      api::utils::safe_downcast<uint32_t>(std::max<int64_t>(
+          tensors[0].get().scalar_type() == kBFloat16
+              ? (v_output.buffer_length() + 1) / 2
+              : v_output.numel(),
+          1)),
       1u,
       1u,
   };
@@ -706,7 +717,8 @@ Tensor cat_kv_cache_append_dim2_buffer(
     uint32_t reserved1;
     uint32_t reserved2;
   } block{
-      api::utils::safe_downcast<uint32_t>(tensors[0].get().size(2)),
+      api::utils::safe_downcast<uint32_t>(
+          tensors[0].get().dim() == 4 ? tensors[0].get().size(2) : 0),
       0u,
       0u,
       0u,
@@ -716,7 +728,9 @@ Tensor cat_kv_cache_append_dim2_buffer(
   utils::log_vulkan_op_hit(
       utils::kv_cache_append_op_hit_label(contract.family));
   context->submit_compute_job(
-      VK_KERNEL(cat_dim2_4d_buffer_float),
+      tensors[0].get().scalar_type() == kBFloat16
+          ? VK_KERNEL(cat_dim2_4d_buffer_bfloat16)
+          : VK_KERNEL(cat_dim2_4d_buffer_float),
       pipeline_barrier,
       global_size,
       adaptive_work_group_size(global_size),
@@ -738,6 +752,58 @@ Tensor cat_kv_cache_append_dim2_buffer(
       utils::make_buffer_compute_metadata_ubo(context, v_right).buffer(),
       params.buffer());
 
+  return output;
+}
+
+Tensor cat_initial_bfloat16_buffer_copy(
+    const Tensor& right,
+    const utils::KVCacheAppendMatch& contract) {
+  api::AllocationScope allocation_scope("cat.initial_bfloat16_buffer_copy");
+  Tensor output = utils::create_buffer_tensor(
+      right.sizes(), right.scalar_type(), /*persistent=*/false);
+  output = utils::mark_tensor_execution(
+      output,
+      utils::resolve_buffer_execution_layout(convert(output)),
+      false);
+
+  vTensor& v_output = convert(output);
+  vTensor& v_right = convert(right);
+  TORCH_CHECK(
+      right.is_contiguous() && v_right.storage_type() == api::StorageType::BUFFER &&
+          v_right.storage_offset() == 0 &&
+          v_right.buffer_length() == v_right.gpu_numel() &&
+          v_output.storage_type() == api::StorageType::BUFFER &&
+          v_output.storage_offset() == 0 &&
+          v_output.buffer_length() == v_output.gpu_numel() &&
+          v_right.gpu_nbytes() == v_output.gpu_nbytes(),
+      "Vulkan initial BF16 KV-cache cat requires a complete contiguous buffer");
+
+  utils::log_vulkan_op_hit(
+      utils::kv_cache_append_op_hit_label(contract.family));
+  note_vulkan_buffer_copy(
+      VulkanBufferCopyReason::ViewMaterialization,
+      v_right,
+      v_output,
+      "aten::cat",
+      "initial_bfloat16_buffer_copy");
+  api::PipelineBarrier pipeline_barrier{};
+  api::Context* const context = api::context();
+  context->submit_copy<api::VulkanBuffer, api::VulkanBuffer>(
+      pipeline_barrier,
+      v_right.buffer(
+          pipeline_barrier,
+          api::PipelineStage::TRANSFER,
+          api::MemoryAccessType::READ),
+      v_output.buffer(
+          pipeline_barrier,
+          api::PipelineStage::TRANSFER,
+          api::MemoryAccessType::WRITE),
+      {api::utils::safe_downcast<uint32_t>(v_output.gpu_nbytes()), 0u, 0u},
+      {0u, 0u, 0u},
+      {0u, 0u, 0u},
+      VK_NULL_HANDLE);
+  record_tensor_write(
+      output, "aten::cat", "initial_bfloat16_buffer_copy", {right});
   return output;
 }
 
@@ -1190,6 +1256,10 @@ Tensor cat(const at::ITensorListRef& tensors, const int64_t in_dim) {
       dynamic_initial_sequence_cat.family ==
           utils::KVCacheAppendFamily::InitialCacheDirectBuffer) {
     const Tensor& right = materialized[1];
+    if (right.scalar_type() == kBFloat16) {
+      return cat_initial_bfloat16_buffer_copy(
+          right, dynamic_initial_sequence_cat);
+    }
     std::vector<Tensor> non_empty{right};
     Tensor output = utils::create_buffer_tensor(
         right.sizes(),
