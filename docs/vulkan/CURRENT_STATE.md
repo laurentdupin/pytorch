@@ -3450,6 +3450,34 @@ model gate and they do not imply model-specific production routes.
   Together with the established same-input final-norm proof, this moves the
   next correctness experiment to BF16 projection accumulation across repeated
   layers; another rotary, SDPA, or mean-order candidate is not indicated.
+
+  A 32-lane accumulation candidate for aligned-K/N cooperative-matrix tail-M
+  BF16 linear was then screened and rejected. CPU-side accumulation against the
+  real layer-3 projection input predicted bit-exact rounding at 32/64 lanes
+  versus one differing BF16 value at the accepted eight lanes, and the built
+  candidate made the complete isolated layer-3 output bit-exact. The full-model
+  gate moved in the opposite direction: strict logit misses increased from
+  4,185/262,144 (1.6%) to 23,170 (8.8%), mean absolute error increased from
+  `0.06023` to `0.12207`, maximum error increased from `0.32367` to `0.41267`,
+  and cosine similarity fell from `0.9999480` to `0.9998996`. Argmax, 10/10
+  top-10 overlap, and zero fallback/readback were preserved, but they do not
+  clear the pre-registered full-model parity gate. The candidate shader was
+  removed; no toggle or alternate path remains. The rejected artifact is
+  `agent_space/gemma_step13_lanes32_full_candidate.json`, SHA-256
+  `DE7A0A5EB6DD784BF703D6B18155EF0EA15D3967ACA238BDC9873BE68524C6CB`,
+  with candidate DLL SHA-256
+  `EB29788C57F6848520554C17727D36E6A5E8C545141E7332032B570345DD6A79`.
+  Revisit requires a graph-wide numerical plan rather than optimizing an
+  isolated layer or projection toward local CPU exactness. After removal, the
+  accepted eight-lane source was forcibly regenerated because MSBuild's failed
+  link tracking initially reported a missing DLL as up to date. Build and
+  deployed DLLs now match at SHA-256
+  `EFEA0E1D54665B00BC49AE2B8A55E5601FB6A69AEFDB17D5B7FC44E43644D536`.
+  The restored exact-source full-model rerun reproduces 4,185 strict misses,
+  mean/max `0.06023`/`0.32367`, cosine `0.9999480`, equal argmax, 10/10 top-10,
+  and zero fallback/readback/deferred values. Its artifact is
+  `agent_space/gemma_step13_lanes32_restored_eight.json`, SHA-256
+  `43E6A2C3E553BB6D070333B0D47F5E8C4F7550A51AE2EBAE69882B7B020F6EF1`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

@@ -764,10 +764,14 @@ full hidden-state curve is exact through layer 2; layer 3 attribution keeps
 normalization, Q/K/V, rotary, and SDPA exact and finds the first difference at
 the BF16 attention output projection, followed by larger MLP-down and per-layer
 projection error. The next correctness experiment is therefore repeated BF16
-projection accumulation, not attention or reduction-order work. The remaining
-Gemma gates are full CPU parity, longer free-running generation, memory, and
-latency distributions. Repeated one-token execution with prior outputs live is
-now bit-stable. Padded multi-row odd-K
+projection accumulation, not attention or mean-order work. A 32-lane tail-M
+linear candidate made the first differing layer bit-exact but doubled full-model
+mean logit error and increased strict misses from 1.6% to 8.8%; it was rejected
+and removed. Future numerical plans must therefore be judged graph-wide rather
+than by isolated projection exactness. The remaining Gemma gates are full CPU
+parity, longer free-running generation, memory, and latency distributions.
+Repeated one-token execution with prior outputs live is now bit-stable. Padded
+multi-row odd-K
 linear remains generic dtype breadth work; it fails loudly while single-row
 odd-K remains supported. Static BF16 graph-linear bias and dynamic
 FP32-to-BF16 graph casts are bit-exact and are no longer pending items. The
