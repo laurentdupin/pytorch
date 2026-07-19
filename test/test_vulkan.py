@@ -7946,7 +7946,70 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 self.assertIsInstance(properties.has_buffer_device_address, bool)
                 self.assertIsInstance(properties.supports_push_descriptor, bool)
                 self.assertIsInstance(properties.supports_descriptor_buffer, bool)
+                self.assertRegex(
+                    properties.uuid,
+                    r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+                )
+                self.assertRegex(
+                    properties.pipeline_cache_uuid,
+                    r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+                )
+                self.assertTrue(
+                    not properties.luid
+                    or re.fullmatch(r"[0-9a-f]{16}", properties.luid)
+                )
+                self.assertTrue(
+                    not properties.pci_address
+                    or re.fullmatch(
+                        r"[0-9a-f]{4,8}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]",
+                        properties.pci_address,
+                    )
+                )
                 self.assertIn(properties.name, repr(properties))
+
+    def test_vulkan_visible_physical_device_identity_selects_vulkan_zero(self):
+        for device_index in range(torch.vulkan.device_count()):
+            properties = torch.vulkan.get_device_properties(device_index)
+            selector_values = [properties.uuid]
+            if properties.luid:
+                selector_values.append(properties.luid)
+
+            for selector in selector_values:
+                with self.subTest(device_index=device_index, selector=selector):
+                    _, result = self._run_repo_python_subprocess(
+                        f"""
+                        import torch
+
+                        assert torch.vulkan.device_count() == 1
+                        properties = torch.vulkan.get_device_properties(0)
+                        assert properties.index == 0
+                        assert properties.uuid == {properties.uuid!r}
+                        """,
+                        extra_env={
+                            "PYTORCH_VULKAN_VISIBLE_DEVICE_UUID": selector,
+                        },
+                    )
+                    self.assertEqual(result.stdout, "")
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(
+            [REPO_ROOT, env.get("PYTHONPATH", "")]
+        )
+        env["PYTORCH_VULKAN_VISIBLE_DEVICE_UUID"] = "00" * 16
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import torch; torch.vulkan.device_count()",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PYTORCH_VULKAN_VISIBLE_DEVICE_UUID", result.stderr)
 
     def test_vulkan_set_device_and_context_manager_select_default_device(self):
         previous_device = torch.vulkan.current_device()

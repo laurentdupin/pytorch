@@ -33,6 +33,39 @@ bool physical_device_supports_extension(
     VkPhysicalDevice physical_device,
     const char* extension_name);
 
+std::string format_uuid(const uint8_t* const bytes) {
+  std::ostringstream stream;
+  stream << std::hex << std::nouppercase << std::setfill('0');
+  for (size_t i = 0u; i < VK_UUID_SIZE; ++i) {
+    if (i == 4u || i == 6u || i == 8u || i == 10u) {
+      stream << '-';
+    }
+    stream << std::setw(2) << static_cast<uint32_t>(bytes[i]);
+  }
+  return stream.str();
+}
+
+std::string format_luid(const uint8_t* const bytes) {
+  std::ostringstream stream;
+  stream << std::hex << std::nouppercase << std::setfill('0');
+  for (size_t i = 0u; i < VK_LUID_SIZE; ++i) {
+    stream << std::setw(2) << static_cast<uint32_t>(bytes[i]);
+  }
+  return stream.str();
+}
+
+#ifdef VK_EXT_PCI_BUS_INFO_EXTENSION_NAME
+std::string format_pci_address(
+    const VkPhysicalDevicePCIBusInfoPropertiesEXT& properties) {
+  std::ostringstream stream;
+  stream << std::hex << std::nouppercase << std::setfill('0')
+         << std::setw(4) << properties.pciDomain << ':' << std::setw(2)
+         << properties.pciBus << ':' << std::setw(2) << properties.pciDevice
+         << '.' << properties.pciFunction;
+  return stream.str();
+}
+#endif
+
 } // namespace
 
 PhysicalDevice::PhysicalDevice(
@@ -42,6 +75,10 @@ PhysicalDevice::PhysicalDevice(
       properties{},
       memory_properties{},
       queue_families{},
+      uuid{},
+      luid{},
+      pci_address{},
+      pipeline_cache_uuid{},
       api_version(0u),
       has_vulkan_1_3(false),
       num_compute_queues(0),
@@ -79,12 +116,39 @@ PhysicalDevice::PhysicalDevice(
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES,
       nullptr,
   };
+  VkPhysicalDeviceIDProperties id_properties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES,
+      &subgroup_properties,
+  };
+#ifdef VK_EXT_PCI_BUS_INFO_EXTENSION_NAME
+  const bool has_pci_bus_info = physical_device_supports_extension(
+      handle, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME);
+  VkPhysicalDevicePCIBusInfoPropertiesEXT pci_bus_info_properties{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT,
+      has_pci_bus_info ? static_cast<void*>(&id_properties) : nullptr,
+  };
+  void* properties_pnext = has_pci_bus_info
+      ? static_cast<void*>(&pci_bus_info_properties)
+      : static_cast<void*>(&id_properties);
+#else
+  void* properties_pnext = &id_properties;
+#endif
   VkPhysicalDeviceProperties2 properties2{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-      &subgroup_properties,
+      properties_pnext,
       {},
   };
   vkGetPhysicalDeviceProperties2(handle, &properties2);
+  uuid = format_uuid(id_properties.deviceUUID);
+  pipeline_cache_uuid = format_uuid(properties.pipelineCacheUUID);
+  if (id_properties.deviceLUIDValid == VK_TRUE) {
+    luid = format_luid(id_properties.deviceLUID);
+  }
+#ifdef VK_EXT_PCI_BUS_INFO_EXTENSION_NAME
+  if (has_pci_bus_info) {
+    pci_address = format_pci_address(pci_bus_info_properties);
+  }
+#endif
   subgroup_size = subgroup_properties.subgroupSize;
   subgroup_supported_stages =
       static_cast<uint32_t>(subgroup_properties.supportedStages);

@@ -1193,6 +1193,7 @@
         "environment_variable:PYTORCH_VULKAN_VALUE_TRACE_LOG",
         "environment_variable:PYTORCH_VULKAN_VALUE_TRACE_MAX_ABS",
         "environment_variable:PYTORCH_VULKAN_VALUE_TRACE_SAMPLES",
+        "environment_variable:PYTORCH_VULKAN_VISIBLE_DEVICE_UUID",
         "environment_variable:PYTORCH_VULKAN_ZERO_PLAN_LOG",
         "operator_schema:vulkan_prepack::accumulate_expert_outputs",
         "operator_schema:vulkan_prepack::attention_plan_counters",

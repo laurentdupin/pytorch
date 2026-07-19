@@ -1,4 +1,6 @@
+#include <cctype>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 
@@ -167,6 +169,61 @@ std::vector<Runtime::DeviceMapping> create_physical_devices(
       device_mappings.emplace_back(std::move(candidate), -1);
     }
   }
+
+  const char* const visible_identity =
+      std::getenv("PYTORCH_VULKAN_VISIBLE_DEVICE_UUID");
+  if (visible_identity == nullptr || visible_identity[0] == '\0') {
+    return device_mappings;
+  }
+
+  std::string normalized_identity;
+  for (const char value : std::string(visible_identity)) {
+    const unsigned char unsigned_value = static_cast<unsigned char>(value);
+    if (std::isxdigit(unsigned_value)) {
+      normalized_identity.push_back(
+          static_cast<char>(std::tolower(unsigned_value)));
+    } else if (
+        value != '-' && value != ':' && value != '{' && value != '}' &&
+        !std::isspace(unsigned_value)) {
+      TORCH_CHECK(
+          false,
+          "PYTORCH_VULKAN_VISIBLE_DEVICE_UUID must be a physical UUID or "
+          "Windows LUID, got an invalid character");
+    }
+  }
+  TORCH_CHECK(
+      normalized_identity.size() == 32u ||
+          normalized_identity.size() == 16u,
+      "PYTORCH_VULKAN_VISIBLE_DEVICE_UUID must contain 32 UUID hex digits "
+      "or 16 Windows LUID hex digits");
+
+  auto compact_identity = [](const std::string& identity) {
+    std::string compact;
+    for (const char value : identity) {
+      if (std::isxdigit(static_cast<unsigned char>(value))) {
+        compact.push_back(static_cast<char>(std::tolower(
+            static_cast<unsigned char>(value))));
+      }
+    }
+    return compact;
+  };
+  for (auto& mapping : device_mappings) {
+    const PhysicalDevice& candidate = mapping.first;
+    if (
+        compact_identity(candidate.uuid) == normalized_identity ||
+        (!candidate.luid.empty() &&
+         compact_identity(candidate.luid) == normalized_identity)) {
+      std::vector<Runtime::DeviceMapping> selected;
+      selected.reserve(1u);
+      selected.emplace_back(std::move(mapping.first), -1);
+      return selected;
+    }
+  }
+
+  TORCH_CHECK(
+      false,
+      "PYTORCH_VULKAN_VISIBLE_DEVICE_UUID did not match an eligible Vulkan "
+      "physical-device UUID or Windows LUID");
 
   return device_mappings;
 }

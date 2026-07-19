@@ -759,3 +759,13 @@ distributions. Bias, odd-K, and graph-safe dynamic cast coverage remain generic
 dtype breadth work, but are not blockers for the current one-token graph.
 Whole-model float32 upload and monolithic buffers above the storage-buffer
 binding range are not candidate routes.
+
+The producer-side device contract now exposes physical UUID, valid Windows
+LUID, optional normalized PCI address, and pipeline-cache UUID. Process-local
+selection consumes `PYTORCH_VULKAN_VISIBLE_DEVICE_UUID` before adapter/context
+construction and presents the selected physical adapter as `vulkan:0`; current
+Windows evidence covers all three installed adapters by UUID and LUID. Release
+readiness still requires a clean exact-commit Torch/torchvision wheel pipeline,
+manifested hashes and toolchain/backend identities, signatures, and an offline
+installation test. Local source-build evidence does not satisfy that release
+gate.

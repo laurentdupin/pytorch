@@ -3806,6 +3806,28 @@ These files are diagnostic inputs. Production code must not depend on
   non-emulation semantics, and runtime-policy tests verify optional ML features
   are clamped under `vk_min_1_1_compute`.
 
+## Physical Device And Release Identity
+
+- `torch.vulkan.get_device_properties(i)` now exposes the physical-device UUID,
+  a valid Windows LUID when the driver provides one, a normalized PCI address
+  when `VK_EXT_pci_bus_info` is available, and the Vulkan pipeline-cache UUID.
+  Empty LUID or PCI strings mean that Vulkan did not expose that identity kind;
+  the physical UUID and pipeline-cache UUID remain present.
+- `PYTORCH_VULKAN_VISIBLE_DEVICE_UUID` is consumed while eligible physical
+  devices are enumerated, before any adapter or context is constructed. It
+  accepts a canonical or compact physical UUID and a valid Windows LUID, fails
+  loudly for malformed or unmatched values, and maps the selected physical
+  adapter to the process-local `vulkan:0`.
+- The current Windows source runtime was built with `torch_python`, deployed
+  with matching Release DLL hashes, and exercised UUID/LUID selection for all
+  three installed adapters in fresh subprocesses. Each subprocess reported one
+  device and the requested physical UUID at index zero. On the RX 9070 driver,
+  UUID, LUID, and pipeline-cache UUID are available while PCI address is not.
+- This is producer API evidence, not release-publication evidence. Clean
+  exact-commit Torch plus torchvision wheel builds, embedded full-commit
+  verification, manifests, hashes, signing, and offline installation remain
+  unproven and must pass independently before a production release claim.
+
 ## Validation Caveats
 
 - Model status artifacts can be stale relative to each other. Before changing a

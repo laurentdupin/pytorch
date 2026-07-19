@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <mutex>
 #include <ostream>
+#include <string>
 #include <vector>
 
 namespace at {
@@ -41,6 +42,13 @@ struct PhysicalDevice final {
   VkPhysicalDeviceProperties properties;
   VkPhysicalDeviceMemoryProperties memory_properties;
   std::vector<VkQueueFamilyProperties> queue_families;
+
+  // Stable physical identity. Empty LUID/PCI strings mean that Vulkan did not
+  // expose a valid identity of that kind for this device.
+  std::string uuid;
+  std::string luid;
+  std::string pci_address;
+  std::string pipeline_cache_uuid;
 
   // Metadata
   uint32_t api_version;

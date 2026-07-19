@@ -58,6 +58,10 @@ struct VulkanDeviceProperties final {
   std::string type;
   uint32_t vendor_id;
   uint32_t device_id;
+  std::string uuid;
+  std::string luid;
+  std::string pci_address;
+  std::string pipeline_cache_uuid;
   std::string api_version;
   uint32_t api_version_raw;
   uint32_t driver_version;
@@ -92,6 +96,10 @@ struct VulkanDeviceProperties final {
         type(format_device_type(physical_device.properties.deviceType)),
         vendor_id(physical_device.properties.vendorID),
         device_id(physical_device.properties.deviceID),
+        uuid(physical_device.uuid),
+        luid(physical_device.luid),
+        pci_address(physical_device.pci_address),
+        pipeline_cache_uuid(physical_device.pipeline_cache_uuid),
         api_version(format_api_version(physical_device.properties.apiVersion)),
         api_version_raw(physical_device.properties.apiVersion),
         driver_version(physical_device.properties.driverVersion),
@@ -134,6 +142,11 @@ void registerVulkanDeviceProperties(PyObject* module) {
       .def_readonly("type", &VulkanDeviceProperties::type)
       .def_readonly("vendor_id", &VulkanDeviceProperties::vendor_id)
       .def_readonly("device_id", &VulkanDeviceProperties::device_id)
+      .def_readonly("uuid", &VulkanDeviceProperties::uuid)
+      .def_readonly("luid", &VulkanDeviceProperties::luid)
+      .def_readonly("pci_address", &VulkanDeviceProperties::pci_address)
+      .def_readonly(
+          "pipeline_cache_uuid", &VulkanDeviceProperties::pipeline_cache_uuid)
       .def_readonly("api_version", &VulkanDeviceProperties::api_version)
       .def_readonly("api_version_raw", &VulkanDeviceProperties::api_version_raw)
       .def_readonly("driver_version", &VulkanDeviceProperties::driver_version)
@@ -198,7 +211,8 @@ void registerVulkanDeviceProperties(PyObject* module) {
         std::ostringstream stream;
         stream << "_VulkanDeviceProperties(name='" << properties.name
                << "', index=" << properties.index << ", type='"
-               << properties.type << "', total_memory="
+               << properties.type << "', uuid='" << properties.uuid
+               << "', total_memory="
                << properties.total_memory << ", api_version='"
                << properties.api_version << "', num_compute_queues="
                << properties.num_compute_queues << ")";
