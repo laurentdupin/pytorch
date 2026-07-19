@@ -3287,6 +3287,21 @@ model gate and they do not imply model-specific production routes.
   It records a 3,956-instruction C++ plan, two host partitions and 20,992
   transfer bytes, zero fallback/readback/deferred values, and 0.789 seconds for
   one execution. This single timing sample is not performance evidence.
+
+  An eight-lane FP32 last-dimension mean candidate then reduced a deterministic
+  1x1536 reduction discrepancy from `6.5e-5` to `1.9e-6` and made an isolated
+  Gemma layer bit-exact. Across the full graph it improved final normalized
+  hidden-state mean error from `0.03118` to `0.02466`, but worsened the supported
+  output: strict logit misses rose from 4,185 (1.6%) to 18,587 (7.1%) and mean
+  logit error rose from `0.06023` to `0.07044`. The candidate was rejected and
+  removed under the full-model parity gate. Its artifacts are
+  `agent_space/gemma_step13_mean8_full.json` and
+  `agent_space/gemma_step13_mean8_hidden.json`; the candidate DLL SHA-256 was
+  `F01E77E059684F33A7DBF0B4FA44ACB4DEBA87017095F4543E27B5890E3E7F9F`.
+  The restored accepted source at `04c1273db95` was rebuilt and deployed with
+  matching DLL SHA-256
+  `3D369DD8C6F7D4047A26268F9D333789BBA8D29031D8696D615BE1BC0A89FF57`;
+  all 171 graph tests and the Lotus DTensor preflight pass on that runtime.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
