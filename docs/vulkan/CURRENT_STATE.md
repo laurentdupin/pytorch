@@ -3302,6 +3302,16 @@ model gate and they do not imply model-specific production routes.
   matching DLL SHA-256
   `3D369DD8C6F7D4047A26268F9D333789BBA8D29031D8696D615BE1BC0A89FF57`;
   all 171 graph tests and the Lotus DTensor preflight pass on that runtime.
+  A follow-up that retained scalar order below width 1,024 and used eight lanes
+  only for wide means produced the identical 18,587 logit misses and `0.07044`
+  mean error, isolating the rejection to wide hidden-state norm ordering rather
+  than 256-wide attention/PLE norms. That bounded candidate was also removed;
+  its artifact is `agent_space/gemma_step13_mean8_wide_full.json`, SHA-256
+  `F0FDA8D56DE0708BB471C3EE266FD1EE85C17C2B4B138DFD8CFA1D67364CF138`.
+  The accepted source was rebuilt again after removal; build, deployed, and
+  ignored rollback-cache DLLs match at SHA-256
+  `F412EB773FA8929E2088F94895CD7CA737B829BAA4F2975E88984FD5DAAD0A35`,
+  with all 171 graph tests and the Lotus DTensor preflight passing.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
