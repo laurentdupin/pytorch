@@ -486,12 +486,15 @@ bool is_raw_buffer_copy_legal(const Tensor& src, const Tensor& dst) {
   const vTensor& v_dst = convert(dst);
   return v_src.storage_type() == api::StorageType::BUFFER &&
       v_dst.storage_type() == api::StorageType::BUFFER &&
-      v_src.has_direct_buffer_layout() && v_dst.has_direct_buffer_layout() &&
       v_src.storage_offset() == 0 && v_dst.storage_offset() == 0 &&
+      v_src.buffer_length() == v_src.gpu_numel() &&
+      v_dst.buffer_length() == v_dst.gpu_numel() &&
       v_src.dtype() == v_dst.dtype() &&
       v_src.gpu_memory_layout() == v_dst.gpu_memory_layout() &&
       v_src.gpu_nbytes() == v_dst.gpu_nbytes() &&
-      v_src.logical_sizes() == v_dst.logical_sizes();
+      v_src.logical_sizes() == v_dst.logical_sizes() &&
+      v_src.gpu_sizes() == v_dst.gpu_sizes() &&
+      v_src.physical_strides() == v_dst.physical_strides();
 }
 
 bool requires_logical_pack_shader(const Tensor& src, const Tensor& dst) {

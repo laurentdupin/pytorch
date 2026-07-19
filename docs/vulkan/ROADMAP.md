@@ -756,11 +756,11 @@ fallback/readback and explicit host partitions. It preserves the CPU argmax and
 reduction for BF16 buffer linear, but 1.6% of logits still miss the strict
 elementwise parity gate due to accumulated error before the final hidden/logit
 projection. The next Gemma gates are full CPU parity, repeated/generation and
-decode coverage, memory, and latency distributions. Graph-safe dynamic cast
-coverage and padded multi-row odd-K linear remain generic dtype breadth work;
-the latter now fails loudly while single-row odd-K remains supported. Static
-BF16 graph-linear bias is bit-exact and is no longer a pending item. None of
-these breadth items block the current one-token graph.
+decode coverage, memory, and latency distributions. Padded multi-row odd-K
+linear remains generic dtype breadth work; it fails loudly while single-row
+odd-K remains supported. Static BF16 graph-linear bias and dynamic
+FP32-to-BF16 graph casts are bit-exact and are no longer pending items. The
+remaining odd-K breadth item does not block the current one-token graph.
 Whole-model float32 upload and monolithic buffers above the storage-buffer
 binding range are not candidate routes.
 

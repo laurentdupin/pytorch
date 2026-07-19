@@ -3311,6 +3311,18 @@ model gate and they do not imply model-specific production routes.
   therefore established for static graph linear contexts; it is not a pending
   Gemma prerequisite.
 
+  Dynamic FP32-to-BF16 graph casts are also closed by planning their FP32
+  runtime input as a direct width-packed buffer and admitting raw copies between
+  full allocations with identical logical and padded physical layouts. The old
+  copy contract rejected width-padded BF16 buffers solely because they were not
+  logically direct, then performed a CPU readback that correctly failed inside
+  `GraphProgramInvocationScope`. Aligned `[2,32]`, padded `[3,33]`, and
+  Gemma-shaped `[1,1,35,256]` casts are bit-exact to CPU with zero fallback and
+  zero readback against matching build/deployed `torch_cpu.dll` SHA-256
+  `B465CF1C34D5AFD69C97CA6F9C1A153863B83417CEC33448A34F92016AB757F9`.
+  Metadata views, nonzero offsets, partial allocations, and unequal physical
+  layouts remain outside the raw-copy contract.
+
   An eight-lane FP32 last-dimension mean candidate then reduced a deterministic
   1x1536 reduction discrepancy from `6.5e-5` to `1.9e-6` and made an isolated
   Gemma layer bit-exact. Across the full graph it improved final normalized

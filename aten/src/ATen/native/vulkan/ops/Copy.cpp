@@ -1127,10 +1127,14 @@ void retire_after_fence_wait_and_release(
 bool can_copy_vulkan_buffer_to_buffer_direct(
     const vTensor& src,
     const vTensor& dst) {
-  return src.has_direct_buffer_layout() && dst.has_direct_buffer_layout() &&
-      src.storage_offset() == 0 && dst.storage_offset() == 0 &&
+  return src.storage_offset() == 0 && dst.storage_offset() == 0 &&
+      src.buffer_length() == src.gpu_numel() &&
+      dst.buffer_length() == dst.gpu_numel() && src.dtype() == dst.dtype() &&
       src.gpu_memory_layout() == dst.gpu_memory_layout() &&
-      src.strides() == dst.strides() && src.gpu_nbytes() == dst.gpu_nbytes();
+      src.logical_sizes() == dst.logical_sizes() &&
+      src.gpu_sizes() == dst.gpu_sizes() &&
+      src.physical_strides() == dst.physical_strides() &&
+      src.gpu_nbytes() == dst.gpu_nbytes();
 }
 
 bool can_copy_vulkan_buffer_to_buffer_on_device(

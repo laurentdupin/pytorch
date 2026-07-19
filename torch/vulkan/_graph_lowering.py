@@ -2468,21 +2468,34 @@ def plan_graph_tensor_placements(
     }
     reports: list[VulkanGraphTensorPlacementNodeReport] = []
     for placeholder in _graph_placeholder_nodes(graph_module):
-        if _node_tensor_dtype(placeholder) != torch.bool:
-            continue
+        placeholder_dtype = _node_tensor_dtype(placeholder)
         placeholder_name = str(placeholder.target)
+        reason: str | None = None
+        if placeholder_dtype == torch.bool:
+            reason = (
+                "normalized_bool_graph_input"
+                if placeholder_name in normalized_placeholders
+                else "captured_bool_graph_input"
+            )
+        elif placeholder_dtype == torch.float32 and any(
+            user.op == "call_function"
+            and user.target == torch.ops.aten.to.dtype
+            and len(user.args) >= 2
+            and user.args[0] is placeholder
+            and user.args[1] == torch.bfloat16
+            for user in placeholder.users
+        ):
+            reason = "dynamic_float32_to_bfloat16_cast_input"
+        if reason is None:
+            continue
         reports.append(
             VulkanGraphTensorPlacementNodeReport(
                 source_kind="placeholder",
                 source_name=placeholder_name,
-                dtype=torch.bool,
+                dtype=placeholder_dtype,
                 storage_type="buffer",
                 execution_layout="buffer_direct",
-                reason=(
-                    "normalized_bool_graph_input"
-                    if placeholder_name in normalized_placeholders
-                    else "captured_bool_graph_input"
-                ),
+                reason=reason,
             )
         )
 

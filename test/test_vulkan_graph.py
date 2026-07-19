@@ -4286,6 +4286,33 @@ class TestVulkanGraph(TestCase):
         repeated = program(tensor)
         self.assertEqual(tuple(value.cpu() for value in repeated), expected)
 
+    def test_dynamic_bfloat16_cast_uses_direct_buffer_input(self):
+        class Cast(torch.nn.Module):
+            def forward(self, tensor):
+                return tensor.to(torch.bfloat16)
+
+        torch.manual_seed(0)
+        tensor = torch.randn(3, 33)
+        expected = Cast()(tensor)
+        program = torch.vulkan.export_and_lower(Cast().eval(), tensor)
+
+        self.assertEqual(
+            program.tensor_placement.buffer_placeholder_names,
+            ("tensor",),
+        )
+        self.assertEqual(
+            program.tensor_placement.nodes[0].reason,
+            "dynamic_float32_to_bfloat16_cast_input",
+        )
+        first = program(tensor)
+        repeated_tensor = tensor + 0.25
+        repeated_expected = Cast()(repeated_tensor)
+        repeated = program(repeated_tensor)
+        self.assertEqual(first.cpu(), expected)
+        self.assertEqual(repeated.cpu(), repeated_expected)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_large_state_dtype_cast_is_not_folded(self):
         class LargeStateCast(torch.nn.Module):
             def __init__(self):
