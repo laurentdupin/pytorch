@@ -3304,6 +3304,13 @@ model gate and they do not imply model-specific production routes.
   instrumentation that observes the shader's input and FP32 output before the
   final BF16 cast, rather than another dispatch/layout guess.
 
+  The roadmap's separate BF16-bias item was rechecked against the current
+  runtime and is already closed. A static BF16 `nn.Linear(32,17,bias=True)`
+  with a `[2,32]` BF16 input exports and lowers to `VulkanGraphProgram`, returns
+  a `[2,17]` BF16 tensor, and is bit-exact to the CPU module. Bias residency is
+  therefore established for static graph linear contexts; it is not a pending
+  Gemma prerequisite.
+
   An eight-lane FP32 last-dimension mean candidate then reduced a deterministic
   1x1536 reduction discrepancy from `6.5e-5` to `1.9e-6` and made an isolated
   Gemma layer bit-exact. Across the full graph it improved final normalized
