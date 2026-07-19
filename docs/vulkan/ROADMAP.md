@@ -638,6 +638,16 @@ and bounded memory. This closes the contiguous transformer semantic-partition
 gate, not recorded execution: the next Phase 6 candidate must record useful
 work inside that partition without restoring fine-grained primary buffers.
 
+Exact source `0739ed0767e` then moves the semantic partition's scaled query,
+scores, and probabilities into three generation-tracked scratch slots shared
+by all 12 attention instructions. Both guards remain bit-exact and zero-bypass
+with eight total arena slots; repeat-live high-water changes by 1.02%/0.25%
+from the preceding five-slot short baseline. This closes the stable
+intermediate-address prerequisite for recording. It deliberately leaves the
+standing ten-minute soak and all recorded-command acceptance thresholds to the
+complete recording candidate, avoiding another validation cycle for each
+internal ownership step.
+
 The resource ABI now transports storage type, GPU memory layout, and execution
 layout per slot instead of assuming that shape and dtype fully describe a
 target. Direct width-packed buffers retain the proven allocator path, and
@@ -678,6 +688,12 @@ candidate must pre-record useful contiguous multi-instruction work against
 stable resources and descriptors without increasing primary command-buffer
 count per submission. Merely widening checkpoint cadence or replaying isolated
 writers is explicitly rejected.
+
+The active candidate records the attention semantic unit against the stable
+output and three scratch resources introduced by `0739ed0767e`. It must execute
+as a secondary command buffer within the existing primaries so that primary
+buffer and submission counts remain unchanged. Restoring a batch of
+fine-grained reusable primary buffers is not an eligible implementation.
 
 - record bounded Vulkan-only partitions against program-owned slots;
 - cache by graph, guard, device/driver, capability, layout, and weight version;

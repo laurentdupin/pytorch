@@ -174,6 +174,33 @@ bypasses per invocation in the relevant isolation runs; all four implementations
 were removed. These rejections show that stable point outputs alone still do
 not form a sufficiently broad contiguous recorded partition.
 
+Exact source `0739ed0767e` extends that semantic unit with three instruction
+scratch resources: scaled query, attention scores, and probabilities. The
+three slots are shared across all 12 non-overlapping DAv2 attention
+instructions and each of the two arena generations, so the plan grows from
+five to eight slots rather than adding 36 instruction-specific allocations.
+The C++ constructor rejects duplicate, out-of-range, partial, output-overlap,
+and value-lifetime-overlap mappings. A repeat regression keeps the first
+program result live and verifies that rank-3 helper views cannot rebind the
+rank-4 arena entries.
+
+The exact-commit short RX 9070 artifact remains bit-exact with supported eager
+on both 140x140 and 140x280 guards, with 70 writers, 92 resource values, zero
+writer bypass, fallback, readback, or arena spill. Repeat-live high-water is
+320,334,784/457,460,688 bytes, only 1.02%/0.25% above the preceding five-slot
+short baseline. Ten-sample graph medians are 48.81/46.08 ms versus eager at
+140.42/139.13 ms. This proves bounded scratch ownership for the next recording
+candidate; it does not claim reusable descriptors, recorded commands, or the
+standing ten-minute soak. Census/parity artifacts are under
+`agent_space/graph_attention_scratch_exact_0739ed0767e/`, with SHA-256 values
+`8388ad5b785fe0a6cd0703da5730063c3c998eacf2da55df798c39a4ec7fcf84`
+and `4417171679b5724806d31ffc82655a643b841d5984171b0f26776af322713b4f`.
+The loaded `torch_cpu.dll` SHA-256 was
+`9bc95c629506cce244a4a36f277d66b5ab157dbc0bccf904b5d33d4551f478aa`;
+the artifact also records that the unchanged Python binding still reported
+git version `7b20c872fb8`, so it is structural backend evidence rather than a
+release-build identity claim.
+
 Resource slots now carry explicit storage-type, GPU-memory-layout, and
 execution-layout fields from Python lowering into the C++ plan. Arena creation
 consumes that descriptor through the generic execution-object allocator while

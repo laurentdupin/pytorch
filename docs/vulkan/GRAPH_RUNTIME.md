@@ -429,6 +429,17 @@ perform 140 writes with zero bypass and exact graph/eager parity. This creates a
 useful contiguous transformer semantic unit and owns its final output, but does
 not yet record its dispatches or fuse them into a shader.
 
+Exact source `0739ed0767e` also owns the semantic instruction's three internal
+values as explicit arena scratch slots. The scaled query retains query shape;
+scores and probabilities retain the query prefix with key sequence length.
+Their lifetime is exactly the containing instruction, allowing the allocator
+to share the same three physical slots across non-overlapping attention blocks
+while forbidding overlap with the instruction output or any live SSA value.
+Helper kernels receive local flattened views so mutable out-parameter handling
+cannot rebind the arena's canonical logical shape. This supplies stable
+addresses for transactional recording without changing the eager reference
+surface or claiming that recording has occurred.
+
 Resource-slot identity is no longer shape-and-dtype-only. The lowering passes
 an explicit storage type, GPU memory layout, and execution layout for every
 slot, and the C++ arena materializes the matching execution object. Existing
