@@ -3376,6 +3376,37 @@ model gate and they do not imply model-specific production routes.
   It also records that the locally deployed `torch_python` still embeds an
   older `torch.version.git_version`, so this run is not release-identity
   evidence.
+
+  Exact source `08fb91b9aea` adds homogeneous BF16 cache bootstrap and
+  sequence append to the generic dynamic-program cat families. Empty-cache
+  bootstrap copies a complete contiguous offset-zero packed allocation;
+  non-contiguous BF16 views reject that route and retain the existing fallback.
+  Subsequent rank-4 dim-2 appends use a packed BF16 shader and admit
+  buffer-compute views such as the Transformers head/sequence transpose. A
+  caller-owned flattened-cache adapter is required because Transformers'
+  `DynamicCache` is not registered as an export PyTree; this follows the
+  existing explicit output-to-input state protocol rather than adding model or
+  cache-container behavior to the backend.
+
+  Against the real checkpoint, the one-token prefill lowers to a 4,016
+  instruction v9 C++ plan and the first decode guard variant lowers to 4,046
+  instructions. Each returns logits plus 30 BF16 cache leaves with zero CPU
+  fallback, sync readback, or deferred values and the same two explicit host
+  partitions/20,992 transfer bytes. The prefill cache outputs remain on Vulkan
+  and are passed directly as the decode program's explicit cache inputs. All
+  30 prefill and all 30 updated decode cache leaves pass the CPU tolerance
+  gate. Logits retain the known accumulated numerical blocker: prefill mean/max
+  absolute error is `0.06023`/`0.32367`, and first-decode error grows to
+  `0.35470`/`0.68215`, so this is cache transport and first-decode coverage,
+  not full CPU parity or generation readiness. Single execution samples were
+  0.492 seconds for prefill and 0.539 seconds for decode; they are not latency
+  distributions. The artifact is
+  `agent_space/gemma_step13_flat_cache_prefill_probe.json`, SHA-256
+  `A2DB3930CE54F0E4E14CDCED5B73710F660B87518E07CF841F323AE89F662F8F`;
+  loaded `torch_cpu.dll` SHA-256 is
+  `04CA4F024BDDF16836B6030FAC7350D038E7DAFDF5DF135BB3FAA4EF70A415B0`.
+  The locally deployed `torch_python` still embeds source `46b37eb7a76`, so
+  this exact source/DLL artifact is not clean release-identity evidence.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

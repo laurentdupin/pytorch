@@ -755,9 +755,14 @@ fallback/readback and explicit host partitions. It preserves the CPU argmax and
 10/10 top-10 entries after adopting a generic eight-lane FP32 partial-sum
 reduction for BF16 buffer linear, but 1.6% of logits still miss the strict
 elementwise parity gate due to accumulated error before the final hidden/logit
-projection. The next Gemma gates are full CPU parity, multi-token generation
-and decode coverage, memory, and latency distributions. Repeated one-token
-execution with prior outputs live is now bit-stable. Padded multi-row odd-K
+projection. The one-token prefill and first explicit flattened-cache decode
+guard variants now both compile to C++ plans, keep all 30 cache leaves on
+Vulkan across the caller-owned output-to-input handoff, and execute with zero
+fallback/readback. All cache leaves pass the CPU tolerance gate, but decode
+logits amplify the existing accumulated numerical error. The next Gemma gates
+are therefore full CPU parity, longer multi-token generation/decode, memory,
+and latency distributions. Repeated one-token execution with prior outputs
+live is now bit-stable. Padded multi-row odd-K
 linear remains generic dtype breadth work; it fails loudly while single-row
 odd-K remains supported. Static BF16 graph-linear bias and dynamic
 FP32-to-BF16 graph casts are bit-exact and are no longer pending items. The
