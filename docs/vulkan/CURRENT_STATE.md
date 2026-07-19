@@ -3288,6 +3288,22 @@ model gate and they do not imply model-specific production routes.
   transfer bytes, zero fallback/readback/deferred values, and 0.789 seconds for
   one execution. This single timing sample is not performance evidence.
 
+  A bounded follow-up on source `e380e6bd925` confirmed the defect is narrower
+  than CPU upload or readback: BF16 tensors shaped `[3,33]` round-trip exactly,
+  and single-row linear is bit-exact, while a multi-row fallback linear corrupts
+  every value of row 1 and preserves rows 0 and 2. Four candidates reproduced
+  that identical alternating-row result and were removed: deriving the padded
+  row stride directly from K, reading packed 32-bit words instead of 16-bit
+  scalars, isolating rows in 32x1 workgroups, and flattening the 2-D dispatch.
+  Their deployed DLL SHA-256 values were respectively
+  `E3DF063A12F12303C36C6CD84EA1A947F0D2AAA7A43DC7D9444F04D2ACFD0865`,
+  `91056700624F2232CDF1E53EF61AA4CCB8364381C28B453DEC136A80E774D055`,
+  `88165BE1C23C4BB3F03A35C578B3E6A33BCC861018DEBDE32BCD0CF55BBA3B12`,
+  and `70A11311A8067FAC63428B3FF6A9D841274538FB245048B70D564F556DDED209`.
+  The explicit rejection remains the supported behavior. Revisit requires
+  instrumentation that observes the shader's input and FP32 output before the
+  final BF16 cast, rather than another dispatch/layout guess.
+
   An eight-lane FP32 last-dimension mean candidate then reduced a deterministic
   1x1536 reduction discrepancy from `6.5e-5` to `1.9e-6` and made an isolated
   Gemma layer bit-exact. Across the full graph it improved final normalized
