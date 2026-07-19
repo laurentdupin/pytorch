@@ -13452,7 +13452,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             rtol=1e-4,
         )
 
-    def test_bfloat16_linear_widens_to_float_for_compute(self):
+    def test_bfloat16_linear_preserves_output_dtype(self):
         torch.manual_seed(0)
         x = torch.randn(2, 4, dtype=torch.bfloat16)
         weight = torch.randn(3, 4, dtype=torch.bfloat16)
@@ -13462,15 +13462,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         bias_vulkan = bias.to("vulkan")
 
         with torch.inference_mode():
-            expected = F.linear(x.float(), weight.float(), bias.float())
+            expected = F.linear(x, weight, bias)
             actual = F.linear(
                 x_vulkan,
                 weight_vulkan,
                 bias_vulkan,
             )
 
-        self.assertEqual(actual.dtype, torch.float32)
-        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self._assert_outputs_close(expected, actual, atol=2e-2, rtol=2e-2)
 
     def test_bfloat16_linear_3d_native_buffer_compute(self):
         torch.manual_seed(0)
@@ -13482,15 +13482,15 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         bias_vulkan = bias.to("vulkan")
 
         with torch.inference_mode():
-            expected = F.linear(x.float(), weight.float(), bias.float())
+            expected = F.linear(x, weight, bias)
             actual = F.linear(
                 x_vulkan,
                 weight_vulkan,
                 bias_vulkan,
             )
 
-        self.assertEqual(actual.dtype, torch.float32)
-        self._assert_outputs_close(expected, actual, atol=1e-4, rtol=1e-4)
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self._assert_outputs_close(expected, actual, atol=2e-2, rtol=2e-2)
 
     def test_half_linear_3d_runs_on_vulkan(self):
         torch.manual_seed(0)

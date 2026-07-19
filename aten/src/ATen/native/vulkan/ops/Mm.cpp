@@ -3084,13 +3084,14 @@ Tensor run_bfloat16_buffer_linear(
   if (post_op == LinearPostOp::Gelu) {
     output = at::gelu(output, "none");
   }
+  output = utils::cast_vulkan_tensor_dtype(output, kBFloat16);
   if (output_opt &&
       output.unsafeGetTensorImpl() != output_tensor.unsafeGetTensorImpl()) {
     *output_opt = output;
     output = *output_opt;
   }
   return reshape_linear_output_if_needed(
-      output, input_arg, output_opt != nullptr);
+      output, input_arg, /*preserve_storage=*/true);
 }
 
 Tensor run_quantized_addmm_context(

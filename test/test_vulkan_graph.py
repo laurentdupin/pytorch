@@ -4085,6 +4085,29 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_bfloat16_linear_preserves_exported_output_dtype(self):
+        class Linear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(32, 33, bias=False).to(
+                    torch.bfloat16
+                )
+
+            def forward(self, tensor):
+                return self.linear(tensor)
+
+        torch.manual_seed(0)
+        model = Linear().eval()
+        tensor = torch.randn(2, 3, 32, dtype=torch.bfloat16)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        actual = program(tensor).cpu()
+        self.assertEqual(actual.dtype, torch.bfloat16)
+        self.assertEqual(actual, expected, atol=2e-2, rtol=2e-2)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
         class StateCasts(torch.nn.Module):
             def __init__(self):

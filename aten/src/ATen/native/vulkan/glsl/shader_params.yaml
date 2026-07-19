@@ -290,11 +290,6 @@ buffer_cast:
       INPUT_T: int
       OUTPUT_T: float
       CONVERT: float(X)
-    - NAME: buffer_cast_float_to_bfloat16
-      INPUT_T: float
-      OUTPUT_T: uint16_t
-      CONVERT: float_to_bfloat16(X)
-
 buffer_reduce_all:
   parameter_names_with_default_values:
     INIT: "0.0"

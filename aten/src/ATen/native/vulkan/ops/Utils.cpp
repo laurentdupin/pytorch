@@ -184,8 +184,11 @@ Tensor cast_vulkan_tensor_dtype_buffer_native(
   };
 
   api::PipelineBarrier pipeline_barrier{};
+  const int64_t dispatch_elements = dtype == kBFloat16
+      ? (v_out.buffer_length() + 1) / 2
+      : v_out.numel();
   const uvec3 global_size = {
-      safe_downcast<uint32_t>(v_out.numel()),
+      safe_downcast<uint32_t>(dispatch_elements),
       1u,
       1u,
   };
@@ -1123,11 +1126,25 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
           VK_KERNEL(buffer_cast_float_to_uint8),
           /*require_direct_input=*/false);
     case VulkanCastMethod::NativeBufferFloatToBFloat16:
-      if (!can_native_buffer_cast_input(v_input)) {
-        return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+      {
+        Tensor cast_input = input;
+        if (
+            v_input.storage_type() != api::StorageType::BUFFER ||
+            v_input.gpu_memory_layout() !=
+                api::GPUMemoryLayout::TENSOR_WIDTH_PACKED) {
+          cast_input = ensure_buffer_storage(
+              input, api::GPUMemoryLayout::TENSOR_WIDTH_PACKED);
+        }
+        if (!can_native_buffer_cast_input(
+                convert(cast_input), /*require_direct_buffer_layout=*/false)) {
+          return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
+        }
+        return cast_vulkan_tensor_dtype_buffer_native(
+            cast_input,
+            dtype,
+            VK_KERNEL(buffer_cast_float_to_bfloat16),
+            /*require_direct_input=*/false);
       }
-      return cast_vulkan_tensor_dtype_buffer_native(
-          input, dtype, VK_KERNEL(buffer_cast_float_to_bfloat16));
     case VulkanCastMethod::NativeBufferBFloat16ToFloat:
       if (!can_native_buffer_cast_input(v_input)) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
