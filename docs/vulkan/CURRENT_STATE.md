@@ -3257,6 +3257,36 @@ model gate and they do not imply model-specific production routes.
   error at the final hidden/logit projection, not another missing operator. The
   artifact is `agent_space/gemma_step13_export_probe.json`, SHA-256
   `003AFDAD415502CAAE7531A5AC2B55FFCB099FB96F92010609C1D1D13DBE9FAD`.
+
+  The next accumulation experiment replaces the scalar-order BF16 buffer-linear
+  dot product with eight independent FP32 partial sums and a fixed final
+  reduction. A deterministic 1x1536 regression pins that reduction topology.
+  Against the same one-token checkpoint, strict logit misses fall from
+  11,992/262,144 (4.6%) to 4,185/262,144 (1.6%), mean absolute error falls from
+  `0.1007` to `0.06023`, cosine similarity rises to `0.9999480`, and top-10
+  overlap improves from 9/10 to 10/10. Argmax remains equal. The strict
+  `rtol=atol=0.05` gate still fails, with maximum absolute error `0.3237`, so
+  this is an accepted generic numerical improvement rather than a Gemma parity
+  claim. A `NoContraction` multiply/add candidate changed neither graph nor
+  eager results and was rejected. Graph and eager linear agree exactly, and the
+  final normalization is exact when both surfaces receive the same hidden
+  state; the remaining error is accumulated in the hidden state before the
+  final learned norm/projection.
+
+  The same investigation found a pre-existing padded-storage defect for BF16
+  linear inputs with more than one row and an inner dimension not divisible by
+  four. Until a generic padded-row shader contract is implemented, eager and
+  packed/graph entry points reject this shape explicitly instead of returning
+  silently incorrect values. Single-row odd-K remains admitted. Four focused
+  BF16 linear tests and all 171 graph tests pass, and the Lotus DTensor preflight
+  remains valid. The final worktree artifact is
+  `agent_space/gemma_step13_eight_lane_final.json`, SHA-256
+  `515244278F8DF81CD4D6D6A8974ADA5E7E6960D7B289929D7E7F7C383CE5ACF5`,
+  based on source `8e9a5ab6bc3`; loaded `torch_cpu.dll` SHA-256 is
+  `05BCFA6CB701E10A50DE70651E3441BAC2FDF2237EE9677D3BF2498D07EB3CFB`.
+  It records a 3,956-instruction C++ plan, two host partitions and 20,992
+  transfer bytes, zero fallback/readback/deferred values, and 0.789 seconds for
+  one execution. This single timing sample is not performance evidence.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected

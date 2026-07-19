@@ -73,8 +73,40 @@ void main() {
   const uint out_idx = out_storage_offset + out_col * uOutMeta.strides.x +
       out_row * uOutMeta.strides.y;
 
-  float acc = 0.0;
-  for (uint k = 0u; k < inner_dim; ++k) {
+  float partial0 = 0.0;
+  float partial1 = 0.0;
+  float partial2 = 0.0;
+  float partial3 = 0.0;
+  float partial4 = 0.0;
+  float partial5 = 0.0;
+  float partial6 = 0.0;
+  float partial7 = 0.0;
+  uint k = 0u;
+  for (; k + 7u < inner_dim; k += 8u) {
+    const uint input_base = in_storage_offset + k * uInMeta.strides.x +
+        out_row * uInMeta.strides.y;
+    const uint weight_base = weight_storage_offset +
+        k * uWeightMeta.strides.x + out_col * uWeightMeta.strides.y;
+    partial0 += bfloat16_to_float(uInput.data[input_base]) *
+        bfloat16_to_float(uWeight.data[weight_base]);
+    partial1 += bfloat16_to_float(uInput.data[input_base + uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + uWeightMeta.strides.x]);
+    partial2 += bfloat16_to_float(uInput.data[input_base + 2u * uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + 2u * uWeightMeta.strides.x]);
+    partial3 += bfloat16_to_float(uInput.data[input_base + 3u * uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + 3u * uWeightMeta.strides.x]);
+    partial4 += bfloat16_to_float(uInput.data[input_base + 4u * uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + 4u * uWeightMeta.strides.x]);
+    partial5 += bfloat16_to_float(uInput.data[input_base + 5u * uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + 5u * uWeightMeta.strides.x]);
+    partial6 += bfloat16_to_float(uInput.data[input_base + 6u * uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + 6u * uWeightMeta.strides.x]);
+    partial7 += bfloat16_to_float(uInput.data[input_base + 7u * uInMeta.strides.x]) *
+        bfloat16_to_float(uWeight.data[weight_base + 7u * uWeightMeta.strides.x]);
+  }
+  float acc = partial0 + partial1 + partial2 + partial3 + partial4 + partial5 +
+      partial6 + partial7;
+  for (; k < inner_dim; ++k) {
     const uint input_idx = in_storage_offset + k * uInMeta.strides.x +
         out_row * uInMeta.strides.y;
     const uint weight_idx = weight_storage_offset + k * uWeightMeta.strides.x +

@@ -13622,6 +13622,46 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         self.assertEqual(actual.dtype, torch.bfloat16)
         self._assert_outputs_close(expected, actual, atol=2e-2, rtol=2e-2)
 
+    def test_bfloat16_linear_uses_eight_lane_float_accumulation(self):
+        torch.manual_seed(18)
+        inner_dim = 1536
+        out_features = 64
+        x = (torch.randn(1, inner_dim) * 0.6).to(torch.bfloat16)
+        weight = (
+            torch.randn(out_features, inner_dim) * 0.035
+        ).to(torch.bfloat16)
+
+        products = weight.float() * x.float()
+        partials = [torch.zeros(out_features) for _ in range(8)]
+        for column in range(inner_dim):
+            partials[column % len(partials)] += products[:, column]
+        expected = partials[0]
+        for partial in partials[1:]:
+            expected = expected + partial
+        expected = expected.to(torch.bfloat16).reshape(1, out_features)
+
+        with torch.inference_mode():
+            actual = F.linear(x.to("vulkan"), weight.to("vulkan")).cpu()
+
+        self.assertEqual(actual, expected, rtol=0, atol=0)
+
+    def test_bfloat16_linear_rejects_padded_multirow_input(self):
+        x = torch.randn(2, 33, dtype=torch.bfloat16, device="vulkan")
+        weight = torch.randn(32, 33, dtype=torch.bfloat16, device="vulkan")
+
+        with torch.inference_mode(), self.assertRaisesRegex(
+            RuntimeError,
+            "inner dimension must be divisible by 4",
+        ):
+            F.linear(x, weight)
+
+        context = torch.ops.vulkan_prepack.create_linear_context(weight, None)
+        with torch.inference_mode(), self.assertRaisesRegex(
+            RuntimeError,
+            "inner dimension must be divisible by 4",
+        ):
+            torch.ops.vulkan_prepack.run_linear_context(x, context)
+
     def test_half_linear_3d_runs_on_vulkan(self):
         torch.manual_seed(0)
         x = torch.randn(2, 3, 4, dtype=torch.float16)

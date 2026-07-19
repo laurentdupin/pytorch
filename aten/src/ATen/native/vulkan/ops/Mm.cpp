@@ -1349,6 +1349,23 @@ Tensor& ensure_linear_output_tensor(
   return output;
 }
 
+bool has_unsupported_bfloat16_padded_multirow_input(const Tensor& input) {
+  if (input.scalar_type() != kBFloat16 || input.dim() < 2) {
+    return false;
+  }
+
+  const int64_t inner_dim = input.size(-1);
+  return inner_dim > 0 && input.numel() > inner_dim && inner_dim % 4 != 0;
+}
+
+void check_bfloat16_padded_multirow_input(const Tensor& input) {
+  TORCH_CHECK(
+      !has_unsupported_bfloat16_padded_multirow_input(input),
+      "Vulkan BF16 linear does not support padded multi-row input width; "
+      "the inner dimension must be divisible by 4 when the row count is "
+      "greater than 1");
+}
+
 bool can_run_float_buffer_linear(
     const Tensor& input,
     const Tensor& weight,
@@ -3343,8 +3360,9 @@ Tensor run_addmm_context(
     bool quantized,
   double output_scale,
   int64_t output_zero_point,
-  const LinearPostOp post_op = LinearPostOp::None,
-  Tensor* output_opt = nullptr) {
+    const LinearPostOp post_op = LinearPostOp::None,
+    Tensor* output_opt = nullptr) {
+  check_bfloat16_padded_multirow_input(input_arg);
   log_linear_context_checkpoint(
       "entry", input_arg, post_op, quantized);
   const Tensor input_for_compute = input_arg;
@@ -3850,6 +3868,7 @@ Tensor addmm(
     const Tensor& weight,
     const Scalar& beta,
     const Scalar& alpha) {
+  check_bfloat16_padded_multirow_input(input);
   const bool beta_zero = beta.to<double>() == 0.0;
   const bool use_packed_bias =
       bias.dim() == 1 && beta.to<double>() == 1.0 && bias.requires_grad();
@@ -3926,6 +3945,7 @@ Tensor linear(
     const Tensor& input,
     const Tensor& weight,
     const std::optional<Tensor>& bias) {
+  check_bfloat16_padded_multirow_input(input);
   utils::log_vulkan_op_hit("aten::linear.direct");
   if (std::optional<Tensor> raw_direct_output =
           try_run_raw_direct_weight_linear(input, weight, bias)) {
