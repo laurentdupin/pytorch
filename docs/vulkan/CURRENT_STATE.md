@@ -3038,6 +3038,21 @@ change ABI. The current rebuilt runtime exports `_distributed_c10d` and the
 compiled DTensor schema API, and the Lotus DTensor preflight passes. Changing
 helper defaults alone still does not repair an already-built `torch/lib`.
 
+Exact source `f881f755694` makes CMake source-SHA discovery independent of the
+wheel-version `packaging` dependency and fails configuration on a failed or
+empty identity query instead of silently embedding stale state. The canonical
+Visual Studio configuration and one-worker `torch_python` build then completed
+with the repository CPython 3.12.5 interpreter. The deployed Release
+`torch_cpu.dll` and `torch_python.dll` match their build outputs at SHA-256
+`BA35E6E8EF9E42F9736E9DF87F5415386F5B002328D7DDA444D4E0DD49554C72` and
+`71494CA5C170BDF96CBACD9DED13910857F48AD8C38660EB968F9949072032F0`;
+the imported runtime reports full `torch.version.git_version`
+`f881f7556947fe17920b32c8caf320706082231c`, Vulkan enabled, both compiled
+distributed/DTensor APIs, and a passing Lotus DTensor preflight. This proves
+local exact-commit source-build identity. It does not prove the clean,
+co-built Torch/torchvision wheel, signed manifest, or offline-install release
+contract.
+
 ## Current Telemetry Checkpoint
 
 Task179 and Task181 artifacts are planner telemetry only; they do not raise a
