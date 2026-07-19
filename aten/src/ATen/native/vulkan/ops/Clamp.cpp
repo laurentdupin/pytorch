@@ -509,7 +509,7 @@ Tensor& activation_buffer_(
       shader_descriptor,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      {32u, 1u, 1u},
       VK_NULL_HANDLE,
       v_self.buffer(
           pipeline_barrier,
@@ -580,7 +580,7 @@ Tensor activation_scalar_buffer(
       shader_descriptor,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      {32u, 1u, 1u},
       VK_NULL_HANDLE,
       v_output.buffer(
           pipeline_barrier,
@@ -876,30 +876,43 @@ Tensor gelu(const Tensor& self, std::string_view approximate) {
   const Tensor gelu_input = self;
   // The Vulkan backend only has the tanh GELU kernel today, so route the
   // default eager GELU call through the same implementation for inference.
-  if (gelu_input.is_vulkan() && gelu_input.scalar_type() == at::kFloat) {
+  if (
+      gelu_input.is_vulkan() &&
+      (gelu_input.scalar_type() == at::kFloat ||
+       gelu_input.scalar_type() == at::kBFloat16)) {
     const vTensor& v_self = convert(gelu_input);
+    const bool is_bfloat16 = v_self.dtype() == api::kBFloat16;
+    const bool supported_dtype = !is_bfloat16 ||
+        api::context()->adapter_ptr()->has_storage_buffer_16bit();
     if (
+        supported_dtype &&
         v_self.storage_type() == api::StorageType::BUFFER &&
         utils::supports_buffer_elementwise_compute(v_self)) {
-      utils::log_vulkan_op_hit("aten::gelu.buffer_float");
+      utils::log_vulkan_op_hit(
+          is_bfloat16 ? "aten::gelu.buffer_bfloat16"
+                      : "aten::gelu.buffer_float");
       return ops::activation_buffer(
           gelu_input,
-          VK_KERNEL(buffer_gelu_tanh),
+          is_bfloat16 ? VK_KERNEL(buffer_gelu_tanh_bfloat16)
+                      : VK_KERNEL(buffer_gelu_tanh),
           "aten::gelu",
-          "buffer_float");
+          is_bfloat16 ? "buffer_bfloat16" : "buffer_float");
     }
 
     const auto plan = utils::build_vulkan_execution_plan(
         gelu_input, utils::VulkanExecutionPlanKind::ElementwiseInput);
-    if (api::uses_buffer_execution(plan.execution_layout)) {
+    if (supported_dtype && api::uses_buffer_execution(plan.execution_layout)) {
       Tensor prepared =
           utils::prepare_vulkan_direct_buffer_execution_tensor(gelu_input, plan);
-      utils::log_vulkan_op_hit("aten::gelu.buffer_float");
+      utils::log_vulkan_op_hit(
+          is_bfloat16 ? "aten::gelu.buffer_bfloat16"
+                      : "aten::gelu.buffer_float");
       return ops::activation_buffer(
           prepared,
-          VK_KERNEL(buffer_gelu_tanh),
+          is_bfloat16 ? VK_KERNEL(buffer_gelu_tanh_bfloat16)
+                      : VK_KERNEL(buffer_gelu_tanh),
           "aten::gelu",
-          "buffer_float");
+          is_bfloat16 ? "buffer_bfloat16" : "buffer_float");
     }
   }
 
@@ -1003,6 +1016,45 @@ Tensor& sigmoid_(Tensor& self) {
 }
 
 Tensor tanh(const Tensor& self) {
+  if (
+      self.is_vulkan() &&
+      (self.scalar_type() == at::kFloat ||
+       self.scalar_type() == at::kBFloat16)) {
+    const vTensor& v_self = convert(self);
+    const bool is_bfloat16 = v_self.dtype() == api::kBFloat16;
+    const bool supported_dtype = !is_bfloat16 ||
+        api::context()->adapter_ptr()->has_storage_buffer_16bit();
+    if (
+        supported_dtype &&
+        v_self.storage_type() == api::StorageType::BUFFER &&
+        utils::supports_buffer_elementwise_compute(v_self)) {
+      utils::log_vulkan_op_hit(
+          is_bfloat16 ? "aten::tanh.buffer_bfloat16"
+                      : "aten::tanh.buffer_float");
+      return ops::activation_buffer(
+          self,
+          is_bfloat16 ? VK_KERNEL(buffer_tanh_bfloat16)
+                      : VK_KERNEL(buffer_tanh),
+          "aten::tanh",
+          is_bfloat16 ? "buffer_bfloat16" : "buffer_float");
+    }
+
+    const auto plan = utils::build_vulkan_execution_plan(
+        self, utils::VulkanExecutionPlanKind::ElementwiseInput);
+    if (supported_dtype && api::uses_buffer_execution(plan.execution_layout)) {
+      Tensor prepared =
+          utils::prepare_vulkan_direct_buffer_execution_tensor(self, plan);
+      utils::log_vulkan_op_hit(
+          is_bfloat16 ? "aten::tanh.buffer_bfloat16"
+                      : "aten::tanh.buffer_float");
+      return ops::activation_buffer(
+          prepared,
+          is_bfloat16 ? VK_KERNEL(buffer_tanh_bfloat16)
+                      : VK_KERNEL(buffer_tanh),
+          "aten::tanh",
+          is_bfloat16 ? "buffer_bfloat16" : "buffer_float");
+    }
+  }
   return ops::activation(self, VK_KERNEL(tanh));
 }
 
@@ -1080,14 +1132,22 @@ Tensor& gelu_buffer_inplace_vulkan(
       approximate == "none" || approximate == "tanh",
       "Vulkan: gelu only supported for none or tanh type");
   TORCH_CHECK(
-      input.is_vulkan() && input.scalar_type() == at::kFloat,
-      "Vulkan gelu_buffer_inplace expects a float Vulkan tensor");
-  utils::log_vulkan_op_hit("aten::gelu.buffer_float");
+      input.is_vulkan(), "Vulkan gelu_buffer_inplace expects Vulkan input");
+  const bool is_bfloat16 = input.scalar_type() == at::kBFloat16;
+  TORCH_CHECK(
+      input.scalar_type() == at::kFloat ||
+          (is_bfloat16 &&
+           api::context()->adapter_ptr()->has_storage_buffer_16bit()),
+      "Vulkan gelu_buffer_inplace expects float or supported BFloat16 input");
+  utils::log_vulkan_op_hit(
+      is_bfloat16 ? "aten::gelu.buffer_bfloat16"
+                  : "aten::gelu.buffer_float");
   return activation_buffer_(
       input,
-      VK_KERNEL(buffer_gelu_tanh),
+      is_bfloat16 ? VK_KERNEL(buffer_gelu_tanh_bfloat16)
+                  : VK_KERNEL(buffer_gelu_tanh),
       "aten::gelu",
-      "buffer_float_inplace");
+      is_bfloat16 ? "buffer_bfloat16_inplace" : "buffer_float_inplace");
 }
 
 } // namespace ops

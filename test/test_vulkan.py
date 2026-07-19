@@ -8653,6 +8653,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
         bytes_2d = torch.randint(0, 256, (513, 257), dtype=torch.uint8)
         longs = torch.randint(-64, 64, (64, 64), dtype=torch.int64)
         bf16 = (torch.randn(513, 257) * 4.0).to(torch.bfloat16)
+        gemma_per_layer = torch.randn(
+            1, 1, 35, 256, dtype=torch.bfloat16
+        )
         large_floats = (torch.randn(2048, 1024) * 8.0).clamp(-16.0, 16.0)
         large_ints = torch.randint(-32, 32, (2048, 1024), dtype=torch.int32)
         packet_like = torch.randint(0, 256, (1, 3, 420, 280), dtype=torch.uint8)
@@ -8663,6 +8666,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             bytes_vulkan = bytes_2d.to("vulkan")
             longs_vulkan = longs.to("vulkan")
             bf16_vulkan = bf16.to("vulkan")
+            gemma_per_layer_vulkan = gemma_per_layer.to("vulkan")
             large_floats_vulkan = large_floats.to("vulkan")
             large_ints_vulkan = large_ints.to("vulkan")
             packet_like_vulkan = packet_like.to("vulkan")
@@ -8673,6 +8677,7 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
             longs_to_float = longs_vulkan.to(torch.float32)
             floats_to_bf16 = floats_vulkan.to(torch.bfloat16)
             bf16_to_float = bf16_vulkan.to(torch.float32)
+            gemma_per_layer_to_float = gemma_per_layer_vulkan.to(torch.float32)
             large_floats_to_int = large_floats_vulkan.to(torch.int32)
             large_ints_to_float = large_ints_vulkan.to(torch.float32)
             floats_view_to_int = floats_vulkan[1:, 1:].to(torch.int32)
@@ -8722,6 +8727,9 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
                 bf16_to_float.cpu(),
                 atol=1e-2,
                 rtol=1e-2)
+            self.assertEqual(
+                gemma_per_layer_to_float.cpu(), gemma_per_layer.float()
+            )
             self._assert_outputs_close(
                 large_floats.to(torch.int32),
                 large_floats_to_int.cpu())
@@ -14181,6 +14189,30 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self.assertTrue(torch.isfinite(actual).all().item())
         self._assert_outputs_close(expected, actual, atol=1e-5, rtol=1e-5)
+
+    def test_bfloat16_buffer_gelu_matches_cpu(self):
+        torch.manual_seed(0)
+        tensor = (torch.randn(1, 1, 6144) * 3.0).to(torch.bfloat16)
+
+        with torch.inference_mode():
+            expected = F.gelu(tensor, approximate="tanh")
+            actual = F.gelu(
+                tensor.to("vulkan"), approximate="tanh"
+            ).cpu()
+
+        self.assertTrue(torch.isfinite(actual).all().item())
+        self.assertEqual(actual, expected, rtol=5e-2, atol=5e-2)
+
+    def test_bfloat16_buffer_tanh_matches_cpu(self):
+        torch.manual_seed(0)
+        tensor = (torch.randn(1, 1, 262144) * 4.0).to(torch.bfloat16)
+
+        with torch.inference_mode():
+            expected = torch.tanh(tensor)
+            actual = torch.tanh(tensor.to("vulkan")).cpu()
+
+        self.assertTrue(torch.isfinite(actual).all().item())
+        self.assertEqual(actual, expected, rtol=5e-2, atol=5e-2)
 
     def test_float_buffer_binary_scalar_avoids_texture_staging(self):
         materialize_log_name = "float_buffer_binary_scalar_materialize_test.log"

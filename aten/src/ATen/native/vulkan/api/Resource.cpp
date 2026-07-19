@@ -1599,7 +1599,8 @@ VulkanBuffer MemoryAllocator::create_storage_buffer(
     const VkDeviceSize size,
     const bool gpu_only,
     const BufferHostAccess host_access) {
-  const VkBufferUsageFlags buffer_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  const VkBufferUsageFlags buffer_usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
   VmaAllocationCreateInfo alloc_create_info = {};
   alloc_create_info.flags = DEFAULT_ALLOCATION_STRATEGY;

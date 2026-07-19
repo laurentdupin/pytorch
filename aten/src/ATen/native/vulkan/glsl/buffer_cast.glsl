@@ -6,9 +6,13 @@
 #define INPUT_T ${INPUT_T}
 #define OUTPUT_T ${OUTPUT_T}
 #define CONVERT(X) ${CONVERT}
+#define USE_16BIT_STORAGE ${USE_16BIT_STORAGE}
 // clang-format on
 
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#if USE_16BIT_STORAGE
+#extension GL_EXT_shader_16bit_storage : require
+#endif
 
 #include "indexing.h"
 

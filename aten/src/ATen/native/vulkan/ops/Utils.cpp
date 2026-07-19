@@ -201,7 +201,7 @@ Tensor cast_vulkan_tensor_dtype_buffer_native(
       shader_descriptor,
       pipeline_barrier,
       global_size,
-      adaptive_work_group_size(global_size),
+      {32u, 1u, 1u},
       VK_NULL_HANDLE,
       v_out.buffer(
           pipeline_barrier,
@@ -1010,58 +1010,6 @@ Tensor& copy_buffer_tensor_direct_(Tensor& dst, const Tensor& src) {
   return dst;
 }
 
-Tensor upcast_bfloat16_buffer_to_float(const Tensor& input) {
-  TORCH_CHECK(input.is_vulkan(), "Input must be a Vulkan tensor");
-  vTensor v_input = convert(input);
-  TORCH_CHECK(
-      v_input.storage_type() == api::StorageType::BUFFER,
-      "BF16 buffer upcast requires a buffer-backed Vulkan tensor");
-  TORCH_CHECK(
-      v_input.dtype() == api::kBFloat16,
-      "BF16 buffer upcast requires a BFloat16 Vulkan tensor");
-  TORCH_CHECK(
-      v_input.sizes().size() <= 4,
-      "BF16 buffer upcast currently only supports tensors with up to 4 dimensions");
-
-  api::AllocationScope allocation_scope("bf16.buffer_to_float");
-  api::Context* const context = api::context();
-  vTensor v_out{
-      context,
-      v_input.sizes(),
-      api::kFloat,
-      api::StorageType::BUFFER,
-      v_input.gpu_memory_layout(),
-  };
-
-  api::PipelineBarrier pipeline_barrier{};
-  api::utils::uvec3 global_size = {
-      api::utils::safe_downcast<uint32_t>(v_out.numel()),
-      1u,
-      1u,
-  };
-  api::utils::uvec3 local_size = {32u, 1u, 1u};
-
-  context->submit_compute_job(
-      VK_KERNEL(buffer_to_buffer_bfloat16_to_float),
-      pipeline_barrier,
-      global_size,
-      local_size,
-      VK_NULL_HANDLE,
-      v_out.buffer(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::WRITE),
-      make_buffer_compute_metadata_ubo(context, v_out).buffer(),
-      v_input.buffer(
-          pipeline_barrier,
-          api::PipelineStage::COMPUTE,
-          api::MemoryAccessType::READ),
-      make_buffer_compute_metadata_ubo(context, v_input).buffer());
-
-  return record_tensor_write_and_return(
-      convert(v_out), "aten::to", "bf16_buffer_to_float", {input});
-}
-
 Tensor mark_tensor_execution(
     const Tensor& input,
     const api::ExecutionLayout execution_layout,
@@ -1146,11 +1094,14 @@ Tensor cast_vulkan_tensor_dtype(const Tensor& input_arg, ScalarType dtype) {
             /*require_direct_input=*/false);
       }
     case VulkanCastMethod::NativeBufferBFloat16ToFloat:
-      if (!can_native_buffer_cast_input(v_input)) {
+      if (
+          !can_native_buffer_cast_input(v_input) ||
+          !api::context()->adapter_ptr()->has_storage_buffer_16bit()) {
         return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
       }
       log_vulkan_op_hit("aten::cast.bfloat16_to_float_buffer_native");
-      return upcast_bfloat16_buffer_to_float(input);
+      return cast_vulkan_tensor_dtype_buffer_native(
+          input, dtype, VK_KERNEL(buffer_cast_bfloat16_to_float));
     case VulkanCastMethod::CpuFallback:
       return cast_vulkan_tensor_dtype_cpu_fallback(input, dtype);
     case VulkanCastMethod::Unsupported:

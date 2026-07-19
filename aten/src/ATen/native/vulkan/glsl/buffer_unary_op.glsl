@@ -4,14 +4,23 @@
 #define FORMAT ${FORMAT}
 
 #define OP(X) ${OPERATOR}
+#define STORAGE_T ${STORAGE_T}
+#define LOAD(X) ${LOAD}
+#define STORE(X) ${STORE}
+#define USE_16BIT_STORAGE ${USE_16BIT_STORAGE}
 // clang-format on
+
+#if USE_16BIT_STORAGE
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_16bit_storage : require
+#endif
 
 #include "indexing.h"
 
 layout(std430) buffer;
 
 layout(set = 0, binding = 0) buffer PRECISION restrict writeonly OutBuffer {
-  float data[];
+  STORAGE_T data[];
 }
 uOutput;
 
@@ -24,7 +33,7 @@ layout(set = 0, binding = 1) uniform PRECISION restrict OutMeta {
 uOutMeta;
 
 layout(set = 0, binding = 2) buffer PRECISION restrict readonly InBuffer {
-  float data[];
+  STORAGE_T data[];
 }
 uInput;
 
@@ -37,6 +46,18 @@ layout(set = 0, binding = 3) uniform PRECISION restrict InMeta {
 uInMeta;
 
 layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+#if USE_16BIT_STORAGE
+float load_bfloat16(uint16_t raw) {
+  return uintBitsToFloat(uint(raw) << 16);
+}
+
+uint16_t store_bfloat16(float value) {
+  const uint bits = floatBitsToUint(value);
+  const uint lsb = (bits >> 16) & 1u;
+  return uint16_t((bits + 0x7FFFu + lsb) >> 16);
+}
+#endif
 
 void zero_width_pack_padding(
     const uvec4 write_coord,
@@ -54,7 +75,7 @@ void zero_width_pack_padding(
     const uint pad_idx =
         coord_to_idx(pad_coord, uOutMeta.physical_strides) + out_storage_offset;
     if (pad_idx < out_buf_length) {
-      uOutput.data[pad_idx] = 0.0;
+      uOutput.data[pad_idx] = STORAGE_T(0);
     }
   }
 }
@@ -80,14 +101,14 @@ void main() {
     const uint read_idx =
         coord_to_idx(write_coord, uInMeta.physical_strides) + in_storage_offset;
     if (read_idx < in_buf_length) {
-      outval = OP(uInput.data[read_idx]);
+      outval = OP(LOAD(uInput.data[read_idx]));
     }
   }
 
   const uint actual_write_idx =
       coord_to_idx(write_coord, uOutMeta.physical_strides) + out_storage_offset;
   if (actual_write_idx < out_buf_length) {
-    uOutput.data[actual_write_idx] = outval;
+    uOutput.data[actual_write_idx] = STORE(outval);
   }
 
   zero_width_pack_padding(write_coord, out_buf_length, out_storage_offset);

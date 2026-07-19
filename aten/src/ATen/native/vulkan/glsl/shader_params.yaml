@@ -238,6 +238,10 @@ unary_op:
 buffer_unary_op:
   parameter_names_with_default_values:
     OPERATOR: exp(X)
+    STORAGE_T: float
+    LOAD: X
+    STORE: X
+    USE_16BIT_STORAGE: 0
   shader_variants:
     - NAME: buffer_exp
       OPERATOR: exp(X)
@@ -257,8 +261,22 @@ buffer_unary_op:
       OPERATOR: 1.0 / (1.0 + exp(-(X)))
     - NAME: buffer_silu
       OPERATOR: X / (1.0 + exp(-(X)))
+    - NAME: buffer_tanh
+      OPERATOR: tanh(clamp(X, -15.0, 15.0))
+    - NAME: buffer_tanh_bfloat16
+      OPERATOR: tanh(clamp(X, -15.0, 15.0))
+      STORAGE_T: uint16_t
+      LOAD: load_bfloat16(X)
+      STORE: store_bfloat16(X)
+      USE_16BIT_STORAGE: 1
     - NAME: buffer_gelu_tanh
       OPERATOR: 0.5 * X * (1.0 + tanh(clamp(0.7978845608028654 * (X + 0.044715 * X * X * X), -15.0, 15.0)))
+    - NAME: buffer_gelu_tanh_bfloat16
+      OPERATOR: 0.5 * X * (1.0 + tanh(clamp(0.7978845608028654 * (X + 0.044715 * X * X * X), -15.0, 15.0)))
+      STORAGE_T: uint16_t
+      LOAD: load_bfloat16(X)
+      STORE: store_bfloat16(X)
+      USE_16BIT_STORAGE: 1
 
 buffer_activation_scalar:
   parameter_names_with_default_values:
@@ -281,6 +299,7 @@ buffer_cast:
     INPUT_T: float
     OUTPUT_T: int
     CONVERT: int(X)
+    USE_16BIT_STORAGE: 0
   shader_variants:
     - NAME: buffer_cast_float_to_int
       INPUT_T: float
@@ -290,6 +309,11 @@ buffer_cast:
       INPUT_T: int
       OUTPUT_T: float
       CONVERT: float(X)
+    - NAME: buffer_cast_bfloat16_to_float
+      INPUT_T: uint16_t
+      OUTPUT_T: uint
+      CONVERT: (uint(X) << 16)
+      USE_16BIT_STORAGE: 1
 buffer_reduce_all:
   parameter_names_with_default_values:
     INIT: "0.0"

@@ -459,6 +459,47 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
+    def test_static_bfloat16_linear_gelu_region_matches_cpu(self):
+        class LinearGelu(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(1536, 6144, bias=False)
+
+            def forward(self, tensor):
+                return torch.nn.functional.gelu(
+                    self.linear(tensor), approximate="tanh"
+                )
+
+        torch.manual_seed(11)
+        model = LinearGelu().eval().to(torch.bfloat16)
+        tensor = torch.randn(1, 1, 1536, dtype=torch.bfloat16)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        actual = program(tensor).cpu()
+
+        self.assertEqual(actual, expected, rtol=5e-2, atol=5e-2)
+        self.assertEqual(program.static_linear_gelu_regions.lowered_count, 1)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
+    def test_bfloat16_tanh_matches_cpu(self):
+        class Tanh(torch.nn.Module):
+            def forward(self, tensor):
+                return torch.tanh(tensor)
+
+        torch.manual_seed(12)
+        model = Tanh().eval()
+        tensor = (torch.randn(1, 1, 8192) * 20.0).to(torch.bfloat16)
+        expected = model(tensor)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        actual = program(tensor).cpu()
+
+        self.assertEqual(actual, expected, rtol=5e-2, atol=5e-2)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_static_linear_tanh_gelu_region_reuses_dynamic_shapes(self):
         class LinearGelu(torch.nn.Module):
             def __init__(self):
@@ -1066,6 +1107,7 @@ class TestVulkanGraph(TestCase):
 
         model = RepeatedLinear().eval().to(torch.bfloat16)
         tensor = torch.randn(1, 1024, dtype=torch.bfloat16)
+        expected = model(tensor)
         program = torch.vulkan.export_and_lower(model, tensor)
 
         self.assertEqual(program.execution_mode, "cpp_plan")
@@ -1077,6 +1119,7 @@ class TestVulkanGraph(TestCase):
         submit_origins = list(torch.ops.vulkan_prepack.submit_origin_counters())
         self.assertEqual(output.shape, (1, 1024))
         self.assertEqual(output.dtype, torch.bfloat16)
+        self.assertEqual(output.cpu(), expected, rtol=2e-2, atol=2e-2)
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
