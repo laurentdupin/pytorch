@@ -4108,6 +4108,25 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_bfloat16_tensor_arithmetic_stays_on_graph(self):
+        class Arithmetic(torch.nn.Module):
+            def forward(self, left, right):
+                return left + right, left * right
+
+        torch.manual_seed(0)
+        left = (torch.randn(2, 3, 32) * 4.0).to(torch.bfloat16)
+        right = (torch.randn(2, 3, 32) * 2.0).to(torch.bfloat16)
+        expected = Arithmetic()(left, right)
+        program = torch.vulkan.export_and_lower(
+            Arithmetic().eval(), (left, right)
+        )
+
+        actual = tuple(value.cpu() for value in program(left, right))
+        self.assertEqual(actual, expected)
+        self.assertTrue(all(value.dtype == torch.bfloat16 for value in actual))
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+
     def test_bounded_state_dtype_casts_become_graph_owned_constants(self):
         class StateCasts(torch.nn.Module):
             def __init__(self):

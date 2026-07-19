@@ -1601,6 +1601,24 @@ static Tensor binary_op_tensor(
         self_input, other_input, alpha_arg, op_kind);
   }
 
+  if (
+      (op_kind == BinaryOpKind::Add || op_kind == BinaryOpKind::Mul) &&
+      self_input.scalar_type() == kBFloat16 &&
+      other_input.scalar_type() == kBFloat16 && !self_input.requires_grad() &&
+      !other_input.requires_grad()) {
+    Tensor widened = binary_op_tensor(
+        utils::cast_vulkan_tensor_dtype(self_input, kFloat),
+        utils::cast_vulkan_tensor_dtype(other_input, kFloat),
+        alpha_arg,
+        shader_descriptor,
+        buffer_shader_descriptor,
+        op_kind);
+    utils::log_vulkan_op_hit(
+        op_kind == BinaryOpKind::Add ? "aten::add.bfloat16_widen_compute"
+                                    : "aten::mul.bfloat16_widen_compute");
+    return utils::cast_vulkan_tensor_dtype(widened, kBFloat16);
+  }
+
   if (op_kind == BinaryOpKind::Mul) {
     if (
         self_input.is_vulkan() && self_input.scalar_type() == kBFloat16 &&

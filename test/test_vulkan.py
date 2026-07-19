@@ -13114,6 +13114,23 @@ class TestVulkanEagerRuntime(VulkanDiagnosticLogMixin, TestCase):
 
         self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
 
+    def test_bfloat16_tensor_add_and_multiply_preserve_dtype(self):
+        torch.manual_seed(0)
+        left = (torch.randn(2, 3, 5, 7) * 4.0).to(torch.bfloat16)
+        right = (torch.randn(7) * 2.0).to(torch.bfloat16)
+        torch.ops.vulkan_prepack.reset_fallback_counters()
+
+        left_vulkan = left.to("vulkan")
+        right_vulkan = right.to("vulkan")
+        actual_add = (left_vulkan + right_vulkan).cpu()
+        actual_mul = (left_vulkan * right_vulkan).cpu()
+
+        self.assertEqual(actual_add.dtype, torch.bfloat16)
+        self.assertEqual(actual_mul.dtype, torch.bfloat16)
+        self.assertEqual(actual_add, left + right)
+        self.assertEqual(actual_mul, left * right)
+        self.assertEqual(torch.ops.vulkan_prepack.cpu_fallback_count(), 0)
+
     def test_mixed_float_bfloat16_binary_tensor_promotes_to_float(self):
         torch.manual_seed(0)
         x = torch.randn(1, 17, 384, dtype=torch.float32)
