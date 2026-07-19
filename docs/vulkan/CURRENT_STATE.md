@@ -3168,6 +3168,27 @@ model gate and they do not imply model-specific production routes.
   `4C811F9CD57273D389C09C5C5F3593304A766A3474ABF6E6620DF0D6D4EBED76`.
   It records RX 9070 Vulkan `1.4.349` and loaded `torch_cpu.dll` SHA-256
   `B577B90D5078F6F9068329883F4822542474DD40CF5D09573D6CE68B2E5F5662`.
+  Exact source `f8f8d8272cd` adds same-dtype BF16 tensor add/multiply by
+  widening compute to FP32 and rounding the result back to BF16. Eager
+  broadcast and graph same-shape proofs preserve exact BF16 results with zero
+  fallback/readback. Exact source `01ca1374239` then closes the next rotary and
+  mask setup gaps generically: repeated equivalent int64-to-bool input
+  conversions normalize once at the input boundary; bounded immutable
+  `sub`/`gt`/`to.dtype_layout` mask expressions become graph-owned constants;
+  and width-packed BF16 views preserve scalar multiply, negation, and two-input
+  last-dimension concatenation without a host boundary. The full 164-test graph
+  suite, 69 governance tests, focused eager view/cat proof, and Lotus DTensor
+  preflight pass. The real checkpoint plan is now 3,956 instructions with
+  3,428 invocation value slots and the same two explicit host-resident
+  embedding partitions/20,992-byte transfer boundary. Execution advances to
+  `expand_4`: a BF16 `[1,1,1,1,256]` rotary tensor expanded to
+  `[1,1,8,1,256]` before reshape. This is now the current generic
+  broadcast-view/materialization blocker; the run still fails loud with one
+  CPU fallback, zero sync readback, and zero deferred values. The updated exact
+  artifact is `agent_space/gemma_step13_export_probe.json`, SHA-256
+  `30D70896462D90304C2E47547D6FDBB3C85682E68CDA4589AD23D461DEBFB3E5`;
+  loaded `torch_cpu.dll` SHA-256 is
+  `8BCF6F6801029D3B3D118A53548B37E43CD638C7B76A81E524A5911CD490E3AC`.
 - Lotus: the loaded Visual Studio runtime exports both `_distributed_c10d` and
   `_DTensor_OpSchema_post_init`, and the model-suite DTensor preflight passes.
   Exact-SHA `207730deaa2` removes the stale 640-sequence ceiling that rejected
