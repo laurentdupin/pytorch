@@ -1288,6 +1288,115 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.resource_write_count(), 6)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
+    def test_cpp_graph_plan_owns_buffer_layernorm_output(self):
+        class LayernormSin(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(384)
+                self.linear = torch.nn.Linear(384, 384)
+
+            def forward(self, tensor):
+                return torch.sin(self.linear(self.norm(tensor)))
+
+        torch.manual_seed(39)
+        model = LayernormSin().eval()
+        tensor = torch.randn(1, 5, 384)
+        program = torch.vulkan.export_and_lower(
+            model,
+            tensor,
+            planning_context=torch.vulkan.VulkanGraphPlanningContext(
+                model_domain="vision",
+                execution_phase="backbone",
+                prefer_packed_layout_propagation=True,
+                fixed_shape_graph_input_sizes=tuple(tensor.shape),
+            ),
+        )
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.resource_writer_instruction_count, 2)
+        self.assertEqual(report.resource_value_count, 2)
+        self.assertEqual(report.resource_slot_count, 2)
+        with torch.inference_mode():
+            outputs = [program(tensor) for _ in range(3)]
+            actual = [output.cpu() for output in outputs]
+
+        for output in actual:
+            torch.testing.assert_close(output, model(tensor), rtol=1e-4, atol=1e-4)
+        self.assertEqual(program.cpp_plan.resource_write_count(), 6)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_cpp_graph_plan_keeps_layernorm_crossing_recorded_domain_unowned(self):
+        class LayernormSin(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(64)
+
+            def forward(self, tensor):
+                return torch.sin(self.norm(tensor))
+
+        model = LayernormSin().eval()
+        tensor = torch.randn(1, 8, 64)
+        program = torch.vulkan.export_and_lower(model, tensor)
+
+        self.assertEqual(
+            program.cpp_plan_report.resource_writer_instruction_count,
+            0,
+        )
+        with torch.inference_mode():
+            actual = program(tensor).cpu()
+        torch.testing.assert_close(actual, model(tensor), rtol=1e-4, atol=1e-4)
+
+    def test_cpp_graph_plan_records_large_stable_resource_partition(self):
+        class LayernormViewChain(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norms = torch.nn.ModuleList(
+                    [torch.nn.LayerNorm(64) for _ in range(36)]
+                )
+
+            def forward(self, tensor):
+                for norm in self.norms:
+                    tensor = norm(tensor)
+                    tensor = tensor.transpose(1, 2).transpose(1, 2)
+                return torch.sin(tensor)
+
+        torch.manual_seed(40)
+        model = LayernormViewChain().eval()
+        tensor = torch.randn(1, 8, 64)
+        program = torch.vulkan.export_and_lower(
+            model,
+            tensor,
+            planning_context=torch.vulkan.VulkanGraphPlanningContext(
+                model_domain="vision",
+                execution_phase="backbone",
+                prefer_packed_layout_propagation=True,
+                fixed_shape_graph_input_sizes=tuple(tensor.shape),
+            ),
+        )
+        report = program.cpp_plan_report
+
+        self.assertEqual(report.recorded_partition_count, 1)
+        self.assertGreaterEqual(report.recorded_partition_instruction_count, 64)
+        self.assertEqual(program.cpp_plan.recorded_partition_count(), 1)
+        self.assertEqual(
+            program.cpp_plan.recorded_partition_instruction_count(),
+            report.recorded_partition_instruction_count,
+        )
+
+        expected = model(tensor)
+        with torch.inference_mode():
+            actual = [program(tensor).cpu() for _ in range(3)]
+        for output in actual:
+            torch.testing.assert_close(output, expected, rtol=1e-4, atol=1e-4)
+        self.assertEqual(program.cpp_plan.recorded_partition_prime_count(), 1)
+        self.assertEqual(program.cpp_plan.recorded_partition_capture_count(), 1)
+        self.assertEqual(program.cpp_plan.recorded_partition_replay_count(), 1)
+        self.assertEqual(program.cpp_plan.recorded_partition_failure_count(), 0)
+        self.assertGreater(
+            program.cpp_plan.recorded_partition_represented_dispatch_count(),
+            0,
+        )
+
     def test_cpp_graph_plan_tracks_gelu_region_output_storage(self):
         class LinearGeluSin(torch.nn.Module):
             def __init__(self, approximate):

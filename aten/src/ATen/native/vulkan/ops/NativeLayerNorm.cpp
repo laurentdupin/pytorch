@@ -262,7 +262,8 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_buffer_width(
     IntArrayRef normalized_shape,
     const std::optional<Tensor>& weight_opt /* optional */,
     const std::optional<Tensor>& bias_opt /* optional */,
-    double eps) {
+    double eps,
+    Tensor* const output_target = nullptr) {
   const auto input_request = utils::make_vulkan_tensor_norm_request(
       input_arg, utils::VulkanTensorRole::Input);
   const auto runtime_policy = utils::build_vulkan_runtime_policy(input_request);
@@ -284,13 +285,22 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_buffer_width(
   std::vector<int64_t> stats_sizes = input_arg.sizes().vec();
   stats_sizes.back() = 1;
 
-  vTensor v_output{
-      context,
-      v_input.sizes(),
-      v_input.dtype(),
-      api::StorageType::BUFFER,
-      api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
-  };
+  Tensor output_tensor = output_target
+      ? *output_target
+      : convert(vTensor{
+            context,
+            v_input.sizes(),
+            v_input.dtype(),
+            api::StorageType::BUFFER,
+            api::GPUMemoryLayout::TENSOR_WIDTH_PACKED,
+        });
+  TORCH_CHECK(
+      output_tensor.is_vulkan() &&
+          output_tensor.sizes().equals(input_arg.sizes()) &&
+          output_tensor.scalar_type() == input_arg.scalar_type() &&
+          convert(output_tensor).storage_type() == api::StorageType::BUFFER,
+      "Vulkan native layernorm buffer out requires a matching buffer target");
+  vTensor& v_output = convert(output_tensor);
   vTensor v_mean{
       context,
       stats_sizes,
@@ -384,7 +394,7 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_buffer_width(
   }
 
   Tensor output = utils::mark_tensor_execution(
-      convert(v_output), api::ExecutionLayout::BUFFER_DIRECT);
+      output_tensor, api::ExecutionLayout::BUFFER_DIRECT);
   Tensor mean = utils::mark_tensor_execution(
       convert(v_mean), api::ExecutionLayout::BUFFER_DIRECT);
   Tensor std_inv = utils::mark_tensor_execution(
@@ -483,6 +493,20 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_fallback(
 }
 
 } // namespace
+
+std::optional<Tensor> try_run_native_layer_norm_buffer_width_out(
+    const at::Tensor& input,
+    IntArrayRef normalized_shape,
+    const std::optional<Tensor>& weight,
+    const std::optional<Tensor>& bias,
+    double eps,
+    Tensor& output) {
+  if (!can_run_buffer_layer_norm_width(input, normalized_shape, weight, bias)) {
+    return std::nullopt;
+  }
+  return std::get<0>(native_layer_norm_buffer_width(
+      input, normalized_shape, weight, bias, eps, &output));
+}
 
 void check_layer_norm_inputs(
     const at::Tensor& input,

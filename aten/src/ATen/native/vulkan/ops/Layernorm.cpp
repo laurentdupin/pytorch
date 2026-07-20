@@ -559,6 +559,18 @@ Tensor run_layernorm_context_out(
   const bool prefer_buffer_path =
       prefer_buffer_layer_norm(input, normalized_shape);
 
+  if (prefer_buffer_path) {
+    if (auto result = try_run_native_layer_norm_buffer_width_out(
+            input,
+            normalized_shape,
+            weight_opt,
+            bias_opt,
+            eps,
+            output)) {
+      return *result;
+    }
+  }
+
   if (
       !prefer_buffer_path &&
       supports_fused_layer_norm_last_dim(

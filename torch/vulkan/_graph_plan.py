@@ -93,6 +93,8 @@ class VulkanGraphPlanReport:
     resource_value_count: int
     resource_writer_instruction_count: int
     resource_arena_flight_depth: int
+    recorded_partition_count: int
+    recorded_partition_instruction_count: int
     resource_alias_extended_lifetime_count: int
     resource_alias_escape_rejection_count: int
     value_count: int
@@ -122,6 +124,7 @@ _GRAPH_LIST_GETITEM_OPERATOR_NAME = "vulkan_graph::list_getitem"
 _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
     (
         "vulkan_prepack::run_linear_context",
+        "vulkan_prepack::run_layernorm_context",
         "vulkan_prepack::run_graph_add_layernorm_plan",
         "vulkan_prepack::run_graph_scaled_add",
         "vulkan_prepack::run_graph_scaled_add_layernorm_plan",
@@ -131,6 +134,16 @@ _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
 )
 _RESOURCE_ARENA_FLIGHT_DEPTH = 2
 _MAX_INSTRUCTION_SCRATCH_RESOURCE_COUNT = 3
+_RECORDED_PARTITION_MIN_INSTRUCTION_COUNT = 64
+_RECORDED_PARTITION_MIN_WRITER_COUNT = 32
+_RECORDED_HOST_RECIPE_OPERATOR_NAMES = frozenset(
+    (
+        "aten::permute",
+        "aten::reshape",
+        "aten::select",
+        "aten::transpose",
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -185,6 +198,8 @@ def _rejected(
             resource_value_count=0,
             resource_writer_instruction_count=0,
             resource_arena_flight_depth=0,
+            recorded_partition_count=0,
+            recorded_partition_instruction_count=0,
             resource_alias_extended_lifetime_count=0,
             resource_alias_escape_rejection_count=0,
             value_count=0,
@@ -846,6 +861,20 @@ def compile_vulkan_graph_plan(
         ):
             continue
         if (
+            operator_name == "vulkan_prepack::run_layernorm_context"
+            and any(
+                user.op != "call_function"
+                or not hasattr(user.target, "_schema")
+                or user.target._schema.name
+                not in (
+                    _RESOURCE_WRITER_OPERATOR_NAMES
+                    | _RECORDED_HOST_RECIPE_OPERATOR_NAMES
+                )
+                for user in node.users
+            )
+        ):
+            continue
+        if (
             operator_name == "vulkan_prepack::run_vulkan_graph_region_plan"
             and node.meta.get("vulkan_graph_region_family")
             not in ("linear_gelu_tanh", "linear_gelu_none")
@@ -914,6 +943,67 @@ def compile_vulkan_graph_plan(
     ]
     resource_value_count = sum(slot_id >= 0 for slot_id in value_resource_slot_ids)
 
+    value_id_types: list[Any | None] = [None] * value_count
+    for node, value_id in value_ids.items():
+        value_id_types[value_id] = value_types[node]
+    for node, output_ids in multi_value_ids.items():
+        for value_id, value_type in zip(output_ids, multi_value_types[node]):
+            value_id_types[value_id] = value_type
+
+    stable_tensor_values = [slot_id >= 0 for slot_id in value_resource_slot_ids]
+    recorded_partition_ranges: list[int] = []
+    run_start = -1
+    run_writer_count = 0
+
+    def finish_recorded_partition(end: int) -> None:
+        nonlocal run_start, run_writer_count
+        if (
+            run_start >= 0
+            and end - run_start >= _RECORDED_PARTITION_MIN_INSTRUCTION_COUNT
+            and run_writer_count >= _RECORDED_PARTITION_MIN_WRITER_COUNT
+        ):
+            recorded_partition_ranges.extend((run_start, end))
+        run_start = -1
+        run_writer_count = 0
+
+    for instruction_index, (operator_name, refs, output_ids) in enumerate(
+        zip(operator_names, argument_refs, instruction_output_value_ids)
+    ):
+        tensor_refs = [
+            ref
+            for encoded_refs in refs
+            for ref in encoded_refs
+            if ref >= 0
+            and value_id_types[ref] is not None
+            and value_id_types[ref].isSubtypeOf(torch._C.TensorType.get())
+        ]
+        inputs_stable = all(stable_tensor_values[ref] for ref in tensor_refs)
+        resource_writer = operator_name in _RESOURCE_WRITER_OPERATOR_NAMES and all(
+            value_resource_slot_ids[value_id] >= 0 for value_id in output_ids
+        )
+        host_recipe = operator_name in _RECORDED_HOST_RECIPE_OPERATOR_NAMES
+        recordable = inputs_stable and (resource_writer or host_recipe)
+        if not recordable:
+            finish_recorded_partition(instruction_index)
+            continue
+        if run_start < 0:
+            run_start = instruction_index
+        if resource_writer:
+            run_writer_count += 1
+        elif host_recipe:
+            for value_id in output_ids:
+                if value_id_types[value_id] is not None and value_id_types[
+                    value_id
+                ].isSubtypeOf(torch._C.TensorType.get()):
+                    stable_tensor_values[value_id] = True
+    finish_recorded_partition(len(instruction_nodes))
+    recorded_partition_instruction_count = sum(
+        end - start
+        for start, end in zip(
+            recorded_partition_ranges[0::2], recorded_partition_ranges[1::2]
+        )
+    )
+
     plan = torch.ops.vulkan_prepack.create_vulkan_graph_plan.default(
         node_names,
         operator_names,
@@ -936,6 +1026,7 @@ def compile_vulkan_graph_plan(
         resource_slot_memory_layouts,
         resource_slot_execution_layouts,
         instruction_scratch_resource_slot_ids,
+        recorded_partition_ranges,
     )
     report = VulkanGraphPlanReport(
         status="compiled",
@@ -981,6 +1072,8 @@ def compile_vulkan_graph_plan(
         resource_arena_flight_depth=(
             _RESOURCE_ARENA_FLIGHT_DEPTH if resource_descriptors else 0
         ),
+        recorded_partition_count=len(recorded_partition_ranges) // 2,
+        recorded_partition_instruction_count=recorded_partition_instruction_count,
         resource_alias_extended_lifetime_count=(
             resource_alias_extended_lifetime_count
         ),

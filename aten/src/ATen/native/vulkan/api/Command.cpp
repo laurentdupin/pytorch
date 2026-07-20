@@ -69,10 +69,12 @@ VkAccessFlags2 to_access2(const VkAccessFlags access) {
 CommandBuffer::CommandBuffer(
     VkCommandBuffer handle,
     const VkCommandBufferUsageFlags flags,
-    PFN_vkCmdPipelineBarrier2 cmd_pipeline_barrier2)
+    PFN_vkCmdPipelineBarrier2 cmd_pipeline_barrier2,
+    const VkCommandBufferLevel level)
     : handle_(handle),
       flags_(flags),
       cmd_pipeline_barrier2_(cmd_pipeline_barrier2),
+      level_(level),
       state_(CommandBuffer::State::NEW),
       bound_{} {}
 
@@ -80,6 +82,7 @@ CommandBuffer::CommandBuffer(CommandBuffer&& other) noexcept
     : handle_(other.handle_),
       flags_(other.flags_),
       cmd_pipeline_barrier2_(other.cmd_pipeline_barrier2_),
+      level_(other.level_),
       state_(other.state_),
       bound_(other.bound_) {
   other.handle_ = VK_NULL_HANDLE;
@@ -92,6 +95,7 @@ CommandBuffer& CommandBuffer::operator=(CommandBuffer&& other) noexcept {
   handle_ = other.handle_;
   flags_ = other.flags_;
   cmd_pipeline_barrier2_ = other.cmd_pipeline_barrier2_;
+  level_ = other.level_;
   state_ = other.state_;
   bound_ = other.bound_;
 
@@ -109,14 +113,35 @@ void CommandBuffer::begin() {
       "Vulkan CommandBuffer: called begin() on a command buffer whose state "
       "is not NEW.");
 
+  const VkCommandBufferInheritanceInfo inheritance_info{
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+      nullptr,
+      VK_NULL_HANDLE,
+      0u,
+      VK_NULL_HANDLE,
+      false,
+      0u,
+      0u,
+  };
   const VkCommandBufferBeginInfo begin_info{
       VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
       nullptr,
       flags_,
-      nullptr,
+      is_secondary() ? &inheritance_info : nullptr,
   };
 
   VK_CHECK(vkBeginCommandBuffer(handle_, &begin_info));
+  state_ = CommandBuffer::State::RECORDING;
+}
+
+void CommandBuffer::execute_commands(const CommandBuffer& secondary) {
+  VK_CHECK_COND(
+      !is_secondary() && state_ == CommandBuffer::State::BARRIERS_INSERTED,
+      "Vulkan CommandBuffer: execute_commands() requires a primary command "
+      "buffer with its entry barriers inserted.");
+  const VkCommandBuffer secondary_handle = secondary.get_execute_handle();
+  vkCmdExecuteCommands(handle_, 1u, &secondary_handle);
+  bound_.reset();
   state_ = CommandBuffer::State::RECORDING;
 }
 
@@ -453,6 +478,10 @@ void CommandBuffer::reset_querypool(
 
 VkCommandBuffer CommandBuffer::get_submit_handle(const bool final_use) {
   VK_CHECK_COND(
+      !is_secondary(),
+      "Vulkan CommandBuffer: secondary command buffers cannot be submitted "
+      "directly.");
+  VK_CHECK_COND(
       state_ == CommandBuffer::State::READY ||
           (state_ == CommandBuffer::State::SUBMITTED && is_reusable()),
       "Vulkan CommandBuffer: called begin() on a command buffer whose state "
@@ -466,6 +495,14 @@ VkCommandBuffer CommandBuffer::get_submit_handle(const bool final_use) {
   state_ = CommandBuffer::State::SUBMITTED;
 
   return handle;
+}
+
+VkCommandBuffer CommandBuffer::get_execute_handle() const {
+  VK_CHECK_COND(
+      is_secondary() && state_ == CommandBuffer::State::READY,
+      "Vulkan CommandBuffer: execute handle requires a ready secondary "
+      "command buffer.");
+  return handle_;
 }
 
 //
@@ -483,8 +520,10 @@ CommandPool::CommandPool(
       pool_(VK_NULL_HANDLE),
       config_(config),
       mutex_{},
-      buffers_{},
-      in_use_(0u) {
+      primary_buffers_{},
+      secondary_buffers_{},
+      primary_in_use_(0u),
+      secondary_in_use_(0u) {
   VK_CHECK_COND(
       cmd_pipeline_barrier2_,
       "Vulkan synchronization2 command vkCmdPipelineBarrier2 was not loaded "
@@ -500,7 +539,10 @@ CommandPool::CommandPool(
   VK_CHECK(vkCreateCommandPool(device_, &create_info, nullptr, &pool_));
 
   // Pre-allocate some command buffers
-  allocate_new_batch(config_.cmdPoolInitialSize);
+  if (config_.cmdPoolInitialSize > 0u) {
+    allocate_new_batch(
+        config_.cmdPoolInitialSize, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+  }
 }
 
 CommandPool::~CommandPool() {
@@ -510,13 +552,21 @@ CommandPool::~CommandPool() {
   vkDestroyCommandPool(device_, pool_, nullptr);
 }
 
-CommandBuffer CommandPool::get_new_cmd(bool reusable) {
+CommandBuffer CommandPool::get_new_cmd(
+    const bool reusable,
+    const VkCommandBufferLevel level) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   // No-ops if there are command buffers available
-  allocate_new_batch(config_.cmdPoolBatchSize);
+  allocate_new_batch(config_.cmdPoolBatchSize, level);
 
-  VkCommandBuffer handle = buffers_[in_use_];
+  std::vector<VkCommandBuffer>& buffers =
+      level == VK_COMMAND_BUFFER_LEVEL_SECONDARY ? secondary_buffers_
+                                                 : primary_buffers_;
+  size_t& in_use = level == VK_COMMAND_BUFFER_LEVEL_SECONDARY
+      ? secondary_in_use_
+      : primary_in_use_;
+  VkCommandBuffer handle = buffers[in_use];
 
   VkCommandBufferUsageFlags cmd_flags = 0u;
   if (!reusable) {
@@ -525,37 +575,47 @@ CommandBuffer CommandPool::get_new_cmd(bool reusable) {
     cmd_flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
   }
 
-  in_use_++;
-  return CommandBuffer(handle, cmd_flags, cmd_pipeline_barrier2_);
+  in_use++;
+  return CommandBuffer(handle, cmd_flags, cmd_pipeline_barrier2_, level);
 }
 
 void CommandPool::flush() {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (in_use_ == 0u) {
+  if (primary_in_use_ == 0u && secondary_in_use_ == 0u) {
     return;
   }
   VK_CHECK(vkResetCommandPool(device_, pool_, 0u));
-  in_use_ = 0u;
+  primary_in_use_ = 0u;
+  secondary_in_use_ = 0u;
 }
 
-void CommandPool::allocate_new_batch(const uint32_t count) {
+void CommandPool::allocate_new_batch(
+    const uint32_t count,
+    const VkCommandBufferLevel level) {
+  std::vector<VkCommandBuffer>& buffers =
+      level == VK_COMMAND_BUFFER_LEVEL_SECONDARY ? secondary_buffers_
+                                                 : primary_buffers_;
+  const size_t in_use = level == VK_COMMAND_BUFFER_LEVEL_SECONDARY
+      ? secondary_in_use_
+      : primary_in_use_;
   // No-ops if there are still command buffers available
-  if (in_use_ < buffers_.size()) {
+  if (in_use < buffers.size()) {
     return;
   }
 
-  buffers_.resize(buffers_.size() + count);
+  const size_t allocation_offset = buffers.size();
+  buffers.resize(buffers.size() + count);
 
   const VkCommandBufferAllocateInfo allocate_info{
       VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, // sType
       nullptr, // pNext
       pool_, // commandPool
-      VK_COMMAND_BUFFER_LEVEL_PRIMARY, // level
+      level, // level
       count, // commandBufferCount
   };
 
   VK_CHECK(vkAllocateCommandBuffers(
-      device_, &allocate_info, buffers_.data() + in_use_));
+      device_, &allocate_info, buffers.data() + allocation_offset));
 }
 
 } // namespace api
