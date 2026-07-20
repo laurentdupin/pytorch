@@ -200,28 +200,6 @@ int register_vulkan_graph_plan() {
           .def(
               "resource_writer_bypass_count",
               &utils::VulkanGraphPlan::resource_writer_bypass_count)
-          .def(
-              "recorded_partition_count",
-              &utils::VulkanGraphPlan::recorded_partition_count)
-          .def(
-              "recorded_partition_instruction_count",
-              &utils::VulkanGraphPlan::recorded_partition_instruction_count)
-          .def(
-              "recorded_partition_prime_count",
-              &utils::VulkanGraphPlan::recorded_partition_prime_count)
-          .def(
-              "recorded_partition_capture_count",
-              &utils::VulkanGraphPlan::recorded_partition_capture_count)
-          .def(
-              "recorded_partition_replay_count",
-              &utils::VulkanGraphPlan::recorded_partition_replay_count)
-          .def(
-              "recorded_partition_failure_count",
-              &utils::VulkanGraphPlan::recorded_partition_failure_count)
-          .def(
-              "recorded_partition_represented_dispatch_count",
-              &utils::VulkanGraphPlan::
-                  recorded_partition_represented_dispatch_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)
           .def("output_count", &utils::VulkanGraphPlan::output_count)
           .def("submission_owned", &utils::VulkanGraphPlan::submission_owned)
@@ -3008,8 +2986,7 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "int[] resource_slot_storage_types=[], "
       "int[] resource_slot_memory_layouts=[], "
       "int[] resource_slot_execution_layouts=[], "
-      "int[] instruction_scratch_resource_slot_ids=[], "
-      "int[] recorded_partition_ranges=[]) "
+      "int[] instruction_scratch_resource_slot_ids=[]) "
       "-> __torch__.torch.classes.vulkan.VulkanGraphPlan"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_vulkan_graph_plan(Tensor[] inputs, "

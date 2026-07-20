@@ -4073,6 +4073,96 @@
       ]
     },
     {
+      "id": "dav2_whole_transformer_secondary_recording_rejected_2026_07_20",
+      "status": "rejected_mixed",
+      "head": "e574ef28c9a9a191ee2ba181ec9d8492693bfa19",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Test one reusable secondary command buffer over the complete planner-proven stable transformer span after program-owned tensor resources landed."
+      },
+      "device_notes": "RX 9070 on the current Windows host. Matching deployed torch_cpu.dll SHA-256 cf2d5c76aeabf8fb3a348a8aab4ad75aef0f5a49ee7ca69a67f3b03b1f66a9a7.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "one 171-instruction recorded transformer partition",
+        "183 represented dispatches per replay",
+        "per-arena command and descriptor ownership",
+        "prime-capture-replay identity stamps",
+        "supported 32-job graph checkpoint policy"
+      ],
+      "candidate": "Prime each resource-arena generation once, capture the 171-instruction stable writer/view span into one reusable secondary command buffer, then reconstruct writer outputs from stable slots while replaying the command inside the normal graph-owned primary buffer.",
+      "correctness": {
+        "status": "passed_but_performance_and_memory_rejected",
+        "tests": [
+          "179 Vulkan graph tests",
+          "24 Vulkan graph evidence tests",
+          "69 Vulkan governance tests",
+          "both DAv2 guards exact against supported eager",
+          "both DAv2 guards within registered CPU tolerance",
+          "prime, capture, and replay synthetic partition proof",
+          "recorded-domain boundary regression for standalone layernorm",
+          "partial capture poisons its arena generation"
+        ],
+        "qualified_soak": "not_run_after_preregistered_latency_and_repeat-live_memory gates failed"
+      },
+      "counters": {
+        "recorded_partition_count": 1,
+        "recorded_partition_instruction_count": 171,
+        "represented_dispatch_count_per_replay": 183,
+        "normal_distribution_prime_count": 1,
+        "normal_distribution_capture_count": 1,
+        "normal_distribution_replay_count": 33,
+        "normal_distribution_failure_count": 0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_values_created": 0
+      },
+      "timing_ms": {
+        "baseline_normal_graph_median": 46.021,
+        "candidate_normal_graph_median": 47.479,
+        "candidate_normal_graph_p95": 52.102,
+        "normal_median_delta_percent": 3.168,
+        "baseline_alternate_graph_median": 54.091,
+        "candidate_alternate_graph_median": 50.789,
+        "candidate_alternate_graph_p95": 55.058,
+        "alternate_median_reduction_percent": 6.105,
+        "required_graph_wall_median_reduction_percent": 10.0,
+        "measurement_repeats": 30,
+        "performance_claim": "The whole-span secondary removed repeated host command recording, but it regressed the normal guard and improved the alternate guard by only 6.1%, so it did not meet the preregistered wall-time threshold."
+      },
+      "memory_bytes": {
+        "baseline_normal_graph_repeat_live_peak_delta": 13843768,
+        "candidate_normal_graph_repeat_live_peak_delta": 19849596,
+        "baseline_alternate_graph_repeat_live_peak_delta": 33291264,
+        "candidate_alternate_graph_repeat_live_peak_delta": 37609788,
+        "alternate_supported_eager_peak_delta": 35521436,
+        "alternate_candidate_over_eager_percent": 5.879,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "interpretation": "Retained per-dispatch uniform and metadata buffers made the recorded descriptor closure too expensive; flight depth would multiply that cost."
+      },
+      "artifacts": [
+        "agent_space/graph_recorded_partition_exact_e574ef28c9a/dav2_vits_recorded_partition_exact_export_census.json",
+        "agent_space/graph_recorded_partition_exact_e574ef28c9a/dav2_vits_recorded_partition_exact_export_parity.json"
+      ],
+      "artifact_identity": {
+        "census_sha256": "0a00ecf5a90b4e88bbb3d0f9a9fd70cdf7359ad82487e5a3db1e9e73bba3bb67",
+        "parity_sha256": "a4a8b04cbcd9fcf707ee186ebf0855072aa2780b08c640e3b66143840a727503",
+        "baseline_census_sha256": "8651317727e37fad51c76cc17681e2e6a899b729005021625baac6b083ca3e48",
+        "torch_cpu_sha256": "cf2d5c76aeabf8fb3a348a8aab4ad75aef0f5a49ee7ca69a67f3b03b1f66a9a7"
+      },
+      "decision": "Reject and delete the whole-transformer secondary recording implementation. Preserve the 32-job unrecorded graph default. Do not retry secondary replay until parameter passing no longer requires retaining one Vulkan buffer closure per dispatch and attribution predicts at least the preregistered 10% wall-time gain.",
+      "revisit_conditions": [
+        "A generic program-owned uniform/metadata arena, descriptor-buffer path, or push-constant/device-address path removes the retained per-dispatch buffer closure.",
+        "Fresh attribution predicts at least a 10% wall-time reduction on both DAv2 guards rather than only command-record microbenchmark savings.",
+        "Any replacement must repeat the exact memory, parity, distribution, and qualified-soak gates before promotion."
+      ]
+    },
+    {
       "id": "graph_recorded_partition_experiment_preregistered_2026_07_17",
       "status": "accepted_reporting_infrastructure",
       "head": "28d8f7b313395e5cf6ac0d50ffbe82f5c9e8b657",

@@ -28,14 +28,6 @@ std::tuple<Tensor, Tensor, Tensor> native_layer_norm_impl(
     const std::optional<Tensor>& bias_opt,
     double eps);
 
-std::optional<Tensor> try_run_native_layer_norm_buffer_width_out(
-    const at::Tensor& input,
-    IntArrayRef normalized_shape,
-    const std::optional<Tensor>& weight,
-    const std::optional<Tensor>& bias,
-    double eps,
-    Tensor& output);
-
 } // namespace ops
 } // namespace vulkan
 } // namespace native

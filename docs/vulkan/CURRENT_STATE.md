@@ -294,6 +294,29 @@ recording experiment must treat the checkpoint-aligned span as one barrier
 plan and one useful reusable command unit, not revive isolated writer or
 per-attention command buffers.
 
+That whole-span experiment was implemented at exact source
+`e574ef28c9a9a191ee2ba181ec9d8492693bfa19`, measured, rejected, and deleted.
+It captured one 171-instruction transformer partition representing 183
+dispatches per replay, preserved exact eager parity on both DAv2 guards, and
+completed prime/capture/replay with zero recorded failures. It nevertheless
+regressed the 140x140 graph median from the preregistered 46.02 ms baseline to
+47.48 ms and improved 140x280 only from 54.09 to 50.79 ms, below the required
+10% reduction. Repeat-live peak deltas grew from 13.84/33.29 MB to
+19.85/37.61 MB; the alternate result was 5.88% above supported eager and
+failed the 5% gate. Retaining per-dispatch uniform and metadata buffers inside
+the reusable descriptor closure is the dominant structural cost. The
+qualified soak was not run after the latency and memory gates failed. Exact
+artifacts are under
+`agent_space/graph_recorded_partition_exact_e574ef28c9a/`; full counters and
+hashes are recorded in
+`dav2_whole_transformer_secondary_recording_rejected_2026_07_20`.
+
+The supported default therefore remains the unrecorded 32-job graph program.
+Do not retry secondary replay until a generic parameter-passing substrate
+(program-owned uniform/metadata arena, descriptor buffers, or push
+constants/device addresses) removes the retained buffer closure and fresh
+attribution predicts the preregistered wall-time gain on both guards.
+
 Resource slots now carry explicit storage-type, GPU-memory-layout, and
 execution-layout fields from Python lowering into the C++ plan. Arena creation
 consumes that descriptor through the generic execution-object allocator while

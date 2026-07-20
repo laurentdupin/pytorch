@@ -8,9 +8,7 @@
 #include <ATen/native/vulkan/ops/Convert.h>
 #include <ATen/native/vulkan/ops/FallbackPolicy.h>
 #include <ATen/native/vulkan/ops/Mm.h>
-#include <ATen/native/vulkan/ops/Layernorm.h>
 #include <ATen/native/vulkan/ops/Softmax.h>
-#include <ATen/native/vulkan/ops/TensorState.h>
 #include <ATen/native/vulkan/ops/Utils.h>
 #include <ATen/native/vulkan/planning/ExecutionObjects.h>
 #include <ATen/native/vulkan/planning/GraphProgramPlans.h>
@@ -64,7 +62,6 @@ enum class VulkanGraphPlanInstructionKind : int64_t {
 enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   None,
   LinearContext,
-  LayernormContext,
   AddLayernormPlan,
   ScaledAdd,
   ScaledAddLayernormPlan,
@@ -103,55 +100,11 @@ struct VulkanGraphPlanResourceSlot final {
   api::ExecutionLayout execution_layout{api::ExecutionLayout::BUFFER_DIRECT};
 };
 
-enum class VulkanGraphPlanRecordedPartitionState : uint8_t {
-  Empty,
-  Primed,
-  Ready,
-  Failed,
-};
-
-enum class VulkanGraphPlanRecordedPartitionMode : uint8_t {
-  None,
-  Prime,
-  Capture,
-  Replay,
-};
-
-struct VulkanGraphPlanRecordedTensorStamp final {
-  uint64_t storage_id{0u};
-  uint64_t logical_desc_hash{0u};
-};
-
-struct VulkanGraphPlanRecordedPartition final {
-  int64_t start{0};
-  int64_t end{0};
-  VulkanGraphPlanRecordedPartitionState state{
-      VulkanGraphPlanRecordedPartitionState::Empty};
-  std::optional<api::CommandBuffer> command;
-  std::vector<VulkanGraphPlanRecordedTensorStamp> tensor_stamps;
-  std::vector<std::vector<std::vector<int64_t>>> output_sizes;
-  std::vector<api::VulkanBuffer> retained_buffers;
-  std::vector<api::VulkanImage> retained_images;
-  uint32_t represented_dispatch_count{0u};
-};
-
-struct VulkanGraphPlanRecordingArena final {
-  std::unique_ptr<api::CommandPool> command_pool;
-  std::unique_ptr<api::DescriptorPool> descriptor_pool;
-  std::vector<VulkanGraphPlanRecordedPartition> partitions;
-};
-
 struct VulkanGraphPlanResourceArena final {
   std::vector<Tensor> tensors;
-  std::unique_ptr<VulkanGraphPlanRecordingArena> recording;
   c10::DeviceIndex device_index{-1};
   api::VulkanSubmission submission{};
   bool poisoned{false};
-};
-
-struct VulkanGraphPlanArenaRetirementBundle final {
-  std::vector<api::VulkanBuffer> tensor_buffers;
-  std::unique_ptr<VulkanGraphPlanRecordingArena> recording;
 };
 
 struct VulkanGraphPlanInvocationWorkspace final {
@@ -208,9 +161,6 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
     const std::string& operator_name) {
   if (operator_name == "vulkan_prepack::run_linear_context") {
     return VulkanGraphPlanResourceWriterKind::LinearContext;
-  }
-  if (operator_name == "vulkan_prepack::run_layernorm_context") {
-    return VulkanGraphPlanResourceWriterKind::LayernormContext;
   }
   if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
     return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
@@ -464,55 +414,6 @@ bool same_vulkan_storage(const Tensor& left, const Tensor& right) {
       convert(left).storage_identity() == convert(right).storage_identity();
 }
 
-std::vector<VulkanGraphPlanRecordedTensorStamp> recorded_arena_stamps(
-    const VulkanGraphPlanResourceArena& arena) {
-  std::vector<VulkanGraphPlanRecordedTensorStamp> stamps;
-  stamps.reserve(arena.tensors.size());
-  for (const Tensor& tensor : arena.tensors) {
-    stamps.push_back(
-        {tensor_storage_identity(tensor), tensor_logical_desc_hash(tensor)});
-  }
-  return stamps;
-}
-
-bool recorded_arena_stamps_match(
-    const VulkanGraphPlanResourceArena& arena,
-    const std::vector<VulkanGraphPlanRecordedTensorStamp>& stamps) {
-  if (arena.tensors.size() != stamps.size()) {
-    return false;
-  }
-  for (const auto index : c10::irange(arena.tensors.size())) {
-    if (
-        tensor_storage_identity(arena.tensors[index]) !=
-            stamps[index].storage_id ||
-        tensor_logical_desc_hash(arena.tensors[index]) !=
-            stamps[index].logical_desc_hash) {
-      return false;
-    }
-  }
-  return true;
-}
-
-api::PipelineBarrier prepare_recorded_partition_entry(
-    VulkanGraphPlanResourceArena& arena) {
-  api::PipelineBarrier barrier{};
-  const auto read_write = static_cast<api::MemoryAccessType>(
-      api::MemoryAccessType::READ | api::MemoryAccessType::WRITE);
-  for (Tensor& tensor : arena.tensors) {
-    convert(tensor).buffer(barrier, api::PipelineStage::COMPUTE, read_write);
-  }
-  return barrier;
-}
-
-void record_partition_exit_state(VulkanGraphPlanResourceArena& arena) {
-  api::PipelineBarrier ignored{};
-  const auto read_write = static_cast<api::MemoryAccessType>(
-      api::MemoryAccessType::READ | api::MemoryAccessType::WRITE);
-  for (Tensor& tensor : arena.tensors) {
-    convert(tensor).buffer(ignored, api::PipelineStage::COMPUTE, read_write);
-  }
-}
-
 enum class VulkanGraphPlanResourceWriteResult : uint8_t {
   NotApplicable,
   Written,
@@ -614,24 +515,6 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       stack.emplace_back(std::move(residual_output));
       stack.emplace_back(std::move(normalized_output));
       return VulkanGraphPlanResourceWriteResult::Written;
-    }
-    case VulkanGraphPlanResourceWriterKind::LayernormContext: {
-      TORCH_CHECK(
-          targets.size() == 1u && stack.size() == 3u && stack[0].isTensor() &&
-              stack[1].isIntList(),
-          "VulkanGraphPlan.v9 layernorm resource writer has invalid arguments");
-      const auto context = stack[2].toCustomClass<LayernormPackedContext>();
-      Tensor output_candidate = *targets[0];
-      Tensor result = run_layernorm_context_out(
-          stack[0].toTensor(),
-          stack[1].toIntVector(),
-          context,
-          output_candidate);
-      stack.clear();
-      stack.emplace_back(std::move(result));
-      return same_vulkan_resource(stack[0].toTensor(), *targets[0])
-          ? VulkanGraphPlanResourceWriteResult::Written
-          : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
     }
     case VulkanGraphPlanResourceWriterKind::ScaledAdd: {
       TORCH_CHECK(
@@ -791,7 +674,6 @@ struct VulkanGraphPlan::State final {
   std::vector<int64_t> output_value_ids;
   std::vector<VulkanGraphPlanResourceSlot> resource_slots;
   std::vector<VulkanGraphPlanResourceArena> resource_arenas;
-  std::vector<std::pair<int64_t, int64_t>> recorded_partition_ranges;
   int64_t resource_arena_flight_depth{0};
   int64_t input_count{0};
   bool submission_owned{true};
@@ -808,12 +690,6 @@ struct VulkanGraphPlan::State final {
   mutable std::atomic<uint64_t> resource_arena_spill_count{0u};
   mutable std::atomic<uint64_t> resource_write_count{0u};
   mutable std::atomic<uint64_t> resource_writer_bypass_count{0u};
-  mutable std::atomic<uint64_t> recorded_partition_prime_count{0u};
-  mutable std::atomic<uint64_t> recorded_partition_capture_count{0u};
-  mutable std::atomic<uint64_t> recorded_partition_replay_count{0u};
-  mutable std::atomic<uint64_t> recorded_partition_failure_count{0u};
-  mutable std::atomic<uint64_t> recorded_partition_represented_dispatch_count{
-      0u};
 };
 
 VulkanGraphPlan::VulkanGraphPlan(std::shared_ptr<State> state)
@@ -839,13 +715,11 @@ VulkanGraphPlan::~VulkanGraphPlan() noexcept {
               1u, std::memory_order_relaxed);
         }
       }
-      (void)arena.recording.release();
       continue;
     }
     api::Context* context = nullptr;
-    auto retirement =
-        std::make_unique<VulkanGraphPlanArenaRetirementBundle>();
-    retirement->recording = std::move(arena.recording);
+    auto retired_buffers =
+        std::make_unique<std::vector<api::VulkanBuffer>>();
     for (Tensor& slot : arena.tensors) {
       if (!slot.defined()) {
         continue;
@@ -861,8 +735,8 @@ VulkanGraphPlan::~VulkanGraphPlan() noexcept {
         }
         std::vector<api::VulkanBuffer> buffers =
             v_tensor.release_graph_program_owned_buffers();
-        retirement->tensor_buffers.insert(
-            retirement->tensor_buffers.end(),
+        retired_buffers->insert(
+            retired_buffers->end(),
             std::make_move_iterator(buffers.begin()),
             std::make_move_iterator(buffers.end()));
       } catch (...) {
@@ -871,33 +745,33 @@ VulkanGraphPlan::~VulkanGraphPlan() noexcept {
             1u, std::memory_order_relaxed);
       }
     }
-    if (retirement->tensor_buffers.empty() && !retirement->recording) {
+    if (retired_buffers->empty()) {
       continue;
     }
     if (!context) {
       counters.resource_arena_retirement_failure_count.fetch_add(
           1u, std::memory_order_relaxed);
-      (void)retirement.release();
+      (void)retired_buffers.release();
       continue;
     }
     try {
       if (
           arena.submission.timeline_value == 0u ||
           context->graph_program_submission_complete(arena.submission)) {
-        retirement.reset();
+        retired_buffers.reset();
         counters.resource_arena_immediate_release_count.fetch_add(
             1u, std::memory_order_relaxed);
         continue;
       }
-      auto* const resources = retirement.release();
+      auto* const buffers = retired_buffers.release();
       context->retire_graph_program_resource(
-          arena.submission, [resources]() { delete resources; });
+          arena.submission, [buffers]() { delete buffers; });
       counters.resource_arena_retire_enqueued_count.fetch_add(
           1u, std::memory_order_relaxed);
     } catch (...) {
       counters.resource_arena_retirement_failure_count.fetch_add(
           1u, std::memory_order_relaxed);
-      (void)retirement.release();
+      (void)retired_buffers.release();
     }
   }
 }
@@ -1086,58 +960,6 @@ int64_t VulkanGraphPlan::resource_writer_bypass_count() const {
       ? static_cast<int64_t>(state_->resource_writer_bypass_count.load(
             std::memory_order_relaxed))
       : 0;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_count() const {
-  return state_
-      ? static_cast<int64_t>(state_->recorded_partition_ranges.size())
-      : 0;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_instruction_count() const {
-  if (!state_) {
-    return 0;
-  }
-  int64_t count = 0;
-  for (const auto& range : state_->recorded_partition_ranges) {
-    count += range.second - range.first;
-  }
-  return count;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_prime_count() const {
-  return state_ ? static_cast<int64_t>(
-                      state_->recorded_partition_prime_count.load(
-                          std::memory_order_relaxed))
-                : 0;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_capture_count() const {
-  return state_ ? static_cast<int64_t>(
-                      state_->recorded_partition_capture_count.load(
-                          std::memory_order_relaxed))
-                : 0;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_replay_count() const {
-  return state_ ? static_cast<int64_t>(
-                      state_->recorded_partition_replay_count.load(
-                          std::memory_order_relaxed))
-                : 0;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_failure_count() const {
-  return state_ ? static_cast<int64_t>(
-                      state_->recorded_partition_failure_count.load(
-                          std::memory_order_relaxed))
-                : 0;
-}
-
-int64_t VulkanGraphPlan::recorded_partition_represented_dispatch_count() const {
-  return state_ ? static_cast<int64_t>(
-                      state_->recorded_partition_represented_dispatch_count.load(
-                          std::memory_order_relaxed))
-                : 0;
 }
 
 int64_t VulkanGraphPlan::value_count() const {
@@ -1463,23 +1285,6 @@ int64_t VulkanGraphPlan::acquire_resource_arena(
         slot.storage_type,
         /*persistent=*/true));
   }
-  if (!state_->recorded_partition_ranges.empty()) {
-    arena.recording = std::make_unique<VulkanGraphPlanRecordingArena>();
-    arena.recording->command_pool =
-        context->create_graph_program_command_pool();
-    arena.recording->descriptor_pool =
-        context->create_graph_program_descriptor_pool();
-    arena.recording->partitions.reserve(
-        state_->recorded_partition_ranges.size());
-    for (const auto& range : state_->recorded_partition_ranges) {
-      VulkanGraphPlanRecordedPartition partition;
-      partition.start = range.first;
-      partition.end = range.second;
-      partition.output_sizes.resize(
-          static_cast<size_t>(range.second - range.first));
-      arena.recording->partitions.push_back(std::move(partition));
-    }
-  }
   state_->resource_arenas.push_back(std::move(arena));
   state_->resource_arena_generation_count.fetch_add(
       1u, std::memory_order_relaxed);
@@ -1522,7 +1327,7 @@ void VulkanGraphPlan::poison_resource_arena(const int64_t arena_index) noexcept 
   }
 }
 
-VulkanGraphPlan::State& VulkanGraphPlan::state() {
+const VulkanGraphPlan::State& VulkanGraphPlan::state() const {
   TORCH_INTERNAL_ASSERT(state_);
   return *state_;
 }
@@ -1549,8 +1354,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<int64_t> resource_slot_storage_types,
     std::vector<int64_t> resource_slot_memory_layouts,
     std::vector<int64_t> resource_slot_execution_layouts,
-    std::vector<int64_t> instruction_scratch_resource_slot_ids,
-    std::vector<int64_t> recorded_partition_ranges) {
+    std::vector<int64_t> instruction_scratch_resource_slot_ids) {
   TORCH_CHECK(
       input_count > 0,
       "VulkanGraphPlan.v9 requires at least one tensor input");
@@ -1567,20 +1371,6 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
       "VulkanGraphPlan.v9 requires aligned non-empty instruction fields");
   if (instruction_scratch_resource_slot_ids.empty()) {
     instruction_scratch_resource_slot_ids.resize(instruction_count * 3u, -1);
-  }
-  TORCH_CHECK(
-      recorded_partition_ranges.size() % 2u == 0u,
-      "VulkanGraphPlan.v9 recorded partition ranges must be start/end pairs");
-  int64_t prior_partition_end = 0;
-  for (size_t index = 0; index < recorded_partition_ranges.size(); index += 2u) {
-    const int64_t start = recorded_partition_ranges[index];
-    const int64_t end = recorded_partition_ranges[index + 1u];
-    TORCH_CHECK(
-        start >= prior_partition_end && start < end &&
-            end <= static_cast<int64_t>(instruction_count),
-        "VulkanGraphPlan.v9 recorded partition ranges must be ordered, "
-        "non-overlapping, and inside the instruction sequence");
-    prior_partition_end = end;
   }
   TORCH_CHECK(
       !output_value_ids.empty(),
@@ -1961,31 +1751,6 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         state->instructions.back().output_value_ids.size());
   }
 
-  for (size_t index = 0; index < recorded_partition_ranges.size(); index += 2u) {
-    const int64_t start = recorded_partition_ranges[index];
-    const int64_t end = recorded_partition_ranges[index + 1u];
-    for (int64_t instruction_index = start; instruction_index < end;
-         ++instruction_index) {
-      const VulkanGraphPlanInstruction& instruction =
-          state->instructions[static_cast<size_t>(instruction_index)];
-      const bool host_recipe =
-          instruction.operator_name == "aten::permute" ||
-          instruction.operator_name == "aten::reshape" ||
-          instruction.operator_name == "aten::select.int" ||
-          instruction.operator_name == "aten::transpose.int";
-      TORCH_CHECK(
-          instruction.resource_writer_kind !=
-                  VulkanGraphPlanResourceWriterKind::None ||
-              host_recipe,
-          "VulkanGraphPlan.v9 recorded partition contains unsupported node '",
-          instruction.node_name,
-          "' (",
-          instruction.operator_name,
-          ")");
-    }
-    state->recorded_partition_ranges.emplace_back(start, end);
-  }
-
   for (const int64_t output_value_id : state->output_value_ids) {
     TORCH_CHECK(
         output_value_id >= 0 &&
@@ -2074,7 +1839,7 @@ std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,
     const c10::intrusive_ptr<VulkanGraphPlan>& plan) {
   TORCH_CHECK(plan, "VulkanGraphPlan.v9 requires a plan");
-  VulkanGraphPlan::State& state = plan->state();
+  const VulkanGraphPlan::State& state = plan->state();
   TORCH_CHECK(
       inputs.size() == static_cast<size_t>(state.input_count),
       "VulkanGraphPlan.v9 input count mismatch");
@@ -2133,106 +1898,9 @@ std::vector<Tensor> run_vulkan_graph_plan(
     values[input_index] = inputs[input_index];
     value_live[input_index] = 1u;
   }
-  VulkanGraphPlanResourceArena* resource_arena = resource_arena_index >= 0
-      ? &state.resource_arenas[static_cast<size_t>(resource_arena_index)]
-      : nullptr;
-  api::Context* const context = api::context(device_index);
-  size_t recorded_partition_index = 0u;
-  VulkanGraphPlanRecordedPartition* active_partition = nullptr;
-  VulkanGraphPlanRecordedPartitionMode active_partition_mode =
-      VulkanGraphPlanRecordedPartitionMode::None;
-  std::unique_ptr<api::Context::ScopedExternalCommandRecording>
-      partition_recording_scope;
-  api::PipelineBarrier partition_entry_barrier{};
-  bool partition_capture_active = false;
-  auto fail_partial_partition_capture = c10::make_scope_exit(
-      [&plan,
-       &state,
-       &active_partition,
-       &partition_recording_scope,
-       &partition_capture_active,
-       resource_arena_index,
-       context]() {
-        if (!partition_capture_active || !active_partition) {
-          return;
-        }
-        partition_recording_scope.reset();
-        try {
-          context->take_external_recording_cleanup_resources(
-              active_partition->retained_buffers,
-              active_partition->retained_images);
-          (void)context->take_external_recording_dispatch_count();
-        } catch (...) {
-        }
-        active_partition->state =
-            VulkanGraphPlanRecordedPartitionState::Failed;
-        state.recorded_partition_failure_count.fetch_add(
-            1u, std::memory_order_relaxed);
-        plan->poison_resource_arena(resource_arena_index);
-      });
   for (const auto instruction_index : c10::irange(state.instructions.size())) {
     const VulkanGraphPlanInstruction& instruction =
         state.instructions[instruction_index];
-    if (
-        resource_arena && resource_arena->recording &&
-        recorded_partition_index <
-            resource_arena->recording->partitions.size() &&
-        instruction_index == static_cast<size_t>(
-                                 resource_arena->recording
-                                     ->partitions[recorded_partition_index]
-                                     .start)) {
-      active_partition = &resource_arena->recording
-                              ->partitions[recorded_partition_index];
-      TORCH_CHECK(
-          active_partition->state !=
-              VulkanGraphPlanRecordedPartitionState::Failed,
-          "VulkanGraphPlan.v9 recorded partition is poisoned");
-      if (
-          active_partition->state ==
-          VulkanGraphPlanRecordedPartitionState::Empty) {
-        active_partition_mode =
-            VulkanGraphPlanRecordedPartitionMode::Prime;
-      } else if (
-          active_partition->state ==
-          VulkanGraphPlanRecordedPartitionState::Primed) {
-        active_partition_mode =
-            VulkanGraphPlanRecordedPartitionMode::Capture;
-        partition_entry_barrier =
-            prepare_recorded_partition_entry(*resource_arena);
-        active_partition->retained_buffers.clear();
-        active_partition->retained_images.clear();
-        for (auto& output_sizes : active_partition->output_sizes) {
-          output_sizes.clear();
-        }
-        active_partition->command.emplace(
-            resource_arena->recording->command_pool->get_new_cmd(
-                /*reusable=*/true, VK_COMMAND_BUFFER_LEVEL_SECONDARY));
-        active_partition->command->begin();
-        partition_recording_scope = std::make_unique<
-            api::Context::ScopedExternalCommandRecording>(
-            *context,
-            *active_partition->command,
-            *resource_arena->recording->descriptor_pool);
-        partition_capture_active = true;
-      } else {
-        active_partition_mode =
-            VulkanGraphPlanRecordedPartitionMode::Replay;
-        if (!recorded_arena_stamps_match(
-                *resource_arena, active_partition->tensor_stamps)) {
-          active_partition->state =
-              VulkanGraphPlanRecordedPartitionState::Failed;
-          state.recorded_partition_failure_count.fetch_add(
-              1u, std::memory_order_relaxed);
-          plan->poison_resource_arena(resource_arena_index);
-          TORCH_CHECK(
-              false,
-              "VulkanGraphPlan.v9 recorded partition resource identity "
-              "changed");
-        }
-        partition_entry_barrier =
-            prepare_recorded_partition_entry(*resource_arena);
-      }
-    }
     stack.clear();
     stack.reserve(instruction.arguments.size());
     std::vector<c10::impl::GenericList> transient_lists;
@@ -2282,46 +1950,13 @@ std::vector<Tensor> run_vulkan_graph_plan(
         state.constants);
     const int64_t scope_token = begin_vulkan_graph_execution_scope();
     try {
-      VulkanGraphPlanResourceWriteResult resource_write =
-          VulkanGraphPlanResourceWriteResult::NotApplicable;
-      if (
-          active_partition_mode ==
-              VulkanGraphPlanRecordedPartitionMode::Replay &&
-          active_partition &&
-          instruction.resource_writer_kind !=
-              VulkanGraphPlanResourceWriterKind::None) {
-        const size_t partition_offset = instruction_index -
-            static_cast<size_t>(active_partition->start);
-        const auto& saved_output_sizes =
-            active_partition->output_sizes[partition_offset];
-        TORCH_CHECK(
-            saved_output_sizes.size() == instruction.output_value_ids.size(),
-            "VulkanGraphPlan.v9 recorded partition output recipe is invalid");
-        stack.clear();
-        for (const auto output_index :
-             c10::irange(instruction.output_value_ids.size())) {
-          const int64_t output_value_id =
-              instruction.output_value_ids[output_index];
-          const int64_t slot_id = state.values[static_cast<size_t>(
-                                                   output_value_id)]
-                                      .resource_slot_id;
-          TORCH_INTERNAL_ASSERT(slot_id >= 0);
-          Tensor& target =
-              plan->resource_tensor(resource_arena_index, slot_id);
-          stack.emplace_back(
-              target.sizes().equals(saved_output_sizes[output_index])
-                  ? target
-                  : target.view(saved_output_sizes[output_index]));
-        }
-        resource_write = VulkanGraphPlanResourceWriteResult::Written;
-      } else {
-        resource_write = execute_resource_writer(
-            *plan,
-            instruction,
-            state.values,
-            resource_arena_index,
-            stack);
-      }
+      const VulkanGraphPlanResourceWriteResult resource_write =
+          execute_resource_writer(
+              *plan,
+              instruction,
+              state.values,
+              resource_arena_index,
+              stack);
       if (resource_write == VulkanGraphPlanResourceWriteResult::Written) {
         state.resource_write_count.fetch_add(1u, std::memory_order_relaxed);
       } else if (
@@ -2422,91 +2057,11 @@ std::vector<Tensor> run_vulkan_graph_plan(
       }
     }
 
-    if (
-        active_partition_mode ==
-            VulkanGraphPlanRecordedPartitionMode::Capture &&
-        active_partition) {
-      const size_t partition_offset = instruction_index -
-          static_cast<size_t>(active_partition->start);
-      auto& saved_output_sizes =
-          active_partition->output_sizes[partition_offset];
-      saved_output_sizes.clear();
-      saved_output_sizes.reserve(instruction.output_value_ids.size());
-      for (const int64_t output_value_id : instruction.output_value_ids) {
-        const c10::IValue& output =
-            values[static_cast<size_t>(output_value_id)];
-        TORCH_CHECK(
-            output.isTensor(),
-            "VulkanGraphPlan.v9 recorded partition requires tensor outputs");
-        saved_output_sizes.emplace_back(output.toTensor().sizes().vec());
-      }
-    }
-
     for (const int64_t release_value_id : instruction.release_value_ids) {
       const size_t value_index = static_cast<size_t>(release_value_id);
       TORCH_INTERNAL_ASSERT(value_live[value_index]);
       values[value_index] = c10::IValue();
       value_live[value_index] = 0u;
-    }
-    if (
-        active_partition &&
-        instruction_index + 1u ==
-            static_cast<size_t>(active_partition->end)) {
-      if (
-          active_partition_mode ==
-          VulkanGraphPlanRecordedPartitionMode::Prime) {
-        active_partition->state =
-            VulkanGraphPlanRecordedPartitionState::Primed;
-        state.recorded_partition_prime_count.fetch_add(
-            1u, std::memory_order_relaxed);
-      } else if (
-          active_partition_mode ==
-          VulkanGraphPlanRecordedPartitionMode::Capture) {
-        partition_recording_scope.reset();
-        context->take_external_recording_cleanup_resources(
-            active_partition->retained_buffers,
-            active_partition->retained_images);
-        active_partition->represented_dispatch_count =
-            context->take_external_recording_dispatch_count();
-        TORCH_CHECK(
-            active_partition->represented_dispatch_count > 0u,
-            "VulkanGraphPlan.v9 recorded partition captured no dispatches");
-        TORCH_INTERNAL_ASSERT(active_partition->command);
-        active_partition->command->end();
-        active_partition->tensor_stamps =
-            recorded_arena_stamps(*resource_arena);
-        context->execute_secondary_command_buffer(
-            partition_entry_barrier,
-            *active_partition->command,
-            active_partition->represented_dispatch_count);
-        record_partition_exit_state(*resource_arena);
-        active_partition->state =
-            VulkanGraphPlanRecordedPartitionState::Ready;
-        partition_capture_active = false;
-        state.recorded_partition_capture_count.fetch_add(
-            1u, std::memory_order_relaxed);
-        state.recorded_partition_represented_dispatch_count.fetch_add(
-            active_partition->represented_dispatch_count,
-            std::memory_order_relaxed);
-      } else if (
-          active_partition_mode ==
-          VulkanGraphPlanRecordedPartitionMode::Replay) {
-        TORCH_INTERNAL_ASSERT(active_partition->command);
-        context->execute_secondary_command_buffer(
-            partition_entry_barrier,
-            *active_partition->command,
-            active_partition->represented_dispatch_count);
-        record_partition_exit_state(*resource_arena);
-        state.recorded_partition_replay_count.fetch_add(
-            1u, std::memory_order_relaxed);
-        state.recorded_partition_represented_dispatch_count.fetch_add(
-            active_partition->represented_dispatch_count,
-            std::memory_order_relaxed);
-      }
-      active_partition = nullptr;
-      active_partition_mode =
-          VulkanGraphPlanRecordedPartitionMode::None;
-      ++recorded_partition_index;
     }
     if (submission_scope && submission_scope->checkpoint_requested()) {
       submission_scope->checkpoint();

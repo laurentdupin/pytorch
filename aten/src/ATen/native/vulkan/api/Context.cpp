@@ -6,7 +6,6 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
-#include <limits>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -1327,8 +1326,6 @@ void append_gpu_timestamp_log_line(const std::string& line) {
 
 struct ExternalCommandRecordingState final {
   api::CommandBuffer* cmd{nullptr};
-  api::DescriptorPool* descriptor_pool{nullptr};
-  bool graph_secondary{false};
   std::vector<PendingRetireBuffer> buffers_to_keep_alive;
   std::vector<PendingRetireImage> images_to_keep_alive;
   bool segment_metadata_observed{false};
@@ -1560,7 +1557,6 @@ Context::Context(c10::DeviceIndex device_index, const ContextConfig& config)
       cmd_(VK_NULL_HANDLE, 0u, nullptr),
       stack_region_owned_cmd_(VK_NULL_HANDLE, 0u, nullptr),
       submit_count_{0u},
-      external_recording_dispatch_count_{0u},
       command_buffer_recording_id_{0u},
       next_command_buffer_recording_id_{1u},
       stack_planned_recording_active_{false},
@@ -1644,14 +1640,6 @@ Context::ScopedExternalCommandRecording::ScopedExternalCommandRecording(
     CommandBuffer& cmd)
     : context_(&context) {
   context_->begin_external_command_recording(cmd);
-}
-
-Context::ScopedExternalCommandRecording::ScopedExternalCommandRecording(
-    Context& context,
-    CommandBuffer& cmd,
-    DescriptorPool& descriptor_pool)
-    : context_(&context) {
-  context_->begin_external_command_recording(cmd, &descriptor_pool);
 }
 
 Context::ScopedExternalCommandRecording::~ScopedExternalCommandRecording() {
@@ -1924,10 +1912,6 @@ CommandBuffer* Context::external_recording_cmd() {
 
 const CommandBuffer* Context::external_recording_cmd() const {
   return g_external_command_recording_state.cmd;
-}
-
-bool Context::is_graph_secondary_recording() const {
-  return g_external_command_recording_state.graph_secondary;
 }
 
 bool Context::is_inside_owned_program_recording() const {
@@ -2825,9 +2809,7 @@ Context::snapshot_stack_region_pending_retire_transfer_owner(
 
 DescriptorPool& Context::active_descriptor_pool() {
   if (external_recording_cmd()) {
-    return g_external_command_recording_state.descriptor_pool
-        ? *g_external_command_recording_state.descriptor_pool
-        : persistent_descriptor_pool_;
+    return persistent_descriptor_pool_;
   }
   if (stack_planned_recording_active_.load(std::memory_order_acquire)) {
     if (!stack_planned_recording_descriptor_pool_lease_) {
@@ -2887,9 +2869,7 @@ CommandBuffer& Context::active_cmd() {
   return cmd_;
 }
 
-void Context::begin_external_command_recording(
-    CommandBuffer& cmd,
-    DescriptorPool* const descriptor_pool) {
+void Context::begin_external_command_recording(CommandBuffer& cmd) {
   const bool external_recording_active =
       g_external_command_recording_state.cmd != nullptr;
   if (external_recording_active) {
@@ -2917,11 +2897,7 @@ void Context::begin_external_command_recording(
   stack_region_external_descriptor_set_count_at_begin_ =
       stack_region_external_descriptor_set_count_;
   ++stack_region_external_command_buffer_acquire_count_;
-  external_recording_dispatch_count_ = 0u;
   g_external_command_recording_state.cmd = &cmd;
-  g_external_command_recording_state.descriptor_pool = descriptor_pool;
-  g_external_command_recording_state.graph_secondary =
-      descriptor_pool != nullptr;
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
   g_external_command_recording_state.segment_metadata_observed = false;
@@ -2954,8 +2930,6 @@ void Context::end_external_command_recording() {
       "stack_region_recording_reentry_guard=external_recording_underflow "
       "max_supported_recording_depth=1");
   g_external_command_recording_state.cmd = nullptr;
-  g_external_command_recording_state.descriptor_pool = nullptr;
-  g_external_command_recording_state.graph_secondary = false;
   g_external_command_recording_state.segment_metadata_observed = false;
 }
 
@@ -5611,60 +5585,6 @@ CommandBuffer Context::acquire_persistent_command_buffer() {
   return cmd;
 }
 
-std::unique_ptr<CommandPool> Context::create_graph_program_command_pool() const {
-  const CommandPoolConfig config{
-      0u,
-      std::max(config_.cmdPoolConfig.cmdPoolBatchSize, 1u),
-  };
-  return std::make_unique<CommandPool>(
-      device_, queue_.family_index, config);
-}
-
-std::unique_ptr<DescriptorPool>
-Context::create_graph_program_descriptor_pool() const {
-  return std::make_unique<DescriptorPool>(
-      device_, config_.descriptorPoolConfig);
-}
-
-void Context::execute_secondary_command_buffer(
-    PipelineBarrier& entry_barrier,
-    const CommandBuffer& secondary,
-    const uint32_t represented_dispatch_count) {
-  TORCH_CHECK(
-      graph_program_invocation_active_for_current_thread(),
-      "Secondary graph command execution requires the active graph program "
-      "invocation owner");
-  TORCH_CHECK(
-      !is_inside_owned_program_recording() && represented_dispatch_count > 0u,
-      "Secondary graph command execution requires normal recording and a "
-      "positive represented dispatch count");
-  TORCH_CHECK(
-      submit_count_ <=
-          std::numeric_limits<uint32_t>::max() - represented_dispatch_count,
-      "Secondary graph command execution overflowed the pending dispatch count");
-
-  const bool cpu_timeline = cpu_timeline_logging_enabled();
-  const uint64_t cpu_start_us = cpu_timeline ? cpu_timeline_now_us() : 0u;
-  set_cmd();
-  CommandBuffer& primary = active_cmd();
-  primary.insert_barrier(entry_barrier);
-  primary.execute_commands(secondary);
-  submit_count_ += represented_dispatch_count;
-  if (
-      config_.graphProgramCheckpointFrequency > 0u &&
-      submit_count_ >= config_.graphProgramCheckpointFrequency) {
-    request_graph_program_checkpoint({});
-  }
-  if (cpu_timeline) {
-    std::ostringstream stream;
-    stream << "event=execute_secondary_graph_command record_us="
-           << (cpu_timeline_now_us() - cpu_start_us)
-           << " represented_dispatch_count=" << represented_dispatch_count
-           << " pending_dispatch_count=" << submit_count_;
-    append_cpu_timeline_log_line(stream.str());
-  }
-}
-
 void Context::submit_prepared_command_buffer(
     CommandBuffer& cmd,
     VkFence fence_handle,
@@ -5764,15 +5684,6 @@ void Context::take_external_recording_cleanup_resources(
   }
   g_external_command_recording_state.buffers_to_keep_alive.clear();
   g_external_command_recording_state.images_to_keep_alive.clear();
-}
-
-uint32_t Context::take_external_recording_dispatch_count() {
-  TORCH_CHECK(
-      external_recording_cmd() == nullptr,
-      "External recording dispatch count cannot be taken while recording");
-  const uint32_t count = external_recording_dispatch_count_;
-  external_recording_dispatch_count_ = 0u;
-  return count;
 }
 
 void Context::take_external_recording_cleanup_resources(

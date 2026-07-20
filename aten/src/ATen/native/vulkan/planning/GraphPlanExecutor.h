@@ -56,13 +56,6 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t resource_arena_spill_count() const;
   int64_t resource_write_count() const;
   int64_t resource_writer_bypass_count() const;
-  int64_t recorded_partition_count() const;
-  int64_t recorded_partition_instruction_count() const;
-  int64_t recorded_partition_prime_count() const;
-  int64_t recorded_partition_capture_count() const;
-  int64_t recorded_partition_replay_count() const;
-  int64_t recorded_partition_failure_count() const;
-  int64_t recorded_partition_represented_dispatch_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
   bool submission_owned() const;
@@ -89,7 +82,7 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
       const api::VulkanSubmission& submission);
   void poison_resource_arena(int64_t arena_index) noexcept;
 
-  State& state();
+  const State& state() const;
 };
 
 c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
@@ -114,8 +107,7 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
     std::vector<int64_t> resource_slot_storage_types,
     std::vector<int64_t> resource_slot_memory_layouts,
     std::vector<int64_t> resource_slot_execution_layouts,
-    std::vector<int64_t> instruction_scratch_resource_slot_ids,
-    std::vector<int64_t> recorded_partition_ranges);
+    std::vector<int64_t> instruction_scratch_resource_slot_ids);
 
 std::vector<Tensor> run_vulkan_graph_plan(
     const std::vector<Tensor>& inputs,

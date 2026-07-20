@@ -39,6 +39,22 @@ Exact restored-default evidence at `187e0ab7419` confirms the recording fields
 are absent and records 46.69/49.88 ms graph medians for the 140x140/140x280
 guards with exact eager parity and the repeat-live memory gate intact.
 
+The later whole-transformer secondary candidate at exact source
+`e574ef28c9a9a191ee2ba181ec9d8492693bfa19` is also rejected and deleted. It
+recorded one 171-instruction partition rather than twelve attention-sized
+commands, replayed 183 represented dispatches with exact eager parity, and
+therefore tested the intended broad topology. The 30-sample graph medians were
+47.48/50.79 ms against preregistered 46.02/54.09 ms baselines: the normal
+guard regressed and the alternate guard improved only 6.1%, below the 10%
+gate. Repeat-live peak deltas increased to 19.85/37.61 MB; the alternate peak
+was 5.88% above supported eager and failed the 5% limit. The reusable command
+had to retain one uniform/metadata-buffer closure per dispatch, so flight depth
+would compound the memory cost. No qualified soak was run after those earlier
+gates failed. Do not retry this design until parameter passing is arena-backed
+or bufferless and attribution predicts a qualifying wall-time result. Exact
+artifact paths, hashes, counters, and thresholds are in
+`dav2_whole_transformer_secondary_recording_rejected_2026_07_20`.
+
 The subsequent accepted resource-ownership change at exact source
 `21d5d697f1164e359620ba824acbdbee07d180f5` is not a recording retry. It gives
 strict linear-GELU graph regions a flattened physical arena base and preserves

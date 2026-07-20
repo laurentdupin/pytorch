@@ -579,6 +579,16 @@ fixed-cost direction only for semantic identities proven from exported
 arguments; the Phase 6 target remains recorded partitions over program-owned
 Vulkan resources rather than an accumulating list of operator exceptions.
 
+Exact-SHA `e574ef28c9a` tested and rejected the first whole-transformer recorded
+partition. One 171-instruction reusable secondary preserved parity but failed
+the preregistered wall-time gate on both guards and the repeat-live memory gate
+on 140x280 because its descriptors retained per-dispatch uniform and metadata
+buffers. The implementation is deleted and the 32-job unrecorded graph remains
+the supported default. Phase 6 recording is now gated on a generic
+arena-backed or bufferless parameter-passing substrate plus fresh attribution;
+coverage work should proceed instead of iterating another command-buffer
+topology with the same retained closure.
+
 Exact-SHA `e536f16cf36` also consumes the existing fresh single-user detach
 functionalization proof under inference. HY-MT removes 64/64 proven detach
 dispatches and reduces its plan from 2,732 to 2,668 instructions without changing
