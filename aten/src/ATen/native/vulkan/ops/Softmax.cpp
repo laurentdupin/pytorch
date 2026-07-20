@@ -3525,15 +3525,28 @@ Tensor scaled_dot_product_attention_vulkan_impl(
       value_3d = prepare_buffer_math_input_direct(value_3d);
       if (can_use_attention_runtime_buffer_math_replay(
               query_3d, key_3d, value_3d)) {
-        Tensor output = run_attention_runtime_buffer_math_replay_impl(
-            query_3d,
-            key_3d,
-            value_3d,
-            utils::make_vulkan_runtime_object_label(
-                input_runtime_policy.request, "attention_runtime_graph"));
+        Tensor output;
+        if (api::context()->owns_graph_program_invocation()) {
+          // The outer graph plan already owns recording, submission, and
+          // retirement. Running the program directly keeps this semantic SDPA
+          // instruction inside that transaction; the eager replay bridge must
+          // flush uploads and submit its own command buffer.
+          output = run_attention_runtime_buffer_math_program_impl(
+              query_3d, key_3d, value_3d, nullptr);
+          utils::log_vulkan_op_hit(
+              "aten::scaled_dot_product_attention.graph_owned_runtime_program");
+        } else {
+          output = run_attention_runtime_buffer_math_replay_impl(
+              query_3d,
+              key_3d,
+              value_3d,
+              utils::make_vulkan_runtime_object_label(
+                  input_runtime_policy.request, "attention_runtime_graph"));
+        }
         log_sdpa_event(
             "public_vulkan_entry",
-            "replay",
+            api::context()->owns_graph_program_invocation() ? "graph_program"
+                                                            : "replay",
             "attention_runtime",
             query_3d,
             key_3d,

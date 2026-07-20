@@ -4961,6 +4961,39 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
 
+    def test_diffusion_sdpa_runtime_program_uses_graph_submission_owner(self):
+        class Attention(torch.nn.Module):
+            def forward(self, query, key, value):
+                return torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                    dropout_p=0.0,
+                    is_causal=False,
+                )
+
+        torch.manual_seed(0)
+        query = torch.randn(1, 1, 784, 512)
+        key = torch.randn(1, 1, 784, 512)
+        value = torch.randn(1, 1, 784, 512)
+        model = Attention().eval()
+        expected = model(query, key, value)
+        program = torch.vulkan.export_and_lower(
+            model,
+            (query, key, value),
+            planning_context=torch.vulkan.VulkanGraphPlanningContext(
+                model_domain="vision",
+                execution_phase="decoder",
+            ),
+        )
+
+        actual = program(query, key, value).cpu()
+
+        self.assertEqual(actual, expected, rtol=1e-3, atol=1e-3)
+        self.assertEqual(program.last_cpu_fallback_count, 0)
+        self.assertEqual(program.last_sync_readback_count, 0)
+        self.assertEqual(program.last_deferred_values_created, 0)
+
     def test_sdpa_graph_hard_fail_preserves_route_reason(self):
         class UnsupportedAttention(torch.nn.Module):
             def forward(self, query, key, value):
