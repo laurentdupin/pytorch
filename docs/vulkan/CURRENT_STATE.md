@@ -264,6 +264,36 @@ The next recording attempt must own a substantially larger,
 checkpoint-aligned transformer span with barriers derived across the whole
 span; it must not retry one secondary command per attention instruction.
 
+Exact source `57bb9f7123473f07df982063887d98be86196eac` closes the
+remaining layer-scale ownership gaps. Strict single-use rank-1 fp32 layer
+scales lower into 21 scaled-add-layernorm and three scaled-add semantic
+instructions while preserving eager multiply-then-add order. DAv2 falls from
+288 to 264 instructions, removes all 24 generic `aten::mul.Tensor` layer-scale
+instructions, and reports 85 writers over 107 values in 14 slots, 170 writes
+over two invocations, zero writer bypass, and zero arena spill. Both guards are
+bit-exact with eager and remain 2.331%/2.693% above eager repeat-live
+high-water, inside the 5% gate. Observed submissions remain 22/20 over the two
+evidence invocations; this is resource ownership, not recording or fusion.
+
+The qualified RX 9070 soak ran 601.627 seconds, parity-checked all 8,251
+invocations, and completed 33 alternating guard recaptures. It recorded zero
+fallback, unexpected sync readback, unsafe-slot leaks, or retirement failures.
+Final live bytes were 568,361,120, soak high-water was 674,632,176, and
+replacement-preflight high-water was 682,328,788, all inside the registered
+limits. The exact 30-sample run occurred under broad host contention: graph
+medians/p95 were 53.58/59.33 ms and 56.92/61.01 ms while eager also rose to
+163.66/164.03 ms median. It proves the supported graph remained roughly 3x
+faster in that process, but it is not a quiet absolute-latency comparison.
+Artifacts are under `agent_space/dav2_layer_scale_owned_exact_57bb9f71234/`
+and `agent_space/dav2_layer_scale_owned_soak_exact_57bb9f71234/`; the loaded
+`torch_cpu.dll` SHA-256 was
+`9d7e0ee420542b84eef27f0b5924d803c0d943c94dd74aab5d6d38ef9c331671`.
+
+The transformer ownership span is now semantically complete. The next
+recording experiment must treat the checkpoint-aligned span as one barrier
+plan and one useful reusable command unit, not revive isolated writer or
+per-attention command buffers.
+
 Resource slots now carry explicit storage-type, GPU-memory-layout, and
 execution-layout fields from Python lowering into the C++ plan. Arena creation
 consumes that descriptor through the generic execution-object allocator while

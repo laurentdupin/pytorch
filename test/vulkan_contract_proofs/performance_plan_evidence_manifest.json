@@ -4856,6 +4856,117 @@
         "The remaining 24 layer-scale gaps require a semantic scale/add/layernorm ownership unit before checkpoint-aligned recording is retried.",
         "Do not retry one secondary command buffer per attention instruction."
       ]
+    },
+    {
+      "id": "dav2_graph_layer_scale_resource_ownership_accepted_2026_07_20",
+      "model": "depth_anything_v2_vits",
+      "input": "normal_1x3x140x140_and_alternate_1x3x140x280",
+      "device": "AMD Radeon RX 9070",
+      "driver": "8389003",
+      "status": "accepted_default_fix",
+      "head": "57bb9f7123473f07df982063887d98be86196eac",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Close the final layer-scale lifetime gaps before a checkpoint-aligned transformer recording experiment."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. Exact runtime used torch_cpu.dll SHA-256 9d7e0ee420542b84eef27f0b5924d803c0d943c94dd74aab5d6d38ef9c331671.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "strict static rank-1 fp32 layer scale",
+        "scaled-add and scaled-add-layernorm semantic instructions",
+        "one plan-owned multiply scratch per semantic instruction",
+        "two-generation resource arena"
+      ],
+      "candidate": "Lower single-use static rank-1 layer-scale multiplies with residual add, and optional layernorm, into semantic instructions that preserve eager multiply-then-add order while owning the multiply scratch and final output.",
+      "correctness": {
+        "status": "exact_and_qualified",
+        "tests": [
+          "177 Vulkan graph tests",
+          "24 Vulkan graph evidence tests",
+          "69 Vulkan governance tests",
+          "dynamic positive and shared-residual lowering coverage",
+          "dynamic-scale, matrix-scale, and multi-user fail-closed negatives",
+          "normal and alternate graph/eager max_abs 0",
+          "normal graph/CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph/CPU max_abs 0.0024883747 under 0.004",
+          "zero CPU fallback, unexpected readback, deferred values, writer bypass, arena spill, unsafe-slot leaks, and retirement failures"
+        ],
+        "soak_status": "passed_601_seconds_8251_invocations_33_recaptures"
+      },
+      "counters": {
+        "instruction_count": 264,
+        "removed_generic_layer_scale_mul_count": 24,
+        "scaled_add_layernorm_instruction_count": 21,
+        "scaled_add_instruction_count": 3,
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 14,
+        "resource_value_count": 107,
+        "resource_writer_instruction_count": 85,
+        "resource_write_count_per_two_invocations": 170,
+        "resource_writer_bypass_count": 0,
+        "normal_total_submissions_per_two_invocations": 22,
+        "alternate_total_submissions_per_two_invocations": 20,
+        "normal_repeat_live_peak_over_eager_percent": 2.3312721851,
+        "alternate_repeat_live_peak_over_eager_percent": 2.6929339288,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "soak_elapsed_seconds": 601.6273609,
+        "soak_invocation_count": 8251,
+        "soak_parity_check_count": 8251,
+        "soak_recapture_count": 33,
+        "soak_final_live_bytes": 568361120,
+        "soak_high_water_bytes": 674632176,
+        "soak_replacement_preflight_high_water_bytes": 682328788,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0,
+        "unsafe_slot_leak": 0,
+        "retirement_failure": 0
+      },
+      "timing_ms": {
+        "candidate_normal_graph_median": 53.5798,
+        "candidate_normal_graph_p95": 59.328525,
+        "candidate_normal_eager_median": 163.66325,
+        "candidate_alternate_graph_median": 56.9166,
+        "candidate_alternate_graph_p95": 61.01332,
+        "candidate_alternate_eager_median": 164.03085,
+        "measurement_repeats": 30,
+        "performance_claim": "No quiet absolute-latency claim. Broad ambient host contention raised both eager and graph timings materially; the same-process graph/eager ratio remained approximately 0.33-0.35. Acceptance rests on exactness, unchanged submission topology, bounded memory, and the qualified soak."
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "9d7e0ee420542b84eef27f0b5924d803c0d943c94dd74aab5d6d38ef9c331671",
+        "exact_census_sha256": "c9c58f69b78e449ef9738a6e718f7e105fee54fd6647ba3f9f00f01bd557d160",
+        "exact_parity_sha256": "28677a1f9aac579ea57206cf3579c1a71ab28afea9cedb117fdc747da7d8be4d",
+        "soak_census_sha256": "1bed3b6950c8d245491192ab5c1d0c24b1d50a2c509565fca57f988603dc09e5",
+        "soak_parity_sha256": "20dca38509e1d3bcd1c35fcbd0654b95c8aca5928b409a6b7b7387780763992f"
+      },
+      "baseline": {
+        "source_git_sha": "21d5d697f1164e359620ba824acbdbee07d180f5",
+        "instruction_count": 288,
+        "resource_slot_count": 9,
+        "resource_value_count": 104,
+        "resource_writer_instruction_count": 82,
+        "resource_write_count_per_two_invocations": 164,
+        "normal_total_submissions_per_two_invocations": 22,
+        "alternate_total_submissions_per_two_invocations": 20
+      },
+      "artifacts": [
+        "agent_space/dav2_layer_scale_owned_exact_57bb9f71234/dav2_vits_layer_scale_owned_exact_export_census.json",
+        "agent_space/dav2_layer_scale_owned_exact_57bb9f71234/dav2_vits_layer_scale_owned_exact_export_parity.json",
+        "agent_space/dav2_layer_scale_owned_soak_exact_57bb9f71234/dav2_vits_layer_scale_owned_soak_exact_export_census.json",
+        "agent_space/dav2_layer_scale_owned_soak_exact_57bb9f71234/dav2_vits_layer_scale_owned_soak_exact_export_parity.json"
+      ],
+      "decision": "Accept strict layer-scale residual resource ownership as default graph-plan behavior. The checkpoint-aligned transformer span now has semantic and stable lifetime ownership, but no recorded-command or fusion claim is made.",
+      "revisit_conditions": [
+        "The next recording candidate derives barriers across the complete checkpoint-aligned transformer span and emits one useful reusable command unit.",
+        "Do not retry one primary command buffer per writer or one secondary command buffer per attention instruction.",
+        "Rerun preregistered GPU-work, command-record reduction, latency, flight-depth-times-arena memory, and qualified soak gates before promoting recorded execution."
+      ]
     }
   ]
 }

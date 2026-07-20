@@ -453,6 +453,20 @@ resource values, 15 slots, 172 writes, zero bypass, exact graph/eager parity,
 and repeat-live high-water within 1.734%/2.004% of eager. This accepts the
 descriptor ABI only; the preregistered contiguous-partition gate remains open.
 
+Exact source `57bb9f7123473f07df982063887d98be86196eac` then represents
+the remaining 24 DAv2 layer-scale boundaries semantically: 21 strict
+multiply-add-layernorm chains and three multiply-add chains that feed shared
+residuals. Each instruction owns one stable multiply scratch slot and its final
+output while preserving eager operation order. The two guards execute 264
+instructions with 85 resource writers, 107 resource values, 14 slots, zero
+bypass or spill, and exact graph/eager parity. Repeat-live high-water is
+2.331%/2.693% above eager. The qualified 601.627-second RX 9070 soak checks all
+8,251 invocations and 33 recaptures with bounded memory and no fallback,
+unexpected sync, unsafe-slot leak, or retirement failure. This completes
+stable resource ownership for the checkpoint-aligned transformer span; it
+does not record commands. Recording must derive barriers across the span and
+must not recreate the rejected per-writer or per-attention command topology.
+
 PaddleOCR represents the schema-default empty `avg_pool2d` stride as a
 schema-typed zero-leaf list recipe. Exact-SHA normal and alternate runs execute
 a 290-instruction immutable C++ plan with exact graph-versus-eager parity and

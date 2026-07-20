@@ -660,6 +660,17 @@ zero-bypass with the same 86 writers and memory deltas under 2.01%. This closes
 descriptor transport, not contiguous ownership or recorded execution; the
 later lifetime result above supersedes those writer-ownership counts.
 
+Exact source `57bb9f7123473f07df982063887d98be86196eac` completes the
+remaining transformer lifetime prerequisite. Twenty-one strict layer-scale,
+residual, and layernorm chains plus three shared-residual layer-scale chains
+become semantic instructions with one stable multiply scratch each and owned
+final outputs. Both DAv2 guards are bit-exact and zero-bypass; the plan has 85
+writers over 107 values in 14 slots and the repeat-live memory deltas remain
+below 2.7%. A 601.627-second RX 9070 soak checks 8,251 invocations and 33 guard
+recaptures with every registered gate passing. This closes the resource
+ownership gate for a checkpoint-aligned transformer recording experiment; it
+does not itself claim recorded commands or a fused shader.
+
 Exit criteria:
 
 - the C++ executor matches the Python correctness executor;
@@ -698,6 +709,15 @@ pools, counters, and mechanism tests were deleted. The next candidate must own
 a substantially larger checkpoint-aligned transformer span and derive barrier
 frontiers across that span. Neither one primary per writer nor one secondary
 per attention instruction is an eligible retry.
+
+That larger span now has semantic and lifetime ownership at exact source
+`57bb9f7123473f07df982063887d98be86196eac`: attention internals,
+linear-GELU outputs, and all 24 layer-scale residual boundaries have stable
+arena resources with a qualified soak. The next experiment may therefore
+build one cross-instruction barrier plan and reusable command unit for the
+checkpoint-aligned transformer span. Its preregistered GPU-work, command-record
+reduction, supported-default latency, flight-depth-times-arena memory, and soak
+gates remain unchanged.
 
 - record bounded Vulkan-only partitions against program-owned slots;
 - cache by graph, guard, device/driver, capability, layout, and weight version;

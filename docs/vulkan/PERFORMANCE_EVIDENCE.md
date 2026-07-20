@@ -51,6 +51,18 @@ invocations and 34 recaptures with every registered gate passing. Full hashes,
 counters, and artifact paths are in
 `dav2_graph_linear_gelu_resource_ownership_accepted_2026_07_20`.
 
+Exact source `57bb9f7123473f07df982063887d98be86196eac` completes the
+transformer resource-ownership prerequisite without enabling command replay.
+It lowers all 24 strict layer-scale multiplies into 21 scaled-add-layernorm and
+three scaled-add semantic instructions, reducing the DAv2 plan from 288 to 264
+instructions. Both guards remain bit-exact and zero-bypass; repeat-live
+high-water is 2.331%/2.693% above eager. A 601.627-second RX 9070 soak checked
+8,251 invocations and 33 recaptures with every registered gate passing. The
+30-sample absolute timings are retained but classified as ambient-contended
+because eager and graph both slowed materially; they are not a comparison to
+the earlier quiet baseline. Full counters, hashes, and artifact paths are in
+`dav2_graph_layer_scale_resource_ownership_accepted_2026_07_20`.
+
 Depth Anything V2 benchmark artifacts also include
 `vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
 present in the Vulkan debug snapshot. Treat that field as the per-run catalog
