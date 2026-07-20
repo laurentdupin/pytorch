@@ -921,6 +921,30 @@ utils::create_vulkan_graph_region_plan_conv2d_relu_conv2d(
       });
 }
 
+Tensor run_linear_gelu_region_out(
+    const Tensor& input,
+    const c10::intrusive_ptr<LinearPackedContext>& linear_context,
+    Tensor& output_target,
+    const char* const approximate) {
+  TORCH_INTERNAL_ASSERT(input.dim() >= 1);
+  const int64_t input_width = input.size(-1);
+  const int64_t row_count = input.numel() / input_width;
+  const Tensor input_2d = input.dim() == 2
+      ? input
+      : utils::reshape_inference(input, {row_count, input_width});
+  Tensor output_candidate = output_target;
+  Tensor output_2d =
+      run_linear_context_out(input_2d, linear_context, output_candidate);
+
+  std::vector<int64_t> output_sizes(input.sizes().begin(), input.sizes().end());
+  output_sizes.back() = output_2d.size(-1);
+  Tensor output_view = input.dim() == 2
+      ? output_2d
+      : utils::reshape_inference(output_2d, output_sizes);
+  gelu_buffer_inplace_vulkan(output_view, approximate);
+  return output_view;
+}
+
 std::optional<Tensor> run_vulkan_graph_region_plan_impl(
     const Tensor& input,
     const c10::intrusive_ptr<utils::VulkanGraphRegionPlan>& plan,
@@ -935,10 +959,8 @@ std::optional<Tensor> run_vulkan_graph_region_plan_impl(
       plan->schema().family ==
       utils::VulkanGraphRegionFamily::LinearGeluTanh) {
     if (output_target) {
-      Tensor output_view = run_linear_context_out(
-          input, plan->linear_context(0u), *output_target);
-      gelu_buffer_inplace_vulkan(output_view, "tanh");
-      return output_view;
+      return run_linear_gelu_region_out(
+          input, plan->linear_context(0u), *output_target, "tanh");
     }
     return at::gelu(
         run_linear_context(input, plan->linear_context(0u)), "tanh");
@@ -947,10 +969,8 @@ std::optional<Tensor> run_vulkan_graph_region_plan_impl(
       plan->schema().family ==
       utils::VulkanGraphRegionFamily::LinearGeluNone) {
     if (output_target) {
-      Tensor output_view = run_linear_context_out(
-          input, plan->linear_context(0u), *output_target);
-      gelu_buffer_inplace_vulkan(output_view, "none");
-      return output_view;
+      return run_linear_gelu_region_out(
+          input, plan->linear_context(0u), *output_target, "none");
     }
     return at::gelu(
         run_linear_context(input, plan->linear_context(0u)), "none");

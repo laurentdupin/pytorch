@@ -1288,7 +1288,7 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.cpp_plan.resource_write_count(), 6)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
 
-    def test_cpp_graph_plan_keeps_gelu_region_output_unowned(self):
+    def test_cpp_graph_plan_tracks_gelu_region_output_storage(self):
         class LinearGeluSin(torch.nn.Module):
             def __init__(self, approximate):
                 super().__init__()
@@ -1310,9 +1310,9 @@ class TestVulkanGraph(TestCase):
                 program = torch.vulkan.export_and_lower(model, tensor)
                 report = program.cpp_plan_report
 
-                self.assertEqual(report.resource_writer_instruction_count, 0)
-                self.assertEqual(report.resource_value_count, 0)
-                self.assertEqual(report.resource_slot_count, 0)
+                self.assertEqual(report.resource_writer_instruction_count, 1)
+                self.assertEqual(report.resource_value_count, 1)
+                self.assertEqual(report.resource_slot_count, 1)
                 with torch.inference_mode():
                     outputs = [program(tensor) for _ in range(3)]
                     actual = [output.cpu() for output in outputs]
@@ -1332,8 +1332,11 @@ class TestVulkanGraph(TestCase):
                             else 1e-4
                         ),
                     )
-                self.assertEqual(program.cpp_plan.resource_write_count(), 0)
-                self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+                self.assertEqual(
+                    program.cpp_plan.resource_write_count()
+                    + program.cpp_plan.resource_writer_bypass_count(),
+                    3,
+                )
 
     def test_cpp_graph_plan_keeps_conv_region_output_unowned(self):
         class ConvReluConvSin(torch.nn.Module):
@@ -1701,7 +1704,7 @@ class TestVulkanGraph(TestCase):
 
         self.assertEqual(
             program.cpp_plan_report.resource_writer_instruction_count,
-            1,
+            2,
         )
         output = program(tensor)
         torch.testing.assert_close(

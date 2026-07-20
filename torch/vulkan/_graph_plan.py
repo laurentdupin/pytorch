@@ -123,6 +123,7 @@ _RESOURCE_WRITER_OPERATOR_NAMES = frozenset(
     (
         "vulkan_prepack::run_linear_context",
         "vulkan_prepack::run_graph_add_layernorm_plan",
+        "vulkan_prepack::run_vulkan_graph_region_plan",
         "vulkan_prepack::run_graph_attention_math",
     )
 )
@@ -320,7 +321,24 @@ def _resource_output_descriptors(
     planning_context: VulkanGraphPlanningContext,
 ) -> tuple[_VulkanGraphResourceDescriptor | None, ...]:
     if output_count == 1:
-        return (_resource_descriptor(node.meta.get("val"), planning_context),)
+        descriptor = _resource_descriptor(node.meta.get("val"), planning_context)
+        if (
+            descriptor is not None
+            and node.meta.get("vulkan_graph_region_family")
+            in ("linear_gelu_tanh", "linear_gelu_none")
+            and len(descriptor.sizes) != 2
+        ):
+            row_count = 1
+            for size in descriptor.sizes[:-1]:
+                row_count *= size
+            descriptor = _VulkanGraphResourceDescriptor(
+                (row_count, descriptor.sizes[-1]),
+                descriptor.dtype,
+                descriptor.storage_type,
+                descriptor.memory_layout,
+                descriptor.execution_layout,
+            )
+        return (descriptor,)
 
     descriptors: list[_VulkanGraphResourceDescriptor | None] = [
         None
@@ -805,6 +823,12 @@ def compile_vulkan_graph_plan(
         if (
             operator_name not in _RESOURCE_WRITER_OPERATOR_NAMES
             or not instruction_output_ids
+        ):
+            continue
+        if (
+            operator_name == "vulkan_prepack::run_vulkan_graph_region_plan"
+            and node.meta.get("vulkan_graph_region_family")
+            not in ("linear_gelu_tanh", "linear_gelu_none")
         ):
             continue
         if any(alias_escapes[value_id] for value_id in instruction_output_ids):

@@ -63,6 +63,7 @@ enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   None,
   LinearContext,
   AddLayernormPlan,
+  LinearGeluRegionPlan,
   AttentionMath,
 };
 
@@ -161,6 +162,9 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
   }
   if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
     return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
+  }
+  if (operator_name == "vulkan_prepack::run_vulkan_graph_region_plan") {
+    return VulkanGraphPlanResourceWriterKind::LinearGeluRegionPlan;
   }
   if (operator_name == "vulkan_prepack::run_graph_attention_math") {
     return VulkanGraphPlanResourceWriterKind::AttentionMath;
@@ -502,6 +506,29 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
       stack.emplace_back(std::move(residual_output));
       stack.emplace_back(std::move(normalized_output));
       return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::LinearGeluRegionPlan: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 2u && stack[0].isTensor(),
+          "VulkanGraphPlan.v9 linear-GELU resource writer has invalid arguments");
+      const auto region_plan =
+          stack[1].toCustomClass<VulkanGraphRegionPlan>();
+      const VulkanGraphRegionFamily family = region_plan->schema().family;
+      if (
+          family != VulkanGraphRegionFamily::LinearGeluTanh &&
+          family != VulkanGraphRegionFamily::LinearGeluNone) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      auto result = try_run_vulkan_graph_region_plan_out(
+          stack[0].toTensor(), region_plan, *targets[0]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      stack.clear();
+      stack.emplace_back(std::move(*result));
+      return same_vulkan_storage(stack[0].toTensor(), *targets[0])
+          ? VulkanGraphPlanResourceWriteResult::Written
+          : VulkanGraphPlanResourceWriteResult::ProducedUnowned;
     }
     case VulkanGraphPlanResourceWriterKind::AttentionMath: {
       TORCH_CHECK(
@@ -1019,8 +1046,10 @@ bool VulkanGraphPlan::valid() const {
       return false;
     }
     if (
-        (instruction.resource_writer_kind ==
-             VulkanGraphPlanResourceWriterKind::LinearContext &&
+        ((instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::LinearContext ||
+          instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::LinearGeluRegionPlan) &&
          instruction.output_value_ids.size() != 1u) ||
         (instruction.resource_writer_kind ==
              VulkanGraphPlanResourceWriterKind::AddLayernormPlan &&
