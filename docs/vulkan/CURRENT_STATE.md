@@ -236,6 +236,30 @@ reported zero fallback, readback, writer bypass, or recorded-attention fields.
 Its census/parity SHA-256 values are
 `900e5cce9491231ea4b448168ea649915b38a32a39d54a1fef7b07235eb0e725`
 and `ab5819a0e745e29411b85faf3e9547635557a54a84064dfa0ce24cca9eadc37a`.
+
+Exact source `21d5d697f1164e359620ba824acbdbee07d180f5` closes the
+linear-GELU ownership gap without reviving command recording. Graph lowering
+provisions a stable flattened physical buffer for strict linear-GELU region
+outputs while C++ returns the logical rank-preserving view. Kernel routes that
+cannot honor the target remain explicit counted writer bypasses; both DAv2
+guards use the supported direct-buffer route. Their plans now report 82
+writers over 104 values in nine slots, 164 owned writes over two evidence
+invocations, and zero bypass or arena spill.
+
+The quiet 30-sample confirmation measured graph medians of 40.65/51.20 ms and
+p95 of 50.96/61.35 ms for 140x140/140x280. Against the exact restored default,
+the medians changed by -12.94%/+2.63%; repeat-live high-water changed by only
++0.194%/+0.406% and remains 2.23%/2.64% above supported eager. Graph/eager
+parity is bit-exact and graph/CPU max-abs is 0.003578/0.002488. The qualified
+RX 9070 soak ran 600.509 seconds with 8,502 checked invocations and 34 guard
+recaptures. Final Vulkan live bytes fell from 648,162,736 to 557,976,544,
+high-water was 671,655,024, and every registered lifetime, readback, fallback,
+recapture, and memory check passed. Exact soak and quiet-confirmation artifacts
+are under `agent_space/dav2_linear_gelu_owned_exact_21d5d697f11/` and
+`agent_space/dav2_linear_gelu_owned_quiet_confirm_21d5d697f11/`; the loaded
+`torch_cpu.dll` SHA-256 was
+`2f8947dc6b3c1845f778d33e0520f882cd37b7817c74e0dc8d3fa0d3b5f324b7`.
+
 The next recording attempt must own a substantially larger,
 checkpoint-aligned transformer span with barriers derived across the whole
 span; it must not retry one secondary command per attention instruction.

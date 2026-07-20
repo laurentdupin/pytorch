@@ -4759,6 +4759,103 @@
         "A future recording candidate must own a substantially larger checkpoint-aligned transformer span and derive frontier barriers across the whole span rather than inserting twelve attention entry boundaries.",
         "Rerun the same exact two-timestamp GPU-work gate before soak; lower host gaps cannot compensate for a GPU-work regression."
       ]
+    },
+    {
+      "id": "dav2_graph_linear_gelu_resource_ownership_accepted_2026_07_20",
+      "status": "accepted_default_fix",
+      "head": "21d5d697f1164e359620ba824acbdbee07d180f5",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Close the linear-GELU lifetime gap required before attempting a checkpoint-aligned transformer recording span."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. Exact runtime used torch_cpu.dll SHA-256 2f8947dc6b3c1845f778d33e0520f882cd37b7817c74e0dc8d3fa0d3b5f324b7.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "strict linear_gelu_tanh and linear_gelu_none semantic regions",
+        "flattened physical arena base with rank-preserving logical output",
+        "capability-dependent same-storage writer accounting",
+        "two-generation resource arena"
+      ],
+      "candidate": "Provision linear-GELU region outputs as direct width-packed physical resources, flatten the input before the linear out-contract, restore the logical rank after the write, and count kernel routes that rebind as explicit unowned results.",
+      "correctness": {
+        "status": "exact_and_qualified",
+        "tests": [
+          "174 Vulkan graph tests",
+          "24 Vulkan graph evidence tests",
+          "generic linear-GELU owned-or-bypass accounting",
+          "convolution-region exclusion",
+          "plan-destruction retirement",
+          "normal and alternate graph/eager max_abs 0",
+          "normal graph/CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph/CPU max_abs 0.0024883747 under 0.004",
+          "zero CPU fallback, unexpected readback, deferred values, writer bypass, arena spill, unsafe-slot leaks, and retirement failures"
+        ],
+        "soak_status": "passed_600_seconds_8502_invocations_34_recaptures"
+      },
+      "counters": {
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 9,
+        "resource_value_count": 104,
+        "resource_writer_instruction_count": 82,
+        "resource_write_count_per_two_invocations": 164,
+        "resource_writer_bypass_count": 0,
+        "normal_repeat_live_peak_over_eager_percent": 2.2324426692,
+        "alternate_repeat_live_peak_over_eager_percent": 2.6367251735,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "soak_invocation_count": 8502,
+        "soak_recapture_count": 34,
+        "soak_final_live_bytes": 557976544,
+        "soak_high_water_bytes": 671655024,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0,
+        "unsafe_slot_leak": 0,
+        "retirement_failure": 0
+      },
+      "timing_ms": {
+        "restored_normal_graph_median": 46.68925,
+        "candidate_normal_graph_median": 40.6499,
+        "normal_graph_median_delta_percent": -12.935,
+        "restored_alternate_graph_median": 49.884,
+        "candidate_alternate_graph_median": 51.19525,
+        "alternate_graph_median_delta_percent": 2.628,
+        "candidate_normal_graph_p95": 50.964025,
+        "candidate_alternate_graph_p95": 61.35443,
+        "measurement_repeats": 30,
+        "performance_claim": "Accept. The quiet confirmation stays inside the 5% median and repeat-live memory bars for both guards; the qualified soak passes every registered gate."
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "2f8947dc6b3c1845f778d33e0520f882cd37b7817c74e0dc8d3fa0d3b5f324b7",
+        "soak_census_sha256": "558422b003d53ad3723d082f2fd8ffc429720263c2e01ebcd3bd9da4b2f9bfc8",
+        "soak_parity_sha256": "fd7e1565a25cb8e99941972fef318b66b7963b3e162fc513c3f13da564f3f382",
+        "quiet_census_sha256": "bab2835943e7a4aa5301e3403ff122ea1ee0c38c7138ccd32a2c1ca1750b3bb8",
+        "quiet_parity_sha256": "612e25a076ab1ae2640c96fd4f0836ea323173a0d78d2281e0acf53580432717"
+      },
+      "baseline": {
+        "source_git_sha": "187e0ab74196e822aab8c6e21bb0edda24f02d8d",
+        "normal_graph_median_ms": 46.68925,
+        "alternate_graph_median_ms": 49.884,
+        "normal_repeat_live_high_water_bytes": 320334784,
+        "alternate_repeat_live_high_water_bytes": 457460688
+      },
+      "artifacts": [
+        "agent_space/dav2_linear_gelu_owned_exact_21d5d697f11/dav2_vits_linear_gelu_owned_export_census.json",
+        "agent_space/dav2_linear_gelu_owned_exact_21d5d697f11/dav2_vits_linear_gelu_owned_export_parity.json",
+        "agent_space/dav2_linear_gelu_owned_quiet_confirm_21d5d697f11/dav2_vits_linear_gelu_owned_quiet_export_census.json",
+        "agent_space/dav2_linear_gelu_owned_quiet_confirm_21d5d697f11/dav2_vits_linear_gelu_owned_quiet_export_parity.json"
+      ],
+      "decision": "Accept linear-GELU region resource ownership as default graph-plan behavior. Preserve explicit counted bypass for kernel routes that cannot honor the stable target. This closes 12 of the 36 continuity gaps in the DAv2 transformer span without introducing command recording.",
+      "revisit_conditions": [
+        "Do not require ownership from kernel routes that rebind their output; route-specific out-contract coverage must be proven first.",
+        "The remaining 24 layer-scale gaps require a semantic scale/add/layernorm ownership unit before checkpoint-aligned recording is retried.",
+        "Do not retry one secondary command buffer per attention instruction."
+      ]
     }
   ]
 }

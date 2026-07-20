@@ -39,6 +39,18 @@ Exact restored-default evidence at `187e0ab7419` confirms the recording fields
 are absent and records 46.69/49.88 ms graph medians for the 140x140/140x280
 guards with exact eager parity and the repeat-live memory gate intact.
 
+The subsequent accepted resource-ownership change at exact source
+`21d5d697f1164e359620ba824acbdbee07d180f5` is not a recording retry. It gives
+strict linear-GELU graph regions a flattened physical arena base and preserves
+their logical output shape. DAv2 grows from 70 to 82 active writers and from 92
+to 104 resource values, with one additional shared slot, zero writer bypass,
+and bit-exact graph/eager parity on both guards. Quiet 30-sample medians are
+40.65/51.20 ms versus the restored 46.69/49.88 ms; repeat-live high-water
+changes only +0.194%/+0.406%. A 600.509-second RX 9070 soak checked 8,502
+invocations and 34 recaptures with every registered gate passing. Full hashes,
+counters, and artifact paths are in
+`dav2_graph_linear_gelu_resource_ownership_accepted_2026_07_20`.
+
 Depth Anything V2 benchmark artifacts also include
 `vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
 present in the Vulkan debug snapshot. Treat that field as the per-run catalog
