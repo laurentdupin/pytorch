@@ -750,6 +750,18 @@ readbacks in caller-owned generation control. Those scalar loop decisions are
 not a reason to add model orchestration to eager Vulkan; the existing prefill
 and two-step decode graph evidence remains the model-core replacement gate.
 
+Exact source `11876b66a0c` also closes Lotus's current tensor-only UNet graph
+execution blocker generically. Diffusion SDPA no longer enters an eager-owned
+replay/flush while the C++ graph plan owns submission. The real 224-pixel
+`[1,4,28,28]` latent row executes a 1,183-instruction plan for two distinct
+inputs with zero graph fallback/readback and registered CPU/eager parity.
+Thirty-sample graph medians are 49%-54% below supported eager, but the
+steady-state repeat-live graph peak is 77.16 MB versus eager 34.02 MB. Lotus
+graph correctness coverage therefore advances while its 5% memory and soak
+gates remain open. The next Lotus performance/lifetime work must reduce
+graph-owned transient high-water generically; it must not restore the replay
+bridge or add a Lotus route.
+
 Exit criteria:
 
 - recorded partitions pass repeated-process correctness and lifetime tests;

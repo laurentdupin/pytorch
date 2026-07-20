@@ -4073,6 +4073,106 @@
       ]
     },
     {
+      "id": "lotus_unet_graph_submission_owner_2026_07_20",
+      "status": "accepted_default_fix",
+      "head": "11876b66a0c6516d9f6367bb28dc4e5d0abf668d",
+      "model_provenance": {
+        "models": [
+          "Lotus diffusion UNet"
+        ],
+        "inputs": [
+          "two distinct 1x4x28x28 latent inputs for the deployed 224-pixel geometry"
+        ],
+        "purpose": "Close the graph-owned submission boundary for the admitted 784-token diffusion SDPA runtime program and measure the real tensor-only UNet guard."
+      },
+      "device_notes": "RX 9070, Vulkan API 1.4.349, driver 8389003. Loaded torch_cpu.dll SHA-256 91fea190db7c23f122fce572ce07054108728a884c3a83f342c1d3ade986130b. The source-tree torch.version.git_version remains an older incremental-build identity, so this is exact-source backend evidence, not release-wheel identity evidence.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "DiffusionSDPAContract SquareSelfAttentionRuntimeShape",
+        "SDPAExecutionPolicyContract DiffusionMaterializedSquareRuntimeShape",
+        "graph-owned attention runtime-program execution",
+        "plain eager replay preserved outside graph ownership",
+        "fixed-shape 224-pixel Lotus UNet guard"
+      ],
+      "candidate": "When GraphProgramInvocationScope owns recording and submission, execute the already-selected attention runtime program directly in the outer transaction instead of entering the eager replay bridge, flushing its input uploads, and submitting a private command buffer.",
+      "correctness": {
+        "status": "passed_graph_coverage_memory_gate_open",
+        "tests": [
+          "cmake --build build --config Release --target torch_cpu -- /m:1 /nodeReuse:false",
+          "178 Vulkan graph tests",
+          "three focused eager/runtime-program SDPA tests",
+          "69 Vulkan governance tests after generated dependency-manifest refresh",
+          "Lotus compiled DTensor preflight",
+          "two distinct deployed-geometry UNet inputs"
+        ],
+        "graph_fallback": 0,
+        "graph_sync_readback": 0,
+        "graph_deferred_values": 0,
+        "normal_graph_vs_eager_max_abs": 0.0000020265579223632812,
+        "alternate_graph_vs_eager_max_abs": 0.00000602006912231445,
+        "normal_graph_vs_cpu_max_abs": 0.00022101402282714844,
+        "alternate_graph_vs_cpu_max_abs": 0.000976264476776123,
+        "eager_tolerance": {
+          "rtol": 0.0001,
+          "atol": 0.0001
+        },
+        "cpu_tolerance": {
+          "rtol": 0.001,
+          "atol": 0.001
+        },
+        "qualified_soak": "not_run_after_repeat-live_memory_gate_failed"
+      },
+      "counters": {
+        "instruction_count": 1183,
+        "resource_slot_count": 30,
+        "resource_value_count": 282,
+        "resource_writer_instruction_count": 250,
+        "resource_arena_flight_depth": 2,
+        "resource_writer_bypass_count": 0,
+        "queue_submits_per_two_checked_graph_invocations": 90
+      },
+      "timing_ms": {
+        "normal_supported_eager_median": 1241.350,
+        "normal_supported_eager_p95": 2000.279,
+        "normal_graph_median": 575.723,
+        "normal_graph_p95": 669.872,
+        "normal_graph_median_reduction_percent": 53.621,
+        "alternate_supported_eager_median": 1091.319,
+        "alternate_supported_eager_p95": 1336.360,
+        "alternate_graph_median": 558.424,
+        "alternate_graph_p95": 594.355,
+        "alternate_graph_median_reduction_percent": 48.830,
+        "measurement_repeats": 30,
+        "performance_claim": "Graph execution is materially faster on both distinct deployed-geometry inputs, but this is not a promotion because the repeat-live memory gate fails."
+      },
+      "memory_bytes": {
+        "normal_supported_eager_peak_delta": 1247328376,
+        "normal_graph_first_peak_delta": 140143704,
+        "normal_graph_repeat_live_peak_delta": 93687920,
+        "alternate_supported_eager_peak_delta": 34020136,
+        "alternate_graph_first_peak_delta": 114237504,
+        "alternate_graph_repeat_live_peak_delta": 77162896,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "interpretation": "The steady-state distinct-input graph repeat retains materially more transient Vulkan memory than supported eager. Correctness and latency are accepted; memory promotion and the qualified soak remain blocked."
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "91fea190db7c23f122fce572ce07054108728a884c3a83f342c1d3ade986130b",
+        "torch_python_sha256": "71494ca5c170bdf96cbacd9ded13910857f48ad8c38660eb968f9949072032f0",
+        "artifact_census_sha256": "270da58fda3bcd4ab2634e1ca4a6ea5c38186e4af22f82d26dd98f44ad9556cc",
+        "artifact_parity_sha256": "04de245aa0be7a89c6ee675b9a459c894145706351574ebb814248b22ab0294f"
+      },
+      "artifacts": [
+        "agent_space/lotus_step15_graph_224_exact_11876b66/lotus_unet_224_export_census.json",
+        "agent_space/lotus_step15_graph_224_exact_11876b66/lotus_unet_224_export_parity.json"
+      ],
+      "decision": "Accept the graph-submission ownership correction and preserve plain eager replay outside graph execution. Treat the 224-pixel Lotus tensor-only UNet graph as correctness/coverage-complete but not memory-promotable. Do not run the qualified soak or make a production-default claim until repeat-live peak returns inside the 5% supported-eager gate.",
+      "revisit_conditions": [
+        "Attribute the 43.14 MiB steady-state repeat-live excess to graph-owned resource slots versus submission-scoped SDPA/materialization transients.",
+        "Reduce the peak generically without restoring private replay submission or model-specific policy.",
+        "Rerun the same two-input parity, 30-sample latency, 5% memory, and qualified-soak gates before promotion."
+      ]
+    },
+    {
       "id": "dav2_whole_transformer_secondary_recording_rejected_2026_07_20",
       "status": "rejected_mixed",
       "head": "e574ef28c9a9a191ee2ba181ec9d8492693bfa19",

@@ -25,6 +25,18 @@ The compact current decision table is
 check it before adding another DAv2-driven canary so already viable, slower,
 unsafe, evidence-only, and blocked paths are not rediscovered.
 
+The Lotus 224-pixel tensor-only UNet graph at exact source `11876b66a0c`
+accepts the graph-owned SDPA runtime-program correction but remains
+memory-gated. Both distinct `[1,4,28,28]` inputs execute the 1,183-instruction
+C++ plan with zero graph fallback/readback and registered diffusion parity.
+Thirty-sample graph medians are 575.7/558.4 ms versus supported eager
+1241.4/1091.3 ms. The second steady-state repeat-live graph peak is 77.16 MB
+versus eager 34.02 MB, so the 5% limit fails and no qualified soak was run.
+Do not restore eager replay inside the graph; reduce the graph-owned transient
+high-water before making a Lotus performance/default claim. Exact counters,
+hashes, and artifact paths are in
+`lotus_unet_graph_submission_owner_2026_07_20`.
+
 The attention-secondary recording candidate at exact source `7aa00edcce9` is
 rejected and deleted. It preserved exact DAv2 parity and passed the memory
 gate, reduced observed submissions to 9/8, and nearly eliminated measured

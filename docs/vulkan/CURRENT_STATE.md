@@ -3683,6 +3683,24 @@ model gate and they do not imply model-specific production routes.
   loaded `torch_cpu.dll` SHA-256 is
   `b2b5416cf30baca41508a5324dc85911dfc6a6c01cf82d5b2671a6b4ba03df5e`.
 
+  Exact source `11876b66a0c` closes the current tensor-only UNet graph
+  submission blocker at the deployed 224-pixel latent geometry. The semantic
+  `[1,1,784,512]` diffusion SDPA runtime program now executes directly under
+  the outer `VulkanGraphPlan` submission owner instead of entering the eager
+  replay bridge and attempting a forbidden pending-command flush. Plain eager
+  retains its replay path. The 1,183-instruction fixed-shape C++ plan executes
+  two distinct `[1,4,28,28]` inputs with zero graph fallback, readback, or
+  deferred values. Graph/eager maximum error is `2.03e-6`/`6.02e-6` and graph/
+  CPU maximum error is `2.21e-4`/`9.76e-4`, inside the registered diffusion
+  tolerances. Thirty-sample graph medians are 575.7/558.4 ms versus supported
+  eager 1241.4/1091.3 ms. This is not yet a memory promotion: the second
+  steady-state repeat-with-prior-output-live graph peak is 77.16 MB versus
+  eager 34.02 MB, so the 5% gate fails and no qualified soak was run. Exact
+  artifacts are under
+  `agent_space/lotus_step15_graph_224_exact_11876b66/`; the loaded
+  `torch_cpu.dll` SHA-256 is
+  `91FEA190DB7C23F122FCE572CE07054108728A884C3A83F342C1D3ADE986130B`.
+
 Benchmark-local distributed shims must stay import-only and single-process.
 `_c10d_functional.wait_tensor` may be an identity shim for telemetry imports;
 collective and DTensor op schema stubs must raise if executed. Do not add
