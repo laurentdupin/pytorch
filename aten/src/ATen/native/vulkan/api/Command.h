@@ -22,7 +22,8 @@ class CommandBuffer final {
   explicit CommandBuffer(
       VkCommandBuffer,
       const VkCommandBufferUsageFlags,
-      PFN_vkCmdPipelineBarrier2);
+      PFN_vkCmdPipelineBarrier2,
+      VkCommandBufferLevel = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
   CommandBuffer(const CommandBuffer&) = delete;
   CommandBuffer& operator=(const CommandBuffer&) = delete;
@@ -69,12 +70,17 @@ class CommandBuffer final {
   VkCommandBuffer handle_;
   VkCommandBufferUsageFlags flags_;
   PFN_vkCmdPipelineBarrier2 cmd_pipeline_barrier2_;
+  VkCommandBufferLevel level_;
   State state_;
   Bound bound_;
 
  public:
   inline bool is_reusable() {
     return !(flags_ & VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  }
+
+  inline bool is_secondary() const {
+    return level_ == VK_COMMAND_BUFFER_LEVEL_SECONDARY;
   }
 
   inline void invalidate() {
@@ -90,6 +96,7 @@ class CommandBuffer final {
 
   void insert_barrier(PipelineBarrier& pipeline_barrier);
   void dispatch(const utils::uvec3&);
+  void execute_commands(const CommandBuffer&);
 
   void copy_buffer_to_buffer(
       const api::VulkanBuffer&,
@@ -126,6 +133,7 @@ class CommandBuffer final {
   void reset_querypool(VkQueryPool, const uint32_t, const uint32_t) const;
 
   VkCommandBuffer get_submit_handle(const bool final_use = false);
+  VkCommandBuffer get_execute_handle() const;
 
   inline operator bool() const {
     return VK_NULL_HANDLE != handle_;
@@ -157,16 +165,20 @@ class CommandPool final {
   CommandPoolConfig config_;
   // New Buffers
   std::mutex mutex_;
-  std::vector<VkCommandBuffer> buffers_;
-  size_t in_use_;
+  std::vector<VkCommandBuffer> primary_buffers_;
+  std::vector<VkCommandBuffer> secondary_buffers_;
+  size_t primary_in_use_;
+  size_t secondary_in_use_;
 
  public:
-  CommandBuffer get_new_cmd(bool reusable = false);
+  CommandBuffer get_new_cmd(
+      bool reusable = false,
+      VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
   void flush();
 
  private:
-  void allocate_new_batch(const uint32_t);
+  void allocate_new_batch(const uint32_t, VkCommandBufferLevel);
 };
 
 } // namespace api

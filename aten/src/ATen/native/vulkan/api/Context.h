@@ -121,6 +121,7 @@ class TORCH_API Context final {
   class TORCH_API ScopedExternalCommandRecording final {
    public:
     ScopedExternalCommandRecording(Context&, CommandBuffer&);
+    ScopedExternalCommandRecording(Context&, CommandBuffer&, DescriptorPool&);
 
     ScopedExternalCommandRecording(const ScopedExternalCommandRecording&) =
         delete;
@@ -413,6 +414,7 @@ class TORCH_API Context final {
       std::unique_ptr<StackRegionExitWorkBatch> batch);
   CommandBuffer* external_recording_cmd();
   const CommandBuffer* external_recording_cmd() const;
+  bool is_graph_secondary_recording() const;
   bool is_inside_owned_program_recording() const;
   bool graph_program_invocation_active_for_current_thread() const;
   bool graph_program_invocation_active() const;
@@ -428,7 +430,9 @@ class TORCH_API Context final {
       uint64_t command_buffer_recording_id,
       uint64_t submit_epoch_before,
       uint64_t pending_dispatch_count);
-  void begin_external_command_recording(CommandBuffer&);
+  void begin_external_command_recording(
+      CommandBuffer&,
+      DescriptorPool* = nullptr);
   void end_external_command_recording();
   uint32_t gpu_profile_begin(
       CommandBuffer&,
@@ -480,6 +484,12 @@ class TORCH_API Context final {
   }
 
   bool owns_graph_program_invocation() const;
+  std::unique_ptr<CommandPool> create_graph_program_command_pool() const;
+  std::unique_ptr<DescriptorPool> create_graph_program_descriptor_pool() const;
+  void execute_secondary_command_buffer(
+      PipelineBarrier&,
+      const CommandBuffer&,
+      uint32_t represented_dispatch_count);
   VulkanSubmission submit_graph_program_checkpoint();
   void request_graph_program_checkpoint(
       std::function<void()> cleanup,
@@ -1337,6 +1347,8 @@ inline bool Context::submit_compute_job(
   const bool external_recording = external_recording_cmd() != nullptr;
   const bool graph_program_invocation =
       graph_program_invocation_active_for_current_thread();
+  const bool graph_secondary_recording =
+      external_recording && is_graph_secondary_recording();
   VK_CHECK_COND(
       !graph_program_invocation_active() || graph_program_invocation,
       "Vulkan graph program invocation is active on another thread");
@@ -1348,7 +1360,8 @@ inline bool Context::submit_compute_job(
       "Vulkan stack planned recording used from the wrong thread");
   VK_CHECK_COND(
       !graph_program_invocation ||
-          (!external_recording && !stack_planned_recording &&
+          ((!external_recording || graph_secondary_recording) &&
+           !stack_planned_recording &&
            fence_handle == VK_NULL_HANDLE),
       "Vulkan graph program invocation requires normal unfenced Context "
       "recording");

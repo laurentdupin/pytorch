@@ -416,6 +416,15 @@ def _execution_plan_summary(
                 "resource_writer_bypass_count": (
                     plan.resource_writer_bypass_count()
                 ),
+                "recorded_attention_capture_count": (
+                    plan.recorded_attention_capture_count()
+                ),
+                "recorded_attention_replay_count": (
+                    plan.recorded_attention_replay_count()
+                ),
+                "recorded_attention_failure_count": (
+                    plan.recorded_attention_failure_count()
+                ),
             }
         )
     return summary
