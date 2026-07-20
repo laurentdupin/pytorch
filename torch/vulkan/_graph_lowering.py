@@ -117,6 +117,8 @@ class VulkanStaticAddLayernormRegionReport:
     skipped_count: int
     plan_factory: str
     nodes: tuple[VulkanStaticAddLayernormRegionNodeReport, ...]
+    scaled_add_layernorm_count: int = 0
+    scaled_add_count: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2648,6 +2650,83 @@ def _is_add_tensor_alpha_one(node: torch.fx.Node) -> tuple[bool, str]:
     return True, ""
 
 
+def _match_static_layer_scale_add(
+    graph_module: torch.fx.GraphModule,
+    add_node: torch.fx.Node,
+) -> tuple[torch.fx.Node, torch.fx.Node, torch.fx.Node, torch.fx.Node] | None:
+    add_is_legal, _ = _is_add_tensor_alpha_one(add_node)
+    if not add_is_legal:
+        return None
+    for mul_index, residual_index in ((0, 1), (1, 0)):
+        mul_node = add_node.args[mul_index]
+        residual_node = add_node.args[residual_index]
+        if not (
+            isinstance(mul_node, torch.fx.Node)
+            and isinstance(residual_node, torch.fx.Node)
+            and mul_node.op == "call_function"
+            and mul_node.target == torch.ops.aten.mul.Tensor
+            and len(mul_node.args) == 2
+            and not mul_node.kwargs
+            and tuple(mul_node.users) == (add_node,)
+        ):
+            continue
+        branch_node: torch.fx.Node | None = None
+        scale_node: torch.fx.Node | None = None
+        for branch_index, scale_index in ((0, 1), (1, 0)):
+            branch_candidate = mul_node.args[branch_index]
+            scale_candidate = mul_node.args[scale_index]
+            if not (
+                isinstance(branch_candidate, torch.fx.Node)
+                and isinstance(scale_candidate, torch.fx.Node)
+                and scale_candidate.op == "get_attr"
+            ):
+                continue
+            scale = _resolve_graph_attr(graph_module, str(scale_candidate.target))
+            if not (
+                isinstance(scale, torch.Tensor)
+                and scale.dtype is torch.float32
+                and scale.dim() == 1
+            ):
+                continue
+            branch_node = branch_candidate
+            scale_node = scale_candidate
+            break
+        if branch_node is None or scale_node is None:
+            continue
+        residual_shape = _node_tensor_shape(residual_node)
+        branch_shape = _node_tensor_shape(branch_node)
+        mul_shape = _node_tensor_shape(mul_node)
+        if (
+            residual_shape is None
+            or branch_shape is None
+            or mul_shape is None
+            or len(residual_shape) < 1
+            or len(residual_shape) > 4
+            or len(branch_shape) != len(residual_shape)
+            or len(mul_shape) != len(residual_shape)
+            or any(
+                not _shape_dimensions_identical(left, right)
+                for left, right in zip(residual_shape, branch_shape)
+            )
+            or any(
+                not _shape_dimensions_identical(left, right)
+                for left, right in zip(residual_shape, mul_shape)
+            )
+        ):
+            continue
+        scale = _resolve_graph_attr(graph_module, str(scale_node.target))
+        assert isinstance(scale, torch.Tensor)
+        if not _shape_dimensions_identical(residual_shape[-1], scale.numel()):
+            continue
+        if any(
+            _node_tensor_dtype(node) is not torch.float32
+            for node in (residual_node, branch_node, mul_node, add_node)
+        ):
+            continue
+        return residual_node, branch_node, scale_node, mul_node
+    return None
+
+
 def _graph_owned_linear_context_attr(
     graph_module: torch.fx.GraphModule,
     node: torch.fx.Node,
@@ -3951,6 +4030,8 @@ def lower_static_add_layernorm_regions(
     lowered_count = 0
     rejected_count = 0
     skipped_count = 0
+    scaled_add_layernorm_count = 0
+    scaled_add_count = 0
 
     def append_report(
         *,
@@ -4158,12 +4239,26 @@ def lower_static_add_layernorm_regions(
             if context_reference_count == 1 and not context_has_other_users
             else "shared_context_retained_original_attr"
         )
+        layer_scale_match = _match_static_layer_scale_add(
+            graph_module, add_node
+        )
         with graph.inserting_before(add_node):
             plan_node = graph.create_node("get_attr", plan_attr, (), {})
-            region_node = graph.call_function(
-                torch.ops.vulkan_prepack.run_graph_add_layernorm_plan.default,
-                args=(add_node.args[0], add_node.args[1], plan_node),
-            )
+            if layer_scale_match is None:
+                region_node = graph.call_function(
+                    torch.ops.vulkan_prepack.run_graph_add_layernorm_plan.default,
+                    args=(add_node.args[0], add_node.args[1], plan_node),
+                )
+            else:
+                residual, branch, scale, _ = layer_scale_match
+                region_node = graph.call_function(
+                    (
+                        torch.ops.vulkan_prepack
+                        .run_graph_scaled_add_layernorm_plan.default
+                    ),
+                    args=(residual, branch, scale, plan_node),
+                )
+                scaled_add_layernorm_count += 1
             residual_node = graph.call_function(operator.getitem, (region_node, 0))
             normalized_node = graph.call_function(operator.getitem, (region_node, 1))
         residual_node.meta = dict(add_node.meta)
@@ -4174,6 +4269,10 @@ def lower_static_add_layernorm_regions(
         if not context_node.users:
             graph.erase_node(context_node)
         graph.erase_node(add_node)
+        if layer_scale_match is not None:
+            mul_node = layer_scale_match[3]
+            if not mul_node.users:
+                graph.erase_node(mul_node)
         replaced_context_attrs.add(context_attr)
         append_report(
             node_name=region_node.name,
@@ -4189,7 +4288,28 @@ def lower_static_add_layernorm_regions(
         )
         lowered_count += 1
 
-    if lowered_count:
+    for add_node in tuple(graph.nodes):
+        if add_node.op != "call_function":
+            continue
+        layer_scale_match = _match_static_layer_scale_add(
+            graph_module, add_node
+        )
+        if layer_scale_match is None:
+            continue
+        residual, branch, scale, mul_node = layer_scale_match
+        with graph.inserting_before(add_node):
+            scaled_add = graph.call_function(
+                torch.ops.vulkan_prepack.run_graph_scaled_add.default,
+                args=(residual, branch, scale),
+            )
+        scaled_add.meta = dict(add_node.meta)
+        add_node.replace_all_uses_with(scaled_add)
+        graph.erase_node(add_node)
+        if not mul_node.users:
+            graph.erase_node(mul_node)
+        scaled_add_count += 1
+
+    if lowered_count or scaled_add_count:
         graph.eliminate_dead_code()
         for context_attr in replaced_context_attrs:
             _delete_graph_attr_if_unreferenced(graph_module, context_attr)
@@ -4204,6 +4324,8 @@ def lower_static_add_layernorm_regions(
         skipped_count=skipped_count,
         plan_factory="vulkan_prepack::create_graph_add_layernorm_plan",
         nodes=tuple(reports),
+        scaled_add_layernorm_count=scaled_add_layernorm_count,
+        scaled_add_count=scaled_add_count,
     )
 
 

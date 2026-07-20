@@ -2105,6 +2105,24 @@ Tensor add_buffer_out_vulkan(
       callsite == nullptr ? "add_buffer_out_vulkan" : callsite);
 }
 
+Tensor mul_buffer_out_vulkan(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& output,
+    const char* callsite) {
+  TORCH_CHECK(
+      should_run_buffer_binary_tensor(self, other),
+      "Vulkan mul_buffer_out expects float buffer-backed tensors");
+  return binary_op_tensor_buffer_impl(
+      self,
+      other,
+      std::nullopt,
+      VK_KERNEL(buffer_mul),
+      BinaryOpKind::Mul,
+      &output,
+      callsite == nullptr ? "mul_buffer_out_vulkan" : callsite);
+}
+
 std::optional<Tensor> try_add_scaled_buffer_out_vulkan(
     const Tensor& self_arg,
     const Tensor& other_arg,

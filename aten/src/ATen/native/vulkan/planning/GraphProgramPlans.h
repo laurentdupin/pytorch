@@ -233,6 +233,34 @@ try_run_graph_add_layernorm_plan_out(
     Tensor& residual_output,
     Tensor& normalized_output);
 
+Tensor run_graph_scaled_add(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale);
+
+std::optional<Tensor> try_run_graph_scaled_add_out(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale,
+    Tensor& scaled_scratch,
+    Tensor& residual_output);
+
+std::tuple<Tensor, Tensor> run_graph_scaled_add_layernorm_plan(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale,
+    const c10::intrusive_ptr<GraphAddLayernormPlan>& plan);
+
+std::optional<std::tuple<Tensor, Tensor>>
+try_run_graph_scaled_add_layernorm_plan_out(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale,
+    const c10::intrusive_ptr<GraphAddLayernormPlan>& plan,
+    Tensor& scaled_scratch,
+    Tensor& residual_output,
+    Tensor& normalized_output);
+
 struct StaticConv2dReluPlanSchema final {
   const char* program_name{"StaticConv2dReluRegion"};
   const char* version{"v1"};

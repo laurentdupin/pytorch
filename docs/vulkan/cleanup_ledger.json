@@ -1275,6 +1275,8 @@
         "operator_schema:vulkan_prepack::run_conv1d_context",
         "operator_schema:vulkan_prepack::run_conv2d_context",
         "operator_schema:vulkan_prepack::run_graph_add_layernorm_plan",
+        "operator_schema:vulkan_prepack::run_graph_scaled_add",
+        "operator_schema:vulkan_prepack::run_graph_scaled_add_layernorm_plan",
         "operator_schema:vulkan_prepack::run_graph_attention_math",
         "operator_schema:vulkan_prepack::run_graph_conv2d_relu_plan",
         "operator_schema:vulkan_prepack::run_gru_context",

@@ -486,6 +486,38 @@ def _is_graph_owned_static_add_layernorm_plan(
     return isinstance(getattr(graph_module, plan_attr), torch.ScriptObject)
 
 
+def _is_graph_owned_static_scaled_add_layernorm_plan(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> bool:
+    if len(node.args) != 4 or node.kwargs:
+        return False
+    plan_node = node.args[3]
+    if not isinstance(plan_node, torch.fx.Node) or plan_node.op != "get_attr":
+        return False
+    plan_attr = str(plan_node.target)
+    return (
+        plan_attr.startswith("_vulkan_static_add_layernorm_plan_")
+        and hasattr(graph_module, plan_attr)
+        and isinstance(getattr(graph_module, plan_attr), torch.ScriptObject)
+    )
+
+
+def _is_graph_static_scaled_add(
+    graph_module: torch.fx.GraphModule,
+    node: torch.fx.Node,
+) -> bool:
+    if not (
+        len(node.args) == 3
+        and not node.kwargs
+        and all(isinstance(argument, torch.fx.Node) for argument in node.args)
+        and node.args[2].op == "get_attr"
+    ):
+        return False
+    scale_attr = str(node.args[2].target)
+    return isinstance(_get_graph_attr(graph_module, scale_attr), torch.Tensor)
+
+
 def _is_graph_owned_static_conv2d_relu_plan(
     graph_module: torch.fx.GraphModule,
     node: torch.fx.Node,
@@ -629,6 +661,47 @@ def _classify_node(
                 operator_name,
                 "lowered_vulkan",
                 "graph_owned_static_add_layernorm_plan",
+            )
+        if operator_name == "vulkan_prepack::run_graph_scaled_add":
+            if not _is_graph_static_scaled_add(graph_module, node):
+                return VulkanGraphNodeRecord(
+                    index,
+                    node.name,
+                    node.op,
+                    operator_name,
+                    "unsupported",
+                    "run_graph_scaled_add_missing_static_scale",
+                )
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                operator_name,
+                "lowered_vulkan",
+                "graph_owned_static_scaled_add",
+            )
+        if (
+            operator_name
+            == "vulkan_prepack::run_graph_scaled_add_layernorm_plan"
+        ):
+            if not _is_graph_owned_static_scaled_add_layernorm_plan(
+                graph_module, node
+            ):
+                return VulkanGraphNodeRecord(
+                    index,
+                    node.name,
+                    node.op,
+                    operator_name,
+                    "unsupported",
+                    "run_graph_scaled_add_layernorm_plan_missing_graph_owned_plan",
+                )
+            return VulkanGraphNodeRecord(
+                index,
+                node.name,
+                node.op,
+                operator_name,
+                "lowered_vulkan",
+                "graph_owned_static_scaled_add_layernorm_plan",
             )
         if operator_name == "vulkan_prepack::run_graph_conv2d_relu_plan":
             if not _is_graph_owned_static_conv2d_relu_plan(graph_module, node):

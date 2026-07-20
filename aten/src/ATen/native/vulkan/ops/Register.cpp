@@ -54,6 +54,12 @@ namespace native {
 namespace vulkan {
 namespace ops {
 
+Tensor mul_buffer_out_vulkan(
+    const Tensor& self,
+    const Tensor& other,
+    Tensor& output,
+    const char* callsite);
+
 namespace {
 
 void log_vulkan_prepack_synchronize_stage(const char* stage) {
@@ -680,6 +686,87 @@ utils::try_run_graph_add_layernorm_plan_out(
     return std::nullopt;
   }
   return std::make_tuple(outputs->first, outputs->second);
+}
+
+namespace {
+
+bool is_graph_scaled_add_contract(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale) {
+  return residual.is_vulkan() && branch.is_vulkan() && scale.is_vulkan() &&
+      residual.scalar_type() == kFloat && branch.scalar_type() == kFloat &&
+      scale.scalar_type() == kFloat && residual.sizes().equals(branch.sizes()) &&
+      residual.dim() >= 1 && residual.dim() <= 4 && scale.dim() == 1 &&
+      scale.size(0) == residual.size(-1);
+}
+
+} // namespace
+
+Tensor utils::run_graph_scaled_add(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale) {
+  TORCH_CHECK(
+      is_graph_scaled_add_contract(residual, branch, scale),
+      "StaticScaledAddRegion.v1 requires matching fp32 Vulkan tensors and a last-dimension scale");
+  return at::add(residual, at::mul(branch, scale));
+}
+
+std::optional<Tensor> utils::try_run_graph_scaled_add_out(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale,
+    Tensor& scaled_scratch,
+    Tensor& residual_output) {
+  if (!is_graph_scaled_add_contract(residual, branch, scale)) {
+    return std::nullopt;
+  }
+  Tensor scaled = mul_buffer_out_vulkan(
+      branch,
+      scale,
+      scaled_scratch,
+      "vulkan_prepack::run_graph_scaled_add.scale");
+  return add_buffer_out_vulkan(
+      residual,
+      scaled,
+      residual_output,
+      std::nullopt,
+      "vulkan_prepack::run_graph_scaled_add.residual");
+}
+
+std::tuple<Tensor, Tensor> utils::run_graph_scaled_add_layernorm_plan(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale,
+    const c10::intrusive_ptr<utils::GraphAddLayernormPlan>& plan) {
+  TORCH_CHECK(
+      is_graph_scaled_add_contract(residual, branch, scale),
+      "StaticScaledAddLayernormRegion.v1 requires matching fp32 Vulkan "
+      "tensors and a last-dimension scale");
+  Tensor scaled = at::mul(branch, scale);
+  return run_graph_add_layernorm_plan(residual, scaled, plan);
+}
+
+std::optional<std::tuple<Tensor, Tensor>>
+utils::try_run_graph_scaled_add_layernorm_plan_out(
+    const Tensor& residual,
+    const Tensor& branch,
+    const Tensor& scale,
+    const c10::intrusive_ptr<GraphAddLayernormPlan>& plan,
+    Tensor& scaled_scratch,
+    Tensor& residual_output,
+    Tensor& normalized_output) {
+  if (!is_graph_scaled_add_contract(residual, branch, scale)) {
+    return std::nullopt;
+  }
+  Tensor scaled = mul_buffer_out_vulkan(
+      branch,
+      scale,
+      scaled_scratch,
+      "vulkan_prepack::run_graph_scaled_add_layernorm_plan.scale");
+  return try_run_graph_add_layernorm_plan_out(
+      residual, scaled, plan, residual_output, normalized_output);
 }
 
 utils::GraphConv2dReluPlan::GraphConv2dReluPlan(
@@ -2915,6 +3002,14 @@ TORCH_LIBRARY(vulkan_prepack, m) {
       "__torch__.torch.classes.vulkan.GraphAddLayernormPlan plan) "
       "-> (Tensor residual_output, Tensor normalized_output)"));
   m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_graph_scaled_add("
+      "Tensor residual, Tensor branch, Tensor scale) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "vulkan_prepack::run_graph_scaled_add_layernorm_plan("
+      "Tensor residual, Tensor branch, Tensor scale, "
+      "__torch__.torch.classes.vulkan.GraphAddLayernormPlan plan) "
+      "-> (Tensor residual_output, Tensor normalized_output)"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
       "vulkan_prepack::run_qlinear_context(Tensor X, float scale, int zero_point, "
       "__torch__.torch.classes.vulkan.LinearPackedContext vk_context) -> Tensor Y"));
   m.def(TORCH_SELECTIVE_SCHEMA(
@@ -3684,6 +3779,13 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_add_layernorm_plan"),
       TORCH_FN(utils::run_graph_add_layernorm_plan));
+  m.impl(
+      TORCH_SELECTIVE_NAME("vulkan_prepack::run_graph_scaled_add"),
+      TORCH_FN(utils::run_graph_scaled_add));
+  m.impl(
+      TORCH_SELECTIVE_NAME(
+          "vulkan_prepack::run_graph_scaled_add_layernorm_plan"),
+      TORCH_FN(utils::run_graph_scaled_add_layernorm_plan));
   m.impl(
       TORCH_SELECTIVE_NAME("vulkan_prepack::run_layernorm_context"),
       TORCH_FN(run_layernorm_context));

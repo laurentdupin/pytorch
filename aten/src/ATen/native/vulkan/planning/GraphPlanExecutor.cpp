@@ -63,6 +63,8 @@ enum class VulkanGraphPlanResourceWriterKind : uint8_t {
   None,
   LinearContext,
   AddLayernormPlan,
+  ScaledAdd,
+  ScaledAddLayernormPlan,
   LinearGeluRegionPlan,
   AttentionMath,
 };
@@ -162,6 +164,13 @@ VulkanGraphPlanResourceWriterKind graph_resource_writer_kind(
   }
   if (operator_name == "vulkan_prepack::run_graph_add_layernorm_plan") {
     return VulkanGraphPlanResourceWriterKind::AddLayernormPlan;
+  }
+  if (operator_name == "vulkan_prepack::run_graph_scaled_add") {
+    return VulkanGraphPlanResourceWriterKind::ScaledAdd;
+  }
+  if (operator_name ==
+      "vulkan_prepack::run_graph_scaled_add_layernorm_plan") {
+    return VulkanGraphPlanResourceWriterKind::ScaledAddLayernormPlan;
   }
   if (operator_name == "vulkan_prepack::run_vulkan_graph_region_plan") {
     return VulkanGraphPlanResourceWriterKind::LinearGeluRegionPlan;
@@ -502,6 +511,64 @@ VulkanGraphPlanResourceWriteResult execute_resource_writer(
           same_vulkan_resource(residual_output, *targets[0]) &&
               same_vulkan_resource(normalized_output, *targets[1]),
           "VulkanGraphPlan.v9 add-layernorm resource writer rebound a stable slot");
+      stack.clear();
+      stack.emplace_back(std::move(residual_output));
+      stack.emplace_back(std::move(normalized_output));
+      return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::ScaledAdd: {
+      TORCH_CHECK(
+          targets.size() == 1u && stack.size() == 3u &&
+              stack[0].isTensor() && stack[1].isTensor() &&
+              stack[2].isTensor() &&
+              instruction.scratch_resource_slot_ids.size() == 1u,
+          "VulkanGraphPlan.v9 scaled-add resource writer has invalid arguments");
+      Tensor& scaled_scratch = plan.resource_tensor(
+          arena_index, instruction.scratch_resource_slot_ids[0]);
+      auto result = try_run_graph_scaled_add_out(
+          stack[0].toTensor(),
+          stack[1].toTensor(),
+          stack[2].toTensor(),
+          scaled_scratch,
+          *targets[0]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      TORCH_CHECK(
+          same_vulkan_resource(*result, *targets[0]),
+          "VulkanGraphPlan.v9 scaled-add resource writer rebound a stable slot");
+      stack.clear();
+      stack.emplace_back(std::move(*result));
+      return VulkanGraphPlanResourceWriteResult::Written;
+    }
+    case VulkanGraphPlanResourceWriterKind::ScaledAddLayernormPlan: {
+      TORCH_CHECK(
+          targets.size() == 2u && stack.size() == 4u &&
+              stack[0].isTensor() && stack[1].isTensor() &&
+              stack[2].isTensor() &&
+              instruction.scratch_resource_slot_ids.size() == 1u,
+          "VulkanGraphPlan.v9 scaled-add-layernorm resource writer has invalid arguments");
+      Tensor& scaled_scratch = plan.resource_tensor(
+          arena_index, instruction.scratch_resource_slot_ids[0]);
+      const auto region_plan =
+          stack[3].toCustomClass<GraphAddLayernormPlan>();
+      auto result = try_run_graph_scaled_add_layernorm_plan_out(
+          stack[0].toTensor(),
+          stack[1].toTensor(),
+          stack[2].toTensor(),
+          region_plan,
+          scaled_scratch,
+          *targets[0],
+          *targets[1]);
+      if (!result) {
+        return VulkanGraphPlanResourceWriteResult::NeedsDispatcher;
+      }
+      Tensor residual_output = std::get<0>(*result);
+      Tensor normalized_output = std::get<1>(*result);
+      TORCH_CHECK(
+          same_vulkan_resource(residual_output, *targets[0]) &&
+              same_vulkan_resource(normalized_output, *targets[1]),
+          "VulkanGraphPlan.v9 scaled-add-layernorm writer rebound a stable slot");
       stack.clear();
       stack.emplace_back(std::move(residual_output));
       stack.emplace_back(std::move(normalized_output));
@@ -1049,10 +1116,14 @@ bool VulkanGraphPlan::valid() const {
         ((instruction.resource_writer_kind ==
               VulkanGraphPlanResourceWriterKind::LinearContext ||
           instruction.resource_writer_kind ==
-              VulkanGraphPlanResourceWriterKind::LinearGeluRegionPlan) &&
+              VulkanGraphPlanResourceWriterKind::LinearGeluRegionPlan ||
+          instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::ScaledAdd) &&
          instruction.output_value_ids.size() != 1u) ||
-        (instruction.resource_writer_kind ==
-             VulkanGraphPlanResourceWriterKind::AddLayernormPlan &&
+        ((instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::AddLayernormPlan ||
+          instruction.resource_writer_kind ==
+              VulkanGraphPlanResourceWriterKind::ScaledAddLayernormPlan) &&
          instruction.output_value_ids.size() != 2u)) {
       return false;
     }
@@ -1551,9 +1622,14 @@ c10::intrusive_ptr<VulkanGraphPlan> create_vulkan_graph_plan(
         scratch_resource_slot_ids.empty() ||
             (resource_writer_kind ==
                  VulkanGraphPlanResourceWriterKind::AttentionMath &&
-             scratch_resource_slot_ids.size() == 3u),
+             scratch_resource_slot_ids.size() == 3u) ||
+            ((resource_writer_kind ==
+                  VulkanGraphPlanResourceWriterKind::ScaledAdd ||
+              resource_writer_kind ==
+                  VulkanGraphPlanResourceWriterKind::ScaledAddLayernormPlan) &&
+             scratch_resource_slot_ids.size() == 1u),
         "VulkanGraphPlan.v9 instruction scratch slots require the "
-        "attention-math resource writer");
+        "attention-math or scaled-add resource writer");
     for (const int64_t slot_id : scratch_resource_slot_ids) {
       TORCH_CHECK(
           slot_id >= 0 &&

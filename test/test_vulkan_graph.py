@@ -2795,6 +2795,143 @@ class TestVulkanGraph(TestCase):
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.last_deferred_values_created, 0)
 
+    def test_static_layer_scale_add_layernorm_preserves_eager_order(self):
+        class LayerScaleAddLayerNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = torch.nn.Parameter(
+                    torch.tensor([0.25, -0.5, 1.5, -2.0, 0.75])
+                )
+                self.norm = torch.nn.LayerNorm(5)
+
+            def forward(self, residual, branch):
+                updated = residual + branch * self.scale
+                return updated, self.norm(updated)
+
+        torch.manual_seed(370)
+        model = LayerScaleAddLayerNorm().eval()
+        batch = torch.export.Dim("batch", min=1, max=4)
+        sequence = torch.export.Dim("sequence", min=1, max=8)
+        example = (torch.randn(2, 3, 5), torch.randn(2, 3, 5))
+        program = torch.vulkan.export_and_lower(
+            model,
+            example,
+            dynamic_shapes=(
+                {0: batch, 1: sequence},
+                {0: batch, 1: sequence},
+            ),
+        )
+        self.assertEqual(
+            program.static_add_layernorm_regions.scaled_add_layernorm_count, 1
+        )
+        self.assertEqual(program.static_add_layernorm_regions.scaled_add_count, 0)
+        targets = tuple(
+            str(node.target) for node in program.graph_module.graph.nodes
+        )
+        self.assertIn(
+            "vulkan_prepack.run_graph_scaled_add_layernorm_plan.default",
+            targets,
+        )
+        self.assertNotIn("aten.mul.Tensor", targets)
+        eager = copy.deepcopy(model).to("vulkan").eval()
+        for shape in ((1, 8, 5), (4, 1, 5)):
+            residual = torch.randn(shape)
+            branch = torch.randn(shape)
+            with torch.inference_mode():
+                expected = tuple(
+                    value.cpu()
+                    for value in eager(
+                        residual.to("vulkan"), branch.to("vulkan")
+                    )
+                )
+                actual = tuple(
+                    value.cpu() for value in program(residual, branch)
+                )
+            self.assertEqual(actual, expected)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+
+    def test_static_layer_scale_shared_residual_uses_scaled_add_writer(self):
+        class SharedLayerScaleResidual(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = torch.nn.Parameter(
+                    torch.tensor([0.5, -1.0, 1.5, -2.0])
+                )
+                self.first_norm = torch.nn.LayerNorm(4)
+                self.second_norm = torch.nn.LayerNorm(4)
+
+            def forward(self, residual, branch):
+                updated = residual + branch * self.scale
+                return (
+                    self.first_norm(updated),
+                    self.second_norm(updated),
+                )
+
+        torch.manual_seed(371)
+        model = SharedLayerScaleResidual().eval()
+        inputs = (torch.randn(2, 3, 4), torch.randn(2, 3, 4))
+        program = torch.vulkan.export_and_lower(model, inputs)
+        self.assertEqual(
+            program.static_add_layernorm_regions.scaled_add_layernorm_count, 0
+        )
+        self.assertEqual(program.static_add_layernorm_regions.scaled_add_count, 1)
+        targets = tuple(
+            str(node.target) for node in program.graph_module.graph.nodes
+        )
+        self.assertIn("vulkan_prepack.run_graph_scaled_add.default", targets)
+        self.assertNotIn("aten.mul.Tensor", targets)
+        eager = copy.deepcopy(model).to("vulkan").eval()
+        with torch.inference_mode():
+            expected = tuple(
+                value.cpu()
+                for value in eager(*(value.to("vulkan") for value in inputs))
+            )
+            actual = tuple(value.cpu() for value in program(*inputs))
+        self.assertEqual(actual, expected)
+        self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
+        self.assertGreaterEqual(program.cpp_plan.resource_write_count(), 1)
+
+    def test_static_layer_scale_rejects_dynamic_or_nonvector_scale(self):
+        class DynamicScale(torch.nn.Module):
+            def forward(self, residual, branch, scale):
+                return residual + branch * scale
+
+        class MatrixScale(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = torch.nn.Parameter(torch.ones(1, 4))
+
+            def forward(self, residual, branch):
+                return residual + branch * self.scale
+
+        class SharedScaledBranch(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = torch.nn.Parameter(torch.ones(4))
+
+            def forward(self, residual, branch):
+                scaled = branch * self.scale
+                return residual + scaled, torch.sin(scaled)
+
+        cases = (
+            (DynamicScale(), (torch.randn(2, 4),) * 2 + (torch.randn(4),)),
+            (MatrixScale(), (torch.randn(2, 4), torch.randn(2, 4))),
+            (SharedScaledBranch(), (torch.randn(2, 4), torch.randn(2, 4))),
+        )
+        for model, inputs in cases:
+            program = torch.vulkan.export_and_lower(model.eval(), inputs)
+            self.assertEqual(
+                program.static_add_layernorm_regions.scaled_add_layernorm_count,
+                0,
+            )
+            self.assertEqual(
+                program.static_add_layernorm_regions.scaled_add_count, 0
+            )
+            targets = tuple(
+                str(node.target) for node in program.graph_module.graph.nodes
+            )
+            self.assertNotIn("vulkan_prepack.run_graph_scaled_add.default", targets)
+
     def test_cpp_graph_plan_rejects_multi_return_index_out_of_range(self):
         context = torch.ops.vulkan_prepack.create_layernorm_context.default(
             torch.ones(4),
