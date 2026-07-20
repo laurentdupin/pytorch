@@ -705,9 +705,6 @@ class TestVulkanGraphEvidence(TestCase):
                 resource_arena_spill_count=lambda: 1,
                 resource_write_count=lambda: 9,
                 resource_writer_bypass_count=lambda: 0,
-                recorded_attention_capture_count=lambda: 12,
-                recorded_attention_replay_count=lambda: 48,
-                recorded_attention_failure_count=lambda: 0,
             ),
             cpp_plan_report=report,
         )
@@ -753,9 +750,6 @@ class TestVulkanGraphEvidence(TestCase):
                 "resource_arena_spill_count": 1,
                 "resource_write_count": 9,
                 "resource_writer_bypass_count": 0,
-                "recorded_attention_capture_count": 12,
-                "recorded_attention_replay_count": 48,
-                "recorded_attention_failure_count": 0,
             },
         )
         self.assertEqual(

@@ -5011,57 +5011,9 @@ class TestVulkanGraph(TestCase):
             rtol=1e-4,
             atol=1e-4,
         )
-        third = program(query - 0.25, key, value)
-        self.assertEqual(
-            third.cpu(),
-            model(query - 0.25, key, value),
-            rtol=1e-4,
-            atol=1e-4,
-        )
         self.assertEqual(program.last_cpu_fallback_count, 0)
         self.assertEqual(program.last_sync_readback_count, 0)
         self.assertEqual(program.cpp_plan.resource_writer_bypass_count(), 0)
-        self.assertEqual(program.cpp_plan.recorded_attention_capture_count(), 0)
-        self.assertEqual(program.cpp_plan.recorded_attention_replay_count(), 0)
-        self.assertEqual(program.cpp_plan.recorded_attention_failure_count(), 0)
-
-    def test_static_attention_records_graph_owned_projected_inputs(self):
-        class ProjectedAttention(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.query = torch.nn.Linear(64, 64, bias=False)
-                self.key = torch.nn.Linear(64, 64, bias=False)
-                self.value = torch.nn.Linear(64, 64, bias=False)
-
-            def forward(self, tensor):
-                query = self.query(tensor).reshape(1, 2, 5, 32)
-                key = self.key(tensor).reshape(1, 2, 5, 32)
-                value = self.value(tensor).reshape(1, 2, 5, 32)
-                scores = torch.matmul(
-                    query * 0.125,
-                    key.transpose(-2, -1),
-                )
-                probability = torch.softmax(scores, dim=-1)
-                return torch.matmul(probability, value) + query
-
-        torch.manual_seed(0)
-        tensor = torch.randn(1, 5, 64)
-        model = ProjectedAttention().eval()
-        program = torch.vulkan.export_and_lower(model, tensor)
-
-        for delta in (0.0, 0.25, -0.25):
-            actual = program(tensor + delta).cpu()
-            self.assertEqual(
-                actual,
-                model(tensor + delta),
-                rtol=1e-4,
-                atol=1e-4,
-            )
-        self.assertEqual(program.last_cpu_fallback_count, 0)
-        self.assertEqual(program.last_sync_readback_count, 0)
-        self.assertEqual(program.cpp_plan.recorded_attention_capture_count(), 1)
-        self.assertEqual(program.cpp_plan.recorded_attention_replay_count(), 2)
-        self.assertEqual(program.cpp_plan.recorded_attention_failure_count(), 0)
 
     def test_static_attention_chain_preserves_externally_used_scores(self):
         class AttentionWithScores(torch.nn.Module):

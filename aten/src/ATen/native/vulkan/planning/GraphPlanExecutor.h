@@ -56,9 +56,6 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
   int64_t resource_arena_spill_count() const;
   int64_t resource_write_count() const;
   int64_t resource_writer_bypass_count() const;
-  int64_t recorded_attention_capture_count() const;
-  int64_t recorded_attention_replay_count() const;
-  int64_t recorded_attention_failure_count() const;
   int64_t value_count() const;
   int64_t output_count() const;
   bool submission_owned() const;
@@ -80,17 +77,6 @@ class VulkanGraphPlan final : public torch::jit::CustomClassHolder {
       const api::VulkanSubmission& submission);
   int64_t acquire_resource_arena(c10::DeviceIndex device_index);
   Tensor& resource_tensor(int64_t arena_index, int64_t resource_slot_id);
-  Tensor run_recorded_attention(
-      int64_t arena_index,
-      int64_t instruction_index,
-      const Tensor& query,
-      const Tensor& key,
-      const Tensor& value,
-      double scale,
-      Tensor& output,
-      Tensor& scaled_query,
-      Tensor& scores,
-      Tensor& probability);
   void record_resource_arena_submission(
       int64_t arena_index,
       const api::VulkanSubmission& submission);

@@ -201,6 +201,35 @@ the artifact also records that the unchanged Python binding still reported
 git version `7b20c872fb8`, so it is structural backend evidence rather than a
 release-build identity claim.
 
+Exact source `7aa00edcce9` then evaluated the first recorded use of those
+resources. Each of the 12 arena-stable attention instructions captured its
+four dispatches, descriptors, uniforms, and internal barriers into a reusable
+secondary command buffer executed inside the existing graph-owned primary.
+Caller-owned Q/K/V stayed on ordinary recording; graph-owned inputs captured
+once, exact storage/descriptor identity was checked on replay, and recording
+resources retired with the arena submission token. All 175 graph tests, 24
+graph-evidence tests, 10 cleanup tests, and 69 governance tests passed. Both
+DAv2 guards remained bit-exact with eager, capture failures and writer bypass
+were zero, and repeat-live high-water stayed within 2.04%/2.37% of eager.
+
+The candidate is nevertheless rejected and its implementation deleted. The
+30-sample medians were 44.84/47.83 ms, but the normal guard improved only
+2.56% against the preregistered 46.02 ms baseline. More decisively, isolated
+two-timestamp attribution measured 41.15/45.28 ms of GPU busy work versus the
+registered 23.31/24.71 ms baselines, regressions of 76.53%/83.25%. Observed
+submissions fell to 9/8 and inter-submit gaps approached zero, so the failure
+is not queue-submit count: twelve per-attention secondary boundaries made GPU
+execution substantially more expensive. No soak was run. Exact artifacts are
+under `agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/`;
+the census/parity SHA-256 values are
+`8e7e3873d2a61bc64a43ac22a55980138e5471341e013a79955e7e4813f979b0`
+and `74388f62e4db8ed71d2f4c01e9ad669b5aeb69aa60517ca26180abcb2c0e39f4`.
+The candidate `torch_cpu.dll` SHA-256 was
+`83b7c0ec621e5d606b86749aae0eabcd3256fb3a20604735db3b77ab57c4cf70`.
+The next recording attempt must own a substantially larger,
+checkpoint-aligned transformer span with barriers derived across the whole
+span; it must not retry one secondary command per attention instruction.
+
 Resource slots now carry explicit storage-type, GPU-memory-layout, and
 execution-layout fields from Python lowering into the C++ plan. Arena creation
 consumes that descriptor through the generic execution-object allocator while

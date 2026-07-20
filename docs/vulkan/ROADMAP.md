@@ -689,11 +689,15 @@ stable resources and descriptors without increasing primary command-buffer
 count per submission. Merely widening checkpoint cadence or replaying isolated
 writers is explicitly rejected.
 
-The active candidate records the attention semantic unit against the stable
-output and three scratch resources introduced by `0739ed0767e`. It must execute
-as a secondary command buffer within the existing primaries so that primary
-buffer and submission counts remain unchanged. Restoring a batch of
-fine-grained reusable primary buffers is not an eligible implementation.
+The attention-secondary candidate at `7aa00edcce9` recorded each of the 12
+semantic attention units against the stable output and three scratch resources
+introduced by `0739ed0767e`. It executed inside the existing primaries and
+reduced observed submissions and inter-submit gaps, but isolated GPU busy time
+regressed by 76.5%/83.2%. It was rejected before soak and all recording APIs,
+pools, counters, and mechanism tests were deleted. The next candidate must own
+a substantially larger checkpoint-aligned transformer span and derive barrier
+frontiers across that span. Neither one primary per writer nor one secondary
+per attention instruction is an eligible retry.
 
 - record bounded Vulkan-only partitions against program-owned slots;
 - cache by graph, guard, device/driver, capability, layout, and weight version;

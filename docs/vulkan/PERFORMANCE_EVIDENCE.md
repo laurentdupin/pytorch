@@ -25,6 +25,17 @@ The compact current decision table is
 check it before adding another DAv2-driven canary so already viable, slower,
 unsafe, evidence-only, and blocked paths are not rediscovered.
 
+The attention-secondary recording candidate at exact source `7aa00edcce9` is
+rejected and deleted. It preserved exact DAv2 parity and passed the memory
+gate, reduced observed submissions to 9/8, and nearly eliminated measured
+inter-submit gaps. However, two-timestamp attribution raised GPU busy time from
+23.31/24.71 ms to 41.15/45.28 ms for the 140x140/140x280 guards. The normal
+30-sample wall median improved only 2.56%, below the registered 10% threshold.
+Do not retry one reusable secondary per attention instruction; a future
+candidate must cover a larger checkpoint-aligned transformer span with
+cross-span barrier planning. Full counters, hashes, and artifact paths are in
+`dav2_graph_attention_secondary_recording_rejected_2026_07_20`.
+
 Depth Anything V2 benchmark artifacts also include
 `vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
 present in the Vulkan debug snapshot. Treat that field as the per-run catalog

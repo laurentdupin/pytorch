@@ -194,15 +194,6 @@ int register_vulkan_graph_plan() {
           .def(
               "resource_writer_bypass_count",
               &utils::VulkanGraphPlan::resource_writer_bypass_count)
-          .def(
-              "recorded_attention_capture_count",
-              &utils::VulkanGraphPlan::recorded_attention_capture_count)
-          .def(
-              "recorded_attention_replay_count",
-              &utils::VulkanGraphPlan::recorded_attention_replay_count)
-          .def(
-              "recorded_attention_failure_count",
-              &utils::VulkanGraphPlan::recorded_attention_failure_count)
           .def("value_count", &utils::VulkanGraphPlan::value_count)
           .def("output_count", &utils::VulkanGraphPlan::output_count)
           .def("submission_owned", &utils::VulkanGraphPlan::submission_owned)

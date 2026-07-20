@@ -4634,6 +4634,109 @@
         "Do not describe this as SDPA replacement: exact eager operation order is a correctness requirement for this instruction.",
         "Command recording must avoid the rejected one-primary-buffer-per-writer design and pass preregistered performance thresholds before soak promotion."
       ]
+    },
+    {
+      "id": "dav2_graph_attention_secondary_recording_rejected_2026_07_20",
+      "status": "rejected_gpu_work_regression",
+      "head": "7aa00edcce993dd38ff126d1143256c9791ebc32",
+      "model_provenance": {
+        "models": [
+          "DAv2 ViT-S"
+        ],
+        "inputs": [
+          "1x3x140x140",
+          "1x3x140x280"
+        ],
+        "purpose": "Evaluate the preregistered attention-partition candidate using reusable secondary command buffers inside the existing graph-owned primary command stream."
+      },
+      "device_notes": "RX 9070, Vulkan driver 8389003. The exact candidate runtime used torch_cpu.dll SHA-256 83b7c0ec621e5d606b86749aae0eabcd3256fb3a20604735db3b77ab57c4cf70.",
+      "contract_or_topology_scope": [
+        "VulkanGraphPlan.v9",
+        "12 semantic attention instructions per guard",
+        "four dispatches per recorded secondary command buffer",
+        "arena-owned query, key, value, output, scaled-query, score, and probability resources",
+        "one command and descriptor pool per arena generation",
+        "existing primary command stream and graph checkpoint policy",
+        "two-generation resource arena"
+      ],
+      "candidate": "Capture each arena-stable semantic attention instruction once into a reusable secondary command buffer, retain its descriptor and uniform resources with the arena generation, and execute it inside the existing primary command buffer after an explicit entry barrier.",
+      "correctness": {
+        "status": "exact_and_memory_safe_but_performance_rejected_before_soak",
+        "tests": [
+          "175 Vulkan graph tests",
+          "24 Vulkan graph evidence tests",
+          "10 Vulkan cleanup tests",
+          "69 Vulkan governance tests",
+          "normal and alternate graph/eager max_abs 0",
+          "normal graph/CPU max_abs 0.0035777092 under 0.004",
+          "alternate graph/CPU max_abs 0.0024883747 under 0.004",
+          "zero CPU fallback, unexpected readback, deferred values, writer bypass, capture failures, unsafe-slot leaks, and retirement failures",
+          "caller-owned Q/K/V non-capture and graph-owned projected Q/K/V capture/replay",
+          "partial-failure recovery, prior-live-output reuse, and plan-destruction retirement"
+        ],
+        "soak_status": "not_run_candidate_failed_preregistered_gpu_work_gate"
+      },
+      "counters": {
+        "capture_count_per_guard_program": 12,
+        "replay_count_in_each_30_sample_attribution": 384,
+        "capture_failure_count": 0,
+        "normal_observed_submissions_per_inference": 9,
+        "alternate_observed_submissions_per_inference": 8,
+        "resource_arena_flight_depth": 2,
+        "resource_slot_count": 8,
+        "resource_value_count": 92,
+        "resource_writer_instruction_count": 70,
+        "resource_writer_bypass_count": 0,
+        "normal_repeat_live_peak_over_eager_percent": 2.0374133831,
+        "alternate_repeat_live_peak_over_eager_percent": 2.3658519892,
+        "repeat_live_peak_over_supported_eager_percent_max": 5.0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "deferred_value": 0,
+        "unsafe_slot_leak": 0,
+        "retirement_failure": 0
+      },
+      "timing_ms": {
+        "preregistered_normal_graph_median": 46.021,
+        "candidate_normal_graph_median": 44.843,
+        "normal_graph_median_improvement_percent": 2.559,
+        "preregistered_alternate_graph_median": 54.091,
+        "candidate_alternate_graph_median": 47.8338,
+        "alternate_graph_median_improvement_percent": 11.568,
+        "preregistered_normal_gpu_busy_median": 23.313,
+        "candidate_normal_gpu_busy_median": 41.15448,
+        "normal_gpu_work_delta_percent": 76.532,
+        "preregistered_alternate_gpu_busy_median": 24.707,
+        "candidate_alternate_gpu_busy_median": 45.27534,
+        "alternate_gpu_work_delta_percent": 83.249,
+        "candidate_normal_inter_submit_gap_median": 0.08092,
+        "candidate_alternate_inter_submit_gap_median": 0.05834,
+        "measurement_repeats": 30,
+        "performance_claim": "Reject. Secondary execution removes nearly all measured inter-submit gap, but the twelve per-attention secondary boundaries raise attributed GPU busy time by 76.5%/83.2%. The normal uninstrumented median improves only 2.6%, below the preregistered 10% threshold."
+      },
+      "runtime_identity": {
+        "torch_cpu_sha256": "83b7c0ec621e5d606b86749aae0eabcd3256fb3a20604735db3b77ab57c4cf70",
+        "census_sha256": "8e7e3873d2a61bc64a43ac22a55980138e5471341e013a79955e7e4813f979b0",
+        "parity_sha256": "74388f62e4db8ed71d2f4c01e9ad669b5aeb69aa60517ca26180abcb2c0e39f4",
+        "normal_topology_sha256": "d2470f4a63548a60a4d036e9319b2497152c13956220cde166e5f88dd436a296",
+        "alternate_topology_sha256": "298dcfad1e7a33a226a6ce2558af4855720d1b1f66314900c021111c584cec1e",
+        "normal_timeline_sha256": "23ca84067ac73d6ea2b3c8dc078369340e8add7570d53053038e8e155cd02ec1",
+        "alternate_timeline_sha256": "ac2f121d617c43b698d343b983dbfb5cc6dd9d4cf7b06044270c1380dc80ee61"
+      },
+      "artifacts": [
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/dav2_vits_secondary_exact_export_census.json",
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/dav2_vits_secondary_exact_export_parity.json",
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_normal_30.json",
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_normal_30.log",
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_alternate_30.json",
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_alternate_30.log"
+      ],
+      "decision": "Reject and delete the attention-secondary implementation. Preserve the accepted attention semantic instruction and its eight-slot arena, but do not retain secondary command APIs, graph-specific command/descriptor pools, capture counters, or mechanism tests.",
+      "revisit_conditions": [
+        "Do not retry one secondary command buffer per attention instruction on the current driver path.",
+        "A future recording candidate must own a substantially larger checkpoint-aligned transformer span and derive frontier barriers across the whole span rather than inserting twelve attention entry boundaries.",
+        "Rerun the same exact two-timestamp GPU-work gate before soak; lower host gaps cannot compensate for a GPU-work regression."
+      ]
     }
   ]
 }
