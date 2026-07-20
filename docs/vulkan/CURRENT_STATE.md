@@ -226,6 +226,16 @@ the census/parity SHA-256 values are
 and `74388f62e4db8ed71d2f4c01e9ad669b5aeb69aa60517ca26180abcb2c0e39f4`.
 The candidate `torch_cpu.dll` SHA-256 was
 `83b7c0ec621e5d606b86749aae0eabcd3256fb3a20604735db3b77ab57c4cf70`.
+Commit `187e0ab7419` removed the candidate and rebuilt the supported default as
+`torch_cpu.dll` SHA-256
+`0d80d988cfdc7eeab79c406e3ce5a2181f21d8c7934fb0195ea6e591abe5187d`.
+The exact restored 30-sample evidence measured graph medians/p95 of
+46.69/47.34 ms and 49.88/50.68 ms for the two guards, remained bit-exact with
+eager, stayed 2.04%/2.36% over eager high-water with prior outputs live, and
+reported zero fallback, readback, writer bypass, or recorded-attention fields.
+Its census/parity SHA-256 values are
+`900e5cce9491231ea4b448168ea649915b38a32a39d54a1fef7b07235eb0e725`
+and `ab5819a0e745e29411b85faf3e9547635557a54a84064dfa0ce24cca9eadc37a`.
 The next recording attempt must own a substantially larger,
 checkpoint-aligned transformer span with barriers derived across the whole
 span; it must not retry one secondary command per attention instruction.

@@ -1,6 +1,6 @@
 {
   "schema": "VulkanPerformancePlanEvidenceManifest.v0",
-  "last_updated": "2026-07-18",
+  "last_updated": "2026-07-20",
   "purpose": "Checked-in review memory for Vulkan execution-plan, canary, and topology decisions that are not shape-admission rows.",
   "status_values": [
     "accepted_default_fix",
@@ -4637,7 +4637,7 @@
     },
     {
       "id": "dav2_graph_attention_secondary_recording_rejected_2026_07_20",
-      "status": "rejected_gpu_work_regression",
+      "status": "rejected_slower",
       "head": "7aa00edcce993dd38ff126d1143256c9791ebc32",
       "model_provenance": {
         "models": [
@@ -4723,13 +4723,35 @@
         "normal_timeline_sha256": "23ca84067ac73d6ea2b3c8dc078369340e8add7570d53053038e8e155cd02ec1",
         "alternate_timeline_sha256": "ac2f121d617c43b698d343b983dbfb5cc6dd9d4cf7b06044270c1380dc80ee61"
       },
+      "removed_by": "187e0ab74196e822aab8c6e21bb0edda24f02d8d",
+      "restored_supported_default": {
+        "source_git_sha": "187e0ab74196e822aab8c6e21bb0edda24f02d8d",
+        "torch_cpu_sha256": "0d80d988cfdc7eeab79c406e3ce5a2181f21d8c7934fb0195ea6e591abe5187d",
+        "census_sha256": "900e5cce9491231ea4b448168ea649915b38a32a39d54a1fef7b07235eb0e725",
+        "parity_sha256": "ab5819a0e745e29411b85faf3e9547635557a54a84064dfa0ce24cca9eadc37a",
+        "normal_graph_median_ms": 46.68925,
+        "normal_graph_p95_ms": 47.338,
+        "alternate_graph_median_ms": 49.884,
+        "alternate_graph_p95_ms": 50.684,
+        "normal_eager_median_ms": 113.0257,
+        "alternate_eager_median_ms": 117.431,
+        "normal_repeat_live_peak_over_eager_percent": 2.035,
+        "alternate_repeat_live_peak_over_eager_percent": 2.364,
+        "graph_vs_eager_max_abs": 0.0,
+        "cpu_fallback": 0,
+        "unexpected_sync_readback": 0,
+        "resource_writer_bypass_count": 0,
+        "recorded_attention_fields_present": false
+      },
       "artifacts": [
         "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/dav2_vits_secondary_exact_export_census.json",
         "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/dav2_vits_secondary_exact_export_parity.json",
         "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_normal_30.json",
         "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_normal_30.log",
         "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_alternate_30.json",
-        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_alternate_30.log"
+        "agent_space/graph_recorded_attention_secondary_exact_7aa00edcce9/topology_alternate_30.log",
+        "agent_space/graph_recorded_attention_secondary_rejected_187e0ab7419/dav2_vits_secondary_rejected_export_census.json",
+        "agent_space/graph_recorded_attention_secondary_rejected_187e0ab7419/dav2_vits_secondary_rejected_export_parity.json"
       ],
       "decision": "Reject and delete the attention-secondary implementation. Preserve the accepted attention semantic instruction and its eight-slot arena, but do not retain secondary command APIs, graph-specific command/descriptor pools, capture counters, or mechanism tests.",
       "revisit_conditions": [

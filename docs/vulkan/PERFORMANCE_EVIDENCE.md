@@ -35,6 +35,9 @@ Do not retry one reusable secondary per attention instruction; a future
 candidate must cover a larger checkpoint-aligned transformer span with
 cross-span barrier planning. Full counters, hashes, and artifact paths are in
 `dav2_graph_attention_secondary_recording_rejected_2026_07_20`.
+Exact restored-default evidence at `187e0ab7419` confirms the recording fields
+are absent and records 46.69/49.88 ms graph medians for the 140x140/140x280
+guards with exact eager parity and the repeat-live memory gate intact.
 
 Depth Anything V2 benchmark artifacts also include
 `vulkan_stack_region_segment_plan` when `StackRegionSegmentPlan.v0` rows are
